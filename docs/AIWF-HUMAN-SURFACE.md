@@ -1,0 +1,53 @@
+# AIWF Human Surface Contract
+
+AIWF has many machine state files. Humans should not read them all.
+
+## Three human-facing entries
+
+| Entry | When | Purpose |
+|-------|------|---------|
+| `aiwf status` | Anytime, most frequent | Project control panel |
+| `.aiwf/reports/当前状态.md` | Next task start | Planner carry-forward summary; status reports stale when source JSON/report changed after it |
+| `.aiwf/reports/闭合报告.md` | Closure review | Human-readable closure basis |
+| `.aiwf/history/task-history.json` | Trend/debug only | Lightweight closed-task trend source for report/status; not a default human reading surface |
+| `.aiwf/reports/质量摘要.md` | Next task/review/test | Compact cross-task quality signals for Planner, Tester, and Reviewer |
+| `.aiwf/task-ledger.json` | Planner/task debug | Candidate/ready/active/closed task graph and execution window |
+
+## JSON files are machine source of truth
+
+Machine JSON files under `.aiwf/state/`, `.aiwf/quality/`, `.aiwf/evidence/`, and `.aiwf/history/` are the authoritative machine state.
+They are NOT the default human reading surface.
+Read them only when verifying details, resolving contradictions, or debugging.
+
+## Before adding a new .aiwf file
+
+Answer:
+- Who reads it?
+- When?
+- Why can't this go into an existing file?
+- Does it appear in UserPromptSubmit?
+- Does it add long-term noise?
+
+## What `aiwf status` shows
+
+### Control Panel (always first)
+Goal, phase, workflow level, health, next action — enough to decide "can I continue?"
+
+### Quality & Closure
+Testing, review, evidence, fix-loop, cleanup, structure, closure — enough to decide "can I close?"
+
+### Awareness
+Workspace drift, external capabilities, context dispatch, current-state, report — enough to know "what external factors matter?"
+
+Task ledger and quality digest are shown as summaries only. They are not meant to flood prompt context.
+
+### Detail entry points
+File paths to `.aiwf/reports/当前状态.md`, `.aiwf/reports/闭合报告.md`, and canonical machine JSON directories — for when more detail is needed.
+
+## What `aiwf status` does NOT show
+- Raw JSON
+- Full evidence records
+- All capabilities
+- Drift file names
+- Full context dispatch fields
+- Full lessons

@@ -1,0 +1,1104 @@
+"""Deterministic state operation helpers.
+
+Skills call these instead of hand-editing .aiwf/*.json.
+All functions are backend-neutral — no Claude-specific logic.
+"""
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+
+def _read(path: Path) -> Dict:
+    try: return json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+    except: return {}
+
+
+def _write(path: Path, data: Dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def _ensure_critical_assets(base_dir: str) -> list:
+    """Check and auto-fill critical assets. Returns notes about what was filled.
+
+    Called by start_context on every session start. Mechanical — no Planner
+    decision needed. If an asset is missing, we create it. Planner never
+    sees "Environment: missing" again because it gets filled here first.
+    """
+    import json as _json
+    base = Path(base_dir)
+    aiwf = base / ".aiwf"
+    notes = []
+    filled = []
+
+    # 1. Environment profile
+    env_path = aiwf / "assets" / "environment.json"
+    if not env_path.exists():
+        try:
+            from .environment import scan_environment, write_environment_profile
+            env = scan_environment(base_dir)
+            write_environment_profile(base_dir, env)
+            filled.append("environment profile")
+        except Exception:
+            pass
+    else:
+        # Check if stale (>90d)
+        try:
+            env_data = _json.loads(env_path.read_text())
+            gen_at = env_data.get("generated_at", "")
+            if gen_at:
+                from datetime import datetime, timezone
+                try:
+                    gen_dt = datetime.fromisoformat(gen_at)
+                    age = (datetime.now(timezone.utc) - gen_dt).days
+                    if age > 90:
+                        from .environment import scan_environment, write_environment_profile
+                        env = scan_environment(base_dir)
+                        write_environment_profile(base_dir, env)
+                        filled.append(f"environment profile (was {age}d old)")
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    # 2. Capabilities registry
+    cap_path = aiwf / "assets" / "capabilities.json"
+    cap_alt = aiwf / "capabilities.json"  # legacy pre-v2 flat path
+    cap_exists = cap_path.exists() or cap_alt.exists()
+    if not cap_exists:
+        try:
+            from .capabilities import discover_capabilities, write_capabilities_registry
+            caps = discover_capabilities(base_dir)
+            write_capabilities_registry(base_dir, caps)
+            filled.append(f"capability registry ({len(caps.get('capabilities', []))} found)")
+        except Exception:
+            pass
+
+    # 3. PROJECT-MAP
+    pm_path = aiwf / "reports" / "项目地图.md"
+    if not pm_path.exists():
+        try:
+            from .project_map import ensure_project_map
+            ensure_project_map(base_dir)
+            filled.append("PROJECT-MAP")
+        except Exception:
+            pass
+
+    # 4. Idea inbox
+    ideas_path = aiwf / "reports" / "ideas.md"
+    if not ideas_path.exists():
+        try:
+            from .ideas import ensure_ideas_file
+            ensure_ideas_file(base_dir)
+            filled.append("ideas.md")
+        except Exception:
+            pass
+
+    # 5. current-state.md
+    cs_path = aiwf / "reports" / "当前状态.md"
+    if not cs_path.exists():
+        try:
+            from .current_state import rebuild_current_state
+            rebuild_current_state(base_dir)
+            filled.append("current-state.md")
+        except Exception:
+            pass
+
+    # 6. task-history baseline (if completely empty)
+    th_path = aiwf / "history" / "task-history.json"
+    if not th_path.exists():
+        try:
+            from .workspace_drift import auto_update_baseline
+            auto_update_baseline(base_dir)
+            filled.append("task-history baseline")
+        except Exception:
+            pass
+
+    if filled:
+        notes.append(f"[ASSET] Auto-filled: {', '.join(filled)}")
+    return notes
+
+
+
+# ── context operations ────────────────────────────────────────────────
+
+def start_context(
+    base_dir: str,
+    context_id: str,
+    label: str = "",
+    allowed_write: Optional[List[str]] = None,
+    forbidden_write: Optional[List[str]] = None,
+    note: str = "",
+    purpose: str = "",
+    read_hints: Optional[List[str]] = None,
+    non_goals: Optional[List[str]] = None,
+    dependencies: Optional[List[str]] = None,
+    interface_contract: str = "",
+    test_focus: Optional[List[str]] = None,
+    review_focus: Optional[List[str]] = None,
+    escalation_triggers: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    """Create or update a context. Sets state.active_context_id. Returns contexts dict."""
+    base = Path(base_dir)
+    contexts_path = base / ".aiwf" / "state" / "contexts.json"
+    state_path = base / ".aiwf" / "state" / "state.json"
+
+    contexts = _read(contexts_path)
+    if "contexts" not in contexts or not isinstance(contexts.get("contexts"), list):
+        contexts = {"contexts": []}
+
+    # Upsert context
+    existing = None
+    for ctx in contexts["contexts"]:
+        if ctx.get("id") == context_id:
+            existing = ctx
+            break
+
+    DISPATCH_MAP = [
+        ("purpose", purpose, ""), ("read_hints", read_hints, []), ("non_goals", non_goals, []),
+        ("dependencies", dependencies, []), ("interface_contract", interface_contract, ""),
+        ("test_focus", test_focus, []), ("review_focus", review_focus, []),
+        ("escalation_triggers", escalation_triggers, []),
+    ]
+    if existing:
+        ctx = existing
+        if label: existing["title"] = label
+        if allowed_write is not None: existing["allowed_write"] = allowed_write
+        if forbidden_write is not None: existing["forbidden_write"] = forbidden_write
+        if note: existing.setdefault("notes", []).append(note)
+        for fld, val, dfl in DISPATCH_MAP:
+            if val is not None and val != dfl:
+                existing[fld] = val
+            elif fld not in existing:
+                existing[fld] = dfl
+    else:
+        entry = {
+            "id": context_id, "title": label or context_id,
+            "allowed_write": allowed_write or [], "forbidden_write": forbidden_write or [],
+            "notes": [note] if note else [],
+        }
+        for fld, val, dfl in DISPATCH_MAP:
+            entry[fld] = val if (val is not None and val != dfl) else dfl
+        contexts["contexts"].append(entry)
+        ctx = entry
+
+    # Set active context in state
+    state = _read(state_path)
+    state["active_context_id"] = context_id
+    if state.get("phase") in ("discussing", "planned"):
+        state["phase"] = "implementing"
+    # Reset per-task flags
+    state["planner_inline"] = False
+
+    # L0: Planner implements inline — no Executor subagent
+    level = state.get("workflow_level", "L1_review_light")
+    if level == "L0_direct":
+        state["planner_inline"] = True
+        if isinstance(ctx.get("notes"), list):
+            ctx["notes"].append("[L0] Planner inline implementation — no executor subagent")
+
+    # Auto-run workspace scan to update baseline on structural changes.
+    # Inject a detailed drift summary into context notes so Planner sees what changed.
+    try:
+        from .workspace_drift import scan_workspace_drift, write_workspace_drift, auto_update_baseline
+        drift = scan_workspace_drift(base_dir)
+        write_workspace_drift(base_dir, drift)
+
+        has_changes = drift.get("project_changes") or drift.get("untracked") or drift.get("deleted")
+        if has_changes:
+            baseline_result = auto_update_baseline(base_dir)
+
+            # Build a human-readable drift summary for Planner
+            drift_lines = [f"[DRIFT] Workspace changed: magnitude={baseline_result.get('magnitude', '?')}"]
+            delta = baseline_result.get("delta", {})
+            if delta.get("added"):
+                drift_lines.append(f"  +{delta['added']} file(s) added")
+            if delta.get("deleted"):
+                drift_lines.append(f"  -{delta['deleted']} file(s) deleted")
+            if delta.get("new_modules"):
+                drift_lines.append(f"  New modules: {', '.join(delta['new_modules'][:5])}")
+            if delta.get("removed_modules"):
+                drift_lines.append(f"  Removed modules: {', '.join(delta['removed_modules'][:5])}")
+            if delta.get("dep_changes"):
+                drift_lines.append(f"  Dependency changes: {', '.join(delta['dep_changes'][:5])}")
+
+            # Show specific changed files (capped at 10)
+            changed_paths = []
+            for e in (drift.get("project_changes", []) or [])[:10]:
+                changed_paths.append(f"{e.get('path', '?')} [{e.get('status', '?')}]")
+            if changed_paths:
+                drift_lines.append(f"  Files: {', '.join(changed_paths)}")
+
+            # Show what assets were auto-updated
+            if baseline_result.get("updated"):
+                drift_lines.append(f"  Assets refreshed: {', '.join(baseline_result['updated'][:5])}")
+            if baseline_result.get("skipped"):
+                drift_lines.append(f"  Skipped: {', '.join(baseline_result['skipped'][:5])}")
+
+            drift_note = "\n".join(drift_lines)
+            if isinstance(ctx.get("notes"), list):
+                ctx["notes"].append(drift_note)
+            else:
+                ctx["notes"] = [drift_note]
+        else:
+            drift_note = "[DRIFT] Workspace clean -- no changes since last scan"
+            if isinstance(ctx.get("notes"), list):
+                ctx["notes"].append(drift_note)
+    except Exception:
+        pass
+
+    # Inject emergent gravity context messages (at most 3, high-value only)
+    try:
+        from .task_gravity import task_gravity
+        gravity = task_gravity(base_dir, allowed_write or [])
+        priority_msgs = gravity.get("context_messages", [])[:3]
+        for msg in priority_msgs:
+            if "notes" not in ctx:
+                ctx["notes"] = []
+            if isinstance(ctx.get("notes"), list):
+                ctx["notes"].append(f"[GRAVITY] {msg}")
+    except Exception:
+        pass
+
+    # ── Ensure critical assets exist (mechanical, no Planner decision needed) ──
+    # start_context is the universal entry point. If assets are missing, fill them now.
+    # Planner cannot skip this — it happens automatically.
+    asset_notes = _ensure_critical_assets(base_dir)
+    if asset_notes:
+        if isinstance(ctx.get("notes"), list):
+            ctx["notes"].extend(asset_notes)
+        else:
+            ctx["notes"] = asset_notes
+
+    _write(contexts_path, contexts)
+    _write(state_path, state)
+
+    return contexts
+
+
+# ── testing operations ────────────────────────────────────────────────
+
+def record_testing(
+    base_dir: str,
+    context_id: str = "",
+    status: str = "adequate",
+    commands: Optional[List[str]] = None,
+    untested_risks: Optional[List[str]] = None,
+    coverage_summary: str = "",
+    failure_summary: str = "",
+    failed_obligations: Optional[List[str]] = None,
+    failed_commands: Optional[List[str]] = None,
+    suspected_route: str = "",
+    required_verification: Optional[List[str]] = None,
+    acceptance_coverage: Optional[List[str]] = None,
+    system_coverage: Optional[List[str]] = None,
+    inferred_surfaces: Optional[List[str]] = None,
+    missing_surface_notes: Optional[List[str]] = None,
+    cross_task_risks: Optional[List[str]] = None,
+    testing_debt: Optional[List[str]] = None,
+    repeated_change_hotspots: Optional[List[str]] = None,
+    adversarial_mode: bool = False,
+) -> Dict[str, Any]:
+    """Write testing.json consistently. Returns testing dict."""
+    base = Path(base_dir)
+    testing_path = base / ".aiwf" / "quality" / "testing.json"
+
+    testing = _read(testing_path)
+    testing["status"] = status
+    testing["context_id"] = context_id
+    if commands is not None: testing["commands"] = commands
+    if untested_risks is not None: testing["untested_risks"] = untested_risks
+    if coverage_summary: testing["coverage_summary"] = coverage_summary
+    if failure_summary: testing["failure_summary"] = failure_summary
+    if failed_obligations is not None: testing["failed_obligations"] = failed_obligations
+    if failed_commands is not None: testing["failed_commands"] = failed_commands
+    if suspected_route: testing["suspected_route"] = suspected_route
+    if required_verification is not None: testing["required_verification"] = required_verification
+    if acceptance_coverage is not None: testing["acceptance_coverage"] = acceptance_coverage
+    if system_coverage is not None: testing["system_coverage"] = system_coverage
+    if inferred_surfaces is not None: testing["inferred_surfaces"] = inferred_surfaces
+    if missing_surface_notes is not None: testing["missing_surface_notes"] = missing_surface_notes
+    if cross_task_risks is not None: testing["cross_task_risks"] = cross_task_risks
+    if testing_debt is not None: testing["testing_debt"] = testing_debt
+    if repeated_change_hotspots is not None: testing["repeated_change_hotspots"] = repeated_change_hotspots
+    testing["adversarial_mode"] = bool(adversarial_mode)
+
+    _write(testing_path, testing)
+    state_path = base / ".aiwf" / "state" / "state.json"
+    state = _read(state_path)
+    if state.get("phase") not in ("closing", "closed"):
+        state["phase"] = "testing"
+        _write(state_path, state)
+    return testing
+
+
+# ── cleanup operations ────────────────────────────────────────────────
+
+def mark_cleanup_fresh(
+    base_dir: str,
+    resolved_notes: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    """Set cleanup_status=fresh, clear stale items and blockers.
+    Replaces stale cleanup_notes with resolved notes.
+    """
+    base = Path(base_dir)
+    review_path = base / ".aiwf" / "quality" / "review.json"
+    review = _read(review_path)
+
+    review["cleanup_status"] = "fresh"
+    from datetime import datetime, timezone
+    review["cleanup_verified_at"] = datetime.now(timezone.utc).isoformat()
+    review["cleanup_blockers"] = []
+    review["stale_items"] = []
+    if resolved_notes is not None:
+        review["cleanup_notes"] = resolved_notes
+    else:
+        # Keep existing notes but filter out stale-looking ones
+        existing = review.get("cleanup_notes", []) or []
+        review["cleanup_notes"] = [n for n in existing if "stale" not in str(n).lower()]
+
+    _write(review_path, review)
+    state_path = base / ".aiwf" / "state" / "state.json"
+    state = _read(state_path)
+    if state.get("phase") not in ("closing", "closed"):
+        state["phase"] = "reviewing"
+        _write(state_path, state)
+    return review
+
+
+def mark_cleanup_stale(
+    base_dir: str,
+    stale_items: List[str],
+    blockers: Optional[List[str]] = None,
+    notes: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    """Set cleanup_status=stale with specific items and blockers."""
+    base = Path(base_dir)
+    review_path = base / ".aiwf" / "quality" / "review.json"
+    review = _read(review_path)
+
+    review["cleanup_status"] = "stale"
+    review["cleanup_verified_at"] = ""
+    review["stale_items"] = stale_items
+    if blockers is not None: review["cleanup_blockers"] = blockers
+    if notes is not None: review["cleanup_notes"] = notes
+
+    _write(review_path, review)
+    return review
+
+
+# ── close preparation ─────────────────────────────────────────────────
+
+def prepare_close(base_dir: str) -> Dict[str, Any]:
+    """Promote evidence and prepare close only after preflight gates pass.
+
+    Auto-fill cleanup=fresh + structure=accepted ONLY for L0/L1.
+    L2/L3 must have explicit cleanup/structure. Returns result with
+    blockers if the workflow is not ready for the Stop gate.
+    """
+    base = Path(base_dir)
+    state_path = base / ".aiwf" / "state" / "state.json"
+    review_path = base / ".aiwf" / "quality" / "review.json"
+    evidence_path = base / ".aiwf" / "evidence" / "records.json"
+    testing_path = base / ".aiwf" / "quality" / "testing.json"
+    fix_loop_path = base / ".aiwf" / "state" / "fix-loop.json"
+
+    state = _read(state_path)
+    review = _read(review_path)
+    evidence = _read(evidence_path)
+    testing = _read(testing_path)
+    fix_loop = _read(fix_loop_path)
+
+    level = state.get("workflow_level", "L1_review_light")
+    auto_fill_allowed = level in ("L0_direct", "L1_review_light")
+
+    blockers = []
+
+    # Resume-after-interruption gate. Strict only for L2/L3 after accepted review;
+    # run before evidence promotion so prepare_close's own write does not make
+    # current-state.md appear stale.
+    from .closure_contract import closure_resume_audit
+    resume_audit = closure_resume_audit(base_dir)
+    blockers.extend(resume_audit.get("blockers", []) or [])
+
+    # Promote evidence strictly from review IDs. Empty accepted IDs never auto-accept.
+    from .review_contract import promote_evidence
+    promoted = promote_evidence(evidence, review)
+    _write(evidence_path, promoted)
+
+    # Do not let prepare-close bypass the active task's selected process depth.
+    from .task_ledger import active_task_completion_blockers
+    for blocker in active_task_completion_blockers(base_dir):
+        if blocker not in blockers:
+            blockers.append(blocker)
+
+    phase = state.get("phase", "discussing")
+    if phase in ("discussing", "planned", "closed"):
+        blockers.append(f"phase not ready for close: {phase}")
+
+    accepted_records = [
+        r for r in (promoted.get("records", []) or [])
+        if r.get("status") == "accepted"
+    ]
+    if not accepted_records:
+        blockers.append("no accepted evidence")
+    from .closure_contract import evidence_session_diversity_ok, accepted_evidence_session_ids
+    active_ctx = state.get("active_context_id", "")
+    if not evidence_session_diversity_ok(state, promoted, context_id=active_ctx):
+        blockers.append(
+            "L2/L3 require accepted evidence from at least 3 distinct sessions; "
+            f"found {len(accepted_evidence_session_ids(promoted, context_id=active_ctx))}"
+        )
+
+    if testing.get("status") not in ("adequate", "passed"):
+        blockers.append(f"testing not adequate: {testing.get('status', 'missing')}")
+    # Asset integrity: testing.json must have actual test commands recorded
+    if not testing.get("commands") or len(testing.get("commands", []) or []) == 0:
+        blockers.append("testing.json has no test commands — Tester may not have run real tests")
+
+    if review.get("result") != "accepted" or not review.get("closure_allowed", False):
+        blockers.append("review not accepted / closure not allowed")
+    # Asset integrity: review.json must appear to come from an independent session
+    if review.get("result") == "unknown":
+        blockers.append("review.json has result=unknown — Reviewer may not have run")
+    if state.get("scope_violation", False):
+        blockers.append("scope violation unresolved")
+
+    # Check for hard blockers that no level can auto-fix
+    if review.get("stale_items"):
+        blockers.append("stale_items non-empty; run mark_cleanup_fresh first")
+    if review.get("cleanup_blockers"):
+        blockers.append("cleanup_blockers non-empty; resolve before close")
+    if review.get("structure_blockers"):
+        blockers.append("structure_blockers non-empty; resolve before close")
+    if fix_loop.get("status") == "open":
+        blockers.append("fix-loop is open; resolve before close")
+    # Pending adversarial observations block close preparation
+    from .review_contract import has_pending_adversarial_observations
+    if has_pending_adversarial_observations(review):
+        pending_count = sum(
+            1 for o in (review.get("adversarial_observations", []) or [])
+            if isinstance(o, dict) and o.get("disposition") == "pending"
+        )
+        blockers.append(f"{pending_count} adversarial observation(s) pending Planner disposition")
+
+    # Handle cleanup_status
+    cleanup_missing = not review.get("cleanup_status") or review["cleanup_status"] in ("unknown", None, "")
+    structure_missing = not review.get("structure_status") or review["structure_status"] in ("unknown", None, "")
+
+    if auto_fill_allowed:
+        # L0/L1: auto-fill missing fields
+        if cleanup_missing:
+            review["cleanup_status"] = "fresh"
+        if structure_missing:
+            review["structure_status"] = "accepted"
+        if cleanup_missing or structure_missing:
+            _write(review_path, review)
+    else:
+        # L2/L3: missing cleanup/structure is a blocker
+        if cleanup_missing:
+            blockers.append(
+                f"cleanup_status missing for {level}; L2/L3 require explicit cleanup review")
+        if structure_missing:
+            blockers.append(
+                f"structure_status missing for {level}; L2/L3 require explicit structure review")
+
+    close_attempt_set = len(blockers) == 0
+    if close_attempt_set:
+        state["phase"] = "closing"
+        state["close_attempt"] = True
+        _write(state_path, state)
+
+        # Write task-history and auto-cleanup for tasks without task ledger (L0 inline)
+        try:
+            from .cross_task_quality import append_task_history_from_state, write_quality_digest
+            append_task_history_from_state(base_dir)
+            write_quality_digest(base_dir)
+        except Exception:
+            pass
+        try:
+            from .lifecycle_cleanup import auto_cleanup
+            auto_cleanup(base_dir)
+        except Exception:
+            pass
+
+    return {
+        "state": state,
+        "close_attempt_set": close_attempt_set,
+        "auto_filled": auto_fill_allowed and (cleanup_missing or structure_missing),
+        "level": level,
+        "blockers": blockers,
+        "can_proceed_to_gate": close_attempt_set,
+        "closure_resume": resume_audit,
+    }
+
+
+# ── adversarial observation disposition ─────────────────────────────────
+
+def disposition_adversarial_observation(
+    base_dir: str,
+    adv_id: str,
+    disposition: str,
+    reason: str = "",
+    disposed_by: str = "planner",
+) -> Dict[str, Any]:
+    """Update disposition on a single adversarial observation. Prefer this over direct edit."""
+    valid_dispositions = {"ignored", "accepted", "deferred", "brief_updated"}
+    if disposition not in valid_dispositions:
+        raise ValueError(f"invalid disposition: {disposition}. Valid: {', '.join(sorted(valid_dispositions))}")
+    if not reason or not reason.strip():
+        raise ValueError("disposition reason is required")
+    base = Path(base_dir)
+    review_path = base / ".aiwf" / "quality" / "review.json"
+    review = _read(review_path)
+    obs_list = review.get("adversarial_observations", [])
+    if not isinstance(obs_list, list):
+        obs_list = []
+    found = False
+    for obs in obs_list:
+        if isinstance(obs, dict) and obs.get("id") == adv_id:
+            obs["disposition"] = disposition
+            obs["disposition_reason"] = reason.strip()
+            obs["disposed_by"] = disposed_by
+            found = True
+            break
+    if not found:
+        raise ValueError(f"adversarial observation not found: {adv_id}")
+    review["adversarial_observations"] = obs_list
+    _write(review_path, review)
+    return {"id": adv_id, "disposition": disposition, "found": True}
+
+
+# ── fix-loop operations ──────────────────────────────────────────────────
+
+def open_fix_loop(
+    base_dir: str,
+    route: str,
+    reason: str,
+    required_fixes: Optional[List[str]] = None,
+    required_verification: Optional[List[str]] = None,
+    source: str = "reviewer",
+) -> Dict[str, Any]:
+    """Open a fix-loop with route, reason, required fixes, and verification.
+
+    If already open: increments attempt_count, appends route_history.
+    Sets max_attempts from workflow_level on first open.
+    If attempt_count > max_attempts: escalation_required=true, rollback_recommended
+    if checkpoint exists.
+    Does NOT auto-execute fixes, modify goal/scope/context, or auto-close workflow.
+    """
+    base = Path(base_dir)
+    fix_loop_path = base / ".aiwf" / "state" / "fix-loop.json"
+    state_path = base / ".aiwf" / "state" / "state.json"
+
+    fix_loop = _read(fix_loop_path)
+    was_open = fix_loop.get("status") == "open"
+
+    if was_open:
+        attempt = fix_loop.get("attempt_count", 0) + 1
+    else:
+        attempt = 1
+
+    fix_loop["status"] = "open"
+    fix_loop["route"] = route
+    fix_loop["reason"] = reason
+    fix_loop["required_fixes"] = required_fixes or (fix_loop.get("required_fixes") if was_open else [])
+    fix_loop["required_verification"] = required_verification or (fix_loop.get("required_verification") if was_open else [])
+    fix_loop["source"] = source
+    fix_loop["attempt_count"] = attempt
+
+    # Set max_attempts from workflow_level on first open
+    if not was_open or not fix_loop.get("max_attempts"):
+        state = _read(state_path)
+        level = state.get("workflow_level", "L1_review_light")
+        from .state_schema import LEVEL_MAX_ATTEMPTS
+        fix_loop["max_attempts"] = LEVEL_MAX_ATTEMPTS.get(level, 2)
+
+    # Append route history
+    history = fix_loop.get("route_history", []) or []
+    history.append({"attempt": attempt, "route": route, "reason": reason, "source": source})
+    fix_loop["route_history"] = history
+
+    # Escalation check
+    max_att = fix_loop.get("max_attempts", 2)
+    if attempt > max_att:
+        fix_loop["escalation_required"] = True
+        fix_loop["escalation_reason"] = f"fix-loop attempts ({attempt}) exceeded max_attempts ({max_att})"
+        # rollback recommended if checkpoint exists
+        ckpt_dir = base / ".aiwf" / "checkpoints"
+        has_ckpt = ckpt_dir.exists() and any(ckpt_dir.iterdir())
+        fix_loop["rollback_recommended"] = True if has_ckpt else False
+
+    _write(fix_loop_path, fix_loop)
+
+    # Update state phase if needed
+    state = _read(state_path)
+    if state.get("phase") not in ("closing", "closed"):
+        state["phase"] = "reviewing"
+    _write(state_path, state)
+
+    return fix_loop
+
+
+def resolve_fix_loop(
+    base_dir: str,
+    resolution: str,
+    source: str = "reviewer",
+) -> Dict[str, Any]:
+    """Resolve a fix-loop. Does NOT auto-close workflow."""
+    base = Path(base_dir)
+    fix_loop_path = base / ".aiwf" / "state" / "fix-loop.json"
+
+    fix_loop = _read(fix_loop_path)
+    fix_loop["status"] = "resolved"
+    fix_loop["resolution"] = resolution
+    if source: fix_loop["source"] = source
+    _write(fix_loop_path, fix_loop)
+
+    return fix_loop
+
+
+# ── architecture change request operations ──────────────────────────────
+
+def request_architecture_change(
+    base_dir: str,
+    source: str,
+    reason: str,
+    proposed_change: str,
+    affected_files: Optional[List[str]] = None,
+    affected_modules: Optional[List[str]] = None,
+    current_contract_gap: str = "",
+    scope_impact: str = "",
+    risk: str = "",
+    user_decision_required: bool = False,
+) -> Dict[str, Any]:
+    """Append an architecture change request to fix-loop.json. Does NOT modify brief."""
+    base = Path(base_dir)
+    fl_path = base / ".aiwf" / "state" / "fix-loop.json"
+    fl = _read(fl_path)
+
+    acrs = fl.get("architecture_change_requests", []) or []
+    next_id = f"ACR-{len(acrs) + 1:03d}"
+    from datetime import datetime, timezone
+    ts = datetime.now(timezone.utc).isoformat()
+
+    acr = {
+        "id": next_id,
+        "status": "proposed",
+        "source": source,
+        "reason": reason,
+        "proposed_change": proposed_change,
+        "affected_files": affected_files or [],
+        "affected_modules": affected_modules or [],
+        "current_contract_gap": current_contract_gap,
+        "scope_impact": scope_impact,
+        "risk": risk,
+        "planner_decision": "",
+        "user_decision_required": user_decision_required,
+        "created_at": ts,
+        "resolved_at": "",
+    }
+    acrs.append(acr)
+    fl["architecture_change_requests"] = acrs
+    _write(fl_path, fl)
+    return acr
+
+
+def decide_architecture_change(
+    base_dir: str,
+    acr_id: str,
+    status: str,
+    decision: str,
+) -> Dict[str, Any]:
+    """Update an architecture change request status + decision.
+    Raises ValueError if acr_id is not found.
+    """
+    base = Path(base_dir)
+    fl_path = base / ".aiwf" / "state" / "fix-loop.json"
+    fl = _read(fl_path)
+
+    acrs = fl.get("architecture_change_requests", []) or []
+    from datetime import datetime, timezone
+    ts = datetime.now(timezone.utc).isoformat()
+
+    found = False
+    for acr in acrs:
+        if acr.get("id") == acr_id:
+            acr["status"] = status
+            acr["planner_decision"] = decision
+            acr["resolved_at"] = ts
+            found = True
+            break
+
+    if not found:
+        raise ValueError(f"architecture change request not found: {acr_id}")
+
+    fl["architecture_change_requests"] = acrs
+    _write(fl_path, fl)
+    return {"id": acr_id, "status": status, "decision": decision}
+
+
+def list_architecture_changes(base_dir: str) -> List[Dict[str, Any]]:
+    """Return list of architecture change requests."""
+    base = Path(base_dir)
+    fl_path = base / ".aiwf" / "state" / "fix-loop.json"
+    fl = _read(fl_path)
+    return fl.get("architecture_change_requests", []) or []
+
+
+def record_quality_brief(
+    base_dir: str,
+    acceptance_criteria: Optional[List[str]] = None,
+    test_focus: Optional[List[str]] = None,
+    review_focus: Optional[List[str]] = None,
+    non_goals: Optional[List[str]] = None,
+    escalation_triggers: Optional[List[str]] = None,
+    # ── architecture brief ──
+    target_structure: str = "",
+    module_boundaries: Optional[List[str]] = None,
+    allowed_files: Optional[List[str]] = None,
+    protected_files: Optional[List[str]] = None,
+    allowed_new_files: Optional[List[str]] = None,
+    public_api_changes: Optional[List[str]] = None,
+    integration_points: Optional[List[str]] = None,
+    architecture_invariants: Optional[List[str]] = None,
+    forbidden_restructures: Optional[List[str]] = None,
+    architecture_risks: Optional[List[str]] = None,
+    surface_types: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    """Write task-specific quality brief to goal.json. Short lists only."""
+    base = Path(base_dir)
+    goal_path = base / ".aiwf" / "state" / "goal.json"
+    goal = _read(goal_path)
+    brief = goal.get("quality_brief", {})
+    if acceptance_criteria is not None: brief["acceptance_criteria"] = acceptance_criteria
+    if test_focus is not None: brief["test_focus"] = test_focus
+    if review_focus is not None: brief["review_focus"] = review_focus
+    if non_goals is not None: brief["non_goals"] = non_goals
+    if escalation_triggers is not None: brief["escalation_triggers"] = escalation_triggers
+    if surface_types is not None: brief["surface_types"] = surface_types
+    # Architecture brief
+    ab = brief.get("architecture_brief", {})
+    if target_structure: ab["target_structure"] = target_structure
+    if module_boundaries is not None: ab["module_boundaries"] = module_boundaries
+    if allowed_files is not None: ab["allowed_files"] = allowed_files
+    if protected_files is not None: ab["protected_files"] = protected_files
+    if allowed_new_files is not None: ab["allowed_new_files"] = allowed_new_files
+    if public_api_changes is not None: ab["public_api_changes"] = public_api_changes
+    if integration_points is not None: ab["integration_points"] = integration_points
+    if architecture_invariants is not None: ab["architecture_invariants"] = architecture_invariants
+    if forbidden_restructures is not None: ab["forbidden_restructures"] = forbidden_restructures
+    if architecture_risks is not None: ab["architecture_risks"] = architecture_risks
+    brief["architecture_brief"] = ab
+    goal["quality_brief"] = brief
+    _write(goal_path, goal)
+    return goal
+
+# ── goal operations ──────────────────────────────────────────────────
+
+def revise_goal(
+    base_dir: str,
+    new_goal: str,
+    reason: str,
+    decision: str = "",
+    source: str = "user",
+) -> Dict[str, Any]:
+    """Revise current goal with intent change tracking. Does NOT modify scope/context."""
+    base = Path(base_dir)
+    goal_path = base / ".aiwf" / "state" / "goal.json"
+    goal = _read(goal_path)
+    old_goal = goal.get("current_goal") or goal.get("active_goal", "")
+    goal["goal_version"] = goal.get("goal_version", 1) + 1
+    if not goal.get("original_intent"): goal["original_intent"] = old_goal or new_goal
+    goal["current_goal"] = new_goal
+    goal["active_goal"] = new_goal
+    goal["last_user_intent"] = new_goal
+    goal.setdefault("intent_changes", []).append({
+        "version": goal["goal_version"], "from": old_goal, "to": new_goal,
+        "reason": reason, "decision": decision, "source": source,
+    })
+    _write(goal_path, goal)
+    return goal
+
+
+def record_goal_decision(
+    base_dir: str,
+    decision: str,
+    source: str = "user",
+) -> Dict[str, Any]:
+    """Record a goal-level decision without changing the goal text."""
+    base = Path(base_dir)
+    goal_path = base / ".aiwf" / "state" / "goal.json"
+    goal = _read(goal_path)
+    goal.setdefault("decisions", []).append({"decision": decision, "source": source})
+    _write(goal_path, goal)
+    return goal
+
+
+def record_meta_critique(base_dir: str, summary: str, recorded_by: str = "planner") -> Dict[str, Any]:
+    """Record structured Planner meta-critique after review."""
+    from datetime import datetime, timezone
+    base = Path(base_dir)
+    goal_path = base / ".aiwf" / "state" / "goal.json"
+    goal = _read(goal_path)
+    goal["meta_critique"] = {
+        "status": "completed",
+        "summary": summary,
+        "recorded_by": recorded_by,
+        "recorded_at": datetime.now(timezone.utc).isoformat(),
+    }
+    _write(goal_path, goal)
+    return goal
+
+# ── quality policy operations ─────────────────────────────────────────
+
+def record_quality_policy(
+    base_dir: str,
+    task_type: str,
+    workflow_level: str,
+    risk_flags: Optional[List[str]] = None,
+    routing_reason: str = "",
+) -> Dict[str, Any]:
+    """Select quality policy and write short keys to state.json. No template fulltext."""
+    base = Path(base_dir)
+    state_path = base / ".aiwf" / "state" / "state.json"
+
+    from .quality_policy import select_quality_policy
+    policy = select_quality_policy(task_type, workflow_level, risk_flags, routing_reason)
+
+    state = _read(state_path)
+    state["task_type"] = task_type
+    state["workflow_level"] = workflow_level
+    state["risk_flags"] = risk_flags or []
+    state["test_template"] = policy["test_template"]
+    state["review_template"] = policy["review_template"]
+    state["exploration_budget"] = policy["exploration_budget"]
+    state["asset_policy"] = policy["asset_policy"]
+    state["cleanup_policy"] = policy["cleanup_policy"]
+    state["git_policy"] = policy["git_policy"]
+    state["quality_policy_reason"] = routing_reason
+    state["recommended_minimum_level"] = policy.get("recommended_minimum_level", "")
+    state["requires_user_decision"] = policy.get("requires_user_decision", False)
+    # Detect escalation: recommended level higher than current
+    levels = ["L0_direct", "L1_review_light", "L2_standard_team", "L3_full_power"]
+    rec_idx = levels.index(policy["recommended_minimum_level"]) if policy.get("recommended_minimum_level") in levels else -1
+    cur_idx = levels.index(workflow_level) if workflow_level in levels else 0
+    esc_required = (rec_idx > cur_idx)
+    # Hard safety net: destructive/migration/deploy tasks cannot stay below L3.
+    # security_sensitive -> adversarial review forced, but does NOT force L3.
+    if task_type == "security_sensitive" or "security_sensitive" in (risk_flags or []):
+        state["adversarial_mode"] = True
+        if state.get("review_template") in ("review_lite", "reviewer_light", ""):
+            state["review_template"] = "standard_review"
+    hard_l3_types = {"data_migration", "destructive_command", "publish_or_deploy"}
+    hard_l3_flags = set(risk_flags or []) & hard_l3_types
+    # Auto-detect destructive intent from goal text (crude but effective)
+    goal_data = _read(base / ".aiwf" / "state" / "goal.json")
+    goal_text = (goal_data.get("current_goal") or goal_data.get("active_goal") or "").lower()
+    destructive_keywords = [
+        "purge", "delete all", "wipe", "clear all", "drop all",
+        "remove all", "truncate", "destroy", "nuke"
+    ]
+    # Auto-detect crypto from goal text (must be after goal_text is read)
+    crypto_keywords = ["encrypt", "decrypt", "crypto", "cipher", "AES", "password manager", "key derivation", "Argon2", "Fernet"]
+    if any(kw.lower() in goal_text for kw in crypto_keywords):
+        state["adversarial_mode"] = True
+        if state.get("review_template") in ("review_lite", "reviewer_light", ""):
+            state["review_template"] = "standard_review"
+    if any(kw in goal_text for kw in destructive_keywords):
+        hard_l3_flags.add("destructive_command")
+    if (task_type in hard_l3_types or hard_l3_flags) and workflow_level != "L3_full_power":
+        esc_required = True
+        trigger = task_type if task_type in hard_l3_types else ", ".join(hard_l3_flags)
+        state["quality_escalation_required"] = True
+        state["quality_escalation_reason"] = f"safety net: {trigger} requires L3_full_power"
+        state["recommended_minimum_level"] = "L3_full_power"
+        rec_idx = levels.index("L3_full_power")
+
+    # L0 guard: multi-file or complex task types require at least L1
+    if workflow_level == "L0_direct" and not esc_required:
+        l0_escalations = []
+        if task_type in ("refactor", "api_endpoint", "bug_fix", "numeric_semantics"):
+            l0_escalations.append(f"task_type '{task_type}' requires at least L1_review_light")
+        if risk_flags:
+            l0_escalations.append(f"risk flags present: {risk_flags}")
+        if l0_escalations:
+            esc_required = True
+            state["quality_escalation_required"] = True
+            state["quality_escalation_reason"] = "; ".join(l0_escalations)
+            state["recommended_minimum_level"] = "L1_review_light"
+    state["quality_escalation_required"] = esc_required
+    policy_reason = "; ".join(policy.get("level_escalations_applied", [])[:3])
+    if policy_reason and not state.get("quality_escalation_reason"):
+        state["quality_escalation_reason"] = policy_reason
+    if policy.get("level_escalations_applied"):
+        hist = state.get("escalation_history", []) or []
+        for e in policy["level_escalations_applied"]:
+            if e not in hist: hist.append(e)
+        state["escalation_history"] = hist
+
+    # Gravity escalation: pure read + explicit state mutation at this write boundary.
+    try:
+        from .task_gravity import apply_gravity_to_state
+        state = apply_gravity_to_state(base_dir, state)
+    except Exception:
+        pass
+
+    _write(state_path, state)
+    return policy
+
+
+
+def bootstrap_project(base_dir: str) -> Dict[str, Any]:
+    """Bootstrap AIWF assets for an existing project. Scans code, creates baseline."""
+    root = Path(base_dir)
+    aiwf = root / ".aiwf"
+
+    results = {"tasks": [], "files": 0, "modules": []}
+
+    # 1. Scan project structure
+    code_files = []
+    exclude = {".git", ".aiwf", ".claude", ".reasonix", "__pycache__", "node_modules", ".venv", "venv",
+               ".pytest_cache", ".mypy_cache", "dist", "build", ".DS_Store"}
+    for f in root.rglob("*"):
+        if f.is_file() and not any(e in f.parts for e in exclude):
+            if f.suffix in (".py", ".js", ".ts", ".go", ".rs", ".java", ".rb", ".sh", ".md", ".toml", ".yaml", ".json"):
+                rel = str(f.relative_to(root))
+                code_files.append(rel)
+
+    if not code_files:
+        return {"bootstrapped": False, "reason": "no code files found"}
+
+    results["files"] = len(code_files)
+
+    # 2. Identify modules from directory structure
+    modules = {}
+    for f in code_files:
+        parts = f.split("/")
+        if len(parts) > 1:
+            mod = parts[0]
+        else:
+            mod = "root"
+        modules.setdefault(mod, []).append(f)
+    results["modules"] = sorted(modules.keys())
+
+    # 3. Write baseline task-history entry
+    from datetime import datetime, timezone
+    history_path = aiwf / "history" / "task-history.json"
+    history = {"tasks": [], "archived_hotspots": {}}
+    if history_path.exists():
+        try:
+            import json
+            history = json.loads(history_path.read_text())
+        except Exception:
+            pass
+    baseline_task = {
+        "id": "BASELINE-001",
+        "title": "[Bootstrap] Existing codebase baseline",
+        "goal": "Project bootstrapped from existing code",
+        "workflow_level": "baseline",
+        "task_type": "bootstrap",
+        "changed_files": code_files[:50],
+        "testing_status": "n/a",
+        "review_result": "n/a",
+        "fix_loop_attempt_count": 0,
+        "untested_risk_count": 0,
+        "closed_at": datetime.now(timezone.utc).isoformat(),
+        "bootstrap": True,
+    }
+    tasks = history.get("tasks", [])
+    tasks = [t for t in tasks if not t.get("bootstrap")]
+    tasks.insert(0, baseline_task)
+    history["tasks"] = tasks
+    import json
+    (aiwf / "history" / "task-history.json").write_text(json.dumps(history, indent=2))
+    results["tasks"].append("task-history baseline written")
+
+    # 4. Ensure human project map exists, but do not mechanically fill it.
+    from .project_map import ensure_project_map
+    ensure_project_map(base_dir)
+    results["tasks"].append("PROJECT-MAP scaffold ready for Planner curation")
+
+    # 4b. Ensure idea inbox exists for volatile planning inputs.
+    from .ideas import ensure_ideas_file
+    ensure_ideas_file(base_dir)
+    results["tasks"].append("ideas.md initialized")
+
+    # 5. Run env scan if possible
+    try:
+        from .environment import scan_environment, write_environment_profile
+        env = scan_environment(base_dir)
+        write_environment_profile(base_dir, env)
+        results["tasks"].append("environment profile written")
+    except Exception:
+        pass
+
+    # 6. Run capability scan
+    try:
+        from .capabilities import discover_capabilities, write_capabilities_registry
+        caps = discover_capabilities(base_dir)
+        write_capabilities_registry(base_dir, caps)
+        results["tasks"].append(f"capability scan: {len(caps.get('capabilities',[]))} found")
+    except Exception:
+        pass
+
+    # 7. Create initial current-state.md
+    try:
+        from .current_state import rebuild_current_state
+        rebuild_current_state(base_dir)
+        results["tasks"].append("current-state.md created")
+    except Exception:
+        pass
+
+    # 8. Create initial workspace-drift snapshot
+    try:
+        from .workspace_drift import scan_workspace_drift, write_workspace_drift
+        drift = scan_workspace_drift(base_dir)
+        write_workspace_drift(base_dir, drift)
+        results["tasks"].append("workspace drift baseline captured")
+    except Exception:
+        pass
+
+    return {"bootstrapped": True, **results}
+
+# ── state summary for skills ──────────────────────────────────────────
+
+# ── state summary for skills ──────────────────────────────────────────
+
+def get_state_summary(base_dir: str) -> Dict[str, Any]:
+    """Return a concise summary of current AIWF state for skills."""
+    base = Path(base_dir)
+
+    def rj(name, default=None):
+        return _read(base / ".aiwf" / name) if (base / ".aiwf" / name).exists() else (default or {})
+
+    state = rj("state/state.json", {"phase": "unknown"})
+    goal = rj("state/goal.json", {})
+    review = rj("quality/review.json", {})
+    fix_loop = rj("state/fix-loop.json", {"status": "none"})
+
+    return {
+        "phase": state.get("phase", "unknown"),
+        "complexity": state.get("complexity", "standard"),
+        "workflow_level": state.get("workflow_level", state.get("workflow_strength", "L1_review_light")),
+        "task_type": state.get("task_type", ""),
+        "test_template": state.get("test_template", ""),
+        "review_template": state.get("review_template", ""),
+        "exploration_budget": state.get("exploration_budget", ""),
+        "git_policy": state.get("git_policy", "no_auto_commit"),
+        "recommended_minimum_level": state.get("recommended_minimum_level", ""),
+        "requires_user_decision": state.get("requires_user_decision", False),
+        "quality_escalation_required": state.get("quality_escalation_required", False),
+        "quality_escalation_reason": state.get("quality_escalation_reason", ""),
+        "active_goal": goal.get("active_goal", ""),
+        "active_context_id": state.get("active_context_id", ""),
+        "close_attempt": state.get("close_attempt", False),
+        "scope_violation": state.get("scope_violation", False),
+        "review_result": review.get("result", "unknown"),
+        "closure_allowed": review.get("closure_allowed", False),
+        "cleanup_status": review.get("cleanup_status", "unknown"),
+        "structure_status": review.get("structure_status", "unknown"),
+        "fix_loop_status": fix_loop.get("status", "none"),
+    }
