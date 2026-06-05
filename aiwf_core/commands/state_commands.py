@@ -21,7 +21,8 @@ def _cmd_record_quality_brief(args: argparse.Namespace) -> None:
                 print(f"  Valid surfaces: {', '.join(sorted(VALID_SURFACE_TYPES))}", file=sys.stderr)
                 raise SystemExit(1)
             validated_surfaces.append(st)
-    goal = record_quality_brief(
+    try:
+        goal = record_quality_brief(
         str(Path.cwd()),
         acceptance_criteria=args.acceptance or None,
         test_focus=args.test_focus or None,
@@ -38,26 +39,18 @@ def _cmd_record_quality_brief(args: argparse.Namespace) -> None:
         architecture_invariants=args.architecture_invariants or None,
         forbidden_restructures=args.forbidden_restructures or None,
         architecture_risks=args.architecture_risks or None,
-        surface_types=validated_surfaces or None)
-    # Update evaluation contract if any field provided
-    if any([args.user_visible_outcome, args.acceptance_criteria, args.test_obligations,
-            args.review_obligations, args.known_risks, args.closure_question,
-            args.non_goals, args.system_integration_obligations]):
-        from ..core.state_ops import _read as _r2, _write as _w2
-        from pathlib import Path as _P2
-        g2 = _r2(_P2(str(Path.cwd())) / ".aiwf" / "state" / "goal.json")
-        ec = g2.get("quality_brief", {}).get("evaluation_contract", {})
-        if args.user_visible_outcome: ec["user_visible_outcome"] = args.user_visible_outcome
-        if args.acceptance_criteria: ec["acceptance_criteria"] = args.acceptance_criteria
-        if args.non_goals: ec["non_goals"] = args.non_goals
-        if args.test_obligations: ec["test_obligations"] = args.test_obligations
-        if args.review_obligations: ec["review_obligations"] = args.review_obligations
-        if args.known_risks: ec["known_risks"] = args.known_risks
-        if args.closure_question: ec["closure_question"] = args.closure_question
-        if args.system_integration_obligations: ec["system_integration_obligations"] = args.system_integration_obligations
-        g2.setdefault("quality_brief", {})["evaluation_contract"] = ec
-        _w2(_P2(str(Path.cwd())) / ".aiwf" / "state" / "goal.json", g2)
-        goal = g2
+        surface_types=validated_surfaces or None,
+        user_visible_outcome=args.user_visible_outcome or "",
+        evaluation_acceptance_criteria=args.acceptance_criteria or None,
+        evaluation_non_goals=args.non_goals or None,
+        test_obligations=args.test_obligations or None,
+        review_obligations=args.review_obligations or None,
+        known_risks=args.known_risks or None,
+        closure_question=args.closure_question or "",
+        system_integration_obligations=args.system_integration_obligations or None)
+    except ValueError as e:
+        print(f"Quality brief update blocked: {e}", file=sys.stderr)
+        raise SystemExit(1)
     brief = goal.get("quality_brief", {})
     print("Quality brief recorded:")
     if brief.get("acceptance_criteria"):
@@ -78,19 +71,23 @@ def _cmd_record_quality_brief(args: argparse.Namespace) -> None:
 def _cmd_start_context(args: argparse.Namespace) -> None:
     """aiwf state start-context — create/update context with dispatch fields."""
     from ..core.state_ops import start_context
-    ctxs = start_context(
-        str(Path.cwd()), args.context_id, args.label or "",
-        allowed_write=args.allowed_write or None,
-        forbidden_write=args.forbidden_write or None,
-        note=args.note or "",
-        purpose=args.purpose or "",
-        read_hints=args.read_hints or None,
-        non_goals=args.non_goals or None,
-        dependencies=args.dependencies or None,
-        interface_contract=args.interface_contract or "",
-        test_focus=args.test_focus or None,
-        review_focus=args.review_focus or None,
-        escalation_triggers=args.escalation_triggers or None)
+    try:
+        ctxs = start_context(
+            str(Path.cwd()), args.context_id, args.label or "",
+            allowed_write=args.allowed_write or None,
+            forbidden_write=args.forbidden_write or None,
+            note=args.note or "",
+            purpose=args.purpose or "",
+            read_hints=args.read_hints or None,
+            non_goals=args.non_goals or None,
+            dependencies=args.dependencies or None,
+            interface_contract=args.interface_contract or "",
+            test_focus=args.test_focus or None,
+            review_focus=args.review_focus or None,
+            escalation_triggers=args.escalation_triggers or None)
+    except ValueError as e:
+        print(f"Context update blocked: {e}", file=sys.stderr)
+        raise SystemExit(1)
     ctx = [c for c in ctxs["contexts"] if c["id"] == args.context_id][0]
     print(f"Context started:")
     print(f"  ID: {ctx['id']}")
@@ -115,6 +112,11 @@ def _cmd_record_testing(args: argparse.Namespace) -> None:
                    required_verification=args.required_verification or None,
                    acceptance_coverage=args.acceptance_coverage or None,
                    system_coverage=args.system_coverage or None,
+                   validation_layers=args.validation_layers or None,
+                   full_suite_status=args.full_suite_status or "",
+                   full_suite_reason=args.full_suite_reason or "",
+                   real_usage_status=args.real_usage_status or "",
+                   real_usage_reason=args.real_usage_reason or "",
                    inferred_surfaces=args.inferred_surfaces or None,
                    missing_surface_notes=args.missing_surface_notes or None,
                    cross_task_risks=args.cross_task_risks or None,
@@ -128,6 +130,9 @@ def _cmd_record_testing(args: argparse.Namespace) -> None:
     if args.failed_obligations: print(f"  Failed obligations: {len(args.failed_obligations)}")
     if args.suspected_route: print(f"  Suspected route: {args.suspected_route}")
     if args.system_coverage: print(f"  System coverage: {len(args.system_coverage)} items")
+    if args.validation_layers: print(f"  Validation layers: {', '.join(args.validation_layers)}")
+    if args.full_suite_status: print(f"  Full suite: {args.full_suite_status}")
+    if args.real_usage_status: print(f"  Real usage: {args.real_usage_status}")
     if args.inferred_surfaces: print(f"  Inferred surfaces: {', '.join(args.inferred_surfaces)}")
     if args.cross_task_risks: print(f"  Cross-task risks: {len(args.cross_task_risks)}")
     if args.testing_debt: print(f"  Testing debt: {len(args.testing_debt)}")
@@ -243,9 +248,13 @@ def _cmd_state_help(args: argparse.Namespace) -> None:
 def _cmd_record_quality_policy(args: argparse.Namespace) -> None:
     """aiwf state record-quality-policy — write quality policy short keys to state.json."""
     from ..core.state_ops import record_quality_policy
-    policy = record_quality_policy(
-        str(Path.cwd()), args.task_type, args.workflow_level,
-        risk_flags=args.risk_flags or [], routing_reason=args.reason)
+    try:
+        policy = record_quality_policy(
+            str(Path.cwd()), args.task_type, args.workflow_level,
+            risk_flags=args.risk_flags or [], routing_reason=args.reason)
+    except ValueError as e:
+        print(f"Quality policy update blocked: {e}", file=sys.stderr)
+        raise SystemExit(1)
     print(f"Quality policy recorded:")
     print(f"  Level: {policy['workflow_level']}")
     print(f"  Task type: {policy['task_type_label']}")

@@ -87,6 +87,23 @@ def upsert_task(
     ledger = load_ledger(base_dir)
     tasks = ledger["tasks"]
     task = _find(tasks, task_id)
+    if task and task.get("status") == "active":
+        contract_changes = []
+        if status != "active": contract_changes.append("status")
+        if dependencies is not None and dependencies != (task.get("dependencies", []) or []):
+            contract_changes.append("dependencies")
+        if allowed_write is not None and allowed_write != (task.get("allowed_write", []) or []):
+            contract_changes.append("allowed_write")
+        if bool(parallel_safe) != bool(task.get("parallel_safe", False)):
+            contract_changes.append("parallel_safe")
+        if contract_changes:
+            raise ValueError(
+                "active task contract is frozen; cannot change " + ", ".join(contract_changes)
+                + "; this prevents retrospective scope/status changes. "
+                "Allowed now: add notes and complete the current contract. "
+                "To change the contract: aiwf task suspend <TASK-ID>, resolve any failing gates, "
+                "then plan/activate a future task"
+            )
     if not task:
         task = {
             "id": task_id,
@@ -325,11 +342,21 @@ def activation_blockers(base_dir: str, task_id: str) -> List[str]:
                 blockers.append(f"parallel write boundary conflict with {other.get('id')}: {', '.join(overlap[:5])}")
 
     state = _read(Path(base_dir) / ".aiwf" / "state" / "state.json", {})
+    if state.get("scope_violation"):
+        blockers.append(
+            "scope violation remains recorded; revert the originally violating files, then run "
+            "aiwf fix-loop resolve --resolution '<what was reverted>' before activating another task"
+        )
     if state.get("close_attempt") or state.get("phase") == "closing":
         blockers.append("workflow close attempt in progress")
     fix_loop = _read(Path(base_dir) / ".aiwf" / "state" / "fix-loop.json", {})
     if fix_loop.get("status") == "open":
-        blockers.append("fix-loop is open")
+        required = fix_loop.get("required_verification", []) or []
+        suffix = f"; required verification: {', '.join(map(str, required[:3]))}" if required else ""
+        blockers.append(
+            "fix-loop is open; complete required fixes/verification and run aiwf fix-loop resolve"
+            + suffix
+        )
     cs = current_state_freshness(base_dir)
     if cs.get("status") == "stale":
         blockers.append("current-state.md is stale; rebase or refresh summary before activating next task")
@@ -409,6 +436,40 @@ def _l2_l3_completion_blockers(base_dir: str, task: Dict[str, Any]) -> List[str]
         blockers.append("L2/L3 task requires adequate independent testing before close")
     if not testing.get("commands"):
         blockers.append("L2/L3 task requires recorded test commands before close")
+    layers = set(testing.get("validation_layers", []) or [])
+    if "targeted" not in layers:
+        blockers.append("L2/L3 Tester must record a targeted validation layer")
+    if testing.get("full_suite_status", "not_run") == "not_run":
+        blockers.append(
+            "L2/L3 Tester must run the full project suite or explicitly record not_available/not_feasible with a reason"
+        )
+    if (
+        testing.get("full_suite_status") in ("not_available", "not_feasible")
+        and not testing.get("full_suite_reason")
+    ):
+        blockers.append("L2/L3 full-suite deferral requires full_suite_reason")
+    if testing.get("full_suite_status") == "passed" and "full_regression" not in layers:
+        blockers.append("L2/L3 passed full suite must record validation_layer=full_regression")
+    if testing.get("real_usage_status", "not_run") == "not_run":
+        blockers.append(
+            "L2/L3 Tester must exercise a real user-facing entrypoint or explicitly record not_available/not_feasible with a reason"
+        )
+    if (
+        testing.get("real_usage_status") in ("not_available", "not_feasible")
+        and not testing.get("real_usage_reason")
+    ):
+        blockers.append("L2/L3 real-usage deferral requires real_usage_reason")
+    if testing.get("real_usage_status") == "passed" and "real_usage" not in layers:
+        blockers.append("L2/L3 passed real usage must record validation_layer=real_usage")
+    if (
+        testing.get("full_suite_status") in ("not_available", "not_feasible")
+        or testing.get("real_usage_status") in ("not_available", "not_feasible")
+    ) and not testing.get("untested_risks"):
+        blockers.append("L2/L3 validation deferral requires an explicit untested_risk")
+    if testing.get("full_suite_status") == "failed":
+        blockers.append("L2/L3 full project suite failed")
+    if testing.get("real_usage_status") == "failed":
+        blockers.append("L2/L3 real user-facing validation failed")
     if review.get("result") != "accepted" or not review.get("closure_allowed", False):
         blockers.append("L2/L3 task requires accepted independent review before close")
     if review.get("cleanup_status") != "fresh" or review.get("stale_items") or review.get("cleanup_blockers"):

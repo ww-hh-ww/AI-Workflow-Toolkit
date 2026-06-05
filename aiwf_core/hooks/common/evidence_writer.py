@@ -198,6 +198,7 @@ def check_and_record_scope_violations(
             violations.append(f)
 
     if violations:
+        from datetime import datetime, timezone
         state_path = base / ".aiwf" / "state" / "state.json"
         state = _read_json(state_path, {})
         state["scope_violation"] = True
@@ -210,6 +211,22 @@ def check_and_record_scope_violations(
             add_scope_violation_blocker(
                 review, vf, active_context.get("id", "unknown")
             )
+            events = review.setdefault("scope_violation_events", [])
+            event = {
+                "path": vf,
+                "context_id": active_context.get("id", "unknown"),
+                "allowed_write_snapshot": list(active_context.get("allowed_write", []) or []),
+                "forbidden_write_snapshot": list(active_context.get("forbidden_write", []) or []),
+                "recorded_at": datetime.now(timezone.utc).isoformat(),
+                "status": "recorded",
+            }
+            if not any(
+                isinstance(old, dict)
+                and old.get("path") == vf
+                and old.get("context_id") == event["context_id"]
+                for old in events
+            ):
+                events.append(event)
         _write_json(review_path, review)
 
         fl_path = base / ".aiwf" / "state" / "fix-loop.json"

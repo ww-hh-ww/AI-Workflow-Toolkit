@@ -3,11 +3,13 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+import sys
 
 
 def _cmd_task_plan(args: argparse.Namespace) -> None:
     from ..core.task_ledger import upsert_task
-    result = upsert_task(
+    try:
+        result = upsert_task(
         str(Path.cwd()),
         task_id=args.task_id,
         title=args.title or "",
@@ -16,7 +18,10 @@ def _cmd_task_plan(args: argparse.Namespace) -> None:
         allowed_write=args.allowed_write or None,
         parallel_safe=args.parallel_safe,
         notes=args.notes or None,
-    )
+        )
+    except ValueError as e:
+        print(f"Task update blocked: {e}", file=sys.stderr)
+        raise SystemExit(1)
     task = result["task"]
     print(f"Task recorded: {task['id']} status={task['status']}")
     print(f"  Dependencies: {len(task.get('dependencies', []) or [])}")

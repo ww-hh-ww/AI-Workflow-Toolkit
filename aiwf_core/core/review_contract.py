@@ -29,11 +29,19 @@ def set_review_accepted(
     rejected_evidence_ids: List[str],
 ) -> Dict[str, Any]:
     """Update review to accepted state."""
-    review["result"] = "accepted"
-    review["closure_allowed"] = True
+    unresolved_scope = [
+        event for event in (review.get("scope_violation_events", []) or [])
+        if isinstance(event, dict) and event.get("status", "recorded") != "resolved_reverted"
+    ]
+    if unresolved_scope:
+        review["result"] = "scope_violation"
+        review["closure_allowed"] = False
+    else:
+        review["result"] = "accepted"
+        review["closure_allowed"] = True
     review["accepted_evidence_ids"] = accepted_evidence_ids
     review["rejected_evidence_ids"] = rejected_evidence_ids
-    review["blockers"] = []
+    review["blockers"] = list(review.get("blockers", []) or []) if unresolved_scope else []
     return review
 
 

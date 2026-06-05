@@ -7,6 +7,13 @@ AIWF (AI Workflow Toolkit) is embedded in this project as Claude Code skills, ho
 - A due periodic Architect review **NEVER** blocks the current task close. It **ONLY** blocks activation of the next ordinary task.
 - Claude Stop **NEVER** treats `close_attempt=false` as a closure failure. It can block closure **ONLY** after `prepare-close` sets `close_attempt=true`.
 - Reasonix Stop **NEVER** blocks closure, regardless of `close_attempt`. It is report-only; successful `prepare-close` is the authoritative Reasonix closure gate.
+- Active-task Context identity and write boundaries are frozen. Scope violations cannot be legalized retrospectively.
+- Workflow Level and quality depth cannot be lowered during an active, failed, or blocked cycle.
+- Fix-loop resolution requires mechanical verification; prose is not proof.
+- Frozen quality/evaluation/architecture contracts may only gain constraints, never lose or replace obligations.
+- Core mechanical truth (`state.json`, `goal.json`, `contexts.json`, `fix-loop.json`, `task-ledger.json`) must be changed through AIWF operations, never direct Write/Edit.
+- Scope violations clear only after Git confirms the originally violating files were reverted; their event history remains.
+- Denials are diagnostics: explain the reported freeze reasons and unlock action, continue allowed additive/evidence work, and never bypass the gate by editing machine state.
 
 ## Architecture
 

@@ -26,7 +26,7 @@ def check_file_write(event: NormalizedEvent) -> ScopeResult:
     """Check if a file write/edit is within active scope.
 
     Normalizes Claude's absolute paths to project-relative before matching.
-    Governance files (.aiwf/*.json) are always allowed.
+    Governance files are allowed except direct edits to core mechanical truth.
     """
     file_path = event.tool_input.get("file_path", "")
     if not file_path:
@@ -39,6 +39,24 @@ def check_file_write(event: NormalizedEvent) -> ScopeResult:
     normalized = ""
     from ...core.scope_policy import _is_governance_file, _normalize_path
     normalized = _normalize_path(file_path, str(cwd))
+    protected_truth = {
+        ".aiwf/state/state.json",
+        ".aiwf/state/goal.json",
+        ".aiwf/state/contexts.json",
+        ".aiwf/state/fix-loop.json",
+        ".aiwf/history/task-ledger.json",
+    }
+    if normalized in protected_truth:
+        return ScopeResult(
+            file_path=normalized,
+            allowed=False,
+            active_context_id=state.get("active_context_id") or "(none)",
+            reason=(
+                f"mechanical truth '{normalized}' must be changed through aiwf CLI/state operations; "
+                "direct Write/Edit is denied so workflow gates cannot be bypassed. "
+                "Use the matching command: aiwf state ..., aiwf goal ..., aiwf task ..., or aiwf fix-loop ..."
+            ),
+        )
     if normalized == ".aiwf/quality/review.json":
         level = state.get("workflow_level", "L1_review_light")
         if level in ("L2_standard_team", "L3_full_power"):

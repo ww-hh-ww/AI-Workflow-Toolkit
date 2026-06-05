@@ -9,6 +9,12 @@ import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+WORKFLOW_LEVELS = ["L0_direct", "L1_review_light", "L2_standard_team", "L3_full_power"]
+BLOCKING_REVIEW_RESULTS = {
+    "needs_fix", "needs_more_testing", "evidence_insufficient",
+    "scope_violation", "rejected",
+}
+
 
 def _read(path: Path) -> Dict:
     try: return json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
@@ -18,6 +24,56 @@ def _read(path: Path) -> Dict:
 def _write(path: Path, data: Dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def execution_contract_freeze_reasons(base_dir: str, state: Optional[Dict] = None) -> List[str]:
+    """Explain why execution truth may only become stricter."""
+    base = Path(base_dir)
+    state = state if state is not None else _read(base / ".aiwf" / "state" / "state.json")
+    testing = _read(base / ".aiwf" / "quality" / "testing.json")
+    review = _read(base / ".aiwf" / "quality" / "review.json")
+    fix_loop = _read(base / ".aiwf" / "state" / "fix-loop.json")
+    reasons: List[str] = []
+    if state.get("active_task_id"): reasons.append(f"active_task={state['active_task_id']}")
+    if state.get("scope_violation"): reasons.append("scope_violation=true")
+    if state.get("close_attempt"): reasons.append("close_attempt=true")
+    if state.get("phase") in ("testing", "reviewing", "closing"):
+        reasons.append(f"phase={state['phase']}")
+    if testing.get("status") == "failed": reasons.append("testing=failed")
+    if review.get("result") in BLOCKING_REVIEW_RESULTS:
+        reasons.append(f"review={review['result']}")
+    if fix_loop.get("status") == "open": reasons.append("fix_loop=open")
+    return reasons
+
+
+def _execution_contract_frozen(base: Path, state: Optional[Dict] = None) -> bool:
+    return bool(execution_contract_freeze_reasons(str(base), state))
+
+
+def _freeze_explanation(base: Path, state: Optional[Dict] = None) -> str:
+    reasons = execution_contract_freeze_reasons(str(base), state)
+    return (
+        f"freeze reasons: {', '.join(reasons) or 'unknown'}; "
+        "allowed now: add constraints or record evidence; "
+        "unlock: finish/revert the failing work, satisfy testing/review, resolve the fix-loop, then close the cycle"
+    )
+
+
+def _require_additive_list(existing: Any, proposed: List[str], field: str, detail: str = "") -> None:
+    missing = [item for item in (existing or []) if item not in proposed]
+    if missing:
+        raise ValueError(
+            f"execution contract is frozen; {field} may add constraints but cannot remove existing items"
+            + (f"; {detail}" if detail else "")
+        )
+
+
+def _require_stable_scalar(existing: Any, proposed: str, field: str, detail: str = "") -> None:
+    if existing and proposed and existing != proposed:
+        raise ValueError(
+            f"execution contract is frozen; {field} cannot replace an existing value"
+            + (f"; {detail}" if detail else "")
+        )
 
 
 def _ensure_critical_assets(base_dir: str) -> list:
@@ -140,12 +196,18 @@ def start_context(
     review_focus: Optional[List[str]] = None,
     escalation_triggers: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
-    """Create or update a context. Sets state.active_context_id. Returns contexts dict."""
+    """Create or update a context. Sets state.active_context_id. Returns contexts dict.
+
+    Once a task is active, its context identity and write boundaries are frozen.
+    This prevents a scope violation from being retrospectively legalized by
+    widening or swapping the active context.
+    """
     base = Path(base_dir)
     contexts_path = base / ".aiwf" / "state" / "contexts.json"
     state_path = base / ".aiwf" / "state" / "state.json"
 
     contexts = _read(contexts_path)
+    state = _read(state_path)
     if "contexts" not in contexts or not isinstance(contexts.get("contexts"), list):
         contexts = {"contexts": []}
 
@@ -156,6 +218,30 @@ def start_context(
             existing = ctx
             break
 
+    active_task_id = str(state.get("active_task_id", "") or "")
+    active_context_id = str(state.get("active_context_id", "") or "")
+    contract_frozen = _execution_contract_frozen(base, state)
+    requested_boundary_change = bool(
+        existing and (
+            (allowed_write is not None and allowed_write != (existing.get("allowed_write", []) or []))
+            or (forbidden_write is not None and forbidden_write != (existing.get("forbidden_write", []) or []))
+        )
+    )
+    if contract_frozen and active_context_id and context_id != active_context_id:
+        raise ValueError(
+            f"execution cycle freezes context identity at {active_context_id}; "
+            f"{_freeze_explanation(base, state)}"
+        )
+    if state.get("scope_violation") and requested_boundary_change:
+        raise ValueError(
+            "scope violation is already recorded; changing the current context cannot legalize it retrospectively"
+        )
+    if contract_frozen and requested_boundary_change:
+        raise ValueError(
+            f"execution cycle freezes allowed_write/forbidden_write for {context_id}; "
+            f"scope changes apply only to a future task; {_freeze_explanation(base, state)}"
+        )
+
     DISPATCH_MAP = [
         ("purpose", purpose, ""), ("read_hints", read_hints, []), ("non_goals", non_goals, []),
         ("dependencies", dependencies, []), ("interface_contract", interface_contract, ""),
@@ -164,9 +250,23 @@ def start_context(
     ]
     if existing:
         ctx = existing
+        old_boundary = {
+            "allowed_write": list(existing.get("allowed_write", []) or []),
+            "forbidden_write": list(existing.get("forbidden_write", []) or []),
+        }
         if label: existing["title"] = label
         if allowed_write is not None: existing["allowed_write"] = allowed_write
         if forbidden_write is not None: existing["forbidden_write"] = forbidden_write
+        if requested_boundary_change:
+            from datetime import datetime, timezone
+            existing.setdefault("revision_history", []).append({
+                "changed_at": datetime.now(timezone.utc).isoformat(),
+                "previous_boundary": old_boundary,
+                "new_boundary": {
+                    "allowed_write": list(existing.get("allowed_write", []) or []),
+                    "forbidden_write": list(existing.get("forbidden_write", []) or []),
+                },
+            })
         if note: existing.setdefault("notes", []).append(note)
         for fld, val, dfl in DISPATCH_MAP:
             if val is not None and val != dfl:
@@ -185,7 +285,6 @@ def start_context(
         ctx = entry
 
     # Set active context in state
-    state = _read(state_path)
     state["active_context_id"] = context_id
     if state.get("phase") in ("discussing", "planned"):
         state["phase"] = "implementing"
@@ -294,6 +393,11 @@ def record_testing(
     required_verification: Optional[List[str]] = None,
     acceptance_coverage: Optional[List[str]] = None,
     system_coverage: Optional[List[str]] = None,
+    validation_layers: Optional[List[str]] = None,
+    full_suite_status: str = "",
+    full_suite_reason: str = "",
+    real_usage_status: str = "",
+    real_usage_reason: str = "",
     inferred_surfaces: Optional[List[str]] = None,
     missing_surface_notes: Optional[List[str]] = None,
     cross_task_risks: Optional[List[str]] = None,
@@ -318,6 +422,11 @@ def record_testing(
     if required_verification is not None: testing["required_verification"] = required_verification
     if acceptance_coverage is not None: testing["acceptance_coverage"] = acceptance_coverage
     if system_coverage is not None: testing["system_coverage"] = system_coverage
+    if validation_layers is not None: testing["validation_layers"] = validation_layers
+    if full_suite_status: testing["full_suite_status"] = full_suite_status
+    if full_suite_reason: testing["full_suite_reason"] = full_suite_reason
+    if real_usage_status: testing["real_usage_status"] = real_usage_status
+    if real_usage_reason: testing["real_usage_reason"] = real_usage_reason
     if inferred_surfaces is not None: testing["inferred_surfaces"] = inferred_surfaces
     if missing_surface_notes is not None: testing["missing_surface_notes"] = missing_surface_notes
     if cross_task_risks is not None: testing["cross_task_risks"] = cross_task_risks
@@ -647,11 +756,64 @@ def resolve_fix_loop(
     resolution: str,
     source: str = "reviewer",
 ) -> Dict[str, Any]:
-    """Resolve a fix-loop. Does NOT auto-close workflow."""
+    """Resolve a fix-loop only after its mechanical verification gates pass."""
     base = Path(base_dir)
     fix_loop_path = base / ".aiwf" / "state" / "fix-loop.json"
 
     fix_loop = _read(fix_loop_path)
+    if fix_loop.get("status") != "open":
+        raise ValueError("fix-loop is not open")
+    blockers: List[str] = []
+    scope_resolution = None
+    state = _read(base / ".aiwf" / "state" / "state.json")
+    testing = _read(base / ".aiwf" / "quality" / "testing.json")
+    if state.get("scope_violation"):
+        review_path = base / ".aiwf" / "quality" / "review.json"
+        review = _read(review_path)
+        unresolved = [
+            event for event in (review.get("scope_violation_events", []) or [])
+            if isinstance(event, dict) and event.get("status", "recorded") != "resolved_reverted"
+        ]
+        from ..hooks.common.diff_snapshot import detect_changed_files
+        changed = detect_changed_files(base)
+        remaining = sorted({
+            str(event.get("path")) for event in unresolved
+            if event.get("path") in set(changed.get("files", []) or [])
+        })
+        if changed.get("source") == "unavailable":
+            blockers.append("scope violation cannot be verified because git change detection is unavailable")
+        elif remaining:
+            blockers.append("scope-violating files remain changed: " + ", ".join(remaining[:5]))
+        elif not unresolved:
+            blockers.append("scope violation has no structured event history to verify")
+        else:
+            scope_resolution = (review_path, review, unresolved, state)
+    if fix_loop.get("escalation_required"):
+        blockers.append("escalation_required=true; Planner cannot self-resolve escalation")
+    if fix_loop.get("required_verification"):
+        if testing.get("status") not in ("adequate", "passed"):
+            blockers.append("required verification has not produced adequate/passed testing")
+        if not testing.get("commands"):
+            blockers.append("required verification has no recorded test commands")
+    if blockers:
+        raise ValueError("fix-loop resolution blocked: " + "; ".join(blockers))
+    if scope_resolution:
+        from datetime import datetime, timezone
+        review_path, review, unresolved, state = scope_resolution
+        ts = datetime.now(timezone.utc).isoformat()
+        for event in unresolved:
+            event["status"] = "resolved_reverted"
+            event["resolved_at"] = ts
+            event["resolution"] = resolution
+        review["blockers"] = [
+            blocker for blocker in (review.get("blockers", []) or [])
+            if not str(blocker).startswith("scope_violation:")
+        ]
+        review["result"] = "unknown"
+        review["closure_allowed"] = False
+        state["scope_violation"] = False
+        _write(review_path, review)
+        _write(base / ".aiwf" / "state" / "state.json", state)
     fix_loop["status"] = "resolved"
     fix_loop["resolution"] = resolution
     if source: fix_loop["source"] = source
@@ -767,12 +929,53 @@ def record_quality_brief(
     forbidden_restructures: Optional[List[str]] = None,
     architecture_risks: Optional[List[str]] = None,
     surface_types: Optional[List[str]] = None,
+    user_visible_outcome: str = "",
+    evaluation_acceptance_criteria: Optional[List[str]] = None,
+    evaluation_non_goals: Optional[List[str]] = None,
+    test_obligations: Optional[List[str]] = None,
+    review_obligations: Optional[List[str]] = None,
+    known_risks: Optional[List[str]] = None,
+    closure_question: str = "",
+    system_integration_obligations: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
-    """Write task-specific quality brief to goal.json. Short lists only."""
+    """Write task-specific quality brief; frozen cycles permit additive changes only."""
     base = Path(base_dir)
     goal_path = base / ".aiwf" / "state" / "goal.json"
     goal = _read(goal_path)
     brief = goal.get("quality_brief", {})
+    ab = brief.get("architecture_brief", {})
+    ec = brief.get("evaluation_contract", {})
+    if _execution_contract_frozen(base):
+        freeze_note = _freeze_explanation(base)
+        for field, proposed in (
+            ("acceptance_criteria", acceptance_criteria),
+            ("test_focus", test_focus), ("review_focus", review_focus),
+            ("non_goals", non_goals), ("escalation_triggers", escalation_triggers),
+            ("surface_types", surface_types),
+        ):
+            if proposed is not None:
+                _require_additive_list(brief.get(field), proposed, field, freeze_note)
+        for field, proposed in (
+            ("module_boundaries", module_boundaries), ("allowed_files", allowed_files),
+            ("protected_files", protected_files), ("allowed_new_files", allowed_new_files),
+            ("public_api_changes", public_api_changes), ("integration_points", integration_points),
+            ("architecture_invariants", architecture_invariants),
+            ("forbidden_restructures", forbidden_restructures),
+            ("architecture_risks", architecture_risks),
+        ):
+            if proposed is not None:
+                _require_additive_list(ab.get(field), proposed, f"architecture_brief.{field}", freeze_note)
+        _require_stable_scalar(ab.get("target_structure"), target_structure, "architecture_brief.target_structure", freeze_note)
+        for field, proposed in (
+            ("acceptance_criteria", evaluation_acceptance_criteria),
+            ("non_goals", evaluation_non_goals), ("test_obligations", test_obligations),
+            ("review_obligations", review_obligations), ("known_risks", known_risks),
+            ("system_integration_obligations", system_integration_obligations),
+        ):
+            if proposed is not None:
+                _require_additive_list(ec.get(field), proposed, f"evaluation_contract.{field}", freeze_note)
+        _require_stable_scalar(ec.get("user_visible_outcome"), user_visible_outcome, "evaluation_contract.user_visible_outcome", freeze_note)
+        _require_stable_scalar(ec.get("closure_question"), closure_question, "evaluation_contract.closure_question", freeze_note)
     if acceptance_criteria is not None: brief["acceptance_criteria"] = acceptance_criteria
     if test_focus is not None: brief["test_focus"] = test_focus
     if review_focus is not None: brief["review_focus"] = review_focus
@@ -780,7 +983,6 @@ def record_quality_brief(
     if escalation_triggers is not None: brief["escalation_triggers"] = escalation_triggers
     if surface_types is not None: brief["surface_types"] = surface_types
     # Architecture brief
-    ab = brief.get("architecture_brief", {})
     if target_structure: ab["target_structure"] = target_structure
     if module_boundaries is not None: ab["module_boundaries"] = module_boundaries
     if allowed_files is not None: ab["allowed_files"] = allowed_files
@@ -792,6 +994,16 @@ def record_quality_brief(
     if forbidden_restructures is not None: ab["forbidden_restructures"] = forbidden_restructures
     if architecture_risks is not None: ab["architecture_risks"] = architecture_risks
     brief["architecture_brief"] = ab
+    if user_visible_outcome: ec["user_visible_outcome"] = user_visible_outcome
+    if evaluation_acceptance_criteria is not None: ec["acceptance_criteria"] = evaluation_acceptance_criteria
+    if evaluation_non_goals is not None: ec["non_goals"] = evaluation_non_goals
+    if test_obligations is not None: ec["test_obligations"] = test_obligations
+    if review_obligations is not None: ec["review_obligations"] = review_obligations
+    if known_risks is not None: ec["known_risks"] = known_risks
+    if closure_question: ec["closure_question"] = closure_question
+    if system_integration_obligations is not None:
+        ec["system_integration_obligations"] = system_integration_obligations
+    brief["evaluation_contract"] = ec
     goal["quality_brief"] = brief
     _write(goal_path, goal)
     return goal
@@ -865,10 +1077,23 @@ def record_quality_policy(
     base = Path(base_dir)
     state_path = base / ".aiwf" / "state" / "state.json"
 
+    state = _read(state_path)
+    current_level = state.get("workflow_level", "L1_review_light")
+    protected_cycle = _execution_contract_frozen(base, state)
+    if (
+        protected_cycle
+        and current_level in WORKFLOW_LEVELS
+        and workflow_level in WORKFLOW_LEVELS
+        and WORKFLOW_LEVELS.index(workflow_level) < WORKFLOW_LEVELS.index(current_level)
+    ):
+        raise ValueError(
+            f"cannot lower workflow level from {current_level} to {workflow_level}; "
+            f"{_freeze_explanation(base, state)}"
+        )
+
     from .quality_policy import select_quality_policy
     policy = select_quality_policy(task_type, workflow_level, risk_flags, routing_reason)
 
-    state = _read(state_path)
     state["task_type"] = task_type
     state["workflow_level"] = workflow_level
     state["risk_flags"] = risk_flags or []

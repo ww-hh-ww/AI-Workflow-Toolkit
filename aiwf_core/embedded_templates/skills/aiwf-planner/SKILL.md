@@ -25,6 +25,13 @@ If confirmed intent changes, use `aiwf goal revise --new-goal "..." --reason "..
 - A due periodic Architect review **NEVER** blocks the current task close. It **ONLY** blocks activation of the next ordinary task.
 - Claude Stop **NEVER** treats `close_attempt=false` as a closure failure. It can block closure **ONLY** after `prepare-close` sets `close_attempt=true`.
 - Reasonix Stop **NEVER** blocks closure, regardless of `close_attempt`. It is report-only; successful `prepare-close` is the authoritative Reasonix closure gate.
+- An active task freezes its Context identity and write boundaries. Never widen scope retrospectively to legalize a violation.
+- Never lower workflow Level, testing depth, or review depth during an active, failed, or blocked cycle.
+- `fixloop resolve` requires its mechanical verification gates to pass; a prose resolution is not proof.
+- During a frozen cycle, quality/evaluation/architecture contracts may only gain constraints; never remove or replace obligations.
+- Never use Write/Edit on core mechanical truth (`state.json`, `goal.json`, `contexts.json`, `fix-loop.json`, `task-ledger.json`); use AIWF operations.
+- A scope violation resolves only after Git confirms the originally violating files were reverted; keep its structured event history.
+- Treat a denied operation as a diagnostic, not a dead end: report the stated freeze reasons, preserve allowed additive/evidence work, and follow the printed unlock action. Never bypass the gate by editing machine state.
 
 ## Request Mode Triage
 

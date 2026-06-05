@@ -177,6 +177,11 @@ def default_testing() -> Dict[str, Any]:
         "required_verification": [],
         "acceptance_coverage": [],
         "system_coverage": [],
+        "validation_layers": [],
+        "full_suite_status": "not_run",
+        "full_suite_reason": "",
+        "real_usage_status": "not_run",
+        "real_usage_reason": "",
         "inferred_surfaces": [],
         "missing_surface_notes": [],
         "cross_task_risks": [],
@@ -189,10 +194,13 @@ TESTING_KEYS = {"status", "commands", "untested_risks",
                 "failure_summary", "failed_obligations", "failed_commands",
                 "suspected_route", "required_verification",
                 "acceptance_coverage", "system_coverage",
+                "validation_layers", "full_suite_status", "full_suite_reason",
+                "real_usage_status", "real_usage_reason",
                 "inferred_surfaces", "missing_surface_notes"}
 TESTING_KEYS.update({"cross_task_risks", "testing_debt", "repeated_change_hotspots", "adversarial_mode"})
 
 VALID_TESTING_STATUSES = {"missing", "partial", "adequate", "passed", "failed"}
+VALID_LAYER_STATUSES = {"not_run", "passed", "failed", "not_available", "not_feasible"}
 
 VALID_SUSPECTED_ROUTES = {"executor", "tester", "planner", "environment", ""}
 
@@ -221,6 +229,7 @@ def default_review() -> Dict[str, Any]:
         "testing_debt": [],
         "repeated_change_hotspots": [],
         "adversarial_observations": [],
+        "scope_violation_events": [],
         "lessons": [],
         "negative_patterns": [],
         "followups": [],
@@ -234,6 +243,7 @@ REVIEW_KEYS = {
     "overengineering_risks", "architecture_impact",
     "cross_task_risks", "architecture_drift", "testing_debt",
     "repeated_change_hotspots", "adversarial_observations",
+    "scope_violation_events",
     "lessons", "negative_patterns", "followups",
 }
 

@@ -29,11 +29,15 @@ def _cmd_fix_loop_open(args: argparse.Namespace) -> None:
 def _cmd_fix_loop_resolve(args: argparse.Namespace) -> None:
     """aiwf fix-loop resolve — resolve a fix-loop. Does NOT auto-close workflow."""
     from ..core.state_ops import resolve_fix_loop
-    result = resolve_fix_loop(
-        str(Path.cwd()),
-        resolution=args.resolution,
-        source=args.source or "reviewer",
-    )
+    try:
+        result = resolve_fix_loop(
+            str(Path.cwd()),
+            resolution=args.resolution,
+            source=args.source or "reviewer",
+        )
+    except ValueError as e:
+        print(f"Fix-loop resolution blocked: {e}", file=sys.stderr)
+        raise SystemExit(1)
     print(f"Fix-loop resolved: status={result['status']}")
     print(f"  Resolution: {args.resolution[:160]}")
     print("  Fix-loop resolved. Does NOT auto-close workflow.")

@@ -40,6 +40,10 @@ class TestProcessEnforcement(unittest.TestCase):
     def _seed_complete_quality_chain(self):
         _write(self.tmp / ".aiwf" / "quality" / "testing.json", {
             "status": "adequate", "commands": ["pytest"],
+            "validation_layers": ["targeted", "full_regression", "real_usage"],
+            "full_suite_status": "passed",
+            "real_usage_status": "passed",
+            "real_usage_reason": "project CLI smoke passed",
         })
         _write(self.tmp / ".aiwf" / "quality" / "review.json", {
             "result": "accepted",
@@ -217,6 +221,22 @@ class TestProcessEnforcement(unittest.TestCase):
         guidance = planner_process_guidance(str(self.tmp))
 
         self.assertTrue(any("Tier 1 assets are stale" in x for x in guidance["conditional"]))
+
+    def test_planner_guidance_explains_scope_recovery_and_freeze_reason(self):
+        from aiwf_core.core.process_contract import planner_process_guidance
+        state_path = self.tmp / ".aiwf" / "state" / "state.json"
+        state = json.loads(state_path.read_text())
+        state["scope_violation"] = True
+        _write(state_path, state)
+        review_path = self.tmp / ".aiwf" / "quality" / "review.json"
+        review = json.loads(review_path.read_text())
+        review["scope_violation_events"] = [{"path": "outside.py", "status": "recorded"}]
+        _write(review_path, review)
+
+        guidance = planner_process_guidance(str(self.tmp))
+
+        self.assertTrue(any("Scope recovery" in x and "outside.py" in x for x in guidance["required_now"]))
+        self.assertIn("scope_violation=true", guidance["contract_freeze_reasons"])
 
     def test_structured_meta_critique_command_records_planner_provenance(self):
         from aiwf_core.core.state_ops import record_meta_critique

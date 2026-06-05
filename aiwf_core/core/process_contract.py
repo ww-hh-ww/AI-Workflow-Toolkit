@@ -31,6 +31,18 @@ def planner_process_guidance(base_dir: str) -> Dict[str, Any]:
     conditional: List[str] = []
     advisory: List[str] = []
 
+    if state.get("scope_violation"):
+        events = [
+            event for event in (review.get("scope_violation_events", []) or [])
+            if isinstance(event, dict) and event.get("status", "recorded") != "resolved_reverted"
+        ]
+        paths = ", ".join(str(event.get("path")) for event in events[:3] if event.get("path"))
+        required.append(
+            "Scope recovery: revert the originally violating files"
+            + (f" ({paths})" if paths else "")
+            + ", then run aiwf fix-loop resolve --resolution '<what was reverted>'; "
+              "context widening cannot legalize past writes"
+        )
     if not active_task:
         required.append("Plan and activate one task before project writes: aiwf task plan ...; aiwf task activate <TASK-ID>")
     if level in ("L2_standard_team", "L3_full_power"):
@@ -47,6 +59,14 @@ def planner_process_guidance(base_dir: str) -> Dict[str, Any]:
             required.append("Record a structural Architecture Brief before activation")
         if active_task and testing.get("status") not in ("adequate", "passed"):
             required.append(f"Dispatch independent Tester using {state.get('test_template') or 'selected test template'}")
+        if active_task and (
+            testing.get("full_suite_status", "not_run") == "not_run"
+            or testing.get("real_usage_status", "not_run") == "not_run"
+        ):
+            required.append(
+                "Tester must disposition the full project suite and an actual user-facing entrypoint; "
+                "unit tests alone are insufficient"
+            )
         if testing.get("status") in ("adequate", "passed") and not review.get("cleanup_verified_at"):
             required.append("Verify cleanup before dispatching Reviewer: aiwf cleanup check; aiwf state mark-cleanup-fresh")
         if review.get("cleanup_verified_at") and review.get("result") != "accepted":
@@ -62,15 +82,30 @@ def planner_process_guidance(base_dir: str) -> Dict[str, Any]:
                 required.append("Record Planner meta-critique, close the active task, then prepare-close")
 
     if fix_loop.get("status") == "open":
-        required.insert(0, f"Resolve fix-loop via route={fix_loop.get('route') or 'planner'} before continuing")
+        fixes = "; ".join(map(str, (fix_loop.get("required_fixes", []) or [])[:2]))
+        verification = "; ".join(map(str, (fix_loop.get("required_verification", []) or [])[:2]))
+        detail = []
+        if fixes: detail.append(f"fixes={fixes}")
+        if verification: detail.append(f"verification={verification}")
+        if fix_loop.get("escalation_required"): detail.append("escalation requires user/independent decision")
+        required.insert(
+            0,
+            f"Resolve fix-loop via route={fix_loop.get('route') or 'planner'} before continuing"
+            + (f" ({'; '.join(detail)})" if detail else "")
+        )
     if level == "L3_full_power":
         ckpt = root / ".aiwf" / "checkpoints"
         if not (ckpt.exists() and any(ckpt.iterdir())):
             conditional.append("L3 requires checkpoint before task completion, unless Planner records an explicit skip decision")
 
     try:
-        from .task_gravity import should_trigger_architecture_review
+        from .task_gravity import should_trigger_architecture_review, task_gravity
+        gravity = task_gravity(base_dir)
         arch = should_trigger_architecture_review(base_dir)
+        for constraint in gravity.get("hard_constraints", [])[:3]:
+            required.append(
+                f"Gravity gate [{constraint.get('kind', '?')}]: {constraint.get('message', '')}"
+            )
         if arch.get("should_trigger"):
             conditional.append("Periodic Architect is due before the next ordinary task: " + "; ".join(arch.get("reasons", [])[:2]))
     except Exception:
@@ -112,4 +147,13 @@ def planner_process_guidance(base_dir: str) -> Dict[str, Any]:
         "advisory": advisory,
         "active_task_id": active_task,
         "ledger_task_count": len(ledger.get("tasks", []) or []),
+        "contract_freeze_reasons": _contract_freeze_reasons(base_dir, state),
     }
+
+
+def _contract_freeze_reasons(base_dir: str, state: Dict[str, Any]) -> List[str]:
+    try:
+        from .state_ops import execution_contract_freeze_reasons
+        return execution_contract_freeze_reasons(base_dir, state)
+    except Exception:
+        return []

@@ -91,12 +91,22 @@ class TestScopePathNormalization(unittest.TestCase):
             self.assertNotIn("permissionDecision", out,
                             f"Governance file .aiwf/{gf} must always be allowed")
 
-    def test_governance_absolute_path_allowed(self):
-        """Absolute path to governance file is also allowed."""
+    def test_direct_edit_to_core_mechanical_truth_denied(self):
+        """Models cannot bypass state operations by directly editing core truth."""
         abs_path = str(self.tmp / ".aiwf" / "state" / "state.json")
         _, out = _scope_check(self.tmp, "Write", abs_path,
                              allowed_write=["src/calculator.js"])
-        self.assertNotIn("permissionDecision", out)
+        self.assertEqual(out.get("hookSpecificOutput", {}).get("permissionDecision"), "deny")
+
+    def test_direct_edits_to_context_and_fixloop_truth_denied(self):
+        for rel in [
+            ".aiwf/state/goal.json",
+            ".aiwf/state/contexts.json",
+            ".aiwf/state/fix-loop.json",
+            ".aiwf/history/task-ledger.json",
+        ]:
+            _, out = _scope_check(self.tmp, "Edit", rel, allowed_write=["src/calculator.js"])
+            self.assertEqual(out.get("hookSpecificOutput", {}).get("permissionDecision"), "deny")
 
     def test_project_file_still_denied_when_out_of_scope(self):
         """Governance file allowlist does not leak to non-governance files."""

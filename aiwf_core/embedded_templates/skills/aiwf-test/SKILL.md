@@ -7,6 +7,25 @@ description: Template-guided testing based on planner-selected test_template
 
 Template-guided tester. Depth comes from `test_template`, NOT a universal checklist. **workflow_level decides depth. surface_type decides failure-mode directions.**
 
+## Validation Layers Before Declaring Adequate
+
+Do not confuse a passing unit-test command with adequate validation.
+
+Before testing, identify the project's actual validation layers from its scripts, CI config, package metadata, and user-facing entrypoints:
+
+1. **Targeted** — focused tests for the changed behavior.
+2. **Full regression** — the repository's complete available test suite, not only a test file or directory selected for the change.
+3. **Integration/system path** — affected modules working together across declared integration points.
+4. **Real usage** — exercise the actual user-facing entrypoint: installed CLI command, API request, application startup/UI workflow, package import/export, build artifact, or equivalent production-shaped path.
+
+For L2/L3, targeted validation, full regression, and real usage disposition are mandatory reporting fields. Full regression and real usage are part of the selected depth, not unilateral scope expansion.
+Record these as `validation_layers` including `targeted`, `full_regression`, and `real_usage`, with `full_suite_status` and `real_usage_status` dispositions.
+
+- Prefer running them.
+- If an environment, credential, hardware, service, or destructive-risk boundary makes one impossible, record `not_available` or `not_feasible` with the concrete reason and an `untested-risk`.
+- Never record `adequate` merely because unit tests passed.
+- A mocked integration test is not real usage. Name the actual entrypoint and what the user-observable result was.
+
 ## Reading Strategy
 
 Command output is the #2 token cost. Filter ruthlessly:
@@ -62,7 +81,7 @@ Check surface obligations: `aiwf quality surface <name>`. If Planner missed an o
 
 ## Adversarial Mode (L2+)
 
-Full project test suite + targeted reading of failures. Use `task-history.json` hotspots to prioritize re-runs. Let test results guide what to read — don't read first.
+Full project test suite + real user-facing entrypoint validation + targeted reading of failures. Use `task-history.json` hotspots to prioritize re-runs. Let test results guide what to read — don't read first.
 Cross-task quality observation is part of Tester responsibility.
 
 ## Acceptance & System Coverage
@@ -81,11 +100,12 @@ You MUST call `aiwf state record-testing` before exiting. Without testing.json w
 
 
 ```bash
-# Pass: aiwf state record-testing --status adequate --command "pytest -xvs" --untested-risk "performance not tested"
-# Fail: aiwf state record-testing --status failed --command "npm test" \
-#         --failure-summary "divide by -0 did not throw RangeError" \
-#         --failed-obligation "Cover +0/-0 divisor behavior" \
-#         --suspected-route executor --required-verification "rerun npm test"
+# Pass (keep this as one shell command; do not use line-continuation backslashes):
+# aiwf state record-testing --status adequate --command "pytest tests/unit/test_changed.py" --validation-layer targeted --command "pytest" --validation-layer full_regression --full-suite-status passed --command "mycli --version" --validation-layer real_usage --real-usage-status passed --real-usage-reason "installed CLI started and returned its version"
+# Explicit environmental deferral:
+# aiwf state record-testing --status adequate --validation-layer targeted --full-suite-status not_feasible --full-suite-reason "suite requires unavailable GPU" --real-usage-status not_available --real-usage-reason "staging API credentials unavailable" --untested-risk "GPU and staging API paths remain unverified"
+# Fail:
+# aiwf state record-testing --status failed --command "npm test" --failure-summary "divide by -0 did not throw RangeError" --failed-obligation "Cover +0/-0 divisor behavior" --suspected-route executor --required-verification "rerun npm test"
 # Adversarial: aiwf state record-testing --status adequate --adversarial-mode --cross-task-risk "Repeated parser changes lack integration coverage"
 ```
 

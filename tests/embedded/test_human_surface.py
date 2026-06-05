@@ -59,6 +59,12 @@ class TestHumanSurface(unittest.TestCase):
         for term in ["Workspace drift", "Ext capabilities", "Context dispatch", "Current state", "Report"]:
             self.assertIn(term, s, f"Missing: {term}")
 
+    def test_status_explains_gravity(self):
+        s = self._status()
+        self.assertIn("Gravity", s)
+        self.assertIn("historical pressure only", s)
+        self.assertIn("Gates:", s)
+
     def test_status_has_detail_links(self):
         s = self._status()
         self.assertIn(".aiwf/reports/当前状态.md", s)

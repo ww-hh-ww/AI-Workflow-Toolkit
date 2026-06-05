@@ -56,6 +56,13 @@ def cmd_status(args) -> None:
         quality_digest = evaluate_cross_task_quality(str(root))
     except Exception:
         quality_digest = {"signals": []}
+    try:
+        from ..core.task_gravity import task_gravity, should_trigger_architecture_review
+        gravity = task_gravity(str(root))
+        architect_trigger = should_trigger_architecture_review(str(root))
+    except Exception:
+        gravity = {"history_weight": 0.0, "hard_constraints": [], "soft_warnings": []}
+        architect_trigger = {"should_trigger": False, "reasons": []}
     report_exists = (root / ".aiwf" / "reports" / "闭合报告.md").exists()
     drift_path = root / ".aiwf" / "internal" / "workspace-drift.json"
     drift_legacy = root / ".aiwf" / "workspace-drift.json"  # legacy pre-v2 flat path
@@ -184,6 +191,25 @@ def cmd_status(args) -> None:
         print(f"  Quality digest:   clear" if (root / ".aiwf" / "reports" / "质量摘要.md").exists() else "  Quality digest:   none")
     print()
 
+    print("── Gravity ──")
+    print(
+        f"  Weight:   {gravity.get('history_weight', 0.0):.2f} "
+        f"(historical pressure only; it never lowers the selected workflow)"
+    )
+    print(f"  Minimum:  {gravity.get('suggested_min_level') or 'none'}")
+    hard = gravity.get("hard_constraints", []) or []
+    soft = gravity.get("soft_warnings", []) or []
+    print(f"  Gates:    {len(hard)} hard / {len(soft)} advisory")
+    for item in hard[:3]:
+        print(f"  BLOCKS:   [{item.get('kind', '?')}] {item.get('message', '')}")
+    for item in soft[:2]:
+        print(f"  WATCH:    [{item.get('kind', '?')}] {item.get('message', '')}")
+    if architect_trigger.get("should_trigger"):
+        print(f"  Architect due before next ordinary task: {'; '.join(architect_trigger.get('reasons', [])[:3])}")
+    else:
+        print("  Architect: not currently due")
+    print()
+
     from ..core.process_contract import planner_process_guidance
     guidance = planner_process_guidance(str(root))
     print("── Planner Process Guidance ──")
@@ -202,6 +228,10 @@ def cmd_status(args) -> None:
         print(f"  REQUIRED: {item}")
     for item in guidance.get("conditional", [])[:3]:
         print(f"  WHEN TRIGGERED: {item}")
+    freeze_reasons = guidance.get("contract_freeze_reasons", [])
+    if freeze_reasons:
+        print(f"  CONTRACT FROZEN BY: {', '.join(freeze_reasons)}")
+        print("  UNLOCK: satisfy/revert the failing cycle and close it; additions and evidence remain allowed")
     if not guidance.get("required_now"):
         print("  REQUIRED: No unresolved mandatory step detected.")
     print()

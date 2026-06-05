@@ -140,13 +140,16 @@ TEST_CONTRACTS = {
     },
     "regression_plus_boundary_adverse": {
         "purpose": "Protect changed behavior and nearby system behavior",
-        "required": ["regression", "boundary", "adverse input/error path", "changed-file coverage"],
+        "required": ["targeted validation", "full project regression disposition", "real user-facing entrypoint disposition",
+                     "boundary", "adverse input/error path", "changed-file coverage"],
         "not_required": ["full architecture risk matrix unless risk found"],
         "escalation_if": ["security/data/hardware risk", "cross-module semantics"],
     },
     "risk_matrix_plus_integration_adversarial": {
         "purpose": "High-risk validation",
-        "required": ["risk matrix", "integration path", "adversarial/error path", "regression", "deferred risks"],
+        "required": ["risk matrix", "targeted validation", "full project regression disposition",
+                     "real user-facing entrypoint disposition", "integration path",
+                     "adversarial/error path", "regression", "deferred risks"],
         "not_required": ["none; if not testable, document manual/deferred risk"],
         "escalation_if": ["user decision needed", "architecture decision unresolved"],
     },
