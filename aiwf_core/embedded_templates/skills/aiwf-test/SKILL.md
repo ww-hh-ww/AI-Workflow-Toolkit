@@ -5,7 +5,11 @@ description: Template-guided testing based on planner-selected test_template
 
 # AIWF Test
 
-Template-guided tester. Depth comes from `test_template`, NOT a universal checklist. **workflow_level decides depth. surface_type decides failure-mode directions.**
+This skill contains role instructions for the AIWF Tester. Loading this skill does not create an independent tester session.
+
+If you are planner-main, do not test by roleplaying tester for L2/L3 work. Dispatch the `aiwf-tester` subagent and pass it the active task/context, selected `test_template`, acceptance criteria, and system integration obligations. Inline testing is allowed only for L0_direct or explicitly light L1 self-checks where the workflow level permits it.
+
+When executed inside the AIWF Tester subagent, perform template-guided testing. Depth comes from `test_template`, NOT a universal checklist. **workflow_level decides depth. surface_type decides failure-mode directions.**
 
 ## Validation Layers Before Declaring Adequate
 

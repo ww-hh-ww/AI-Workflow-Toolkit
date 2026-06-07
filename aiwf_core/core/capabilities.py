@@ -7,7 +7,7 @@ import json, os, re
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from .paths import CAPABILITIES_JSON
+from .paths import CAPABILITIES_JSON, CAPABILITY_DECISIONS_JSON
 
 DANGEROUS_WORDS = ["deploy", "publish", "push", "commit", "delete", "rm ", "sudo",
                     "secret", "token", "password", "destroy", "drop", "truncate",
@@ -296,3 +296,95 @@ def load_capabilities_registry(project_root: str) -> Dict:
     if not path.exists(): return {"schema_version": 1, "capabilities": []}
     try: return json.loads(path.read_text(encoding="utf-8"))
     except: return {"schema_version": 1, "capabilities": []}
+
+
+def _state_path(project_root: str) -> Path:
+    return Path(project_root) / ".aiwf" / "state" / "state.json"
+
+
+def _read_json(path: Path, default: Dict[str, Any]) -> Dict[str, Any]:
+    try:
+        return json.loads(path.read_text(encoding="utf-8")) if path.exists() else default
+    except Exception:
+        return default
+
+
+def _write_json(path: Path, data: Dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def mark_capability_planned(project_root: str, capability_id: str) -> Dict[str, Any]:
+    """Mark an external capability as intended for use in the current cycle."""
+    path = _state_path(project_root)
+    state = _read_json(path, {})
+    planned = [str(cid) for cid in state.get("planned_capability_ids", []) or [] if str(cid)]
+    if capability_id not in planned:
+        planned.append(capability_id)
+    state["planned_capability_ids"] = planned
+    _write_json(path, state)
+    return state
+
+
+def capability_decisions_path(project_root: str) -> Path:
+    return Path(project_root) / CAPABILITY_DECISIONS_JSON
+
+
+def load_capability_decisions(project_root: str) -> Dict[str, Any]:
+    data = _read_json(capability_decisions_path(project_root), {"schema_version": 1, "decisions": []})
+    if not isinstance(data.get("decisions"), list):
+        data["decisions"] = []
+    data.setdefault("schema_version", 1)
+    return data
+
+
+def record_capability_decision(project_root: str, capability_id: str, decision: str, decided_by: str = "planner") -> Dict[str, Any]:
+    """Record an explicit Planner decision allowing or rejecting lifecycle-overlap capability use."""
+    from datetime import datetime, timezone
+    if not decision.strip():
+        raise ValueError("capability decision text is required")
+    data = load_capability_decisions(project_root)
+    entry = {
+        "capability_id": capability_id,
+        "decision": decision,
+        "decided_by": decided_by,
+        "recorded_at": datetime.now(timezone.utc).isoformat(),
+    }
+    data["decisions"].append(entry)
+    _write_json(capability_decisions_path(project_root), data)
+    return entry
+
+
+def _capability_by_id(registry: Dict[str, Any], capability_id: str) -> Dict[str, Any]:
+    for cap in registry.get("capabilities", []) or []:
+        if cap.get("id") == capability_id:
+            return cap
+    return {}
+
+
+def capability_use_blockers(project_root: str) -> List[str]:
+    """Block only planned lifecycle-overlap capabilities that lack explicit decision."""
+    state = _read_json(_state_path(project_root), {})
+    planned = [str(cid) for cid in state.get("planned_capability_ids", []) or [] if str(cid)]
+    if not planned:
+        return []
+    registry = load_capabilities_registry(project_root)
+    decisions = load_capability_decisions(project_root).get("decisions", []) or []
+    decided = {
+        str(d.get("capability_id"))
+        for d in decisions
+        if str(d.get("decision", "")).strip()
+    }
+    blockers: List[str] = []
+    for capability_id in planned:
+        cap = _capability_by_id(registry, capability_id)
+        if not cap:
+            blockers.append(
+                f"planned external capability not found in registry: {capability_id}; run aiwf capability scan"
+            )
+            continue
+        if cap.get("lifecycle_overlap") and cap.get("use_policy") == "requires_user_decision" and capability_id not in decided:
+            blockers.append(
+                f"planned lifecycle-overlap capability requires explicit Planner decision before execution: {capability_id}"
+            )
+    return blockers

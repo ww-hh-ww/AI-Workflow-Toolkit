@@ -139,6 +139,11 @@ Task plan artifact 与 PROJECT-MAP 分工不同：
 
 外部研究和社区工作流先进入低信任区：`aiwf research record` 记录 claims，`aiwf research promote` 才能把 Planner 认可的部分变成决策输入。`aiwf capability scan` 会标记外部技能是否重叠 AIWF 生命周期；重叠能力只能辅助对应阶段，不能替代 AIWF 的状态、证据、测试、审查和闭合门。
 
+两类外部治理是硬门禁：
+
+- 如果 Planner 设置 `external_research_required=true`，执行激活前必须有 promoted research，或用 `aiwf research skip --reason "..."` 记录显式跳过理由。
+- 如果 Planner 用 `aiwf capability plan-use <ID>` 标记将使用生命周期重叠能力，执行激活前必须用 `aiwf capability decide <ID> --decision "..."` 记录决策。仅仅扫描到高风险能力不会阻塞项目。
+
 ## 常用命令
 
 ```bash
@@ -149,6 +154,8 @@ aiwf plan create        # 创建 task plan artifact
 aiwf recipe recommend   # 获取 advisory workflow recipe
 aiwf research record    # 记录低信任外部研究
 aiwf capability scan    # 归类外部 skills/hooks/MCP/commands
+aiwf capability plan-use # 标记将使用某个外部能力
+aiwf capability decide   # 为生命周期重叠能力记录 Planner 决策
 aiwf export-report      # 生成闭合报告
 aiwf checkpoint list    # 查看回滚检查点
 ```

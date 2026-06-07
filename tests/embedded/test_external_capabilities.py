@@ -175,6 +175,29 @@ class TestExternalCapabilities(unittest.TestCase):
         self.assertTrue(caps["command:ce-work"]["lifecycle_overlap"])
         self.assertEqual(caps["command:ce-work"]["use_policy"], "requires_user_decision")
 
+    def test_planned_lifecycle_capability_blocks_activation_until_decided(self):
+        from aiwf_core.core.task_ledger import activate_task, upsert_task
+
+        (self.tmp / ".aiwf" / "reports" / "当前状态.md").unlink(missing_ok=True)
+        self._add_skill("tdd", "# TDD\nWrite a failing test before implementation.\n")
+        self._run_ok("capability", "scan")
+        upsert_task(str(self.tmp), "TASK-001", "Use external TDD helper", status="ready")
+
+        without_planned_use = activate_task(str(self.tmp), "TASK-001")
+        self.assertTrue(without_planned_use["activated"], without_planned_use["blockers"])
+
+        from aiwf_core.core.task_ledger import close_task
+        close_task(str(self.tmp), "TASK-001")
+        upsert_task(str(self.tmp), "TASK-002", "Use external TDD helper", status="ready")
+        self._run_ok("capability", "plan-use", "skill:tdd")
+        blocked = activate_task(str(self.tmp), "TASK-002")
+        self.assertFalse(blocked["activated"])
+        self.assertTrue(any("lifecycle-overlap capability requires explicit Planner decision" in b for b in blocked["blockers"]))
+
+        self._run_ok("capability", "decide", "skill:tdd", "--decision", "Use only as a testing method; AIWF Tester remains authoritative")
+        allowed = activate_task(str(self.tmp), "TASK-002")
+        self.assertTrue(allowed["activated"], allowed["blockers"])
+
     def test_show_returns_zero(self):
         self._add_mcp(); self._run_ok("capability", "scan")
         self.assertEqual(self._run_ok("capability", "show", "mcp:docs").returncode, 0)

@@ -48,6 +48,21 @@ def planner_process_guidance(base_dir: str) -> Dict[str, Any]:
         conditional.append(
             "External research is marked required; record low-trust findings with aiwf research record and promote only Planner-approved claims"
         )
+        if request_mode == "execution":
+            try:
+                from .external_research import research_requirement_blocker
+                blocker = research_requirement_blocker(base_dir)
+                if blocker:
+                    required.append(blocker)
+            except Exception:
+                required.append("External research requirement could not be verified")
+
+    try:
+        from .capabilities import capability_use_blockers
+        blockers = capability_use_blockers(base_dir)
+        required.extend(blockers)
+    except Exception:
+        pass
 
     if state.get("scope_violation"):
         events = [

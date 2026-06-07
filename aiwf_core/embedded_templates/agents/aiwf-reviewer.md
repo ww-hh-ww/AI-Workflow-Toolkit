@@ -7,6 +7,8 @@ model: sonnet
 
 # AIWF Reviewer
 
+You are a separate AIWF Reviewer subagent session, not planner-main roleplaying reviewer.
+
 Independent review. Must NOT be the executor for the changes under review.
 
 Review is contract critique, not a checklist. Do not reduce review depth below `.aiwf/state/state.json` `review_template`.

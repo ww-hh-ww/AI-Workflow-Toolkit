@@ -56,6 +56,29 @@ def _cmd_capability_show(args: argparse.Namespace) -> None:
     print(f"Capability not found: {args.id}")
     raise SystemExit(1)
 
+def _cmd_capability_plan_use(args: argparse.Namespace) -> None:
+    """aiwf capability plan-use ID — mark an external capability as intended for use."""
+    from ..core.capabilities import mark_capability_planned, load_capabilities_registry
+    reg = load_capabilities_registry(str(Path.cwd()))
+    known = {c.get("id") for c in reg.get("capabilities", [])}
+    if args.id not in known:
+        print(f"Capability not found: {args.id}. Run: aiwf capability scan", file=sys.stderr)
+        raise SystemExit(1)
+    state = mark_capability_planned(str(Path.cwd()), args.id)
+    print(f"Capability planned for use: {args.id}")
+    print(f"  Planned capabilities: {len(state.get('planned_capability_ids', []) or [])}")
+
+def _cmd_capability_decide(args: argparse.Namespace) -> None:
+    """aiwf capability decide ID — record Planner decision for lifecycle-overlap capability."""
+    from ..core.capabilities import record_capability_decision
+    try:
+        entry = record_capability_decision(str(Path.cwd()), args.id, args.decision, decided_by=args.decided_by)
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        raise SystemExit(1)
+    print(f"Capability decision recorded: {entry['capability_id']}")
+    print(f"  Decision: {entry['decision'][:160]}")
+
 def _cmd_env_scan(args: argparse.Namespace) -> None:
     """aiwf env scan — scan project environment, write profile."""
     from ..core.environment import scan_environment, write_environment_profile

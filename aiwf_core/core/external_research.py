@@ -16,7 +16,7 @@ def _path(base_dir: str) -> Path:
 
 
 def default_research() -> Dict:
-    return {"schema_version": 1, "records": []}
+    return {"schema_version": 1, "records": [], "skip": {}}
 
 
 def load_research(base_dir: str) -> Dict:
@@ -29,6 +29,8 @@ def load_research(base_dir: str) -> Dict:
         return default_research()
     if not isinstance(data.get("records"), list):
         data["records"] = []
+    if not isinstance(data.get("skip"), dict):
+        data["skip"] = {}
     data.setdefault("schema_version", 1)
     return data
 
@@ -90,3 +92,34 @@ def list_research(base_dir: str, include_promoted: bool = True) -> List[Dict]:
     if include_promoted:
         return records
     return [r for r in records if r.get("status") != "promoted"]
+
+
+def promoted_research_records(base_dir: str) -> List[Dict]:
+    return [r for r in load_research(base_dir).get("records", []) if r.get("status") == "promoted"]
+
+
+def record_research_skip(base_dir: str, reason: str, decided_by: str = "planner") -> Dict:
+    if not reason.strip():
+        raise ValueError("research skip reason is required")
+    data = load_research(base_dir)
+    data["skip"] = {
+        "status": "skipped",
+        "reason": reason,
+        "decided_by": decided_by,
+        "recorded_at": _now(),
+    }
+    save_research(base_dir, data)
+    return data["skip"]
+
+
+def research_requirement_blocker(base_dir: str) -> str:
+    data = load_research(base_dir)
+    if any(r.get("status") == "promoted" for r in data.get("records", [])):
+        return ""
+    skip = data.get("skip", {}) or {}
+    if skip.get("status") == "skipped" and str(skip.get("reason", "")).strip():
+        return ""
+    return (
+        "external_research_required=true but no promoted research or explicit skip decision; "
+        "run aiwf research promote <ID> --decision '...' or aiwf research skip --reason '...'"
+    )

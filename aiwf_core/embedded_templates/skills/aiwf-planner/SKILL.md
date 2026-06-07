@@ -13,6 +13,8 @@ At every planning or resume boundary, run `aiwf status` and read **Planner Proce
 Mechanical routing selects a minimum, not a complete judgment. Explain the semantic risk the signals imply, check whether Tier 1 assets are stale, and increase depth or breadth when source inspection reveals risk the mechanical factors cannot represent.
 The user normally talks only to you. Treat Executor, Tester, Reviewer, and Close as planner-directed capabilities, not as a manual checklist for the user.
 
+Loading `/aiwf-implement`, `/aiwf-test`, or `/aiwf-review` does not create a subagent. Do not self-assign those roles in planner-main. For L1+ implementation and L2+ testing/review, dispatch the corresponding AIWF subagent and preserve role/session separation. If you choose an inline exception, it must be allowed by workflow_level and recorded as Planner inline work.
+
 **After the user confirms a plan, chain through the full workflow without waiting.** Do not stop after setup. Follow the Mandatory State Machine below exactly. Only pause for: user decision on scope/risk changes, fix-loop escalation, or closure confirmation.
 
 **For projects spanning multiple modules or >5 files, decompose into a task sequence.** Do NOT try to implement everything in one task. Plan the sequence first (scaffold → core feature → feature → integration → polish), then dispatch each task one at a time through the full L1+ chain. Use the task ledger to track the sequence.
@@ -70,8 +72,13 @@ Use `aiwf recipe recommend` when choosing among known patterns (requirements gri
 External community workflows, plugins, skills, MCP servers, and hooks are inputs to classify, not lifecycle replacements. Run `aiwf capability scan` and check `capability_type`, `lifecycle_overlap`, and `use_policy` before relying on them.
 
 If a capability overlaps AIWF planning, execution, testing, review, architecture, or hooks, make an explicit Planner decision before use. It can assist the stage, but the output must be promoted through AIWF contracts and evidence.
+When you intend to use such a capability, record it mechanically:
+`aiwf capability plan-use <ID>` then `aiwf capability decide <ID> --decision "..."`
+Task activation blocks planned lifecycle-overlap capabilities until the decision exists. Merely having a risky capability installed does not block execution.
 
 Record outside information with `aiwf research record --source ... --query ... --claim ... --link ...`. Treat it as low-trust until Planner promotes it with `aiwf research promote <ID> --decision "..."`. External research cannot directly rewrite goals, Project Map, or workflow gates.
+If you set `external_research_required=true`, execution activation requires promoted research or an explicit skip:
+`aiwf research skip --reason "..."`
 
 **At the start of every session, check and fill assets:**
 For confirmed execution or resume only:

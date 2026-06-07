@@ -64,6 +64,51 @@ class TestExternalResearch(unittest.TestCase):
         self.assertTrue(guidance["external_research_required"])
         self.assertTrue(any("External research is marked required" in c for c in guidance["conditional"]))
 
+    def test_required_external_research_blocks_execution_activation_until_promoted(self):
+        from aiwf_core.core.task_ledger import activate_task, upsert_task
+
+        (self.tmp / ".aiwf" / "reports" / "当前状态.md").unlink(missing_ok=True)
+        self._run_ok(
+            "state", "set-workflow-mode",
+            "--request-mode", "execution",
+            "--workflow-pattern", "research_first",
+            "--external-research-required",
+        )
+        upsert_task(str(self.tmp), "TASK-001", "Needs research", status="ready")
+
+        blocked = activate_task(str(self.tmp), "TASK-001")
+        self.assertFalse(blocked["activated"])
+        self.assertTrue(any("external_research_required=true" in b for b in blocked["blockers"]))
+
+        out = self._run_ok(
+            "research", "record",
+            "--source", "web",
+            "--query", "library current behavior",
+            "--claim", "Current API changed recently",
+        ).stdout
+        research_id = out.split("External research recorded: ")[1].splitlines()[0].strip()
+        self._run_ok("research", "promote", research_id, "--decision", "Use current API behavior in execution contract")
+
+        allowed = activate_task(str(self.tmp), "TASK-001")
+        self.assertTrue(allowed["activated"], allowed["blockers"])
+
+    def test_required_external_research_allows_explicit_skip(self):
+        from aiwf_core.core.task_ledger import activate_task, upsert_task
+
+        (self.tmp / ".aiwf" / "reports" / "当前状态.md").unlink(missing_ok=True)
+        self._run_ok(
+            "state", "set-workflow-mode",
+            "--request-mode", "execution",
+            "--workflow-pattern", "linear",
+            "--external-research-required",
+        )
+        upsert_task(str(self.tmp), "TASK-001", "Skip research", status="ready")
+        self.assertFalse(activate_task(str(self.tmp), "TASK-001")["activated"])
+
+        self._run_ok("research", "skip", "--reason", "User supplied authoritative local source; external search would add no signal")
+        allowed = activate_task(str(self.tmp), "TASK-001")
+        self.assertTrue(allowed["activated"], allowed["blockers"])
+
 
 if __name__ == "__main__":
     unittest.main()

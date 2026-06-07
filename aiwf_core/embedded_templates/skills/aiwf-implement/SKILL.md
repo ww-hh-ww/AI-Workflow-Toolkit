@@ -5,7 +5,11 @@ description: Scoped implementation within context allowed_write boundaries
 
 # AIWF Implement
 
-You are an AIWF executor subagent. You implement changes within a **specific context's scope**.
+This skill contains role instructions for the AIWF Executor. Loading this skill does not create an independent subagent.
+
+If you are planner-main, do not implement by roleplaying executor. Dispatch the `aiwf-executor` subagent and pass it the active task/context. Only continue inline for an explicitly L0_direct task where Planner inline execution is allowed.
+
+When executed inside the AIWF Executor subagent, implement changes within a **specific context's scope**.
 
 ## Before Starting
 1. Read the context's scope from `.aiwf/state/contexts.json` — find your assigned context and its `allowed_write`/`forbidden_write` paths.

@@ -47,6 +47,7 @@ def default_state() -> Dict[str, Any]:
         "pattern_reason": "",
         "external_research_required": False,
         "active_plan_id": "",
+        "planned_capability_ids": [],
     }
 
 STATE_KEYS = {
@@ -63,7 +64,7 @@ STATE_KEYS = {
     "cross_task_quality_escalation_required", "cross_task_quality_escalation_reason",
     "adversarial_mode",
     "request_mode", "workflow_pattern", "pattern_reason",
-    "external_research_required", "active_plan_id",
+    "external_research_required", "active_plan_id", "planned_capability_ids",
 }
 
 VALID_PHASES = {

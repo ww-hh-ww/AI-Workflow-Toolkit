@@ -118,6 +118,33 @@ class TestAgentWrapperAlignment(unittest.TestCase):
             for needle in required:
                 self.assertIn(needle, content)
 
+    def test_role_skills_forbid_planner_roleplay(self):
+        for skill_name, role in {
+            "aiwf-implement": "executor",
+            "aiwf-test": "tester",
+            "aiwf-review": "reviewer",
+        }.items():
+            content = self._claude_skill(skill_name)
+            self.assertIn("does not create an independent", content)
+            self.assertIn("planner-main", content)
+            self.assertIn("roleplaying", content)
+            self.assertIn(role, content.lower())
+
+            reasonix_content = self._reasonix_skill(skill_name)
+            self.assertIn("does not create an independent", reasonix_content)
+            self.assertIn("planner-main", reasonix_content)
+            self.assertIn("roleplaying", reasonix_content)
+
+    def test_claude_agents_declare_separate_subagent_session(self):
+        for agent_name, role in {
+            "aiwf-executor": "Executor",
+            "aiwf-tester": "Tester",
+            "aiwf-reviewer": "Reviewer",
+        }.items():
+            content = self._claude_agent(agent_name)
+            self.assertIn(f"separate AIWF {role} subagent session", content)
+            self.assertIn("not planner-main roleplaying", content)
+
     def test_claude_agents_do_not_conflict_with_shared_skills(self):
         executor_agent = self._claude_agent("aiwf-executor")
         executor_skill = self._claude_skill("aiwf-implement")

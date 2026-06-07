@@ -26,7 +26,8 @@ from .plan_commands import (
     _cmd_plan_summarize, _cmd_plan_update,
 )
 from .quality_commands import (
-    _cmd_capability_list, _cmd_capability_scan, _cmd_capability_show,
+    _cmd_capability_decide, _cmd_capability_list, _cmd_capability_plan_use,
+    _cmd_capability_scan, _cmd_capability_show,
     _cmd_env_help, _cmd_env_scan, _cmd_env_show, _cmd_quality_digest, _cmd_quality_help,
     _cmd_quality_surface, _cmd_quality_surfaces, _cmd_workspace_scan,
 )
@@ -35,6 +36,7 @@ from .recipe_commands import (
 )
 from .research_commands import (
     _cmd_research_help, _cmd_research_list, _cmd_research_promote, _cmd_research_record,
+    _cmd_research_skip,
 )
 from .state_commands import (
     _cmd_cleanup_check, _cmd_disposition_adversarial, _cmd_mark_cleanup_fresh,
@@ -265,6 +267,14 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
     p_cap_show = p_cap_sub.add_parser("show", help="show one capability")
     p_cap_show.add_argument("id", help="capability ID")
     p_cap_show.set_defaults(func=_cmd_capability_show)
+    p_cap_use = p_cap_sub.add_parser("plan-use", help="mark an external capability as intended for current-cycle use")
+    p_cap_use.add_argument("id", help="capability ID")
+    p_cap_use.set_defaults(func=_cmd_capability_plan_use)
+    p_cap_dec = p_cap_sub.add_parser("decide", help="record Planner decision for lifecycle-overlap capability use")
+    p_cap_dec.add_argument("id", help="capability ID")
+    p_cap_dec.add_argument("--decision", required=True, help="Planner decision allowing/rejecting this capability use")
+    p_cap_dec.add_argument("--decided-by", default="planner", help="who made the decision")
+    p_cap_dec.set_defaults(func=_cmd_capability_decide)
     p_cap.set_defaults(func=_cmd_capability_scan)
     # ── recipes ──
     p_recipe = sub.add_parser("recipe", help="workflow recipes (list, show, recommend)")
@@ -297,6 +307,10 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
     p_xp.add_argument("--decision", required=True, help="Planner decision using this research")
     p_xp.add_argument("--promoted-by", default="planner", help="who promoted it")
     p_xp.set_defaults(func=_cmd_research_promote)
+    p_xs = p_research_sub.add_parser("skip", help="explicitly skip required external research")
+    p_xs.add_argument("--reason", required=True, help="why external research is intentionally skipped")
+    p_xs.add_argument("--decided-by", default="planner", help="who made the skip decision")
+    p_xs.set_defaults(func=_cmd_research_skip)
     p_research.set_defaults(func=_cmd_research_help)
     # ── env ──
     p_env = sub.add_parser("env", help="project environment profile (scan, show)")

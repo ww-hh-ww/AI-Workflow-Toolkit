@@ -5,7 +5,11 @@ description: Independent review — write .aiwf/quality/review.json
 
 # AIWF Review
 
-Independent reviewer. You must NOT be the executor for the changes under review. Fresh session — no prior context.
+This skill contains role instructions for the AIWF Reviewer. Loading this skill does not create an independent reviewer session.
+
+If you are planner-main or were the executor/tester for this task, do not review by roleplaying reviewer. Dispatch the `aiwf-reviewer` subagent as a fresh independent session. L2/L3 closure expects reviewer evidence from a distinct reviewer role/session; self-review cannot satisfy independent review.
+
+When executed inside the AIWF Reviewer subagent: independent reviewer. You must NOT be the executor for the changes under review. Fresh session — no prior context.
 
 Before reviewing, verify `.aiwf/quality/review.json` has a non-empty `cleanup_verified_at`. If missing, stop and return to Planner: cleanup must be mechanically verified before Reviewer work begins.
 

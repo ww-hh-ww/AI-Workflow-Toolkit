@@ -28,6 +28,7 @@ EXTERNAL_RESEARCH_JSON = ".aiwf/research/external.json"
 
 # Root-level (flat)
 CAPABILITIES_JSON = ".aiwf/assets/capabilities.json"
+CAPABILITY_DECISIONS_JSON = ".aiwf/assets/capability-decisions.json"
 WORKSPACE_DRIFT_JSON = ".aiwf/internal/workspace-drift.json"
 BASELINE_JSON = ".aiwf/internal/baseline.json"
 
@@ -63,4 +64,5 @@ LEGACY_MAP = {
     "baseline.json": BASELINE_JSON,
     "ideas.md": IDEAS_MD,
     "external-research.json": EXTERNAL_RESEARCH_JSON,
+    "capability-decisions.json": CAPABILITY_DECISIONS_JSON,
 }

@@ -349,6 +349,19 @@ def activation_blockers(base_dir: str, task_id: str) -> List[str]:
             blockers.append(mode_blocker)
     except Exception:
         pass
+    if state.get("external_research_required") and state.get("request_mode", "execution") == "execution":
+        try:
+            from .external_research import research_requirement_blocker
+            research_blocker = research_requirement_blocker(base_dir)
+            if research_blocker:
+                blockers.append(research_blocker)
+        except Exception:
+            blockers.append("external research requirement could not be verified")
+    try:
+        from .capabilities import capability_use_blockers
+        blockers.extend(capability_use_blockers(base_dir))
+    except Exception:
+        pass
     if state.get("scope_violation"):
         blockers.append(
             "scope violation remains recorded; revert the originally violating files, then run "
@@ -411,6 +424,7 @@ def suspend_task(base_dir: str, task_id: str, note: str = "") -> Dict[str, Any]:
         "task_type", "test_template", "review_template", "exploration_budget",
         "cleanup_policy", "git_policy", "request_mode", "workflow_pattern",
         "pattern_reason", "external_research_required", "active_plan_id",
+        "planned_capability_ids",
     ]
     task["status"] = "suspended"
     task["suspended_at"] = _now()
