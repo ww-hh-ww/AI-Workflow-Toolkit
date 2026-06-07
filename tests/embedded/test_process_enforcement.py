@@ -236,8 +236,66 @@ class TestProcessEnforcement(unittest.TestCase):
         guidance = planner_process_guidance(str(self.tmp))
         self.assertEqual(guidance["workflow_level"], "L1_review_light")
         self.assertTrue(any("activate one task" in x for x in guidance["required_now"]))
+        self.assertEqual(guidance["recovery"]["state"], "blocked")
+        self.assertEqual(guidance["recovery"]["category"], "missing_step")
+        self.assertEqual(guidance["recovery"]["primary"], "plan and activate one scoped task")
         self.assertTrue(any("Explorer" in x for x in guidance["advisory"]))
         self.assertTrue(any("minimum depth" in x for x in guidance["advisory"]))
+
+    def test_recovery_guidance_for_missing_l2_tester(self):
+        from aiwf_core.core.process_contract import planner_process_guidance
+        from aiwf_core.core.task_ledger import activate_task, upsert_task
+        self._set_l2()
+        upsert_task(str(self.tmp), "TASK-REC", "Needs tester", status="ready")
+        self.assertTrue(activate_task(str(self.tmp), "TASK-REC")["activated"])
+
+        recovery = planner_process_guidance(str(self.tmp))["recovery"]
+
+        self.assertEqual(recovery["state"], "blocked")
+        self.assertEqual(recovery["category"], "missing_step")
+        self.assertEqual(recovery["owner"], "tester")
+        self.assertEqual(recovery["primary"], "dispatch independent Tester")
+        self.assertFalse(recovery["user_decision_required"])
+        self.assertTrue(any("roleplay Tester" in item for item in recovery["forbidden"]))
+
+    def test_recovery_guidance_for_review_before_cleanup(self):
+        from aiwf_core.core.process_contract import planner_process_guidance
+        from aiwf_core.core.task_ledger import activate_task, upsert_task
+        self._set_l2()
+        _write(self.tmp / ".aiwf" / "quality" / "testing.json", {
+            "status": "adequate",
+            "commands": ["pytest"],
+            "full_suite_status": "passed",
+            "real_usage_status": "passed",
+        })
+        upsert_task(str(self.tmp), "TASK-CLEAN", "Needs cleanup", status="ready")
+        self.assertTrue(activate_task(str(self.tmp), "TASK-CLEAN")["activated"])
+
+        recovery = planner_process_guidance(str(self.tmp))["recovery"]
+
+        self.assertEqual(recovery["category"], "wrong_order")
+        self.assertEqual(recovery["owner"], "planner")
+        self.assertEqual(recovery["primary"], "verify cleanup before Reviewer")
+        self.assertTrue(any("cleanup" in item for item in recovery["forbidden"]))
+
+    def test_recovery_guidance_for_pending_adversarial_disposition(self):
+        from aiwf_core.core.process_contract import planner_process_guidance
+        from aiwf_core.core.task_ledger import activate_task, upsert_task
+        self._set_l2()
+        self._seed_complete_quality_chain()
+        review_path = self.tmp / ".aiwf" / "quality" / "review.json"
+        review = json.loads(review_path.read_text())
+        review["adversarial_observations"] = [{"id": "ADV-1", "disposition": "pending"}]
+        _write(review_path, review)
+        upsert_task(str(self.tmp), "TASK-ADV", "Needs meta", status="ready")
+        self.assertTrue(activate_task(str(self.tmp), "TASK-ADV")["activated"])
+
+        recovery = planner_process_guidance(str(self.tmp))["recovery"]
+
+        self.assertEqual(recovery["category"], "missing_step")
+        self.assertEqual(recovery["owner"], "planner")
+        self.assertEqual(recovery["primary"], "disposition adversarial observations")
+        self.assertTrue(any("prepare-close" in item for item in recovery["forbidden"]))
 
     def test_planner_guidance_reports_stale_tier1_assets(self):
         from aiwf_core.assets.schema import init_assets

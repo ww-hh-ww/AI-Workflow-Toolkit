@@ -80,6 +80,8 @@ class TestHooks(unittest.TestCase):
         self.assertIn("[AIWF]", ctx)
         self.assertIn("Phase:", ctx)
         self.assertIn("Process:", ctx)
+        self.assertIn("Recovery:", ctx)
+        self.assertIn("PRIMARY:", ctx)
         self.assertIn("REQUIRED NEXT:", ctx)
         self.assertLess(len(ctx), 1000)
 

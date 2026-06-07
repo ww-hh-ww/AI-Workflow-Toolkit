@@ -227,6 +227,19 @@ def cmd_status(args) -> None:
         f"review={guidance.get('review_template') or 'not selected'}; "
         f"explore={guidance.get('exploration_budget') or 'not selected'}"
     )
+    recovery = guidance.get("recovery") or {}
+    if recovery and recovery.get("state") != "clear":
+        print(
+            f"  Recovery: {recovery.get('state')} / {recovery.get('category') or 'none'} "
+            f"/ owner={recovery.get('owner') or 'planner'}"
+        )
+        print(f"  PRIMARY: {recovery.get('primary') or 'none'}")
+        for option in (recovery.get("legal_options") or [])[:3]:
+            print(f"  LEGAL:   {option}")
+        if recovery.get("user_decision_required"):
+            print("  USER DECISION REQUIRED")
+        for item in (recovery.get("forbidden") or [])[:2]:
+            print(f"  AVOID:   {item}")
     for item in guidance.get("required_now", [])[:5]:
         print(f"  REQUIRED: {item}")
     for item in guidance.get("conditional", [])[:3]:

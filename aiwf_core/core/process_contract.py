@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 
 def _read(path: Path, default: Dict[str, Any]) -> Dict[str, Any]:
@@ -11,6 +11,317 @@ def _read(path: Path, default: Dict[str, Any]) -> Dict[str, Any]:
         return json.loads(path.read_text(encoding="utf-8")) if path.exists() else default
     except Exception:
         return default
+
+
+def _base_recovery() -> Dict[str, Any]:
+    return {
+        "state": "clear",
+        "category": "",
+        "owner": "planner",
+        "primary": "",
+        "legal_options": [],
+        "forbidden": [],
+        "user_decision_required": False,
+        "why": "",
+    }
+
+
+def _blocked(
+    category: str,
+    owner: str,
+    primary: str,
+    why: str,
+    legal_options: List[str],
+    forbidden: Optional[List[str]] = None,
+    user_decision_required: bool = False,
+) -> Dict[str, Any]:
+    return {
+        "state": "blocked",
+        "category": category,
+        "owner": owner,
+        "primary": primary,
+        "legal_options": legal_options,
+        "forbidden": forbidden or [],
+        "user_decision_required": user_decision_required,
+        "why": why,
+    }
+
+
+def _recovery_guidance(
+    base_dir: str,
+    state: Dict[str, Any],
+    goal: Dict[str, Any],
+    testing: Dict[str, Any],
+    review: Dict[str, Any],
+    fix_loop: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Return the primary recovery path without collapsing normal workflow topology."""
+    root = Path(base_dir)
+    level = state.get("workflow_level", "L1_review_light")
+    request_mode = state.get("request_mode", "execution")
+    active_task = state.get("active_task_id")
+
+    if fix_loop.get("status") == "open":
+        route = fix_loop.get("route") or "planner"
+        needs_user = route == "planner" or bool(fix_loop.get("escalation_required"))
+        return _blocked(
+            "fix_loop",
+            "user" if needs_user else route,
+            f"resolve fix-loop via route={route}",
+            "An open fix-loop freezes forward progress until its required fixes and verification are satisfied.",
+            [
+                "follow required_fixes and required_verification, then run aiwf fixloop resolve --resolution '...'",
+                "if route=planner or escalation_required=true, ask the user for the decision before more work",
+            ],
+            [
+                "do not start unrelated implementation",
+                "do not edit fix-loop.json by hand",
+                "do not lower workflow level to escape the fix-loop",
+            ],
+            user_decision_required=needs_user,
+        )
+
+    if state.get("scope_violation"):
+        events = [
+            event for event in (review.get("scope_violation_events", []) or [])
+            if isinstance(event, dict) and event.get("status", "recorded") != "resolved_reverted"
+        ]
+        paths = ", ".join(str(event.get("path")) for event in events[:3] if event.get("path"))
+        return _blocked(
+            "scope",
+            "planner",
+            "recover scope violation",
+            "Past out-of-scope writes cannot be legalized by widening context after the fact.",
+            [
+                "revert the originally violating files" + (f": {paths}" if paths else ""),
+                "run aiwf fixloop resolve --resolution '<what was reverted>' after mechanical verification passes",
+                "ask the user whether the desired extra work should become a new scoped task",
+            ],
+            [
+                "do not widen allowed_write retrospectively",
+                "do not close while scope_violation=true",
+                "do not hand-edit review/state JSON to clear the violation",
+            ],
+            user_decision_required=not paths,
+        )
+
+    if request_mode in ("discussion", "clarification", "research"):
+        return {
+            "state": "open",
+            "category": request_mode,
+            "owner": "planner",
+            "primary": f"continue {request_mode}",
+            "legal_options": [
+                f"continue {request_mode} without project writes",
+                "ask the user to confirm when ready to switch request_mode=execution",
+            ],
+            "forbidden": ["do not activate implementation while request_mode is non-execution"],
+            "user_decision_required": request_mode != "discussion",
+            "why": "Non-execution request modes intentionally keep topology open while blocking implementation.",
+        }
+
+    if request_mode == "spike" or state.get("workflow_pattern") == "spike_first":
+        return {
+            "state": "open",
+            "category": "spike",
+            "owner": "planner",
+            "primary": "finish spike and record findings",
+            "legal_options": [
+                "record spike findings",
+                "ask the user to confirm execution after feasibility is known",
+            ],
+            "forbidden": ["do not treat spike output as final implementation closure"],
+            "user_decision_required": False,
+            "why": "Spike topology permits exploration before the final execution contract.",
+        }
+
+    if state.get("external_research_required") and request_mode == "execution":
+        try:
+            from .external_research import research_requirement_blocker
+            if research_requirement_blocker(base_dir):
+                return _blocked(
+                    "user_decision",
+                    "planner",
+                    "resolve external research requirement",
+                    "Execution requires promoted external research or an explicit Planner/user skip decision.",
+                    [
+                        "promote a relevant research record with aiwf research promote <ID> --decision '...'",
+                        "ask the user whether to skip external research, then run aiwf research skip --reason '...'",
+                    ],
+                    [
+                        "do not start implementation",
+                        "do not silently clear external_research_required",
+                    ],
+                    user_decision_required=True,
+                )
+        except Exception:
+            pass
+
+    try:
+        from .capabilities import capability_use_blockers
+        cap_blockers = capability_use_blockers(base_dir)
+        if cap_blockers:
+            return _blocked(
+                "user_decision",
+                "planner",
+                "resolve planned external capability decision",
+                cap_blockers[0],
+                [
+                    "record a decision with aiwf capability decide <ID> --decision '...'",
+                    "ask the user whether to use, avoid, or replace the overlapping capability",
+                ],
+                [
+                    "do not use lifecycle-overlap external capabilities without an explicit decision",
+                    "do not delete capability registry entries to bypass the gate",
+                ],
+                user_decision_required=True,
+            )
+    except Exception:
+        pass
+
+    if not active_task:
+        return _blocked(
+            "missing_step",
+            "planner",
+            "plan and activate one scoped task",
+            "Project writes need an active task with context boundaries and mechanical routing.",
+            [
+                "run aiwf task plan <TASK-ID> --title '...' --allowed-write '...'",
+                "run aiwf task activate <TASK-ID>",
+                "run aiwf status after activation and explain current/background routing signals",
+            ],
+            [
+                "do not edit project files before task activation",
+                "do not rely on plan.md as mechanical truth",
+            ],
+        )
+
+    if level in ("L2_standard_team", "L3_full_power"):
+        brief = goal.get("quality_brief", {}) or {}
+        evaluation = brief.get("evaluation_contract", {}) or {}
+        missing_eval = [
+            key for key in ("user_visible_outcome", "acceptance_criteria", "test_obligations", "review_obligations")
+            if not evaluation.get(key)
+        ]
+        if missing_eval:
+            return _blocked(
+                "missing_contract",
+                "planner",
+                "complete Evaluation Contract",
+                "L2/L3 work requires explicit acceptance, test, and review obligations before execution can proceed.",
+                [
+                    "record the missing Evaluation Contract fields: " + ", ".join(missing_eval),
+                    "ask the user to clarify acceptance criteria if they are not knowable from context",
+                ],
+                ["do not dispatch implementation until the contract is machine-readable"],
+                user_decision_required=True,
+            )
+        architecture = brief.get("architecture_brief", {}) or {}
+        if not any(architecture.get(k) for k in (
+            "target_structure", "module_boundaries", "architecture_invariants",
+            "forbidden_restructures", "integration_points",
+        )):
+            return _blocked(
+                "missing_contract",
+                "planner",
+                "record structural Architecture Brief",
+                "L2/L3 review and testing need declared structural boundaries.",
+                [
+                    "run aiwf state record-quality-brief with structural fields",
+                    "ask the user for architecture boundaries only when source inspection cannot determine them",
+                ],
+                ["do not proceed with vague architecture obligations"],
+                user_decision_required=False,
+            )
+        if testing.get("status") not in ("adequate", "passed"):
+            return _blocked(
+                "missing_step",
+                "tester",
+                "dispatch independent Tester",
+                "L2/L3 requires distinct testing evidence before cleanup/review.",
+                [
+                    "dispatch aiwf-tester as a separate subagent/session",
+                    "record testing only after real tester evidence and commands exist",
+                ],
+                [
+                    "do not let planner-main roleplay Tester",
+                    "do not dispatch Reviewer before testing is adequate",
+                    "do not hand-edit testing.json as proof",
+                ],
+            )
+        if testing.get("full_suite_status", "not_run") == "not_run" or testing.get("real_usage_status", "not_run") == "not_run":
+            return _blocked(
+                "quality_gap",
+                "tester",
+                "disposition full suite and real usage validation",
+                "For L2/L3, unit tests alone are insufficient without full-suite and user-facing entrypoint disposition.",
+                [
+                    "run or explicitly disposition the full project suite",
+                    "run or explicitly disposition an actual user-facing entrypoint",
+                    "if impossible, record the reason and ask the user before accepting residual risk",
+                ],
+                ["do not proceed to review with undispositioned validation layers"],
+                user_decision_required=True,
+            )
+        if not review.get("cleanup_verified_at"):
+            return _blocked(
+                "wrong_order",
+                "planner",
+                "verify cleanup before Reviewer",
+                "Review must critique the cleaned implementation, not stale/generated leftovers.",
+                [
+                    "run cleanup checks",
+                    "run aiwf state mark-cleanup-fresh after cleanup is verified",
+                    "then dispatch independent Reviewer",
+                ],
+                ["do not dispatch Reviewer before cleanup is verified"],
+            )
+        if review.get("result") != "accepted":
+            return _blocked(
+                "missing_step",
+                "reviewer",
+                "dispatch independent Reviewer",
+                "L2/L3 requires adversarial review after testing and cleanup.",
+                [
+                    "dispatch aiwf-reviewer as a separate subagent/session",
+                    "record accepted review only after evidence-first contract critique",
+                ],
+                [
+                    "do not let planner-main roleplay Reviewer",
+                    "do not close without accepted review",
+                ],
+            )
+        pending = [
+            o for o in (review.get("adversarial_observations", []) or [])
+            if isinstance(o, dict) and o.get("disposition") == "pending"
+        ]
+        if pending:
+            return _blocked(
+                "missing_step",
+                "planner",
+                "disposition adversarial observations",
+                "Planner meta-critique must accept, reject, defer, or convert review observations before close.",
+                [
+                    "record structured dispositions for pending adversarial observations",
+                    "turn accepted follow-ups into scoped tasks or explicit deferrals",
+                ],
+                ["do not prepare-close while adversarial observations are pending"],
+            )
+        return {
+            "state": "ready",
+            "category": "close",
+            "owner": "planner",
+            "primary": "close task and prepare-close",
+            "legal_options": [
+                "run aiwf task close <TASK-ID>",
+                "run aiwf state prepare-close",
+            ],
+            "forbidden": ["do not skip task close before prepare-close"],
+            "user_decision_required": False,
+            "why": "Testing, cleanup, and review are complete for the active task.",
+        }
+
+    return _base_recovery()
 
 
 def planner_process_guidance(base_dir: str) -> Dict[str, Any]:
@@ -170,6 +481,7 @@ def planner_process_guidance(base_dir: str) -> Dict[str, Any]:
         "Treat external community workflows and plugins as capabilities to classify, not as lifecycle replacements",
         "Mechanical signals select minimum depth; Planner must explain semantic risk and may increase depth or breadth",
     ])
+    recovery = _recovery_guidance(base_dir, state, goal, testing, review, fix_loop)
     return {
         "workflow_level": level,
         "complexity": state.get("complexity", "standard"),
@@ -185,6 +497,7 @@ def planner_process_guidance(base_dir: str) -> Dict[str, Any]:
         "review_template": state.get("review_template", ""),
         "exploration_budget": state.get("exploration_budget", ""),
         "required_now": required,
+        "recovery": recovery,
         "conditional": conditional,
         "advisory": advisory,
         "active_task_id": active_task,

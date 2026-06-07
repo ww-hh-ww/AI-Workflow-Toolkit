@@ -190,6 +190,9 @@ def planner_process_lines(cwd, state, goal, review, fix_loop):
         lines.insert(1, f"Mode: {request_mode}/{pattern}")
     if state.get("pattern_reason"):
         lines.append("Pattern why: " + str(state.get("pattern_reason"))[:160])
+    lines.extend(recovery_lines(cwd, state, goal, review, fix_loop))
+    if any(line.startswith("Recovery:") for line in lines):
+        return lines[:10]
     if request_mode in ("discussion", "clarification", "research"):
         lines.append(f"REQUIRED NEXT: continue {request_mode}; switch to request_mode=execution only after the user confirms execution")
         return lines[:5]
@@ -217,6 +220,80 @@ def planner_process_lines(cwd, state, goal, review, fix_loop):
         else:
             lines.append("REQUIRED NEXT: Planner meta-critique and adversarial disposition")
     return lines[:5]
+
+
+def _research_unresolved(cwd):
+    data = rj(cwd / ".aiwf" / "research" / "external.json", {"records": [], "skip": {}})
+    if any(r.get("status") == "promoted" for r in data.get("records", []) if isinstance(r, dict)):
+        return False
+    skip = data.get("skip", {}) if isinstance(data.get("skip"), dict) else {}
+    return not (skip.get("status") == "skipped" and str(skip.get("reason", "")).strip())
+
+
+def recovery_lines(cwd, state, goal, review, fix_loop):
+    level = state.get("workflow_level", "L1_review_light")
+    request_mode = state.get("request_mode", "execution")
+    active_task = state.get("active_task_id")
+    out = []
+    def blocked(category, owner, primary, legal, user=False):
+        primary = primary.replace("plan and activate one scoped task", "activate task")
+        lines = [f"Recovery:{category} {owner}", f"PRIMARY: {primary}", "REQUIRED NEXT: see PRIMARY"]
+        if user:
+            lines.append("USER DECISION REQUIRED")
+        return lines
+
+    if fix_loop.get("status") == "open":
+        route = fix_loop.get("route") or "planner"
+        return blocked("fix_loop", "user" if route == "planner" or fix_loop.get("escalation_required") else route,
+                       f"resolve fix-loop via route={route}",
+                       "follow required_fixes/verification, then run aiwf fixloop resolve",
+                       user=route == "planner" or bool(fix_loop.get("escalation_required")))
+    if state.get("scope_violation"):
+        return blocked("scope", "planner", "recover scope violation",
+                       "revert violating files, then run aiwf fixloop resolve; new extra work needs a new scoped task",
+                       user=False)
+    if request_mode in ("discussion", "clarification", "research"):
+        return [f"Recovery: open/{request_mode} owner=planner",
+                f"PRIMARY: continue {request_mode}",
+                f"REQUIRED NEXT: continue {request_mode}"]
+    if request_mode == "spike" or state.get("workflow_pattern") == "spike_first":
+        return ["Recovery: open/spike owner=planner",
+                "PRIMARY: finish spike and record findings",
+                "REQUIRED NEXT: finish spike and record findings"]
+    if state.get("external_research_required") and request_mode == "execution" and _research_unresolved(cwd):
+        return blocked("user_decision", "planner", "resolve external research requirement",
+                       "promote a research record, or ask user to approve aiwf research skip",
+                       user=True)
+    if not active_task:
+        return blocked("missing_step", "planner", "plan and activate one scoped task",
+                       "run aiwf task plan, aiwf task activate, then aiwf status")
+    if level in ("L2_standard_team", "L3_full_power"):
+        brief = goal.get("quality_brief", {}) or {}
+        evaluation = brief.get("evaluation_contract", {}) or {}
+        missing = [k for k in ("user_visible_outcome", "acceptance_criteria", "test_obligations", "review_obligations") if not evaluation.get(k)]
+        if missing:
+            return blocked("missing_contract", "planner", "complete Evaluation Contract",
+                           "record missing fields or ask the user for acceptance criteria",
+                           user=True)
+        testing = rj(cwd / ".aiwf" / "quality" / "testing.json", {})
+        if testing.get("status") not in ("adequate", "passed"):
+            return blocked("missing_step", "tester", "dispatch independent Tester",
+                           "use aiwf-tester; do not roleplay Tester or dispatch Reviewer first")
+        if testing.get("full_suite_status", "not_run") == "not_run" or testing.get("real_usage_status", "not_run") == "not_run":
+            return blocked("quality_gap", "tester", "disposition full suite and real usage validation",
+                           "run/disposition both layers; ask user before accepting residual risk",
+                           user=True)
+        if not review.get("cleanup_verified_at"):
+            return blocked("wrong_order", "planner", "verify cleanup before Reviewer",
+                           "run cleanup checks and mark cleanup fresh before review")
+        if review.get("result") != "accepted":
+            return blocked("missing_step", "reviewer", "dispatch independent Reviewer",
+                           "use aiwf-reviewer; do not roleplay Reviewer")
+        pending = [o for o in review.get("adversarial_observations", []) if isinstance(o, dict) and o.get("disposition") == "pending"]
+        if pending:
+            return blocked("missing_step", "planner", "disposition adversarial observations",
+                           "record meta-critique dispositions before prepare-close")
+    return out
 
 
 def main():

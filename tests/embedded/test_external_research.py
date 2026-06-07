@@ -64,6 +64,25 @@ class TestExternalResearch(unittest.TestCase):
         self.assertTrue(guidance["external_research_required"])
         self.assertTrue(any("External research is marked required" in c for c in guidance["conditional"]))
 
+    def test_recovery_guidance_requires_research_promotion_or_user_skip(self):
+        from aiwf_core.core.process_contract import planner_process_guidance
+
+        self._run_ok(
+            "state", "set-workflow-mode",
+            "--request-mode", "execution",
+            "--workflow-pattern", "research_first",
+            "--external-research-required",
+        )
+
+        recovery = planner_process_guidance(str(self.tmp))["recovery"]
+
+        self.assertEqual(recovery["state"], "blocked")
+        self.assertEqual(recovery["category"], "user_decision")
+        self.assertEqual(recovery["primary"], "resolve external research requirement")
+        self.assertTrue(recovery["user_decision_required"])
+        self.assertTrue(any("research skip" in item for item in recovery["legal_options"]))
+        self.assertTrue(any("start implementation" in item for item in recovery["forbidden"]))
+
     def test_required_external_research_blocks_execution_activation_until_promoted(self):
         from aiwf_core.core.task_ledger import activate_task, upsert_task
 
