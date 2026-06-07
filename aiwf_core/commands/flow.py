@@ -218,7 +218,10 @@ def cmd_status(args) -> None:
         f"/ score={guidance['routing_score']}"
     )
     factors = guidance.get("routing_factors", [])
-    print(f"  Why:     {', '.join(factors[:6]) if factors else 'no mechanical routing factors recorded yet'}")
+    background = guidance.get("routing_background_factors", [])
+    print(f"  Current: {', '.join(factors[:6]) if factors else 'no mechanical routing factors recorded yet'}")
+    if background:
+        print(f"  Background pressure: {', '.join(background[:5])} (explain, but not direct score)")
     print(
         f"  Depth:   test={guidance.get('test_template') or 'not selected'}; "
         f"review={guidance.get('review_template') or 'not selected'}; "

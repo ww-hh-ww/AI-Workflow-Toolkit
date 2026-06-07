@@ -180,6 +180,7 @@ def planner_process_guidance(base_dir: str) -> Dict[str, Any]:
         "active_plan_id": state.get("active_plan_id", ""),
         "routing_score": state.get("routing_score", 0),
         "routing_factors": state.get("routing_factors", []) or [],
+        "routing_background_factors": state.get("routing_background_factors", []) or [],
         "test_template": state.get("test_template", ""),
         "review_template": state.get("review_template", ""),
         "exploration_budget": state.get("exploration_budget", ""),

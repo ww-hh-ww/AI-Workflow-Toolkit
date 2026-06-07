@@ -137,6 +137,36 @@ class TestProcessEnforcement(unittest.TestCase):
         self.assertEqual(state["review_template"], "standard_review")
         self.assertEqual(state["exploration_budget"], "asset_first_affected_files")
 
+    def test_historical_pressure_does_not_turn_small_current_task_into_l3(self):
+        from aiwf_core.core.task_ledger import activate_task, upsert_task
+        self._seed_planning_contracts()
+        state_path = self.tmp / ".aiwf" / "state" / "state.json"
+        state = json.loads(state_path.read_text())
+        state["cross_task_quality_escalation_required"] = True
+        _write(state_path, state)
+        _write(self.tmp / ".aiwf" / "state" / "fix-loop.json", {
+            "status": "resolved", "attempt_count": 5, "route": "executor",
+            "required_fixes": [], "verification": [],
+        })
+        upsert_task(
+            str(self.tmp), "TASK-SMALL", "Rename script section labels",
+            status="ready",
+            allowed_write=["scripts/install.sh", "scripts/check.sh"],
+        )
+
+        result = activate_task(str(self.tmp), "TASK-SMALL")
+
+        self.assertTrue(result["activated"], result["blockers"])
+        routed = json.loads(state_path.read_text())
+        self.assertEqual(routed["workflow_level"], "L1_review_light")
+        self.assertEqual(routed["recommended_minimum_level"], "L1_review_light")
+        self.assertIn("semantic_change", routed["routing_factors"])
+        self.assertNotIn("prior_fix_loop", routed["routing_factors"])
+        self.assertNotIn("architecture_impact", routed["routing_factors"])
+        self.assertIn("prior_fix_loop_history", routed["routing_background_factors"])
+        self.assertIn("historical_deferred_risk", routed["routing_background_factors"])
+        self.assertIn("architecture_brief_present", routed["routing_background_factors"])
+
     def test_l2_activation_rejects_missing_planning_contracts(self):
         from aiwf_core.core.task_ledger import activate_task, upsert_task
         self._set_l2()

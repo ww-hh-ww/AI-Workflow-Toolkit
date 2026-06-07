@@ -177,12 +177,15 @@ def planner_process_lines(cwd, state, goal, review, fix_loop):
     """Concise process explanation: why this depth, what role/action is next."""
     level = state.get("workflow_level", "L1_review_light")
     factors = state.get("routing_factors", []) or []
+    background = state.get("routing_background_factors", []) or []
     request_mode = state.get("request_mode", "execution")
     pattern = state.get("workflow_pattern", "linear")
     lines = [
         f"Process: {level} complexity={state.get('complexity', 'standard')} score={state.get('routing_score', 0)}",
-        "Routing why: " + (", ".join(str(f) for f in factors[:5]) if factors else "not mechanically routed yet"),
+        "Routing current: " + (", ".join(str(f) for f in factors[:5]) if factors else "not mechanically routed yet"),
     ]
+    if background:
+        lines.append("Routing background: " + ", ".join(str(f) for f in background[:5]) + " (explain, not direct score)")
     if request_mode != "execution" or pattern != "linear":
         lines.insert(1, f"Mode: {request_mode}/{pattern}")
     if state.get("pattern_reason"):

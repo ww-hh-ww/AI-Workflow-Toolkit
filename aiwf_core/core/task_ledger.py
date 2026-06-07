@@ -180,33 +180,48 @@ def _mechanical_routing_factors(base_dir: str, task: Dict[str, Any]) -> Dict[str
     fix_loop = _read(root / ".aiwf" / "state" / "fix-loop.json", {})
     risk_flags = set(state.get("risk_flags", []) or [])
     non_docs = [p for p in allowed if not p.lower().endswith((".md", ".txt", ".rst"))]
-    return {
+    background = {}
+    if state.get("cross_task_quality_escalation_required"):
+        background["historical_deferred_risk"] = True
+    if fix_loop.get("attempt_count", 0) and fix_loop.get("status") != "open":
+        background["prior_fix_loop_history"] = True
+    if brief.get("target_structure") or brief.get("module_boundaries") or brief.get("forbidden_restructures"):
+        background["architecture_brief_present"] = True
+
+    factors = {
         "cross_module": len(module_roots) > 1,
-        "public_api_change": bool(brief.get("public_api_changes")),
+        "public_api_change": bool(
+            "public_api_change" in risk_flags
+            or "public_api_changes" in risk_flags
+        ),
         "semantic_change": bool(non_docs),
-        "historical_deferred_risk": bool(state.get("cross_task_quality_escalation_required")),
+        # Historical/project pressure is surfaced separately. It should inform Planner
+        # explanation and optional breadth increases, not permanently inflate every
+        # small task into L3.
+        "historical_deferred_risk": False,
         "security_or_data_risk": bool(
             risk_flags & {"security_sensitive", "security_or_data_risk", "data_migration"}
         ),
         "test_matrix_complexity": bool(
-            brief.get("integration_points")
-            or brief.get("architecture_invariants")
-            or brief.get("architecture_risks")
+            "test_matrix_complexity" in risk_flags
+            or (bool(non_docs) and bool(brief.get("integration_points")))
+            or (bool(non_docs) and bool(brief.get("architecture_risks")))
         ),
         "user_decision_needed": bool(state.get("requires_user_decision")),
         "architecture_impact": bool(
-            brief.get("target_structure")
-            or brief.get("module_boundaries")
-            or brief.get("forbidden_restructures")
+            "architecture_impact" in risk_flags
+            or bool(brief.get("integration_points") and len(module_roots) > 1)
         ),
         "prior_fix_loop": bool(
-            fix_loop.get("attempt_count", 0)
-            or state.get("cross_task_quality_escalation_required")
+            fix_loop.get("status") == "open"
+            or "prior_fix_loop" in risk_flags
         ),
         "destructive_command": "destructive_command" in risk_flags,
         "publish_or_deploy": "publish_or_deploy" in risk_flags,
         "data_migration": "data_migration" in risk_flags,
     }
+    factors["_background"] = background
+    return factors
 
 
 def _apply_mechanical_routing(base_dir: str, task: Dict[str, Any]) -> Dict[str, Any]:
@@ -216,6 +231,7 @@ def _apply_mechanical_routing(base_dir: str, task: Dict[str, Any]) -> Dict[str, 
     state = _read(state_path, {})
     factors = _mechanical_routing_factors(base_dir, task)
     from .routing import compute_routing_score
+    background = factors.pop("_background", {}) or {}
     decision = compute_routing_score(factors, file_count=max(len(task.get("allowed_write", []) or []), 1))
 
     recommended = decision["workflow_level"]
@@ -240,6 +256,7 @@ def _apply_mechanical_routing(base_dir: str, task: Dict[str, Any]) -> Dict[str, 
         "workflow_level": final_level,
         "routing_score": decision["routing_score"],
         "routing_factors": decision["routing_factors"],
+        "routing_background_factors": sorted(k for k, v in background.items() if v),
         "routing_reason": "mechanical routing at task activation",
         "quality_policy_reason": "mechanical routing at task activation",
         "test_template": policy["test_template"],

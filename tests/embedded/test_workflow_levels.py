@@ -94,6 +94,7 @@ class TestWorkflowLevels(unittest.TestCase):
     def test_state_has_routing_fields(self):
         from aiwf_core.core.state_schema import default_state
         self.assertIn("routing_score", default_state())
+        self.assertIn("routing_background_factors", default_state())
         self.assertIn("escalation_history", default_state())
 
     def test_cross_semantic_hard_upgrade(self):

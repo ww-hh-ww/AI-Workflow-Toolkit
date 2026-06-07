@@ -23,6 +23,7 @@ def default_state() -> Dict[str, Any]:
         "workflow_strength": "standard",  # DEPRECATED: use workflow_level instead
         "routing_score": 0,
         "routing_factors": [],
+        "routing_background_factors": [],
         "escalation_history": [],
         "task_type": "",
         "risk_flags": [],
@@ -54,7 +55,7 @@ STATE_KEYS = {
     "phase", "active_context_id", "close_attempt", "closure_allowed",
     "scope_violation", "complexity", "routing_reason",
     "workflow_strength", "workflow_level", "routing_score",
-    "routing_factors", "escalation_history",
+    "routing_factors", "routing_background_factors", "escalation_history",
     "task_type", "risk_flags", "test_template", "review_template",
     "exploration_budget", "asset_policy", "cleanup_policy",
     "git_policy", "quality_policy_reason",
