@@ -28,6 +28,9 @@ AIWF 使用项目内的 `.aiwf/*.json` 作为唯一流程真相源，并通过 S
 - **对抗审查闭环**：Reviewer 记录合同缺口，Planner 必须逐条处置后才能闭合
 - **周期架构审查**：约每 10 个任务、Gravity 升高或 PROJECT-MAP 过期时触发
 - **连接恢复**：子代理中断时返回可续接包，不因网络问题降低测试或审查深度
+- **Plan-first 连续性**：为长任务维护可恢复的 task plan artifact，但不把 Markdown 当成流程真相源
+- **不确定性路由**：先区分讨论、澄清、研究、探索和执行，避免一有想法就冻结错误合同
+- **外部能力治理**：把社区 skills、hooks、MCP、动态工作流归类为可用能力，而不是让它们覆盖 AIWF 门禁
 - **白盒状态**：`aiwf status` 解释当前 Level、机械信号、下一角色和阻塞原因
 
 ## 支持平台
@@ -103,6 +106,7 @@ reasonix code .
 ```
 
 流程不是固定重流程。AIWF 会根据机械信号选择最低 Level，Planner 再根据代码语义风险主动提高深度和广度。
+在执行前，Planner 还会记录 request mode：讨论、澄清和研究不会激活实现；spike 只能产出发现，不能作为最终实现闭合；只有 execution 才进入 scoped task、测试、审查和闭合链路。
 
 | Level | 典型场景 | 默认流程 |
 |---|---|---|
@@ -128,12 +132,23 @@ reasonix code .
 
 Gravity 是从任务历史计算的纯函数。它不会修改状态，只将重复修改热点、修复趋势、结构漂移和历史风险转化为路由压力。项目轻时流程保持轻量，风险累积后自动提高治理强度。
 
+Task plan artifact 与 PROJECT-MAP 分工不同：
+
+- `PROJECT-MAP`：长期项目结构、模块边界和架构方向
+- `.aiwf/plans/*.md`：单个任务的计划、检查项、验证策略、风险和续接说明
+
+外部研究和社区工作流先进入低信任区：`aiwf research record` 记录 claims，`aiwf research promote` 才能把 Planner 认可的部分变成决策输入。`aiwf capability scan` 会标记外部技能是否重叠 AIWF 生命周期；重叠能力只能辅助对应阶段，不能替代 AIWF 的状态、证据、测试、审查和闭合门。
+
 ## 常用命令
 
 ```bash
 aiwf status             # 查看状态、复杂度路由、下一步和阻塞原因
 aiwf doctor             # 检查平台安装完整性
 aiwf cleanup check      # 只读检查陈旧资产和结构问题
+aiwf plan create        # 创建 task plan artifact
+aiwf recipe recommend   # 获取 advisory workflow recipe
+aiwf research record    # 记录低信任外部研究
+aiwf capability scan    # 归类外部 skills/hooks/MCP/commands
 aiwf export-report      # 生成闭合报告
 aiwf checkpoint list    # 查看回滚检查点
 ```

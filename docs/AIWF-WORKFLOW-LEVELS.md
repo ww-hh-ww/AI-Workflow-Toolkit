@@ -27,6 +27,22 @@ Hard upgrades:
 - prior fix-loop → ≥L2
 - user decision needed → ≥L2
 
+## Request Mode and Workflow Pattern
+
+Workflow Level answers "how deep must validation/review be once execution starts." Request mode answers "are we executing yet?"
+
+| Mode | Meaning | Execution allowed |
+|------|---------|-------------------|
+| `discussion` | compare ideas, explain process, answer questions | no |
+| `clarification` | requirements grill, acceptance criteria, non-goals, risk decisions | no |
+| `research` | external or broad read-only research before contract freeze | no |
+| `spike` | feasibility exploration that must later convert to execution | no final close |
+| `execution` | freeze contract, activate scoped task, write project code | yes |
+
+Workflow patterns (`linear`, `clarification_first`, `research_first`, `spike_first`, `adversarial_early`) shape the route and role breadth. They do not lower Level, skip cleanup-before-review, weaken Tester/Reviewer duties, or replace `.aiwf` JSON gates.
+
+This absorbs useful ideas from dynamic workflows without turning AIWF into a fully open-ended multi-agent scheduler: topology is chosen when uncertainty requires it, while mechanical contracts still preserve closure and evidence.
+
 ## Adversarial Mode Trigger
 
 Adversarial review and testing are triggered by three overlapping conditions (any one is sufficient):

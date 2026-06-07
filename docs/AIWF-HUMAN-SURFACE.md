@@ -12,12 +12,20 @@ AIWF has many machine state files. Humans should not read them all.
 | `.aiwf/history/task-history.json` | Trend/debug only | Lightweight closed-task trend source for report/status; not a default human reading surface |
 | `.aiwf/reports/质量摘要.md` | Next task/review/test | Compact cross-task quality signals for Planner, Tester, and Reviewer |
 | `.aiwf/task-ledger.json` | Planner/task debug | Candidate/ready/active/closed task graph and execution window |
+| `.aiwf/plans/*.md` | During one task or plan-driven resume | Human-readable task plan, checklist, decisions, validation notes, and handoff context |
+| `.aiwf/research/external.json` | When external research influenced planning | Low-trust outside claims plus explicit Planner promotion decisions |
 
 ## JSON files are machine source of truth
 
 Machine JSON files under `.aiwf/state/`, `.aiwf/quality/`, `.aiwf/evidence/`, and `.aiwf/history/` are the authoritative machine state.
 They are NOT the default human reading surface.
 Read them only when verifying details, resolving contradictions, or debugging.
+
+Task plan Markdown is deliberately not a source of truth. It is useful for long-horizon continuity and resumption, similar to `plan.md`, but closure, scope, testing, review, and routing are enforced only by machine-readable AIWF contracts.
+
+PROJECT-MAP and task plans do not conflict:
+- PROJECT-MAP describes durable project structure, module boundaries, and architecture direction.
+- Task plans describe one task's evolving intent, accepted decisions, validation strategy, and handoff notes.
 
 ## Before adding a new .aiwf file
 
@@ -39,6 +47,8 @@ Testing, review, evidence, fix-loop, cleanup, structure, closure — enough to d
 ### Awareness
 Workspace drift, external capabilities, context dispatch, current-state, report — enough to know "what external factors matter?"
 
+Request mode and workflow pattern are also shown. They explain whether the current work is discussion, clarification, research, spike, or execution, and whether a recipe-like pattern is shaping the route.
+
 Task ledger and quality digest are shown as summaries only. They are not meant to flood prompt context.
 
 ### Detail entry points
@@ -51,3 +61,5 @@ File paths to `.aiwf/reports/当前状态.md`, `.aiwf/reports/闭合报告.md`, 
 - Drift file names
 - Full context dispatch fields
 - Full lessons
+- Full task plan text
+- Raw external research claim lists

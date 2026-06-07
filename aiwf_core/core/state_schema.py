@@ -42,6 +42,11 @@ def default_state() -> Dict[str, Any]:
         "cross_task_quality_escalation_required": False,
         "cross_task_quality_escalation_reason": "",
         "adversarial_mode": False,
+        "request_mode": "execution",
+        "workflow_pattern": "linear",
+        "pattern_reason": "",
+        "external_research_required": False,
+        "active_plan_id": "",
     }
 
 STATE_KEYS = {
@@ -57,11 +62,18 @@ STATE_KEYS = {
     "active_task_id", "planner_inline",
     "cross_task_quality_escalation_required", "cross_task_quality_escalation_reason",
     "adversarial_mode",
+    "request_mode", "workflow_pattern", "pattern_reason",
+    "external_research_required", "active_plan_id",
 }
 
 VALID_PHASES = {
     "discussing", "planned", "implementing", "testing",
     "reviewing", "closing", "closed",
+}
+
+VALID_REQUEST_MODES = {"discussion", "clarification", "research", "spike", "execution"}
+VALID_WORKFLOW_PATTERNS = {
+    "linear", "clarification_first", "research_first", "spike_first", "adversarial_early",
 }
 
 
@@ -71,6 +83,12 @@ def validate_state(state: Dict[str, Any]) -> List[str]:
     phase = state.get("phase", "")
     if phase not in VALID_PHASES:
         issues.append(f"Unknown phase: {phase}")
+    request_mode = state.get("request_mode", "execution")
+    if request_mode not in VALID_REQUEST_MODES:
+        issues.append(f"Unknown request_mode: {request_mode}")
+    workflow_pattern = state.get("workflow_pattern", "linear")
+    if workflow_pattern not in VALID_WORKFLOW_PATTERNS:
+        issues.append(f"Unknown workflow_pattern: {workflow_pattern}")
     if state.get("scope_violation") and state.get("closure_allowed"):
         issues.append("scope_violation=true but closure_allowed=true")
     if state.get("close_attempt") and not state.get("closure_allowed") and state.get("phase") != "closing":

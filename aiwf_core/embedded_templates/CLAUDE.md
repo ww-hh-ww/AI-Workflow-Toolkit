@@ -33,6 +33,8 @@ AIWF (AI Workflow Toolkit) is embedded in this project as Claude Code skills, ho
 | `.aiwf/quality/testing.json` | Testing status: missing/partial/adequate/passed |
 | `.aiwf/quality/review.json` | Review result: accepted/needs_fix/etc, closure_allowed |
 | `.aiwf/state/fix-loop.json` | Open fix loops with route and required fixes |
+| `.aiwf/plans/*.md` | Human-readable task plans; continuity only, not mechanical truth |
+| `.aiwf/research/external.json` | Low-trust external research and Planner promotion decisions |
 
 ## Skills
 
@@ -71,6 +73,20 @@ Planner must follow the complete state machine:
 13. Claude Stop revalidates and can block only when `close_attempt=true`; ordinary Stop does not create a closure attempt. Reasonix Stop reports only.
 
 For process-audit or explanation-only requests, Planner runs `aiwf status` once and answers directly. It must not turn the audit into source exploration or state mutation.
+
+## Request Modes and Advisory Templates
+
+Planner must classify uncertainty before execution:
+
+- `discussion`, `clarification`, and `research` are non-execution modes and must not activate implementation tasks.
+- `spike` explores feasibility and must be followed by `execution` before final implementation closes.
+- `execution` is the only mode that freezes contracts, activates tasks, and writes project code.
+
+Use `aiwf state set-workflow-mode` to record the mode and pattern. Workflow patterns such as `clarification_first`, `research_first`, `spike_first`, and `adversarial_early` shape the route but never lower workflow Level or remove gates.
+
+`aiwf plan create/update` may maintain a `plan.md`-style task artifact for continuity. It does not replace Project Map, goal.json, contexts.json, testing.json, review.json, or evidence records.
+
+`aiwf recipe recommend` provides workflow templates; recipes are advisory and cannot override AIWF gates. External skills, hooks, commands, MCP servers, or community workflows must be classified with `aiwf capability scan`. Capabilities with `lifecycle_overlap=true` require an explicit Planner decision and may assist only after their outputs are promoted through AIWF contracts/evidence.
 
 ## Rules
 

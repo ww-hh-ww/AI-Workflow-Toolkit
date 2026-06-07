@@ -10,6 +10,7 @@ AIWF must not break Claude Code / model service prompt cache.
 4. **UserPromptSubmit injects only short state** — Typical injection: <400 chars. Never inject template text or JSON dumps.
 5. **Detailed templates in docs/references** — Read on demand by skills, not injected into context.
 6. **State records template keys only** — `workflow_level: "L1_review_light"`, `test_template: "targeted"`. Never full template text.
+7. **Plan and research artifacts are on-demand** — task plans and external research registries are file references, not prompt payloads.
 
 ## What is cache-safe (static at install time)
 
@@ -29,6 +30,8 @@ AIWF must not break Claude Code / model service prompt cache.
 
 - Full template text from quality_policy.py
 - Raw evidence.json dumps
+- Full `.aiwf/plans/*.md` task plans
+- Full `.aiwf/research/external.json` research registries
 - Full project-map.json contents
 - Long review/cleanup/structure prose
 - Escalation history as narrative
@@ -41,3 +44,5 @@ Skills read template definitions from:
 - `${CLAUDE_PROJECT_DIR}/.aiwf/assets/conventions.md` (project-specific)
 
 They do NOT inject the full text; they reference the key and look up the definition when needed.
+
+Task plans and workflow recipes follow the same pattern. `aiwf status` may expose the active plan id, request mode, and workflow pattern, but agents read the full plan or recipe only when they are actively using it.

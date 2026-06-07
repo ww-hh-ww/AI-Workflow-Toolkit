@@ -21,15 +21,25 @@ from .project_memory_commands import (
     _cmd_rule_add_negative, _cmd_rule_global_candidate, _cmd_rule_help,
     _cmd_rule_list, _cmd_rule_retire,
 )
+from .plan_commands import (
+    _cmd_plan_create, _cmd_plan_help, _cmd_plan_list, _cmd_plan_show,
+    _cmd_plan_summarize, _cmd_plan_update,
+)
 from .quality_commands import (
     _cmd_capability_list, _cmd_capability_scan, _cmd_capability_show,
     _cmd_env_help, _cmd_env_scan, _cmd_env_show, _cmd_quality_digest, _cmd_quality_help,
     _cmd_quality_surface, _cmd_quality_surfaces, _cmd_workspace_scan,
 )
+from .recipe_commands import (
+    _cmd_recipe_help, _cmd_recipe_list, _cmd_recipe_recommend, _cmd_recipe_show,
+)
+from .research_commands import (
+    _cmd_research_help, _cmd_research_list, _cmd_research_promote, _cmd_research_record,
+)
 from .state_commands import (
     _cmd_cleanup_check, _cmd_disposition_adversarial, _cmd_mark_cleanup_fresh,
     _cmd_mark_cleanup_stale, _cmd_prepare_close, _cmd_rebuild_current_state,
-    _cmd_record_meta_critique,
+    _cmd_record_meta_critique, _cmd_set_workflow_mode,
     _cmd_record_quality_brief, _cmd_record_quality_policy, _cmd_record_testing,
     _cmd_start_context, _cmd_state_help,
 )
@@ -157,7 +167,34 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
     p_mc.set_defaults(func=_cmd_record_meta_critique)
     p_rcs = p_state_sub.add_parser("rebuild-current-state", help="mechanically rebuild .aiwf/reports/当前状态.md from state files + PROJECT-MAP")
     p_rcs.set_defaults(func=_cmd_rebuild_current_state)
+    p_swm = p_state_sub.add_parser("set-workflow-mode", help="record uncertainty routing mode/pattern")
+    p_swm.add_argument("--request-mode", required=True, choices=["discussion","clarification","research","spike","execution"], help="current request mode")
+    p_swm.add_argument("--workflow-pattern", default="", choices=["","linear","clarification_first","research_first","spike_first","adversarial_early"], help="uncertainty handling pattern")
+    p_swm.add_argument("--reason", default="", help="short reason")
+    p_swm.add_argument("--external-research-required", action="store_true", help="flag external research requirement")
+    p_swm.set_defaults(func=_cmd_set_workflow_mode)
     p_state.set_defaults(func=_cmd_state_help)
+    # ── task plan artifacts ──
+    p_plan = sub.add_parser("plan", help="task plan artifacts (create, update, show, summarize, list)")
+    p_plan_sub = p_plan.add_subparsers(dest="plan_cmd")
+    p_plc = p_plan_sub.add_parser("create", help="create .aiwf/plans/TASK.md")
+    p_plc.add_argument("--task-id", required=True, help="task ID")
+    p_plc.add_argument("--context-id", default="", help="context ID")
+    p_plc.add_argument("--title", default="", help="plan title")
+    p_plc.set_defaults(func=_cmd_plan_create)
+    p_plu = p_plan_sub.add_parser("update", help="update one plan section")
+    p_plu.add_argument("--task-id", required=True, help="task ID")
+    p_plu.add_argument("--section", required=True, choices=["open-questions","decisions","scope","implementation","testing","review","evidence","checklist"], help="section key")
+    p_plu.add_argument("--content", required=True, help="replacement section content")
+    p_plu.set_defaults(func=_cmd_plan_update)
+    p_pls = p_plan_sub.add_parser("show", help="show one task plan")
+    p_pls.add_argument("task_id", help="task ID")
+    p_pls.set_defaults(func=_cmd_plan_show)
+    p_plsum = p_plan_sub.add_parser("summarize", help="summarize one task plan")
+    p_plsum.add_argument("task_id", help="task ID")
+    p_plsum.set_defaults(func=_cmd_plan_summarize)
+    p_plan_sub.add_parser("list", help="list task plans").set_defaults(func=_cmd_plan_list)
+    p_plan.set_defaults(func=_cmd_plan_help)
     p_task = sub.add_parser("task", help="flexible task ledger and execution-window gate")
     p_task_sub = p_task.add_subparsers(dest="task_cmd")
     p_tp = p_task_sub.add_parser("plan", help="create/update a ledger task without activating execution")
@@ -229,6 +266,38 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
     p_cap_show.add_argument("id", help="capability ID")
     p_cap_show.set_defaults(func=_cmd_capability_show)
     p_cap.set_defaults(func=_cmd_capability_scan)
+    # ── recipes ──
+    p_recipe = sub.add_parser("recipe", help="workflow recipes (list, show, recommend)")
+    p_recipe_sub = p_recipe.add_subparsers(dest="recipe_cmd")
+    p_recipe_sub.add_parser("list", help="list workflow recipes").set_defaults(func=_cmd_recipe_list)
+    p_rs = p_recipe_sub.add_parser("show", help="show one workflow recipe")
+    p_rs.add_argument("name", help="recipe name")
+    p_rs.set_defaults(func=_cmd_recipe_show)
+    p_rr = p_recipe_sub.add_parser("recommend", help="recommend recipes from task type and risk flags")
+    p_rr.add_argument("--task-type", default="", help="task type key")
+    p_rr.add_argument("--risk-flag", action="append", default=[], dest="risk_flags", help="repeatable risk flag")
+    p_rr.set_defaults(func=_cmd_recipe_recommend)
+    p_recipe.set_defaults(func=_cmd_recipe_help)
+    # ── external research ──
+    p_research = sub.add_parser("research", help="external research evidence (record, list, promote)")
+    p_research_sub = p_research.add_subparsers(dest="research_cmd")
+    p_xr = p_research_sub.add_parser("record", help="record low-trust external research")
+    p_xr.add_argument("--source", required=True, help="source/tool/person")
+    p_xr.add_argument("--query", required=True, help="research query/question")
+    p_xr.add_argument("--claim", action="append", default=[], dest="claims", help="repeatable claim")
+    p_xr.add_argument("--link", action="append", default=[], dest="links", help="repeatable link")
+    p_xr.add_argument("--time-window", default="", help="time window such as last30days")
+    p_xr.add_argument("--confidence", default="low", choices=["low","medium","high"], help="confidence")
+    p_xr.set_defaults(func=_cmd_research_record)
+    p_xl = p_research_sub.add_parser("list", help="list research records")
+    p_xl.add_argument("--include-promoted", action="store_true", default=True, help="include promoted records")
+    p_xl.set_defaults(func=_cmd_research_list)
+    p_xp = p_research_sub.add_parser("promote", help="promote research into Planner decision trace")
+    p_xp.add_argument("id", help="research ID")
+    p_xp.add_argument("--decision", required=True, help="Planner decision using this research")
+    p_xp.add_argument("--promoted-by", default="planner", help="who promoted it")
+    p_xp.set_defaults(func=_cmd_research_promote)
+    p_research.set_defaults(func=_cmd_research_help)
     # ── env ──
     p_env = sub.add_parser("env", help="project environment profile (scan, show)")
     p_env_sub = p_env.add_subparsers(dest="env_cmd")

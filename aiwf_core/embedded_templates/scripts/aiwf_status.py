@@ -177,10 +177,22 @@ def planner_process_lines(cwd, state, goal, review, fix_loop):
     """Concise process explanation: why this depth, what role/action is next."""
     level = state.get("workflow_level", "L1_review_light")
     factors = state.get("routing_factors", []) or []
+    request_mode = state.get("request_mode", "execution")
+    pattern = state.get("workflow_pattern", "linear")
     lines = [
         f"Process: {level} complexity={state.get('complexity', 'standard')} score={state.get('routing_score', 0)}",
         "Routing why: " + (", ".join(str(f) for f in factors[:5]) if factors else "not mechanically routed yet"),
     ]
+    if request_mode != "execution" or pattern != "linear":
+        lines.insert(1, f"Mode: {request_mode}/{pattern}")
+    if state.get("pattern_reason"):
+        lines.append("Pattern why: " + str(state.get("pattern_reason"))[:160])
+    if request_mode in ("discussion", "clarification", "research"):
+        lines.append(f"REQUIRED NEXT: continue {request_mode}; switch to request_mode=execution only after the user confirms execution")
+        return lines[:5]
+    if request_mode == "spike" or pattern == "spike_first":
+        lines.append("REQUIRED NEXT: record spike findings, then switch to request_mode=execution for final implementation")
+        return lines[:5]
     if fix_loop.get("status") == "open":
         lines.append(f"REQUIRED NEXT: resolve fix-loop via {fix_loop.get('route') or 'planner'}")
         return lines

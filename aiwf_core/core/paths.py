@@ -23,6 +23,8 @@ REPORT_MD = ".aiwf/reports/闭合报告.md"
 QUALITY_DIGEST_MD = ".aiwf/reports/质量摘要.md"
 PROJECT_MAP_MD = ".aiwf/reports/项目地图.md"
 IDEAS_MD = ".aiwf/reports/ideas.md"
+TASK_PLANS_DIR = ".aiwf/plans"
+EXTERNAL_RESEARCH_JSON = ".aiwf/research/external.json"
 
 # Root-level (flat)
 CAPABILITIES_JSON = ".aiwf/assets/capabilities.json"
@@ -38,9 +40,10 @@ REPORTS_DIR = ".aiwf/reports"
 ASSETS_DIR = ".aiwf/assets"
 CHECKPOINTS_DIR = ".aiwf/checkpoints"
 INTERNAL_DIR = ".aiwf/internal"
+RESEARCH_DIR = ".aiwf/research"
 
 # All directories that must exist
-ALL_DIRS = ["state", "evidence", "quality", "history", "reports", "assets", "checkpoints", "internal"]
+ALL_DIRS = ["state", "evidence", "quality", "history", "reports", "assets", "checkpoints", "internal", "plans", "research"]
 
 # Legacy path mapping for migration
 LEGACY_MAP = {
@@ -59,4 +62,5 @@ LEGACY_MAP = {
     "PROJECT-MAP.md": PROJECT_MAP_MD,
     "baseline.json": BASELINE_JSON,
     "ideas.md": IDEAS_MD,
+    "external-research.json": EXTERNAL_RESEARCH_JSON,
 }

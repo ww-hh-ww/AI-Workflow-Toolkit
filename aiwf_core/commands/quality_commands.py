@@ -35,7 +35,11 @@ def _cmd_capability_list(args: argparse.Namespace) -> None:
         print("No capabilities registered. Run: aiwf capability scan")
         return
     for cap in caps:
-        print(f"{cap['id']}: {cap['kind']} risk={cap['risk']} policy={cap['use_policy']}")
+        overlap = " overlap=aiwf" if cap.get("lifecycle_overlap") else ""
+        print(
+            f"{cap['id']}: {cap['kind']} type={cap.get('capability_type', 'unknown')} "
+            f"risk={cap['risk']} policy={cap['use_policy']}{overlap}"
+        )
         if cap.get("summary"): print(f"  {cap['summary'][:120]}")
 
 def _cmd_capability_show(args: argparse.Namespace) -> None:

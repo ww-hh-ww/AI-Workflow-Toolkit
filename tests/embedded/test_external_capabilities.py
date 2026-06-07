@@ -69,7 +69,7 @@ class TestExternalCapabilities(unittest.TestCase):
         (self.tmp/".claude"/"settings.json").write_text(json.dumps(s, indent=2))
 
     def _add_command(self, name):
-        (self.tmp/".claude"/"commands").mkdir(parents=True)
+        (self.tmp/".claude"/"commands").mkdir(parents=True, exist_ok=True)
         (self.tmp/".claude"/"commands"/f"{name}.md").write_text("# Check\nRun checks.\n")
 
     # ── clean install ──
@@ -141,8 +141,39 @@ class TestExternalCapabilities(unittest.TestCase):
         r = self._run_ok("capability", "scan")
         r = self._run_ok("capability", "list")
         self.assertIn("risk=", r.stdout); self.assertIn("policy=", r.stdout)
+        self.assertIn("type=", r.stdout)
         self.assertIn("skill:karpathy", r.stdout)
         self.assertNotIn("skill:aiwf-planner", r.stdout)
+
+    def test_lifecycle_skill_requires_planner_decision(self):
+        self._add_skill("tdd", "# TDD\nWrite a failing test before implementation.\n")
+        self._run_ok("capability", "scan")
+        sk = [c for c in self._reg()["capabilities"] if c["id"]=="skill:tdd"][0]
+
+        self.assertEqual(sk["capability_type"], "testing_method")
+        self.assertTrue(sk["lifecycle_overlap"])
+        self.assertEqual(sk["use_policy"], "requires_user_decision")
+
+    def test_requirements_grill_is_clarification_not_execution(self):
+        self._add_skill("grill-me", "# Grill Me\nAsk clarifying questions until requirements are precise.\n")
+        self._run_ok("capability", "scan")
+        sk = [c for c in self._reg()["capabilities"] if c["id"]=="skill:grill-me"][0]
+
+        self.assertEqual(sk["capability_type"], "clarification")
+        self.assertFalse(sk["lifecycle_overlap"])
+        self.assertEqual(sk["use_policy"], "advisory")
+
+    def test_compound_workflow_commands_are_lifecycle_overlap(self):
+        self._add_command("ce-plan")
+        self._add_command("ce-work")
+        self._run_ok("capability", "scan")
+        caps = {c["id"]: c for c in self._reg()["capabilities"]}
+
+        self.assertEqual(caps["command:ce-plan"]["capability_type"], "planning_advisory")
+        self.assertTrue(caps["command:ce-plan"]["lifecycle_overlap"])
+        self.assertEqual(caps["command:ce-work"]["capability_type"], "implementation_helper")
+        self.assertTrue(caps["command:ce-work"]["lifecycle_overlap"])
+        self.assertEqual(caps["command:ce-work"]["use_policy"], "requires_user_decision")
 
     def test_show_returns_zero(self):
         self._add_mcp(); self._run_ok("capability", "scan")

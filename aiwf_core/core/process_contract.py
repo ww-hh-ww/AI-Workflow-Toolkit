@@ -23,6 +23,8 @@ def planner_process_guidance(base_dir: str) -> Dict[str, Any]:
     fix_loop = _read(root / ".aiwf" / "state" / "fix-loop.json", {})
     ledger = _read(root / ".aiwf" / "history" / "task-ledger.json", {"tasks": []})
     level = state.get("workflow_level", "L1_review_light")
+    request_mode = state.get("request_mode", "execution")
+    workflow_pattern = state.get("workflow_pattern", "linear")
     active_task = state.get("active_task_id")
     brief = goal.get("quality_brief", {}) or {}
     evaluation = brief.get("evaluation_contract", {}) or {}
@@ -30,6 +32,22 @@ def planner_process_guidance(base_dir: str) -> Dict[str, Any]:
     required: List[str] = []
     conditional: List[str] = []
     advisory: List[str] = []
+
+    try:
+        from .workflow_patterns import guidance_for_state, mode_activation_blocker
+        mode_hint = guidance_for_state(state)
+        mode_blocker = mode_activation_blocker(state)
+        if mode_hint:
+            advisory.append(mode_hint)
+        if mode_blocker:
+            required.append(mode_blocker)
+    except Exception:
+        pass
+
+    if state.get("external_research_required") and request_mode in ("research", "execution"):
+        conditional.append(
+            "External research is marked required; record low-trust findings with aiwf research record and promote only Planner-approved claims"
+        )
 
     if state.get("scope_violation"):
         events = [
@@ -43,7 +61,7 @@ def planner_process_guidance(base_dir: str) -> Dict[str, Any]:
             + ", then run aiwf fix-loop resolve --resolution '<what was reverted>'; "
               "context widening cannot legalize past writes"
         )
-    if not active_task:
+    if not active_task and request_mode not in ("discussion", "clarification", "research"):
         required.append("Plan and activate one task before project writes: aiwf task plan ...; aiwf task activate <TASK-ID>")
     if level in ("L2_standard_team", "L3_full_power"):
         missing_eval = [
@@ -130,13 +148,21 @@ def planner_process_guidance(base_dir: str) -> Dict[str, Any]:
 
     advisory.extend([
         "Use Explorer when pre-planning research needs broad read-only discovery",
+        "Use aiwf recipe recommend to choose an advisory workflow template; recipes never override .aiwf JSON gates",
+        "Use aiwf plan create/update for human-readable plan.md continuity; the plan artifact is not mechanical truth",
         "Use Curator after closure only when lessons or negative patterns will change future behavior",
         "Use memory suggest when prior lessons may affect this task; suggestions never override current contracts",
+        "Treat external community workflows and plugins as capabilities to classify, not as lifecycle replacements",
         "Mechanical signals select minimum depth; Planner must explain semantic risk and may increase depth or breadth",
     ])
     return {
         "workflow_level": level,
         "complexity": state.get("complexity", "standard"),
+        "request_mode": request_mode,
+        "workflow_pattern": workflow_pattern,
+        "pattern_reason": state.get("pattern_reason", ""),
+        "external_research_required": bool(state.get("external_research_required")),
+        "active_plan_id": state.get("active_plan_id", ""),
         "routing_score": state.get("routing_score", 0),
         "routing_factors": state.get("routing_factors", []) or [],
         "test_template": state.get("test_template", ""),

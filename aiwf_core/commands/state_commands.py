@@ -231,6 +231,28 @@ def _cmd_rebuild_current_state(args: argparse.Namespace) -> None:
             print(f"  [MISSING] {section}")
 
 
+def _cmd_set_workflow_mode(args: argparse.Namespace) -> None:
+    """aiwf state set-workflow-mode — record uncertainty routing shape."""
+    from ..core.workflow_patterns import set_workflow_mode
+    try:
+        state = set_workflow_mode(
+            str(Path.cwd()),
+            request_mode=args.request_mode,
+            workflow_pattern=args.workflow_pattern or "",
+            reason=args.reason or "",
+            external_research_required=args.external_research_required,
+        )
+    except ValueError as e:
+        print(f"Workflow mode update blocked: {e}", file=sys.stderr)
+        raise SystemExit(1)
+    print("Workflow mode recorded:")
+    print(f"  Request mode: {state.get('request_mode')}")
+    print(f"  Pattern:      {state.get('workflow_pattern')}")
+    if state.get("pattern_reason"):
+        print(f"  Reason:       {state['pattern_reason'][:160]}")
+    print(f"  External research required: {state.get('external_research_required', False)}")
+
+
 def _cmd_state_help(args: argparse.Namespace) -> None:
     """aiwf state — show available state subcommands."""
     print("AIWF State Operations")
@@ -243,6 +265,7 @@ def _cmd_state_help(args: argparse.Namespace) -> None:
     print("  aiwf state mark-cleanup-fresh      — mark cleanup as fresh")
     print("  aiwf state mark-cleanup-stale      — mark cleanup as stale")
     print("  aiwf state record-meta-critique    — record structured Planner meta-critique")
+    print("  aiwf state set-workflow-mode       — record uncertainty routing mode")
     print("  aiwf state prepare-close           — promote evidence + set close_attempt")
 
 def _cmd_record_quality_policy(args: argparse.Namespace) -> None:

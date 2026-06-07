@@ -342,6 +342,13 @@ def activation_blockers(base_dir: str, task_id: str) -> List[str]:
                 blockers.append(f"parallel write boundary conflict with {other.get('id')}: {', '.join(overlap[:5])}")
 
     state = _read(Path(base_dir) / ".aiwf" / "state" / "state.json", {})
+    try:
+        from .workflow_patterns import mode_activation_blocker
+        mode_blocker = mode_activation_blocker(state)
+        if mode_blocker:
+            blockers.append(mode_blocker)
+    except Exception:
+        pass
     if state.get("scope_violation"):
         blockers.append(
             "scope violation remains recorded; revert the originally violating files, then run "
@@ -402,7 +409,8 @@ def suspend_task(base_dir: str, task_id: str, note: str = "") -> Dict[str, Any]:
     snapshot_keys = [
         "phase", "active_context_id", "active_task_id", "workflow_level",
         "task_type", "test_template", "review_template", "exploration_budget",
-        "cleanup_policy", "git_policy",
+        "cleanup_policy", "git_policy", "request_mode", "workflow_pattern",
+        "pattern_reason", "external_research_required", "active_plan_id",
     ]
     task["status"] = "suspended"
     task["suspended_at"] = _now()
@@ -551,6 +559,18 @@ def _l2_l3_completion_blockers(base_dir: str, task: Dict[str, Any]) -> List[str]
     return blockers
 
 
+def _mode_completion_blockers(base_dir: str, task: Dict[str, Any]) -> List[str]:
+    """Block closing advisory/exploratory modes as final implementation work."""
+    state = _read(Path(base_dir) / ".aiwf" / "state" / "state.json", {})
+    mode = state.get("request_mode", "execution")
+    pattern = state.get("workflow_pattern", "linear")
+    if mode == "spike" or pattern == "spike_first":
+        return [
+            "spike task cannot close as final implementation; record findings and switch to request_mode=execution for the formal task"
+        ]
+    return []
+
+
 def active_task_completion_blockers(base_dir: str) -> List[str]:
     """Return completion blockers for the active task, if one exists."""
     state = _read(Path(base_dir) / ".aiwf" / "state" / "state.json", {})
@@ -560,7 +580,7 @@ def active_task_completion_blockers(base_dir: str) -> List[str]:
     task = _find(load_ledger(base_dir).get("tasks", []), task_id)
     if not task:
         return [f"active task is missing from task ledger: {task_id}"]
-    return _l2_l3_completion_blockers(base_dir, task)
+    return _mode_completion_blockers(base_dir, task) + _l2_l3_completion_blockers(base_dir, task)
 
 
 def close_task(base_dir: str, task_id: str, note: str = "") -> Dict[str, Any]:
@@ -570,7 +590,7 @@ def close_task(base_dir: str, task_id: str, note: str = "") -> Dict[str, Any]:
     if not task:
         return {"closed": False, "task": None, "ledger": ledger, "blockers": [f"task not found: {task_id}"]}
     if task.get("status") == "active":
-        blockers = _l2_l3_completion_blockers(base_dir, task)
+        blockers = _mode_completion_blockers(base_dir, task) + _l2_l3_completion_blockers(base_dir, task)
         if blockers:
             return {"closed": False, "task": task, "ledger": ledger, "blockers": blockers}
     task["status"] = "closed"

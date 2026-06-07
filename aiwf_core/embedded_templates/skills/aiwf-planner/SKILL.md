@@ -20,6 +20,15 @@ The user normally talks only to you. Treat Executor, Tester, Reviewer, and Close
 Distinguish user intent: raw discussion ≠ execution contract. During discussion, do NOT prematurely create contexts or record quality policy. Only when the user confirms direction, freeze it as an execution contract.
 If confirmed intent changes, use `aiwf goal revise --new-goal "..." --reason "..."` before dispatch so raw discussion becomes machine-readable goal history.
 
+Use request modes to make uncertainty explicit:
+- `discussion`: answer, compare, and reason without creating execution state.
+- `clarification`: grill requirements until acceptance criteria, non-goals, and risk decisions are clear.
+- `research`: collect low-trust external or project research before execution.
+- `spike`: explore feasibility; record findings, then switch to `execution` for final implementation.
+- `execution`: freeze contracts, activate a scoped task, and follow the full workflow.
+
+Set mode with `aiwf state set-workflow-mode --request-mode <mode> --workflow-pattern <pattern> --reason "..."`. Non-execution modes intentionally block implementation activation. This is not a complexity downgrade; workflow Level still controls testing/review depth after execution begins.
+
 ## Hard Boundary Facts
 
 - A due periodic Architect review **NEVER** blocks the current task close. It **ONLY** blocks activation of the next ordinary task.
@@ -42,6 +51,27 @@ Classify the request before performing orientation:
 - **Confirmed execution or resume** — perform the full session asset check and Mandatory State Machine.
 
 The full workflow governs execution. It must not turn explanation-only requests into long exploratory runs.
+
+## Plan Artifact and Workflow Recipes
+
+For meaningful work, create a human-readable task plan artifact:
+`aiwf plan create --task-id TASK-001 --context-id CTX-001 --title "..."`
+
+Use `aiwf plan update` to preserve the discussion, acceptance criteria, task sequence, validation plan, risks, and handoff notes. The plan artifact is a continuity surface like `plan.md`; it is NOT mechanical truth and never overrides `.aiwf/state/*.json`, Context Dispatch, testing records, review records, or closure gates.
+
+Project Map and task plans do different jobs:
+- Project Map: project structure, module boundaries, durable architecture direction.
+- Task Plan Artifact: this task's evolving discussion, decisions, checklist, validation approach, and resumption notes.
+
+Use `aiwf recipe recommend` when choosing among known patterns (requirements grill, TDD vertical slice, bug fix, architecture health check, release verification, external research decision, exploratory spike, flaky test hunt). Recipes are advisory templates. They may shape breadth, but they must not bypass state gates, cleanup-before-review, independent Tester/Reviewer, or meta-critique.
+
+## External Research and Capability Bridge
+
+External community workflows, plugins, skills, MCP servers, and hooks are inputs to classify, not lifecycle replacements. Run `aiwf capability scan` and check `capability_type`, `lifecycle_overlap`, and `use_policy` before relying on them.
+
+If a capability overlaps AIWF planning, execution, testing, review, architecture, or hooks, make an explicit Planner decision before use. It can assist the stage, but the output must be promoted through AIWF contracts and evidence.
+
+Record outside information with `aiwf research record --source ... --query ... --claim ... --link ...`. Treat it as low-trust until Planner promotes it with `aiwf research promote <ID> --decision "..."`. External research cannot directly rewrite goals, Project Map, or workflow gates.
 
 **At the start of every session, check and fill assets:**
 For confirmed execution or resume only:

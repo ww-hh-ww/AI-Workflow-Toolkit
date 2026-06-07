@@ -28,6 +28,34 @@ RISK_MAP = {"docs": "read_only_context", "read": "read_only_context",
             "git": "project_mutation", "filesystem": "project_mutation",
             "shell": "project_mutation"}
 
+LIFECYCLE_CAPABILITY_HINTS = {
+    "grill": "clarification",
+    "requirements": "clarification",
+    "docs": "external_research",
+    "last30days": "external_research",
+    "research": "external_research",
+    "plan": "planning_advisory",
+    "ce:plan": "planning_advisory",
+    "ce-plan": "planning_advisory",
+    "work": "implementation_helper",
+    "ce:work": "implementation_helper",
+    "ce-work": "implementation_helper",
+    "tdd": "testing_method",
+    "test": "testing_method",
+    "review": "review_method",
+    "architecture": "architecture_advisory",
+    "improve-codebase-architecture": "architecture_advisory",
+    "caveman": "output_style",
+}
+
+AIWF_LIFECYCLE_OVERLAPS = {
+    "planning_advisory",
+    "implementation_helper",
+    "testing_method",
+    "review_method",
+    "architecture_advisory",
+}
+
 
 def _first_n_lines(path: Path, n: int = 5) -> str:
     try: return "".join(path.read_text(encoding="utf-8", errors="ignore").splitlines(True)[:n])
@@ -52,6 +80,46 @@ def _classify_use_policy(risk: str, has_dangerous: bool, overlaps_aiwf: bool) ->
     return "advisory"
 
 
+def _classify_capability_type(name: str, kind: str, content_hint: str = "") -> str:
+    """Describe what lifecycle niche an external capability appears to occupy."""
+    lowered = f"{name} {kind} {content_hint[:500]}".lower()
+    for pattern, capability_type in LIFECYCLE_CAPABILITY_HINTS.items():
+        if pattern in lowered:
+            return capability_type
+    if kind in ("skill", "slash_command", "subagent"):
+        return "method_advisory"
+    if kind == "mcp_server":
+        return "tool_bridge"
+    if kind == "hook":
+        return "lifecycle_hook"
+    return "unknown"
+
+
+def _lifecycle_overlap(capability_type: str, kind: str, source: str = "") -> bool:
+    """True when a capability might replace or reorder AIWF lifecycle stages."""
+    if capability_type in AIWF_LIFECYCLE_OVERLAPS:
+        return True
+    if kind == "hook":
+        return True
+    if "compound" in source.lower() or "dynamic" in source.lower():
+        return True
+    return False
+
+
+def _capability_metadata(name: str, kind: str, hint: str, source: str = "") -> Dict[str, Any]:
+    capability_type = _classify_capability_type(name, kind, hint)
+    lifecycle_overlap = _lifecycle_overlap(capability_type, kind, source)
+    return {
+        "capability_type": capability_type,
+        "lifecycle_overlap": lifecycle_overlap,
+        "governance_note": (
+            "May assist this lifecycle stage but must not replace AIWF state gates"
+            if lifecycle_overlap else
+            "Advisory or auxiliary capability; promote outputs through Planner judgment"
+        ),
+    }
+
+
 def classify_capability(raw: dict) -> dict:
     """Classify a raw capability dict, returning risk/use_policy fields."""
     name = raw.get("name", raw.get("id", ""))
@@ -59,8 +127,10 @@ def classify_capability(raw: dict) -> dict:
     hint = raw.get("summary", raw.get("content_hint", ""))
     dangerous = _has_dangerous_words(name + " " + hint)
     risk = raw.get("risk") or _classify_risk_kind(name, kind, hint)
-    overlaps = raw.get("overlaps_aiwf", False)
+    meta = _capability_metadata(name, kind, hint, raw.get("source", ""))
+    overlaps = raw.get("overlaps_aiwf", False) or bool(meta["lifecycle_overlap"])
     return {
+        **meta,
         "risk": risk,
         "use_policy": _classify_use_policy(risk, bool(dangerous), overlaps),
         "may_modify_project": risk in ("project_mutation", "destructive_or_deploy") or bool(dangerous),
@@ -101,6 +171,7 @@ def discover_capabilities(project_root: str) -> Dict[str, Any]:
                 hint = _first_n_lines(skill_md, 8)
                 summary = hint[:200].replace("\n", " ").strip()
                 dangerous = _has_dangerous_words(hint)
+                meta = _capability_metadata(skill_dir.name, "skill", hint, str(skill_md.relative_to(root)))
                 if dangerous:
                     risk = _classify_risk_kind(skill_dir.name, "skill", hint)
                     if risk == "unknown": risk = "project_mutation"
@@ -110,10 +181,11 @@ def discover_capabilities(project_root: str) -> Dict[str, Any]:
                     "id": _capability_id(capabilities, "skill", config_dir, skill_dir.name), "kind": "skill",
                     "source": str(skill_md.relative_to(root)),
                     "risk": risk, "roles": ["planner"],
-                    "use_policy": "requires_user_decision" if dangerous else "advisory",
+                    "use_policy": _classify_use_policy(risk, bool(dangerous), meta["lifecycle_overlap"]),
                     "may_modify_project": bool(dangerous),
                     "may_access_network": False,
                     "requires_evidence": bool(dangerous),
+                    **meta,
                     "summary": summary, "dangerous_words": dangerous,
                 })
 
@@ -124,13 +196,14 @@ def discover_capabilities(project_root: str) -> Dict[str, Any]:
                 hint = _first_n_lines(cmd_file, 5)
                 summary = hint[:150].replace("\n", " ").strip()
                 name = cmd_file.relative_to(commands_dir).with_suffix("").as_posix()
+                meta = _capability_metadata(name, "slash_command", hint, str(cmd_file.relative_to(root)))
                 capabilities.append({
                     "id": _capability_id(capabilities, "command", config_dir, name), "kind": "slash_command",
                     "source": str(cmd_file.relative_to(root)),
                     "risk": "method_advisory", "roles": ["planner"],
-                    "use_policy": "advisory",
+                    "use_policy": _classify_use_policy("method_advisory", False, meta["lifecycle_overlap"]),
                     "may_modify_project": False, "may_access_network": False,
-                    "requires_evidence": False, "summary": summary,
+                    "requires_evidence": False, **meta, "summary": summary,
                 })
 
         # ── settings.json MCP + hooks ──
@@ -143,14 +216,16 @@ def discover_capabilities(project_root: str) -> Dict[str, Any]:
                     if not isinstance(cfg, dict): continue
                     risk = _classify_risk_kind(name, "mcp_server", str(cfg))
                     has_env = bool(cfg.get("env"))
+                    meta = _capability_metadata(name, "mcp_server", str(cfg), f"{config_dir}/settings.json")
                     capabilities.append({
                         "id": _capability_id(capabilities, "mcp", config_dir, name), "kind": "mcp_server",
                         "source": f"{config_dir}/settings.json",
                         "risk": risk, "roles": [],
-                        "use_policy": _classify_use_policy(risk, False, False),
+                        "use_policy": _classify_use_policy(risk, False, meta["lifecycle_overlap"]),
                         "may_modify_project": risk in ("project_mutation", "destructive_or_deploy"),
                         "may_access_network": True,
                         "requires_evidence": risk in ("project_mutation", "destructive_or_deploy"),
+                        **meta,
                         "summary": f"MCP server '{name}' ({cfg.get('command', '?')})",
                         "has_env": has_env,
                     })
@@ -166,6 +241,8 @@ def discover_capabilities(project_root: str) -> Dict[str, Any]:
                     if all_aiwf:
                         ignored += 1; continue
                     overlaps = event_name in AIWF_HOOK_EVENTS
+                    meta = _capability_metadata(event_name, "hook", "", f"{config_dir}/settings.json")
+                    overlaps = overlaps or meta["lifecycle_overlap"]
                     capabilities.append({
                         "id": _capability_id(capabilities, "hook", config_dir, event_name), "kind": "hook",
                         "source": f"{config_dir}/settings.json",
@@ -173,6 +250,7 @@ def discover_capabilities(project_root: str) -> Dict[str, Any]:
                         "use_policy": _classify_use_policy("unknown", False, overlaps),
                         "may_modify_project": False, "may_access_network": False,
                         "requires_evidence": False,
+                        **meta,
                         "summary": f"Hook on {event_name}" + (" (overlaps AIWF lifecycle)" if overlaps else ""),
                     })
             except Exception: pass
@@ -185,14 +263,16 @@ def discover_capabilities(project_root: str) -> Dict[str, Any]:
                 hint = _first_n_lines(agent_file, 5)
                 summary = hint[:150].replace("\n", " ").strip()
                 dangerous = _has_dangerous_words(hint)
+                meta = _capability_metadata(agent_file.stem, "subagent", hint, str(agent_file.relative_to(root)))
                 capabilities.append({
                     "id": _capability_id(capabilities, "agent", config_dir, agent_file.stem), "kind": "subagent",
                     "source": str(agent_file.relative_to(root)),
                     "risk": "method_advisory" if not dangerous else "project_mutation",
                     "roles": ["planner"],
-                    "use_policy": _classify_use_policy("method_advisory", bool(dangerous), False),
+                    "use_policy": _classify_use_policy("method_advisory", bool(dangerous), meta["lifecycle_overlap"]),
                     "may_modify_project": bool(dangerous),
                     "may_access_network": False, "requires_evidence": False,
+                    **meta,
                     "summary": summary,
                 })
 
