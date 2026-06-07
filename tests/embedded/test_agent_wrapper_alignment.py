@@ -71,6 +71,17 @@ class TestAgentWrapperAlignment(unittest.TestCase):
         ]:
             self.assertIn(required, content)
 
+    def test_reviewer_agent_is_evidence_first_not_default_full_rerun(self):
+        content = self._claude_agent("aiwf-reviewer")
+        for required in [
+            "Evidence-first testing boundary",
+            "do not default to rerunning the Tester full suite",
+            "small spot-check commands",
+            "Request Tester rerun",
+            "record why any broad rerun was necessary",
+        ]:
+            self.assertIn(required, content)
+
     def test_curator_agent_is_advisory_and_bound_by_lesson_admission(self):
         content = self._claude_agent("aiwf-curator")
         self.assertIn("advisory", content.lower())
@@ -95,7 +106,13 @@ class TestAgentWrapperAlignment(unittest.TestCase):
         for skill_name, required in {
             "aiwf-implement": ["architecture_brief", "forbidden_restructures", "aiwf arch-change request"],
             "aiwf-test": ["validation_layers", "full_regression", "real_usage"],
-            "aiwf-review": ["cleanup_verified_at", "review_template", "accepted_evidence_ids"],
+            "aiwf-review": [
+                "cleanup_verified_at",
+                "review_template",
+                "accepted_evidence_ids",
+                "Evidence-First Testing Boundary",
+                "do not default to rerunning the Tester full suite",
+            ],
         }.items():
             content = self._reasonix_skill(skill_name)
             for needle in required:
@@ -110,7 +127,12 @@ class TestAgentWrapperAlignment(unittest.TestCase):
 
         reviewer_agent = self._claude_agent("aiwf-reviewer")
         reviewer_skill = self._claude_skill("aiwf-review")
-        for shared_gate in ["cleanup_verified_at", "review_template", "accepted_evidence_ids"]:
+        for shared_gate in [
+            "cleanup_verified_at",
+            "review_template",
+            "accepted_evidence_ids",
+            "do not default to rerunning the Tester full suite",
+        ]:
             self.assertIn(shared_gate, reviewer_agent)
             self.assertIn(shared_gate, reviewer_skill)
 

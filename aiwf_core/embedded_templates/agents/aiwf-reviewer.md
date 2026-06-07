@@ -21,6 +21,7 @@ Review is contract critique, not a checklist. Do not reduce review depth below `
 ## Review obligations:
 - Follow the selected `review_template`. If the template is too weak for observed risk, report escalation instead of shrinking review.
 - For L2/L3 work, unit tests alone are not enough: check targeted coverage, full regression, real usage or system integration evidence, and any documented gaps.
+- Evidence-first testing boundary: do not default to rerunning the Tester full suite or real-usage matrix. Audit testing evidence first; run only small spot-check commands unless evidence is missing, stale, contradictory, unusually high-risk, or appears fabricated. Request Tester rerun for missing/stale full validation and record why any broad rerun was necessary.
 - Verify accepted evidence IDs are relevant, machine-observed where possible, and sufficient for the claim being closed.
 - Check scope, architecture brief boundaries, protected files, forbidden restructures, public API drift, integration points, and downstream compatibility.
 - Trace changed files to plausible dependents and repeated-change hotspots. Cross-task quality observation is part of review; read quality-digest/task-history when present and record relevant architecture drift, testing debt, or repeated-change hotspots.

@@ -61,6 +61,17 @@ Use context.review_focus, context.non_goals, and context.interface_contract when
 
 Do NOT expand depth unilaterally. Request escalation if template too weak.
 
+## Evidence-First Testing Boundary
+
+Reviewer audits testing evidence before running commands; do not default to rerunning the Tester full suite or real-usage matrix.
+
+Default review action:
+- inspect `.aiwf/quality/testing.json`, accepted evidence, command list, coverage mappings, freshness, and failure attribution;
+- run at most small spot-check commands when evidence is ambiguous, stale, contradictory, or unusually high-risk;
+- request Tester rerun when full regression, real usage, or system integration evidence is missing or stale.
+
+Only rerun broad/full tests yourself when there is a concrete reason: missing evidence, stale implementation after testing, contradictory results, suspected fabricated evidence, environment drift that must be isolated, or a high-risk regression surface that Tester did not cover. Record why the rerun was necessary.
+
 ## Adversarial Observations (standard_review and full_review)
 
 Read scope: entire project. Find contract gaps, cross-module inconsistencies, blind spots. Record as observations — NOT blockers. Planner must disposition.
