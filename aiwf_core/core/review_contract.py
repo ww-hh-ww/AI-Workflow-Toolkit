@@ -74,17 +74,15 @@ def add_scope_violation_blocker(review: Dict[str, Any], file_path: str, context_
 def promote_evidence(evidence: Dict[str, Any], review: Dict[str, Any]) -> Dict[str, Any]:
     """Promote evidence records based on review's accepted/rejected IDs.
 
-    - Records in accepted_evidence_ids → status = "accepted"
-    - Records in rejected_evidence_ids → status = "rejected"
+    - Machine-observed strong-attribution records → auto-accepted.
+    - Records in accepted_evidence_ids → status = "accepted".
+    - Records in rejected_evidence_ids → status = "rejected" (overrides auto-accept).
     - Other records remain unchanged.
 
     Returns the updated evidence dict.
     """
     accepted_ids = set(review.get("accepted_evidence_ids", []) or [])
     rejected_ids = set(review.get("rejected_evidence_ids", []) or [])
-
-    if not accepted_ids and not rejected_ids:
-        return evidence
 
     records = evidence.get("records", [])
     if not isinstance(records, list):
@@ -94,12 +92,23 @@ def promote_evidence(evidence: Dict[str, Any], review: Dict[str, Any]) -> Dict[s
         if not isinstance(record, dict):
             continue
         rid = record.get("id", "")
-        if rid in accepted_ids:
-            record["status"] = "accepted"
-        elif rid in rejected_ids:
+        if rid in rejected_ids:
             record["status"] = "rejected"
+        elif rid in accepted_ids:
+            record["status"] = "accepted"
+        elif _is_auto_accept(record):
+            record["status"] = "accepted"
 
     return evidence
+
+
+def _is_auto_accept(record: Dict[str, Any]) -> bool:
+    """Machine-observed evidence with strong attribution is auto-accepted."""
+    return (
+        record.get("trust") == "machine_observed"
+        and record.get("attribution") == "strong"
+        and record.get("status") == "pending"
+    )
 
 
 def has_pending_adversarial_observations(review: Dict[str, Any]) -> bool:
