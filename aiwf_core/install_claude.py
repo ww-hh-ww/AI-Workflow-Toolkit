@@ -90,16 +90,36 @@ def _aiwf_toolkit_root() -> Path:
 
 
 def _script_bootstrap() -> str:
-    toolkit_root = json.dumps(str(_aiwf_toolkit_root()))
-    return f'''import sys
+    return '''import sys
 from pathlib import Path
-# Bootstrap: add project root and AIWF toolkit root so aiwf_core is importable
+
+# Add project root to sys.path for project-local imports.
 _AH_PROJECT_ROOT = Path(__file__).resolve().parent.parent
-_AH_TOOLKIT_ROOT = Path({toolkit_root})
-for _AH_ROOT in (_AH_TOOLKIT_ROOT, _AH_PROJECT_ROOT):
-    _AH_ROOT_STR = str(_AH_ROOT)
-    if _AH_ROOT_STR not in sys.path:
-        sys.path.insert(0, _AH_ROOT_STR)
+if str(_AH_PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_AH_PROJECT_ROOT))
+
+# Discover aiwf_core at runtime — no hardcoded paths.
+# 1. Pip-installed aiwf_core is importable directly.
+# 2. Otherwise, read the toolkit path recorded by aiwf install.
+try:
+    import aiwf_core  # noqa: F401
+except ImportError:
+    _TK_CFG = _AH_PROJECT_ROOT / ".aiwf" / "internal" / "toolkit-path.txt"
+    if _TK_CFG.exists():
+        _TK_ROOT = _TK_CFG.read_text().strip()
+        if _TK_ROOT and Path(_TK_ROOT).exists() and _TK_ROOT not in sys.path:
+            sys.path.insert(0, _TK_ROOT)
+'''
+
+def _script_bootstrap_stdlib_only() -> str:
+    """Bootstrap for scripts that must stay stdlib-only (aiwf_status.py)."""
+    return '''import sys
+from pathlib import Path
+
+# Add project root to sys.path for project-local imports.
+_AH_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(_AH_PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_AH_PROJECT_ROOT))
 '''
 
 
@@ -484,11 +504,10 @@ def _write_state_files(force: bool = False) -> List[Path]:
 def _write_scripts() -> List[Path]:
     d = _scripts_dir()
     d.mkdir(parents=True, exist_ok=True)
-    bootstrap = _script_bootstrap()
-
     paths = []
     for name, template_path in SCRIPT_TEMPLATES.items():
         target = d / name
+        bootstrap = _script_bootstrap_stdlib_only() if name == "aiwf_status.py" else _script_bootstrap()
         body = _template_text(template_path).lstrip()
         if body.startswith("#!/usr/bin/env python3"):
             body = body[len("#!/usr/bin/env python3"):].lstrip("\n")
@@ -636,6 +655,13 @@ def install_embedded(mode: str = "claude", force: bool = False) -> Dict[str, Any
         results["created"].append(rel(p))
     for p in _write_scripts():
         results["created"].append(rel(p))
+
+    # Record toolkit root path so generated scripts can discover aiwf_core
+    # at runtime without hardcoded absolute paths.
+    _tk_cfg = _aiwf_dir() / "internal" / "toolkit-path.txt"
+    _tk_cfg.parent.mkdir(parents=True, exist_ok=True)
+    _tk_cfg.write_text(str(_aiwf_toolkit_root()))
+    results["created"].append(rel(_tk_cfg))
 
     # Brownfield scan: if project isn't empty, run full bootstrap
     try:

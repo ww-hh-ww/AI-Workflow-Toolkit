@@ -1,13 +1,23 @@
 #!/usr/bin/env python3
 import sys
 from pathlib import Path
-# Bootstrap: add project root and AIWF toolkit root so aiwf_core is importable
+
+# Add project root to sys.path for project-local imports.
 _AH_PROJECT_ROOT = Path(__file__).resolve().parent.parent
-_AH_TOOLKIT_ROOT = Path("/Users/wzx/Documents/AI-Workflow-Toolkit-for-Reasonix")
-for _AH_ROOT in (_AH_TOOLKIT_ROOT, _AH_PROJECT_ROOT):
-    _AH_ROOT_STR = str(_AH_ROOT)
-    if _AH_ROOT_STR not in sys.path:
-        sys.path.insert(0, _AH_ROOT_STR)
+if str(_AH_PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_AH_PROJECT_ROOT))
+
+# Discover aiwf_core at runtime — no hardcoded paths.
+# 1. Pip-installed aiwf_core is importable directly.
+# 2. Otherwise, read the toolkit path recorded by aiwf install.
+try:
+    import aiwf_core  # noqa: F401
+except ImportError:
+    _TK_CFG = _AH_PROJECT_ROOT / ".aiwf" / "internal" / "toolkit-path.txt"
+    if _TK_CFG.exists():
+        _TK_ROOT = _TK_CFG.read_text().strip()
+        if _TK_ROOT and Path(_TK_ROOT).exists() and _TK_ROOT not in sys.path:
+            sys.path.insert(0, _TK_ROOT)
 '''AIWF export report — self-contained, stdlib-only, no aiwf_core imports.'''
 import json, subprocess, sys
 from datetime import datetime, timezone
