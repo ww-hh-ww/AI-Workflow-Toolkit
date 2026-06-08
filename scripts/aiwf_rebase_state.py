@@ -1,5 +1,13 @@
-
 #!/usr/bin/env python3
+import sys
+from pathlib import Path
+# Bootstrap: add project root and AIWF toolkit root so aiwf_core is importable
+_AH_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+_AH_TOOLKIT_ROOT = Path("/Users/wzx/Documents/AI-Workflow-Toolkit-for-Reasonix")
+for _AH_ROOT in (_AH_TOOLKIT_ROOT, _AH_PROJECT_ROOT):
+    _AH_ROOT_STR = str(_AH_ROOT)
+    if _AH_ROOT_STR not in sys.path:
+        sys.path.insert(0, _AH_ROOT_STR)
 '''AIWF rebase state - generate .aiwf/reports/当前状态.md carry-forward summary.'''
 import json, sys
 from datetime import datetime, timezone
@@ -162,6 +170,24 @@ def main():
     lines.append("")
     lines.append("*Carry-forward summary for Planner. Raw audit: .aiwf/evidence/records.json, .aiwf/quality/review.json, .aiwf/reports/闭合报告.md.*")
     lines.append("")
+    accepted_count = len([r for r in evidence.get('records', []) or [] if r.get('status') == 'accepted'])
+    blockers = []
+    if fix_loop.get("status") == "open":
+        blockers.append(f"fix-loop route={fix_loop.get('route','?')}")
+    if state.get("scope_violation"):
+        blockers.append("scope violation")
+    pending_adv = [
+        o for o in (review.get("adversarial_observations", []) or [])
+        if isinstance(o, dict) and o.get("disposition") == "pending"
+    ]
+    if pending_adv:
+        blockers.append(f"{len(pending_adv)} pending adversarial observation(s)")
+    lines.append("## Executive Summary")
+    lines.append(f"- Goal: {goal.get('current_goal') or goal.get('active_goal', '') or '(none)'}")
+    lines.append(f"- Now: phase={state.get('phase', 'unknown')}, task={state.get('active_task_id') or '(none)'}, workflow={state.get('workflow_level', state.get('workflow_strength', '?'))}")
+    lines.append(f"- Quality: testing={testing.get('status', 'missing')}, review={review.get('result', 'unknown')}, evidence={accepted_count}/{len(evidence.get('records', []) or [])} accepted")
+    lines.append("- Blockers: " + (", ".join(blockers) if blockers else "none"))
+    lines.append("")
     lines.append("## Goal & Intent")
     lines.append(f"- Goal: {goal.get('current_goal') or goal.get('active_goal', '') or '(none)'}")
     lines.append(f"- Goal version: {goal.get('goal_version', 1)}")
@@ -176,7 +202,7 @@ def main():
     lines.append("## Quality Snapshot")
     lines.append(f"- Testing: {testing.get('status', 'missing')}")
     lines.append(f"- Review: {review.get('result', 'unknown')}")
-    lines.append(f"- Accepted evidence: {len([r for r in evidence.get('records', []) or [] if r.get('status') == 'accepted'])}")
+    lines.append(f"- Accepted evidence: {accepted_count}")
     lines.append("")
     lines.append("## Last closed task")
     lines.append(f"- Goal: {goal.get('current_goal') or goal.get('active_goal', '') or '(none)'}")

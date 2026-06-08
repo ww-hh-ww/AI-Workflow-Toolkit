@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
-"""AIWF hook script — uses backend-neutral core behind Claude adapter."""
 import sys
 from pathlib import Path
-# Bootstrap: add AIWF toolkit to path so aiwf_core is importable
-_AH_ROOT = Path(__file__).resolve().parent.parent
-if str(_AH_ROOT) not in sys.path:
-    sys.path.insert(0, str(_AH_ROOT))
-
+# Bootstrap: add project root and AIWF toolkit root so aiwf_core is importable
+_AH_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+_AH_TOOLKIT_ROOT = Path("/Users/wzx/Documents/AI-Workflow-Toolkit-for-Reasonix")
+for _AH_ROOT in (_AH_TOOLKIT_ROOT, _AH_PROJECT_ROOT):
+    _AH_ROOT_STR = str(_AH_ROOT)
+    if _AH_ROOT_STR not in sys.path:
+        sys.path.insert(0, _AH_ROOT_STR)
 import json, sys
 from pathlib import Path
 from aiwf_core.adapters.claude.normalize_event import parse_claude_stdin, normalize

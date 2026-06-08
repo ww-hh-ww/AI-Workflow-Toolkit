@@ -1,26 +1,31 @@
 #!/usr/bin/env python3
-"""AIWF hook script — uses backend-neutral core behind Claude adapter."""
 import sys
 from pathlib import Path
-# Bootstrap: add AIWF toolkit to path so aiwf_core is importable
-_AH_ROOT = Path(__file__).resolve().parent.parent
-if str(_AH_ROOT) not in sys.path:
-    sys.path.insert(0, str(_AH_ROOT))
-
+# Bootstrap: add project root and AIWF toolkit root so aiwf_core is importable
+_AH_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+_AH_TOOLKIT_ROOT = Path("/Users/wzx/Documents/AI-Workflow-Toolkit-for-Reasonix")
+for _AH_ROOT in (_AH_TOOLKIT_ROOT, _AH_PROJECT_ROOT):
+    _AH_ROOT_STR = str(_AH_ROOT)
+    if _AH_ROOT_STR not in sys.path:
+        sys.path.insert(0, _AH_ROOT_STR)
 import json, sys
 from pathlib import Path
 from aiwf_core.adapters.claude.normalize_event import parse_claude_stdin, normalize
-from aiwf_core.hooks.common.evidence_writer import record_post_tool_event, check_and_record_scope_violations
+from aiwf_core.hooks.common.evidence_writer import record_post_tool_event, check_and_record_scope_violations, check_and_record_missing_active_task
 from aiwf_core.hooks.common.gate_checker import load_all_state
 from aiwf_core.hooks.common.snapshot import diff_snapshot, clear_snapshot, read_snapshot
+
+def _log(msg: str) -> None:
+    print(f"[aiwf_capture_evidence] {msg}", file=sys.stderr)
 
 def main():
     data = parse_claude_stdin()
     if not data:
+        _log("stdin empty, exiting")
         sys.exit(0)
 
     event = normalize(data)
-    if event.tool_name not in ("Write", "Edit", "MultiEdit", "Bash"):
+    if event.tool_name not in ("Write", "Edit", "MultiEdit", "Bash", "Agent", "Task"):
         sys.exit(0)
 
     cwd = event.cwd or str(Path.cwd())
@@ -29,7 +34,7 @@ def main():
     # Try pre/post snapshot diff first (true per-operation evidence)
     snap_diff = diff_snapshot(base)
     if snap_diff["source"] == "pre_post_snapshot":
-        # Use snapshot-level changed_files for evidence
+        _log(f"snapshot diff found, changed_files={len(snap_diff['changed_files'])}")
         record = record_post_tool_event(
             event, str(base),
             operation_changed_files=snap_diff["changed_files"],
@@ -37,14 +42,17 @@ def main():
             op_attribution="strong",
         )
         clear_snapshot(base)
+        _log(f"evidence recorded: id={record.id} tool={event.tool_name} attribution=strong changed={len(record.changed_files or [])}")
     else:
-        # Fallback: dirty-set delta (weaker attribution)
+        _log(f"snapshot unavailable, source={snap_diff['source']}, falling back to dirty-set delta")
         record = record_post_tool_event(event, str(base))
+        _log(f"evidence recorded: id={record.id} tool={event.tool_name} attribution=weak changed={len(record.changed_files or [])}")
 
     # Check for scope violations using operation-level changed_files
     op_files = list(record.changed_files) if record.changed_files else []
 
     if op_files:
+        check_and_record_missing_active_task(op_files, base)
         state = load_all_state(base)
         active_ctx_id = state["state"].get("active_context_id")
         if active_ctx_id:

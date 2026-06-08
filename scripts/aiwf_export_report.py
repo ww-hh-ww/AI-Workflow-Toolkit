@@ -1,5 +1,13 @@
-
 #!/usr/bin/env python3
+import sys
+from pathlib import Path
+# Bootstrap: add project root and AIWF toolkit root so aiwf_core is importable
+_AH_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+_AH_TOOLKIT_ROOT = Path("/Users/wzx/Documents/AI-Workflow-Toolkit-for-Reasonix")
+for _AH_ROOT in (_AH_TOOLKIT_ROOT, _AH_PROJECT_ROOT):
+    _AH_ROOT_STR = str(_AH_ROOT)
+    if _AH_ROOT_STR not in sys.path:
+        sys.path.insert(0, _AH_ROOT_STR)
 '''AIWF export report — self-contained, stdlib-only, no aiwf_core imports.'''
 import json, subprocess, sys
 from datetime import datetime, timezone

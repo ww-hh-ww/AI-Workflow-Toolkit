@@ -6,9 +6,13 @@ from aiwf_core.hooks.common.evidence_writer import record_post_tool_event, check
 from aiwf_core.hooks.common.gate_checker import load_all_state
 from aiwf_core.hooks.common.snapshot import diff_snapshot, clear_snapshot, read_snapshot
 
+def _log(msg: str) -> None:
+    print(f"[aiwf_capture_evidence] {msg}", file=sys.stderr)
+
 def main():
     data = parse_claude_stdin()
     if not data:
+        _log("stdin empty, exiting")
         sys.exit(0)
 
     event = normalize(data)
@@ -21,7 +25,7 @@ def main():
     # Try pre/post snapshot diff first (true per-operation evidence)
     snap_diff = diff_snapshot(base)
     if snap_diff["source"] == "pre_post_snapshot":
-        # Use snapshot-level changed_files for evidence
+        _log(f"snapshot diff found, changed_files={len(snap_diff['changed_files'])}")
         record = record_post_tool_event(
             event, str(base),
             operation_changed_files=snap_diff["changed_files"],
@@ -29,9 +33,11 @@ def main():
             op_attribution="strong",
         )
         clear_snapshot(base)
+        _log(f"evidence recorded: id={record.id} tool={event.tool_name} attribution=strong changed={len(record.changed_files or [])}")
     else:
-        # Fallback: dirty-set delta (weaker attribution)
+        _log(f"snapshot unavailable, source={snap_diff['source']}, falling back to dirty-set delta")
         record = record_post_tool_event(event, str(base))
+        _log(f"evidence recorded: id={record.id} tool={event.tool_name} attribution=weak changed={len(record.changed_files or [])}")
 
     # Check for scope violations using operation-level changed_files
     op_files = list(record.changed_files) if record.changed_files else []
