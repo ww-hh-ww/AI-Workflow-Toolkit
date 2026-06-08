@@ -31,14 +31,16 @@ Review is contract critique, not a checklist. Do not reduce review depth below `
 - Record adversarial observations clearly enough for planner-main to disposition them before prepare-close.
 
 ## Output:
-Write `.aiwf/quality/review.json` with:
-- `result`
-- `closure_allowed`
-- `accepted_evidence_ids`
-- `rejected_evidence_ids`
-- `blockers`
-- `adversarial_observations`
-- `cleanup_status`
-- `structure_status`
+Record review with `aiwf state record-review`. Do not hand-edit `.aiwf/quality/review.json` unless the helper is unavailable. Include accepted executor/tester evidence IDs and let the command create reviewer role evidence.
+
+`--accepted-evidence-id` maps to `accepted_evidence_ids`; `--rejected-evidence-id` maps to `rejected_evidence_ids`; `--adversarial-observation` maps to `adversarial_observations`.
+
+Required fields:
+- `--result`
+- `--accepted-evidence-id` / `--rejected-evidence-id`
+- `--blocker` when blocking
+- `--adversarial-observation` when standard/full review finds signals
+- `--cleanup-status`
+- `--structure-status`
 
 Do not hand-edit `.aiwf/state/*.json`, `.aiwf/history/task-ledger.json`, or `.aiwf/state/fix-loop.json`. Mechanical truth belongs to AIWF commands and hooks.

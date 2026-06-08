@@ -243,6 +243,9 @@ class TestTaskLedger(unittest.TestCase):
 
         self.assertFalse(result["activated"])
         self.assertTrue(any("current-state.md is stale" in b for b in result["blockers"]))
+        after = json.loads((self.tmp / ".aiwf" / "state" / "state.json").read_text())
+        self.assertEqual(after["phase"], "planned")
+        self.assertIsNone(after.get("active_task_id"))
 
     def test_suspend_task_saves_and_restore_state_snapshot(self):
         from aiwf_core.core.task_ledger import activate_task, suspend_task, upsert_task

@@ -1,6 +1,6 @@
 ---
 name: aiwf-review
-description: Independent review — write .aiwf/quality/review.json
+description: Independent review — record review via AIWF CLI
 ---
 
 # AIWF Review
@@ -100,15 +100,23 @@ When testing.status="failed", attribute and route:
 
 ## Review Output (REQUIRED — gate will block closure without this)
 
-You MUST write `.aiwf/quality/review.json` with result != "unknown" before exiting. Without a valid review.json, prepare_close will reject.
+You MUST record review with `aiwf state record-review` before exiting. Do not hand-edit `.aiwf/quality/review.json` unless the helper is unavailable. The command records reviewer role evidence so L2/L3 closure can verify the independent review happened even when subagent hooks do not capture read-only work.
 
-Write `.aiwf/quality/review.json`:
-```json
-{"result":"accepted"|"needs_fix"|"needs_more_testing"|"evidence_insufficient"|"scope_violation"|"rejected",
- "closure_allowed":true|false, "accepted_evidence_ids":[...], "blockers":[...],
- "adversarial_observations":[...], "cleanup_status":"fresh"|"needs_attention",
- "structure_status":"accepted"|"needs_attention"}
+`--accepted-evidence-id` writes `accepted_evidence_ids`; `--rejected-evidence-id` writes `rejected_evidence_ids`; `--adversarial-observation` writes `adversarial_observations`.
+
+Example:
+```bash
+aiwf state record-review \
+  --result accepted \
+  --closure-allowed \
+  --accepted-evidence-id EV-EXEC \
+  --accepted-evidence-id EV-TEST \
+  --cleanup-status fresh \
+  --structure-status accepted \
+  --summary "Reviewed scope, tests, structure, and evidence"
 ```
+
+For blocking review, omit `--closure-allowed` and add `--blocker "..."`.
 
 ## Key Checks
 

@@ -24,4 +24,5 @@ Implement changes within an assigned context's scope. AIWF governs boundaries; C
 - If implementation requires broader scope or architecture changes, stop and report an `aiwf arch-change request` package to planner-main with reason, proposed change, affected files/modules, current contract gap, scope impact, and risk.
 - Match existing code patterns.
 - Do not hand-edit AIWF mechanical truth files such as `.aiwf/state/*.json`, `.aiwf/history/task-ledger.json`, `.aiwf/state/fix-loop.json`, or `.aiwf/quality/testing.json`. Use AIWF commands when state must change.
-- Evidence is captured automatically by hooks; report changed files, commands run with exit codes, unresolved issues, and architecture/scope concerns.
+- Evidence is captured automatically by hooks when the engine exposes your tool calls. If planner-main reports missing executor evidence, record an explicit delivery record with `aiwf state record-role-evidence --role executor --summary "..." --changed-file <path> ...`; do not treat a prose handoff as evidence.
+- Report changed files, commands run with exit codes, unresolved issues, architecture/scope concerns, and any evidence ID printed by AIWF commands.

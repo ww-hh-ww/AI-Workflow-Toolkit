@@ -101,7 +101,7 @@ def _cmd_start_context(args: argparse.Namespace) -> None:
 def _cmd_record_testing(args: argparse.Namespace) -> None:
     """aiwf state record-testing — write testing results."""
     from ..core.state_ops import record_testing
-    record_testing(str(Path.cwd()), args.context_id, args.status,
+    testing = record_testing(str(Path.cwd()), args.context_id, args.status,
                    commands=args.commands or None,
                    untested_risks=args.untested_risks or None,
                    coverage_summary=args.coverage_summary or "",
@@ -124,6 +124,7 @@ def _cmd_record_testing(args: argparse.Namespace) -> None:
                    repeated_change_hotspots=args.repeated_change_hotspots or None,
                    adversarial_mode=bool(getattr(args, 'adversarial_mode', False)))
     print(f"Testing recorded: status={args.status}")
+    if testing.get("evidence_id"): print(f"  Evidence: {testing['evidence_id']} (tester)")
     if args.commands: print(f"  Commands: {len(args.commands)}")
     if args.untested_risks: print(f"  Untested risks: {len(args.untested_risks)}")
     if args.failure_summary: print(f"  Failure: {args.failure_summary[:120]}")
@@ -136,6 +137,69 @@ def _cmd_record_testing(args: argparse.Namespace) -> None:
     if args.inferred_surfaces: print(f"  Inferred surfaces: {', '.join(args.inferred_surfaces)}")
     if args.cross_task_risks: print(f"  Cross-task risks: {len(args.cross_task_risks)}")
     if args.testing_debt: print(f"  Testing debt: {len(args.testing_debt)}")
+
+
+def _cmd_record_review(args: argparse.Namespace) -> None:
+    """aiwf state record-review — write review results and reviewer evidence."""
+    from ..core.state_ops import record_review
+    observations = []
+    for idx, msg in enumerate(args.adversarial_observations or [], start=1):
+        observations.append({
+            "id": f"ADV-{idx:03d}",
+            "severity": "warn",
+            "kind": "review_observation",
+            "message": msg,
+            "suggestion": "",
+            "disposition": "pending",
+        })
+    try:
+        review = record_review(
+            str(Path.cwd()),
+            result=args.result,
+            closure_allowed=bool(args.closure_allowed),
+            accepted_evidence_ids=args.accepted_evidence_ids or None,
+            rejected_evidence_ids=args.rejected_evidence_ids or None,
+            blockers=args.blockers or None,
+            adversarial_observations=observations or None,
+            cleanup_status=args.cleanup_status or "",
+            structure_status=args.structure_status or "",
+            summary=args.summary or "",
+            context_id=args.context_id or "",
+        )
+    except ValueError as e:
+        print(f"Review record blocked: {e}", file=sys.stderr)
+        raise SystemExit(1)
+    print(f"Review recorded: result={review.get('result')}")
+    print(f"  Closure allowed: {review.get('closure_allowed', False)}")
+    if review.get("reviewer_evidence_id"):
+        print(f"  Evidence: {review['reviewer_evidence_id']} (reviewer)")
+    if review.get("accepted_evidence_ids"):
+        print(f"  Accepted evidence: {len(review['accepted_evidence_ids'])}")
+    if review.get("blockers"):
+        print(f"  Blockers: {len(review['blockers'])}")
+
+
+def _cmd_record_role_evidence(args: argparse.Namespace) -> None:
+    """aiwf state record-role-evidence — explicit role evidence for hook gaps."""
+    from ..core.state_ops import record_role_evidence
+    try:
+        ev = record_role_evidence(
+            str(Path.cwd()),
+            args.role,
+            summary=args.summary or "",
+            command=args.command or "",
+            changed_files=args.changed_files or None,
+            session_id=args.session_id or "",
+            agent_id=args.agent_id or "",
+            agent_type=args.agent_type or "",
+            context_id=args.context_id or "",
+            status=args.status,
+            exit_code=args.exit_code,
+        )
+    except ValueError as e:
+        print(f"Role evidence blocked: {e}", file=sys.stderr)
+        raise SystemExit(1)
+    print(f"Role evidence recorded: {ev['id']} ({ev['agent_type']})")
 
 def _cmd_cleanup_check(args: argparse.Namespace) -> None:
     """aiwf cleanup check — run lifecycle cleanup check (read-only)."""
@@ -262,6 +326,8 @@ def _cmd_state_help(args: argparse.Namespace) -> None:
     print("  aiwf state record-quality-brief    — record task-specific quality brief")
     print("  aiwf state start-context           — create/update context with dispatch")
     print("  aiwf state record-testing          — record testing results")
+    print("  aiwf state record-review           — record review results")
+    print("  aiwf state record-role-evidence    — record explicit role evidence")
     print("  aiwf state mark-cleanup-fresh      — mark cleanup as fresh")
     print("  aiwf state mark-cleanup-stale      — mark cleanup as stale")
     print("  aiwf state record-meta-critique    — record structured Planner meta-critique")

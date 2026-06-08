@@ -60,6 +60,44 @@ class TestStateCliOps(unittest.TestCase):
         self.assertEqual(t["commands"], ["npm test"])
         self.assertIn("manual UI", t["untested_risks"])
         self.assertEqual(t["coverage_summary"], "targeted passed")
+        self.assertIn("Evidence:", r.stdout)
+        ev = json.loads((self.tmp/".aiwf" / "evidence" / "records.json").read_text())
+        self.assertEqual(ev["records"][-1]["agent_type"], "tester")
+        self.assertEqual(ev["records"][-1]["command"], "npm test")
+
+    def test_record_role_evidence_writes_executor_record(self):
+        r = self._run("state", "record-role-evidence",
+                      "--role", "executor",
+                      "--summary", "implemented scoped files",
+                      "--changed-file", "src/a.py")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("Role evidence recorded:", r.stdout)
+        ev = json.loads((self.tmp/".aiwf" / "evidence" / "records.json").read_text())
+        rec = ev["records"][-1]
+        self.assertEqual(rec["agent_type"], "executor")
+        self.assertEqual(rec["changed_files"], ["src/a.py"])
+        self.assertEqual(rec["trust"], "machine_observed")
+
+    def test_record_review_writes_review_and_reviewer_evidence(self):
+        self._run("state", "record-role-evidence", "--role", "executor",
+                  "--summary", "implemented", "--status", "accepted")
+        ev = json.loads((self.tmp/".aiwf" / "evidence" / "records.json").read_text())
+        exec_id = ev["records"][-1]["id"]
+        r = self._run("state", "record-review",
+                      "--result", "accepted",
+                      "--closure-allowed",
+                      "--accepted-evidence-id", exec_id,
+                      "--cleanup-status", "fresh",
+                      "--structure-status", "accepted",
+                      "--summary", "reviewed evidence")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("Evidence:", r.stdout)
+        review = json.loads((self.tmp/".aiwf" / "quality" / "review.json").read_text())
+        reviewer_id = review["reviewer_evidence_id"]
+        self.assertIn(reviewer_id, review["accepted_evidence_ids"])
+        ev = json.loads((self.tmp/".aiwf" / "evidence" / "records.json").read_text())
+        reviewer = [rec for rec in ev["records"] if rec["id"] == reviewer_id][0]
+        self.assertEqual(reviewer["agent_type"], "reviewer")
 
     def test_record_testing_output_is_short(self):
         r = self._run("state", "record-testing", "--status", "adequate",

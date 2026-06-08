@@ -56,7 +56,7 @@ Report back to planner-main with:
 3. Any issues or scope concerns.
 4. Any architecture contract concerns.
 
-**Evidence is captured automatically by PostToolUse hooks.** You do not need to manually record evidence.
+**Evidence is captured automatically by PostToolUse hooks when the engine exposes tool calls.** If planner-main reports missing executor evidence after subagent work, use `aiwf state record-role-evidence --role executor --summary "..." --changed-file <path>` as the formal recovery path. Do not rely on prose handoff as evidence.
 
 ## Scope Rules
 - `allowed_write` is the set of paths you may modify.

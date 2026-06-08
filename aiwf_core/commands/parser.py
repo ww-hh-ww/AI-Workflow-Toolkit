@@ -41,7 +41,8 @@ from .research_commands import (
 from .state_commands import (
     _cmd_cleanup_check, _cmd_disposition_adversarial, _cmd_mark_cleanup_fresh,
     _cmd_mark_cleanup_stale, _cmd_prepare_close, _cmd_rebuild_current_state,
-    _cmd_record_meta_critique, _cmd_set_workflow_mode,
+    _cmd_record_meta_critique, _cmd_record_review, _cmd_record_role_evidence,
+    _cmd_set_workflow_mode,
     _cmd_record_quality_brief, _cmd_record_quality_policy, _cmd_record_testing,
     _cmd_start_context, _cmd_state_help,
 )
@@ -143,6 +144,30 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
     p_rt.add_argument("--repeated-change-hotspot", action="append", default=[], dest="repeated_change_hotspots", help="repeatable repeated-change hotspot")
     p_rt.add_argument("--adversarial-mode", action="store_true", dest="adversarial_mode", help="Tester ran in adversarial mode")
     p_rt.set_defaults(func=_cmd_record_testing)
+    p_rrv = p_state_sub.add_parser("record-review", help="record review results and reviewer evidence")
+    p_rrv.add_argument("--result", required=True, choices=["accepted","needs_fix","needs_more_testing","evidence_insufficient","scope_violation","rejected"], help="review result")
+    p_rrv.add_argument("--closure-allowed", action="store_true", help="allow closure when result=accepted")
+    p_rrv.add_argument("--accepted-evidence-id", action="append", default=[], dest="accepted_evidence_ids", help="repeatable accepted evidence ID")
+    p_rrv.add_argument("--rejected-evidence-id", action="append", default=[], dest="rejected_evidence_ids", help="repeatable rejected evidence ID")
+    p_rrv.add_argument("--blocker", action="append", default=[], dest="blockers", help="repeatable blocker")
+    p_rrv.add_argument("--adversarial-observation", action="append", default=[], dest="adversarial_observations", help="repeatable adversarial observation message")
+    p_rrv.add_argument("--cleanup-status", default="", choices=["","fresh","needs_attention","stale","unknown"], help="cleanup status")
+    p_rrv.add_argument("--structure-status", default="", choices=["","accepted","needs_attention","unknown"], help="structure status")
+    p_rrv.add_argument("--summary", default="", help="short review evidence summary")
+    p_rrv.add_argument("--context-id", default="", help="context ID")
+    p_rrv.set_defaults(func=_cmd_record_review)
+    p_re = p_state_sub.add_parser("record-role-evidence", help="record explicit role evidence when hooks cannot observe a subagent")
+    p_re.add_argument("--role", required=True, choices=["executor","tester","reviewer","planner"], help="role that produced the evidence")
+    p_re.add_argument("--summary", required=True, help="short evidence summary")
+    p_re.add_argument("--command", default="", help="command or action observed")
+    p_re.add_argument("--changed-file", action="append", default=[], dest="changed_files", help="repeatable changed file")
+    p_re.add_argument("--session-id", default="", help="engine session id, if available")
+    p_re.add_argument("--agent-id", default="", help="subagent id, if available")
+    p_re.add_argument("--agent-type", default="", help="agent type, if available")
+    p_re.add_argument("--context-id", default="", help="context ID")
+    p_re.add_argument("--status", default="pending", choices=["pending","accepted","rejected"], help="initial evidence status")
+    p_re.add_argument("--exit-code", default=0, type=int, help="command exit code")
+    p_re.set_defaults(func=_cmd_record_role_evidence)
     p_mcf = p_state_sub.add_parser("mark-cleanup-fresh", help="mark cleanup as fresh, clear stale items")
     p_mcf.add_argument("--note", action="append", default=[], dest="notes", help="repeatable resolved notes")
     p_mcf.set_defaults(func=_cmd_mark_cleanup_fresh)

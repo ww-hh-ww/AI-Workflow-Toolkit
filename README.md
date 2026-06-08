@@ -139,6 +139,13 @@ Task plan artifact 与 PROJECT-MAP 分工不同：
 
 外部研究和社区工作流先进入低信任区：`aiwf research record` 记录 claims，`aiwf research promote` 才能把 Planner 认可的部分变成决策输入。`aiwf capability scan` 会标记外部技能是否重叠 AIWF 生命周期；重叠能力只能辅助对应阶段，不能替代 AIWF 的状态、证据、测试、审查和闭合门。
 
+证据链有两条正规入口：
+
+- Hook evidence：主会话的 Write/Edit/Bash 由 PreToolUse/PostToolUse 自动记录。
+- Role delivery evidence：子 agent 或只读角色未被 hook 捕获时，用 `aiwf state record-role-evidence`、`aiwf state record-testing`、`aiwf state record-review` 记录角色交付证据。
+
+L2/L3 闭合要求 Executor、Tester、Reviewer 都有可审计 role-bound evidence；口头 handoff 不算证据。
+
 两类外部治理是硬门禁：
 
 - 如果 Planner 设置 `external_research_required=true`，执行激活前必须有 promoted research，或用 `aiwf research skip --reason "..."` 记录显式跳过理由。
@@ -153,6 +160,9 @@ aiwf cleanup check      # 只读检查陈旧资产和结构问题
 aiwf plan create        # 创建 task plan artifact
 aiwf recipe recommend   # 获取 advisory workflow recipe
 aiwf research record    # 记录低信任外部研究
+aiwf state record-testing # 记录测试结果并生成 Tester evidence
+aiwf state record-review  # 记录审查结果并生成 Reviewer evidence
+aiwf state record-role-evidence # 为子 agent hook 断裂补正式角色证据
 aiwf capability scan    # 归类外部 skills/hooks/MCP/commands
 aiwf capability plan-use # 标记将使用某个外部能力
 aiwf capability decide   # 为生命周期重叠能力记录 Planner 决策

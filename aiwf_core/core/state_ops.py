@@ -26,6 +26,69 @@ def _write(path: Path, data: Dict) -> None:
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
+def record_role_evidence(
+    base_dir: str,
+    role: str,
+    summary: str = "",
+    command: str = "",
+    changed_files: Optional[List[str]] = None,
+    session_id: str = "",
+    agent_id: str = "",
+    agent_type: str = "",
+    context_id: str = "",
+    status: str = "pending",
+    exit_code: int = 0,
+) -> Dict[str, Any]:
+    """Append machine-recorded role evidence for subagent/hook coverage gaps."""
+    role = role.strip().lower()
+    if role not in ("executor", "tester", "reviewer", "planner"):
+        raise ValueError(f"unknown role evidence role: {role}")
+    if status not in ("pending", "accepted", "rejected"):
+        raise ValueError(f"unknown role evidence status: {status}")
+
+    base = Path(base_dir)
+    evidence_path = base / ".aiwf" / "evidence" / "records.json"
+    state = _read(base / ".aiwf" / "state" / "state.json")
+    evidence = _read(evidence_path)
+    records = evidence.get("records", [])
+    if not isinstance(records, list):
+        records = []
+
+    from datetime import datetime, timezone
+    from .evidence_schema import next_ev_id
+
+    active_context = context_id or state.get("active_context_id") or ""
+    synthetic_session = active_context or "aiwf"
+    record = {
+        "id": next_ev_id(records),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "context_id": active_context,
+        "phase": state.get("phase", ""),
+        "session_id": session_id or synthetic_session,
+        "agent_id": agent_id or role,
+        "agent_type": agent_type or role,
+        "tool_name": "AIWFRoleEvidence",
+        "tool_input": {"role": role, "summary": summary},
+        "command": command[:500] if command else "",
+        "exit_code": exit_code,
+        "changed_files": changed_files or [],
+        "governance_changed_files": [],
+        "changed_files_source": "role_delivery",
+        "working_tree_changed_files": [],
+        "working_tree_source": "not_scanned",
+        "attribution": "role_command",
+        "stdout_summary": summary[:500] if summary else "",
+        "stderr_summary": "",
+        "status": status,
+        "trust": "machine_observed",
+    }
+    records.append(record)
+    evidence["records"] = records
+    evidence["updated_at"] = record["timestamp"]
+    _write(evidence_path, evidence)
+    return record
+
+
 def execution_contract_freeze_reasons(base_dir: str, state: Optional[Dict] = None) -> List[str]:
     """Explain why execution truth may only become stricter."""
     base = Path(base_dir)
@@ -440,6 +503,19 @@ def record_testing(
     if state.get("phase") not in ("closing", "closed"):
         state["phase"] = "testing"
         _write(state_path, state)
+    evidence_command = "; ".join(commands or [])
+    evidence_summary = coverage_summary or failure_summary or f"testing status={status}"
+    ev = record_role_evidence(
+        base_dir,
+        "tester",
+        summary=evidence_summary,
+        command=evidence_command,
+        context_id=context_id or state.get("active_context_id") or "",
+        status="pending",
+        exit_code=0 if status in ("adequate", "passed") else 1 if status == "failed" else 0,
+    )
+    testing["evidence_id"] = ev["id"]
+    _write(testing_path, testing)
     return testing
 
 
@@ -495,6 +571,60 @@ def mark_cleanup_stale(
     if notes is not None: review["cleanup_notes"] = notes
 
     _write(review_path, review)
+    return review
+
+
+def record_review(
+    base_dir: str,
+    result: str,
+    closure_allowed: bool = False,
+    accepted_evidence_ids: Optional[List[str]] = None,
+    rejected_evidence_ids: Optional[List[str]] = None,
+    blockers: Optional[List[str]] = None,
+    adversarial_observations: Optional[List[Dict[str, Any]]] = None,
+    cleanup_status: str = "",
+    structure_status: str = "",
+    summary: str = "",
+    context_id: str = "",
+) -> Dict[str, Any]:
+    """Write review.json through a command and append reviewer role evidence."""
+    from .state_schema import VALID_REVIEW_RESULTS
+    if result not in VALID_REVIEW_RESULTS or result == "unknown":
+        raise ValueError(f"invalid review result: {result}")
+    base = Path(base_dir)
+    review_path = base / ".aiwf" / "quality" / "review.json"
+    state = _read(base / ".aiwf" / "state" / "state.json")
+    review = _read(review_path)
+
+    review["result"] = result
+    review["closure_allowed"] = bool(closure_allowed and result == "accepted")
+    review["accepted_evidence_ids"] = list(accepted_evidence_ids or [])
+    review["rejected_evidence_ids"] = list(rejected_evidence_ids or [])
+    review["blockers"] = list(blockers or [])
+    if adversarial_observations is not None:
+        review["adversarial_observations"] = adversarial_observations
+    if cleanup_status:
+        review["cleanup_status"] = cleanup_status
+    if structure_status:
+        review["structure_status"] = structure_status
+
+    ev = record_role_evidence(
+        base_dir,
+        "reviewer",
+        summary=summary or f"review result={result}",
+        command="aiwf state record-review",
+        context_id=context_id or state.get("active_context_id") or "",
+        status="pending",
+        exit_code=0 if result == "accepted" else 1,
+    )
+    if result == "accepted" and ev["id"] not in review["accepted_evidence_ids"]:
+        review["accepted_evidence_ids"].append(ev["id"])
+    review["reviewer_evidence_id"] = ev["id"]
+
+    _write(review_path, review)
+    if state.get("phase") not in ("closing", "closed"):
+        state["phase"] = "reviewing"
+        _write(base / ".aiwf" / "state" / "state.json", state)
     return review
 
 

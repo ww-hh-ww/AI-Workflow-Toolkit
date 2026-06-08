@@ -297,6 +297,48 @@ class TestProcessEnforcement(unittest.TestCase):
         self.assertEqual(recovery["primary"], "disposition adversarial observations")
         self.assertTrue(any("prepare-close" in item for item in recovery["forbidden"]))
 
+    def test_l2_task_closes_with_cli_role_delivery_evidence(self):
+        from aiwf_core.core.state_ops import (
+            mark_cleanup_fresh,
+            record_meta_critique,
+            record_review,
+            record_role_evidence,
+            record_testing,
+        )
+        from aiwf_core.core.task_ledger import activate_task, close_task, upsert_task
+        self._set_l2()
+        upsert_task(str(self.tmp), "TASK-ROLE", "Role evidence", status="ready")
+        self.assertTrue(activate_task(str(self.tmp), "TASK-ROLE")["activated"])
+
+        exec_ev = record_role_evidence(
+            str(self.tmp), "executor", summary="implemented scoped change",
+            changed_files=["src/a.py"],
+        )
+        testing = record_testing(
+            str(self.tmp),
+            status="adequate",
+            commands=["pytest"],
+            validation_layers=["targeted", "full_regression", "real_usage"],
+            full_suite_status="passed",
+            real_usage_status="passed",
+            real_usage_reason="pytest exercised CLI entrypoint",
+        )
+        mark_cleanup_fresh(str(self.tmp), ["cleanup checked"])
+        record_review(
+            str(self.tmp),
+            result="accepted",
+            closure_allowed=True,
+            accepted_evidence_ids=[exec_ev["id"], testing["evidence_id"]],
+            cleanup_status="fresh",
+            structure_status="accepted",
+            summary="reviewed role delivery evidence",
+        )
+        record_meta_critique(str(self.tmp), "Review accepted after adversarial disposition")
+
+        result = close_task(str(self.tmp), "TASK-ROLE")
+
+        self.assertTrue(result["closed"], result["blockers"])
+
     def test_planner_guidance_reports_stale_tier1_assets(self):
         from aiwf_core.assets.schema import init_assets
         from aiwf_core.core.process_contract import planner_process_guidance

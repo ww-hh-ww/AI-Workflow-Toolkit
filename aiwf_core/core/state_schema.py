@@ -208,6 +208,7 @@ def default_testing() -> Dict[str, Any]:
         "testing_debt": [],
         "repeated_change_hotspots": [],
         "adversarial_mode": False,
+        "evidence_id": "",
     }
 
 TESTING_KEYS = {"status", "commands", "untested_risks",
@@ -218,6 +219,7 @@ TESTING_KEYS = {"status", "commands", "untested_risks",
                 "real_usage_status", "real_usage_reason",
                 "inferred_surfaces", "missing_surface_notes"}
 TESTING_KEYS.update({"cross_task_risks", "testing_debt", "repeated_change_hotspots", "adversarial_mode"})
+TESTING_KEYS.add("evidence_id")
 
 VALID_TESTING_STATUSES = {"missing", "partial", "adequate", "passed", "failed"}
 VALID_LAYER_STATUSES = {"not_run", "passed", "failed", "not_available", "not_feasible"}
@@ -253,6 +255,7 @@ def default_review() -> Dict[str, Any]:
         "lessons": [],
         "negative_patterns": [],
         "followups": [],
+        "reviewer_evidence_id": "",
     }
 
 REVIEW_KEYS = {
@@ -265,6 +268,7 @@ REVIEW_KEYS = {
     "repeated_change_hotspots", "adversarial_observations",
     "scope_violation_events",
     "lessons", "negative_patterns", "followups",
+    "reviewer_evidence_id",
 }
 
 VALID_REVIEW_RESULTS = {"unknown", "accepted", "needs_fix", "needs_more_testing",

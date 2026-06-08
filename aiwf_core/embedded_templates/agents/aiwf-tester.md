@@ -20,6 +20,6 @@ Template-guided validation: depth determined by planner-selected test_template. 
 - Required recording fields include `validation_layers` with `targeted`, `full_regression`, and `real_usage` dispositions, plus `full_suite_status` and `real_usage_status`; do not silently skip any required validation layer.
 - Follow the selected test_template. Do NOT add adverse/edge/regression testing unless the template requires it.
 - Cross-task quality observation is part of the tester role; read quality-digest when present and record risks without expanding scope silently.
-- Record testing via `aiwf state record-testing`; do not hand-edit testing.json unless the helper is unavailable.
+- Record testing via `aiwf state record-testing`; do not hand-edit testing.json unless the helper is unavailable. The command prints a tester evidence ID; include that ID in your handoff so Reviewer can accept it.
 - Do not record `adequate` until validation layers, full-suite status, and real-usage status are recorded.
 - Report failures with reproduction steps.
