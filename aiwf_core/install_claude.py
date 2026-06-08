@@ -149,95 +149,53 @@ def _build_settings_json(target: EmbedTarget | None = None) -> Dict[str, Any]:
 
     Schema: { hooks: { EventName: [ { matcher?, hooks: [ { type, command } ] } ] } }
     Uses the target project env var for portable paths.
+    All commands are shell-quoted so paths with spaces (e.g. "External Asset Lab") work.
     """
     target = target or _target("claude")
     scripts = "${" + target.project_env_var + "}/scripts"
+
+    # Pre-compute shell-quoted paths: "${CLAUDE_PROJECT_DIR}/scripts/aiwf_xxx.py"
+    qs = f'"{scripts}'
+    q_status       = qs + '/aiwf_status.py"'
+    q_pre_snapshot = qs + '/aiwf_pre_snapshot.py"'
+    q_scope_check  = qs + '/aiwf_scope_check.py"'
+    q_bash_guard   = qs + '/aiwf_bash_guard.py"'
+    q_capture      = qs + '/aiwf_capture_evidence.py"'
+    q_review_gate  = qs + '/aiwf_review_gate.py"'
+
     if target.mode == "reasonix":
-        command_prefix = "AIWF_HOOK_ENGINE=reasonix "
+        pf = "AIWF_HOOK_ENGINE=reasonix "
         return {
             "hooks": {
                 "UserPromptSubmit": [{
-                    "command": f"{command_prefix}{scripts}/aiwf_status.py",
-                    "description": "Inject compact AIWF workflow status before Reasonix handles the prompt",
-                    "timeout": 5000,
+                    "command": pf + q_status, "description": "Inject compact AIWF workflow status before Reasonix handles the prompt", "timeout": 5000,
                 }],
                 "PreToolUse": [
-                    {
-                        "command": f"{command_prefix}{scripts}/aiwf_pre_snapshot.py",
-                        "match": "^(write|edit|edit_file|multi_edit|bash|agent|task|Write|Edit|MultiEdit|Bash|Agent|Task)$",
-                        "description": "Capture a pre-tool filesystem snapshot for AIWF evidence",
-                        "timeout": 5000,
-                    },
-                    {
-                        "command": f"{command_prefix}{scripts}/aiwf_scope_check.py",
-                        "match": "^(write|edit|edit_file|multi_edit|Write|Edit|MultiEdit)$",
-                        "description": "Block writes outside the active AIWF context scope",
-                        "timeout": 5000,
-                    },
-                    {
-                        "command": f"{command_prefix}{scripts}/aiwf_bash_guard.py",
-                        "match": "^(bash|Bash)$",
-                        "description": "Block dangerous shell commands before execution",
-                        "timeout": 5000,
-                    },
+                    {"command": pf + q_pre_snapshot, "match": "^(write|edit|edit_file|multi_edit|bash|agent|task|Write|Edit|MultiEdit|Bash|Agent|Task)$", "description": "Capture a pre-tool filesystem snapshot for AIWF evidence", "timeout": 5000},
+                    {"command": pf + q_scope_check,  "match": "^(write|edit|edit_file|multi_edit|Write|Edit|MultiEdit)$", "description": "Block writes outside the active AIWF context scope", "timeout": 5000},
+                    {"command": pf + q_bash_guard,   "match": "^(bash|Bash)$", "description": "Block dangerous shell commands before execution", "timeout": 5000},
                 ],
                 "PostToolUse": [{
-                    "command": f"{command_prefix}{scripts}/aiwf_capture_evidence.py",
-                    "match": "^(write|edit|edit_file|multi_edit|bash|agent|task|Write|Edit|MultiEdit|Bash|Agent|Task)$",
-                    "description": "Capture git-diff evidence after file or shell tools",
-                    "timeout": 30000,
+                    "command": pf + q_capture, "match": "^(write|edit|edit_file|multi_edit|bash|agent|task|Write|Edit|MultiEdit|Bash|Agent|Task)$", "description": "Capture git-diff evidence after file or shell tools", "timeout": 30000,
                 }],
                 "Stop": [{
-                    "command": f"{command_prefix}{scripts}/aiwf_review_gate.py",
-                    "description": "Report AIWF closure gate status on session exit (Reasonix Stop is non-gating)",
-                    "timeout": 5000,
+                    "command": pf + q_review_gate, "description": "Report AIWF closure gate status on session exit (Reasonix Stop is non-gating)", "timeout": 5000,
                 }],
             }
         }
+    _h = lambda cmd: {"hooks": [{"type": "command", "command": cmd}]}
     return {
         "hooks": {
-            "UserPromptSubmit": [{
-                "hooks": [{
-                    "type": "command",
-                    "command": f"{scripts}/aiwf_status.py",
-                }]
-            }],
+            "UserPromptSubmit": [_h(q_status)],
             "PreToolUse": [
-                {
-                    "matcher": "Write|Edit|MultiEdit|Bash|Agent|Task",
-                    "hooks": [{
-                        "type": "command",
-                        "command": f"{scripts}/aiwf_pre_snapshot.py",
-                    }]
-                },
-                {
-                    "matcher": "Write|Edit|MultiEdit",
-                    "hooks": [{
-                        "type": "command",
-                        "command": f"{scripts}/aiwf_scope_check.py",
-                    }]
-                },
-                {
-                    "matcher": "Bash",
-                    "hooks": [{
-                        "type": "command",
-                        "command": f"{scripts}/aiwf_bash_guard.py",
-                    }]
-                },
+                {"matcher": "Write|Edit|MultiEdit|Bash|Agent|Task", **_h(q_pre_snapshot)},
+                {"matcher": "Write|Edit|MultiEdit",                 **_h(q_scope_check)},
+                {"matcher": "Bash",                                 **_h(q_bash_guard)},
             ],
-            "PostToolUse": [{
-                "matcher": "Write|Edit|MultiEdit|Bash|Agent|Task",
-                "hooks": [{
-                    "type": "command",
-                    "command": f"{scripts}/aiwf_capture_evidence.py",
-                }]
-            }],
-            "Stop": [{
-                "hooks": [{
-                    "type": "command",
-                    "command": f"{scripts}/aiwf_review_gate.py",
-                }]
-            }],
+            "PostToolUse": [
+                {"matcher": "Write|Edit|MultiEdit|Bash|Agent|Task", **_h(q_capture)},
+            ],
+            "Stop": [_h(q_review_gate)],
         },
         "permissions": {
             "allow": [

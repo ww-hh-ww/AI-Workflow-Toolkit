@@ -233,7 +233,7 @@ class TestReasonixInstall(unittest.TestCase):
         self.assertTrue(any("agent" in m and "task" in m for m in pre_matches))
         self.assertTrue(any("agent" in m and "task" in m for m in post_matches))
         self.assertTrue(commands)
-        self.assertTrue(all("AIWF_HOOK_ENGINE=reasonix ${REASONIX_PROJECT_DIR}/scripts/" in c for c in commands))
+        self.assertTrue(all("AIWF_HOOK_ENGINE=reasonix" in c and "REASONIX_PROJECT_DIR}/scripts/" in c for c in commands))
 
     def test_reasonix_subagent_skills_have_connection_recovery_without_hard_budget(self):
         for skill in ["aiwf-implement", "aiwf-test", "aiwf-review", "aiwf-architect"]:
