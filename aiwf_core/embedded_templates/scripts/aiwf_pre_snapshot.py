@@ -6,6 +6,10 @@ from aiwf_core.adapters.claude.normalize_event import parse_claude_stdin, normal
 
 def _log(msg: str) -> None:
     print(f"[aiwf_pre_snapshot] {msg}", file=sys.stderr)
+    try:
+        _ah_diag(msg)
+    except NameError:
+        pass
 
 def main():
     cwd = Path.cwd()

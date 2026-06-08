@@ -8,6 +8,10 @@ from aiwf_core.hooks.common.snapshot import diff_snapshot, clear_snapshot, read_
 
 def _log(msg: str) -> None:
     print(f"[aiwf_capture_evidence] {msg}", file=sys.stderr)
+    try:
+        _ah_diag(msg)
+    except NameError:
+        pass
 
 def main():
     data = parse_claude_stdin()
