@@ -482,23 +482,13 @@ def _write_agents(target: EmbedTarget | None = None) -> List[Path]:
 
 # ── .aiwf state files (MVP: 7 files only) ──────────────────────────────
 
-def _write_state_files(force: bool = False) -> List[Path]:
+def _write_state_files() -> List[Path]:
     d = _aiwf_dir()
     d.mkdir(parents=True, exist_ok=True)
     # Create all subdirectories
     for subdir in ALL_DIRS:
         (d / subdir).mkdir(parents=True, exist_ok=True)
     paths = []
-    # Backup existing state before force-overwrite
-    if force and d.exists():
-        import shutil, tempfile
-        from datetime import datetime, timezone
-        backup = d.parent / f".aiwf-backup-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S')}"
-        try:
-            shutil.copytree(d, backup, dirs_exist_ok=True)
-            print(f"aiwf: backed up existing .aiwf/ to {backup}")
-        except Exception:
-            pass
     # Map state files to new subdirectory paths
     file_paths = {
         "state.json": d / "state" / "state.json",
@@ -512,7 +502,9 @@ def _write_state_files(force: bool = False) -> List[Path]:
     for filename, default_fn in MVP_STATE_FILES.items():
         target = file_paths.get(filename, d / filename)
         target.parent.mkdir(parents=True, exist_ok=True)
-        if not target.exists() or force:
+        if not target.exists():
+            # Only create missing files — never overwrite existing user data.
+            # The --force flag regenerates scripts/settings, not state data.
             write_json(target, default_fn())
             paths.append(target)
     return paths
@@ -653,6 +645,9 @@ def install_embedded(mode: str = "claude", force: bool = False) -> Dict[str, Any
         "skipped": [],
     }
 
+    # Migrate legacy flat-layout .aiwf files to v2 subdirectory layout.
+    _migrate_legacy_paths()
+
     # Embedded install uses the compact .aiwf state directory only.
     results["updated"].append(rel(_write_instruction_md(target)))
     results["updated"].append(rel(_write_settings(target)))
@@ -670,7 +665,7 @@ def install_embedded(mode: str = "claude", force: bool = False) -> Dict[str, Any
             if old_agent.exists():
                 old_agent.unlink()
                 results["updated"].append(rel(old_agent))
-    for p in _write_state_files(force=force):
+    for p in _write_state_files():
         results["created"].append(rel(p))
     for p in _write_scripts():
         results["created"].append(rel(p))
