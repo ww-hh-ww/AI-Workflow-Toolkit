@@ -299,6 +299,13 @@ class TestTaskLedger(unittest.TestCase):
         status = self._run("task", "status")
         self.assertIn("ready: 1", status.stdout)
 
+    def test_cli_task_plan_accepts_positional_task_id(self):
+        r = self._run("task", "plan", "TASK-POS", "--title", "Positional", "--status", "ready")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("Task recorded: TASK-POS", r.stdout)
+        status = self._run("task", "status")
+        self.assertIn("ready: 1", status.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

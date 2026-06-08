@@ -8,10 +8,14 @@ import sys
 
 def _cmd_task_plan(args: argparse.Namespace) -> None:
     from ..core.task_ledger import upsert_task
+    task_id = args.task_id or getattr(args, "task_id_pos", "") or ""
+    if not task_id:
+        print("Task update blocked: task id required (use positional TASK-001 or --task-id TASK-001)", file=sys.stderr)
+        raise SystemExit(1)
     try:
         result = upsert_task(
         str(Path.cwd()),
-        task_id=args.task_id,
+        task_id=task_id,
         title=args.title or "",
         status=args.status,
         dependencies=args.dependencies or None,

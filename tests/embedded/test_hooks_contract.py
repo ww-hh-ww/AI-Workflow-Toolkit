@@ -85,6 +85,25 @@ class TestHooks(unittest.TestCase):
         self.assertIn("REQUIRED NEXT:", ctx)
         self.assertLess(len(ctx), 1000)
 
+    def test_status_after_review_without_active_task_routes_to_closure_not_new_task(self):
+        state_path = self.tmp / ".aiwf" / "state" / "state.json"
+        state = json.loads(state_path.read_text())
+        state["phase"] = "reviewing"
+        state["active_task_id"] = None
+        state["workflow_level"] = "L2_standard_team"
+        state_path.write_text(json.dumps(state, indent=2))
+        review_path = self.tmp / ".aiwf" / "quality" / "review.json"
+        review = json.loads(review_path.read_text())
+        review["result"] = "accepted"
+        review_path.write_text(json.dumps(review, indent=2))
+
+        r = self._status()
+        ctx = json.loads(r.stdout.strip())["hookSpecificOutput"]["additionalContext"]
+
+        self.assertIn("Recovery:closure planner", ctx)
+        self.assertIn("PRIMARY: refresh closure assets and run prepare-close", ctx)
+        self.assertNotIn("PRIMARY: activate task", ctx)
+
     def test_l2_review_write_before_cleanup_is_denied(self):
         state = json.loads((self.tmp / ".aiwf" / "state" / "state.json").read_text())
         state["workflow_level"] = "L2_standard_team"

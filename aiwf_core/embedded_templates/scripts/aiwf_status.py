@@ -264,6 +264,12 @@ def recovery_lines(cwd, state, goal, review, fix_loop):
         return blocked("user_decision", "planner", "resolve external research requirement",
                        "promote a research record, or ask user to approve aiwf research skip",
                        user=True)
+    if not active_task and state.get("phase") in ("reviewing", "closing"):
+        if review.get("result") == "accepted":
+            return blocked("closure", "planner", "refresh closure assets and run prepare-close",
+                           "refresh PROJECT-MAP/current-state/quality digest/closure report, then run aiwf state prepare-close")
+        return blocked("missing_step", "reviewer", "complete review or resolve review blockers",
+                       "dispatch Reviewer or route fix-loop before prepare-close")
     if not active_task:
         return blocked("missing_step", "planner", "plan and activate one scoped task",
                        "run aiwf task plan, aiwf task activate, then aiwf status")
