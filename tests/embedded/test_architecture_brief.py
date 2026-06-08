@@ -48,7 +48,9 @@ class TestArchitectureBrief(unittest.TestCase):
         expected = ["target_structure", "module_boundaries", "allowed_files",
                      "protected_files", "allowed_new_files", "public_api_changes",
                      "integration_points", "architecture_invariants",
-                     "forbidden_restructures", "architecture_risks"]
+                     "forbidden_restructures", "architecture_risks",
+                     "migration_source_of_truth", "legacy_paths", "legacy_terms",
+                     "default_entrypoints", "validators", "sample_outputs"]
         for field in expected:
             self.assertIn(field, ab, f"Missing architecture_brief field: {field}")
 
@@ -93,6 +95,22 @@ class TestArchitectureBrief(unittest.TestCase):
                   "--architecture-risk", "Shared validation change broadens scope")
         ab = self._goal()["quality_brief"]["architecture_brief"]
         self.assertIn("Shared validation change broadens scope", ab["architecture_risks"])
+
+    def test_writes_architecture_migration_contract(self):
+        self._run("state", "record-quality-brief",
+                  "--migration-source-of-truth", "README.md documents the new mainline",
+                  "--legacy-path", "scripts/old-flow.sh",
+                  "--legacy-term", "old_handoff",
+                  "--default-entrypoint", "scripts/new-flow.sh",
+                  "--validator", "scripts/validate.sh",
+                  "--sample-output", "examples/new-output.md")
+        ab = self._goal()["quality_brief"]["architecture_brief"]
+        self.assertEqual(ab["migration_source_of_truth"], "README.md documents the new mainline")
+        self.assertIn("scripts/old-flow.sh", ab["legacy_paths"])
+        self.assertIn("old_handoff", ab["legacy_terms"])
+        self.assertIn("scripts/new-flow.sh", ab["default_entrypoints"])
+        self.assertIn("scripts/validate.sh", ab["validators"])
+        self.assertIn("examples/new-output.md", ab["sample_outputs"])
 
     # ═══════════════════════════════════════════════════════════════
     # Report

@@ -114,6 +114,16 @@ class TestInstall(unittest.TestCase):
         self.assertIn("AIWF MANAGED BLOCK START", content)
         self.assertIn("AIWF MANAGED BLOCK END", content)
 
+    def test_claude_md_has_runtime_protocol(self):
+        """Generated CLAUDE.md tells planner-main how to resume from mechanical state."""
+        content = (self.tmp / "CLAUDE.md").read_text()
+        self.assertIn("## Runtime Protocol", content)
+        self.assertIn("Run `aiwf status` before deciding the next workflow action", content)
+        self.assertIn("Recovery", content)
+        self.assertIn("PRIMARY", content)
+        self.assertIn("REQUIRED NEXT", content)
+        self.assertIn("Do not roleplay Executor, Tester, or Reviewer", content)
+
     def test_claude_md_managed_block_idempotent(self):
         """Second install does not duplicate managed block."""
         import subprocess, sys, os

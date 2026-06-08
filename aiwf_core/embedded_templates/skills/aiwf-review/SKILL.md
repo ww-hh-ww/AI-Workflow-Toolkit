@@ -134,6 +134,17 @@ For blocking review, omit `--closure-allowed` and add `--blocker "..."`.
 
 For L2/L3, local correctness is not enough. Check that system_integration_obligations were tested against the affected system path, such as router → handler → service, UI action → API → state update, CLI command → state mutation, or import/export chain. If the local change works but the path was not verified, request more testing or mark evidence insufficient.
 
+## Architecture Migration Review
+
+If `architecture_brief` declares migration fields (`migration_source_of_truth`, `legacy_paths`, `legacy_terms`, `default_entrypoints`, `validators`, `sample_outputs`), do not accept `structure_status=accepted` unless accepted machine evidence proves:
+- legacy paths/terms were swept with `rg`/`grep` or equivalent;
+- old default entrypoints are removed, redirected, or explicitly isolated;
+- declared default entrypoints ran through a non-destructive dry-run/check;
+- declared validators/CI validate the new structure, not the retired one;
+- docs, scripts, prompts, tests, and sample outputs agree on one mainline.
+
+If any of these are missing, use `result=evidence_insufficient` or `structure_status=needs_attention` and record a blocker. The task close gate will also reject accepted reviews that lack migration evidence.
+
 ## Staleness Check
 
 Check source freshness before accepting closure. Do not treat raw ideas as requirements; raw ideas are low-trust until Planner promotes them into machine-readable state.

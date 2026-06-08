@@ -31,6 +31,7 @@ class TestWorkflowRecipes(unittest.TestCase):
         listed = self._run_ok("recipe", "list").stdout
         self.assertIn("requirements_grill", listed)
         self.assertIn("tdd_vertical_slice", listed)
+        self.assertIn("architecture_migration", listed)
 
         shown = self._run_ok("recipe", "show", "requirements_grill").stdout
         self.assertIn("clarification_first", shown)
@@ -39,6 +40,9 @@ class TestWorkflowRecipes(unittest.TestCase):
         rec = self._run_ok("recipe", "recommend", "--task-type", "bug_fix", "--risk-flag", "flaky").stdout
         self.assertIn("bug_fix", rec)
         self.assertIn("flaky_test_hunt", rec)
+
+        mig = self._run_ok("recipe", "recommend", "--task-type", "refactor", "--risk-flag", "architecture_migration").stdout
+        self.assertIn("architecture_migration", mig)
 
     def test_recipe_recommend_does_not_modify_state(self):
         state_path = self.tmp / ".aiwf" / "state" / "state.json"

@@ -137,6 +137,12 @@ def default_goal() -> Dict[str, Any]:
                 "architecture_invariants": [],
                 "forbidden_restructures": [],
                 "architecture_risks": [],
+                "migration_source_of_truth": "",
+                "legacy_paths": [],
+                "legacy_terms": [],
+                "default_entrypoints": [],
+                "validators": [],
+                "sample_outputs": [],
             },
             "evaluation_contract": {
                 "user_visible_outcome": "",

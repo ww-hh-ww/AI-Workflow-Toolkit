@@ -129,6 +129,47 @@ class TestCleanupGate(unittest.TestCase):
         self.assertFalse(gates["passed"])
         self.assertIn("cleanup_blockers is not empty", gates["blockers"][0])
 
+    def test_cleanup_check_flags_active_legacy_path_for_architecture_migration(self):
+        goal_path = self.tmp / ".aiwf" / "state" / "goal.json"
+        goal = json.loads(goal_path.read_text())
+        ab = goal["quality_brief"]["architecture_brief"]
+        ab["migration_source_of_truth"] = "README.md defines new mainline"
+        ab["legacy_paths"] = ["scripts/old-flow.sh"]
+        ab["legacy_terms"] = ["old_handoff"]
+        ab["default_entrypoints"] = ["scripts/new-flow.sh"]
+        ab["validators"] = ["scripts/validate.sh"]
+        goal_path.write_text(json.dumps(goal, indent=2) + "\n")
+        (self.tmp / "scripts").mkdir(exist_ok=True)
+        (self.tmp / "scripts" / "old-flow.sh").write_text("#!/bin/sh\n")
+        (self.tmp / "scripts" / "new-flow.sh").write_text("#!/bin/sh\n")
+        (self.tmp / "scripts" / "validate.sh").write_text("#!/bin/sh\n")
+
+        from aiwf_core.core.lifecycle_cleanup import check_lifecycle_cleanup
+        result = check_lifecycle_cleanup(str(self.tmp))
+
+        self.assertIn("architecture migration contract active", result["architecture_issues"])
+        self.assertTrue(any("legacy path still present" in b for b in result["blockers"]))
+        self.assertEqual(result["structure_status"], "needs_attention")
+
+    def test_cleanup_check_warns_legacy_term_outside_isolated_legacy(self):
+        goal_path = self.tmp / ".aiwf" / "state" / "goal.json"
+        goal = json.loads(goal_path.read_text())
+        ab = goal["quality_brief"]["architecture_brief"]
+        ab["migration_source_of_truth"] = "README.md defines new mainline"
+        ab["legacy_terms"] = ["old_handoff"]
+        ab["legacy_paths"] = ["legacy/old-flow.sh"]
+        ab["default_entrypoints"] = ["scripts/new-flow.sh"]
+        ab["validators"] = ["scripts/validate.sh"]
+        goal_path.write_text(json.dumps(goal, indent=2) + "\n")
+        (self.tmp / "docs").mkdir(exist_ok=True)
+        (self.tmp / "docs" / "guide.md").write_text("Still mentions old_handoff here.\n")
+
+        from aiwf_core.core.lifecycle_cleanup import check_lifecycle_cleanup
+        result = check_lifecycle_cleanup(str(self.tmp))
+
+        self.assertTrue(any("legacy term" in item for item in result["stale_items"]))
+        self.assertTrue(any("legacy term" in w for w in result["warnings"]))
+
 
 if __name__ == "__main__":
     unittest.main()

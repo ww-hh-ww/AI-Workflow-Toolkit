@@ -37,6 +37,18 @@ class TestProcessEnforcement(unittest.TestCase):
         brief["architecture_brief"]["target_structure"] = "Preserve declared module boundaries"
         _write(goal_path, goal)
 
+    def _seed_architecture_migration_contract(self):
+        goal_path = self.tmp / ".aiwf" / "state" / "goal.json"
+        goal = json.loads(goal_path.read_text())
+        ab = goal["quality_brief"]["architecture_brief"]
+        ab["target_structure"] = "New mainline is the only supported flow"
+        ab["migration_source_of_truth"] = "README.md + scripts/new-flow.sh"
+        ab["legacy_paths"] = ["scripts/old-flow.sh"]
+        ab["legacy_terms"] = ["old_handoff"]
+        ab["default_entrypoints"] = ["scripts/new-flow.sh"]
+        ab["validators"] = ["scripts/validate.sh"]
+        _write(goal_path, goal)
+
     def _seed_complete_quality_chain(self):
         _write(self.tmp / ".aiwf" / "quality" / "testing.json", {
             "status": "adequate", "commands": ["pytest"],
@@ -336,6 +348,58 @@ class TestProcessEnforcement(unittest.TestCase):
         record_meta_critique(str(self.tmp), "Review accepted after adversarial disposition")
 
         result = close_task(str(self.tmp), "TASK-ROLE")
+
+        self.assertTrue(result["closed"], result["blockers"])
+
+    def test_architecture_migration_task_blocks_without_migration_evidence(self):
+        from aiwf_core.core.task_ledger import activate_task, close_task, upsert_task
+        self._set_l2()
+        self._seed_architecture_migration_contract()
+        self._seed_complete_quality_chain()
+        upsert_task(str(self.tmp), "TASK-MIG", "Migration", status="ready")
+        self.assertTrue(activate_task(str(self.tmp), "TASK-MIG")["activated"])
+
+        result = close_task(str(self.tmp), "TASK-MIG")
+
+        self.assertFalse(result["closed"])
+        text = " ".join(result["blockers"])
+        self.assertIn("legacy sweep evidence", text)
+        self.assertIn("default entrypoint", text)
+        self.assertIn("validator evidence", text)
+
+    def test_architecture_migration_task_closes_with_migration_evidence(self):
+        from aiwf_core.core.task_ledger import activate_task, close_task, upsert_task
+        self._set_l2()
+        self._seed_architecture_migration_contract()
+        self._seed_complete_quality_chain()
+        evidence_path = self.tmp / ".aiwf" / "evidence" / "records.json"
+        evidence = json.loads(evidence_path.read_text())
+        evidence["records"].extend([
+            {
+                "id": "EV-4", "trust": "machine_observed", "session_id": "tester-session",
+                "agent_id": "tester", "timestamp": "2026-01-01T00:00:04+00:00",
+                "command": "rg \"old_handoff|scripts/old-flow.sh\" .", "exit_code": 0,
+            },
+            {
+                "id": "EV-5", "trust": "machine_observed", "session_id": "tester-session",
+                "agent_id": "tester", "timestamp": "2026-01-01T00:00:05+00:00",
+                "command": "scripts/new-flow.sh --dry-run", "exit_code": 0,
+            },
+            {
+                "id": "EV-6", "trust": "machine_observed", "session_id": "tester-session",
+                "agent_id": "tester", "timestamp": "2026-01-01T00:00:06+00:00",
+                "command": "scripts/validate.sh", "exit_code": 0,
+            },
+        ])
+        _write(evidence_path, evidence)
+        review_path = self.tmp / ".aiwf" / "quality" / "review.json"
+        review = json.loads(review_path.read_text())
+        review["accepted_evidence_ids"].extend(["EV-4", "EV-5", "EV-6"])
+        _write(review_path, review)
+        upsert_task(str(self.tmp), "TASK-MIG", "Migration", status="ready")
+        self.assertTrue(activate_task(str(self.tmp), "TASK-MIG")["activated"])
+
+        result = close_task(str(self.tmp), "TASK-MIG")
 
         self.assertTrue(result["closed"], result["blockers"])
 

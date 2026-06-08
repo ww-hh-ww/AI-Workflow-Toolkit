@@ -1058,6 +1058,12 @@ def record_quality_brief(
     architecture_invariants: Optional[List[str]] = None,
     forbidden_restructures: Optional[List[str]] = None,
     architecture_risks: Optional[List[str]] = None,
+    migration_source_of_truth: str = "",
+    legacy_paths: Optional[List[str]] = None,
+    legacy_terms: Optional[List[str]] = None,
+    default_entrypoints: Optional[List[str]] = None,
+    validators: Optional[List[str]] = None,
+    sample_outputs: Optional[List[str]] = None,
     surface_types: Optional[List[str]] = None,
     user_visible_outcome: str = "",
     evaluation_acceptance_criteria: Optional[List[str]] = None,
@@ -1092,10 +1098,14 @@ def record_quality_brief(
             ("architecture_invariants", architecture_invariants),
             ("forbidden_restructures", forbidden_restructures),
             ("architecture_risks", architecture_risks),
+            ("legacy_paths", legacy_paths), ("legacy_terms", legacy_terms),
+            ("default_entrypoints", default_entrypoints), ("validators", validators),
+            ("sample_outputs", sample_outputs),
         ):
             if proposed is not None:
                 _require_additive_list(ab.get(field), proposed, f"architecture_brief.{field}", freeze_note)
         _require_stable_scalar(ab.get("target_structure"), target_structure, "architecture_brief.target_structure", freeze_note)
+        _require_stable_scalar(ab.get("migration_source_of_truth"), migration_source_of_truth, "architecture_brief.migration_source_of_truth", freeze_note)
         for field, proposed in (
             ("acceptance_criteria", evaluation_acceptance_criteria),
             ("non_goals", evaluation_non_goals), ("test_obligations", test_obligations),
@@ -1123,6 +1133,12 @@ def record_quality_brief(
     if architecture_invariants is not None: ab["architecture_invariants"] = architecture_invariants
     if forbidden_restructures is not None: ab["forbidden_restructures"] = forbidden_restructures
     if architecture_risks is not None: ab["architecture_risks"] = architecture_risks
+    if migration_source_of_truth: ab["migration_source_of_truth"] = migration_source_of_truth
+    if legacy_paths is not None: ab["legacy_paths"] = legacy_paths
+    if legacy_terms is not None: ab["legacy_terms"] = legacy_terms
+    if default_entrypoints is not None: ab["default_entrypoints"] = default_entrypoints
+    if validators is not None: ab["validators"] = validators
+    if sample_outputs is not None: ab["sample_outputs"] = sample_outputs
     brief["architecture_brief"] = ab
     if user_visible_outcome: ec["user_visible_outcome"] = user_visible_outcome
     if evaluation_acceptance_criteria is not None: ec["acceptance_criteria"] = evaluation_acceptance_criteria

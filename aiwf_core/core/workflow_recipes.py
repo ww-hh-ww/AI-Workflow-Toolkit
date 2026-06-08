@@ -45,6 +45,22 @@ RECIPES: Dict[str, Dict[str, object]] = {
         "review_focus": ["PROJECT-MAP drift", "hotspots", "boundary decay"],
         "escalation_triggers": ["gravity >= 0.5", "PROJECT-MAP stale", "3+ drift signals"],
     },
+    "architecture_migration": {
+        "description": "Migrate a repository from an old architecture/mainline to a new one without leaving double-track behavior.",
+        "request_mode": "execution",
+        "workflow_pattern": "adversarial_early",
+        "minimum_level": "L2_standard_team",
+        "required_contract_fields": [
+            "architecture_brief.migration_source_of_truth",
+            "architecture_brief.legacy_paths",
+            "architecture_brief.legacy_terms",
+            "architecture_brief.default_entrypoints",
+            "architecture_brief.validators",
+        ],
+        "test_focus": ["legacy sweep", "default entrypoint dry-run", "validator/CI dry-run", "sample output alignment"],
+        "review_focus": ["single source of truth", "old entrypoints removed/redirected/isolated", "docs/scripts/prompts/tests agree"],
+        "escalation_triggers": ["old default entrypoint still active", "validator checks old structure", "README and behavior disagree"],
+    },
     "release_verification": {
         "description": "Verify release readiness without auto-publishing.",
         "request_mode": "execution",
@@ -104,6 +120,8 @@ def recommend_recipes(task_type: str = "", risk_flags: List[str] | None = None) 
     names: List[str] = []
     if task_type in {"bug_fix"}:
         names.append("bug_fix")
+    if "architecture_migration" in flags or "legacy_migration" in flags:
+        names.append("architecture_migration")
     if task_type in {"refactor"} or "architecture_impact" in flags:
         names.append("architecture_health_check")
     if task_type in {"api_endpoint", "small_function"}:

@@ -16,11 +16,108 @@ PM_REQUIRED_SECTIONS = [
 RAW_IDEA_MARKERS = ["# AIWF Ideas", "## Active Ideas", "### IDEA-", "Status: raw", "| raw"]
 RAW_EVIDENCE_MARKERS = ['"records"', '"tool_name"', "Raw records:", "Accepted IDs:"]
 RAW_JSON_MARKERS = ['"schema_version"', '"status"']
+MIGRATION_ISOLATION_PREFIXES = ("legacy/", "archive/", "archives/", "experimental/", "deprecated/")
+SCAN_SKIP_DIRS = {".git", ".aiwf", ".claude", ".reasonix", "__pycache__", "node_modules", ".venv", "venv", "dist", "build"}
+SCAN_EXTENSIONS = {
+    ".md", ".txt", ".py", ".js", ".ts", ".tsx", ".jsx", ".json", ".yaml", ".yml",
+    ".toml", ".sh", ".bash", ".zsh", ".cfg", ".ini",
+}
 
 
 def _rj(path, default=None):
     try: return json.loads(path.read_text()) if path.exists() else (default or {})
     except: return default or {}
+
+
+def _is_isolated_legacy_path(path: str) -> bool:
+    p = str(path).strip().replace("\\", "/").lstrip("./")
+    return p.startswith(MIGRATION_ISOLATION_PREFIXES) or "/legacy/" in p or "/archive/" in p or "/deprecated/" in p
+
+
+def _iter_scan_files(root: Path):
+    for path in root.rglob("*"):
+        if not path.is_file():
+            continue
+        rel = path.relative_to(root)
+        parts = set(rel.parts)
+        if parts & SCAN_SKIP_DIRS:
+            continue
+        if path.suffix.lower() not in SCAN_EXTENSIONS:
+            continue
+        try:
+            if path.stat().st_size > 512_000:
+                continue
+        except OSError:
+            continue
+        yield path, str(rel).replace("\\", "/")
+
+
+def _migration_cleanup_scan(root: Path, result: Dict[str, Any]) -> None:
+    goal = _rj(root / ".aiwf" / "state" / "goal.json", {})
+    brief = goal.get("quality_brief", {}) if isinstance(goal.get("quality_brief"), dict) else {}
+    arch = brief.get("architecture_brief", {}) if isinstance(brief.get("architecture_brief"), dict) else {}
+    source = str(arch.get("migration_source_of_truth", "") or "").strip()
+    legacy_paths = [str(p).strip() for p in (arch.get("legacy_paths", []) or []) if str(p).strip()]
+    legacy_terms = [str(t).strip() for t in (arch.get("legacy_terms", []) or []) if str(t).strip()]
+    default_entrypoints = [str(e).strip() for e in (arch.get("default_entrypoints", []) or []) if str(e).strip()]
+    validators = [str(v).strip() for v in (arch.get("validators", []) or []) if str(v).strip()]
+    sample_outputs = [str(s).strip() for s in (arch.get("sample_outputs", []) or []) if str(s).strip()]
+    migration_active = any([source, legacy_paths, legacy_terms, default_entrypoints, validators, sample_outputs])
+    if not migration_active:
+        return
+
+    result["architecture_issues"].append("architecture migration contract active")
+    if not source:
+        result["blockers"].append("architecture migration missing migration_source_of_truth")
+    if not (legacy_paths or legacy_terms):
+        result["blockers"].append("architecture migration missing legacy_paths or legacy_terms")
+    if not default_entrypoints:
+        result["blockers"].append("architecture migration missing default_entrypoints")
+    if not validators:
+        result["blockers"].append("architecture migration missing validators")
+
+    for rel in legacy_paths:
+        path = root / rel
+        if path.exists():
+            if _is_isolated_legacy_path(rel):
+                result["warnings"].append(f"declared legacy path still present but appears isolated: {rel}")
+            else:
+                result["blockers"].append(f"declared legacy path still present on active mainline: {rel}")
+                result["stale_items"].append(f"legacy path remains active: {rel}")
+
+    missing_entrypoints = [ep for ep in default_entrypoints if not (root / ep).exists()]
+    for ep in missing_entrypoints:
+        result["warnings"].append(f"declared default entrypoint not found as path; verify command evidence covers it: {ep}")
+    missing_validators = [val for val in validators if not (root / val).exists()]
+    for val in missing_validators:
+        result["warnings"].append(f"declared validator not found as path; verify command evidence covers it: {val}")
+    for sample in sample_outputs:
+        if not (root / sample).exists():
+            result["warnings"].append(f"declared sample output not found: {sample}")
+
+    term_hits = []
+    lowered_terms = [(term, term.lower()) for term in legacy_terms if term]
+    if lowered_terms:
+        for path, rel in _iter_scan_files(root):
+            if _is_isolated_legacy_path(rel):
+                continue
+            try:
+                text = path.read_text(encoding="utf-8", errors="ignore").lower()
+            except OSError:
+                continue
+            for original, term in lowered_terms:
+                if term in text:
+                    term_hits.append((original, rel))
+                    break
+            if len(term_hits) >= 10:
+                break
+    if term_hits:
+        result["warnings"].append(
+            f"legacy term(s) still appear outside isolated legacy paths: {len(term_hits)} hit(s)"
+        )
+        for term, rel in term_hits[:5]:
+            result["stale_items"].append(f"legacy term '{term}' remains in {rel}; classify as retired-doc mention or active old flow")
+        result["suggested_actions"].append("Run a legacy sweep and either remove active old references or document them as isolated legacy-only.")
 
 
 def check_lifecycle_cleanup(project_root: str) -> Dict[str, Any]:
@@ -38,6 +135,7 @@ def check_lifecycle_cleanup(project_root: str) -> Dict[str, Any]:
         "environment_issues": [],
         "fixloop_issues": [],
         "deferred_risk_issues": [],
+        "migration_issues": [],
         "suggested_actions": [],
     }
 
@@ -134,6 +232,12 @@ def check_lifecycle_cleanup(project_root: str) -> Dict[str, Any]:
         if not has_ab:
             result["warnings"].append("ACR approved but architecture_brief still empty")
             result["architecture_issues"].append("approved ACR without updated architecture_brief")
+
+    # ── Architecture migration hygiene ──
+    before_arch_count = len(result["architecture_issues"])
+    _migration_cleanup_scan(root, result)
+    if len(result["architecture_issues"]) > before_arch_count:
+        result["migration_issues"].extend(result["architecture_issues"][before_arch_count:])
 
     # ── Environment ──
     env_path = root / ".aiwf" / "assets" / "environment.json"

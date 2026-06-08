@@ -585,6 +585,8 @@ def _l2_l3_completion_blockers(base_dir: str, task: Dict[str, Any]) -> List[str]
     if cleanup_at and not reviewer_timestamps:
         blockers.append("L2/L3 task requires Reviewer evidence after cleanup verification")
 
+    blockers.extend(_architecture_migration_blockers(goal, evidence, accepted_ids))
+
     if level == "L3_full_power":
         checkpoint_dir = root / ".aiwf" / "checkpoints"
         goal_decisions = goal.get("decisions", []) or []
@@ -596,6 +598,92 @@ def _l2_l3_completion_blockers(base_dir: str, task: Dict[str, Any]) -> List[str]
         )
         if not (checkpoint_dir.exists() and any(checkpoint_dir.iterdir())) and not explicit_skip:
             blockers.append("L3 task requires checkpoint or explicit checkpoint skip decision")
+    return blockers
+
+
+def _architecture_migration_blockers(
+    goal: Dict[str, Any],
+    evidence: Dict[str, Any],
+    accepted_ids: set[str],
+) -> List[str]:
+    """Require behavior evidence when a task declares an architecture migration."""
+    brief = goal.get("quality_brief", {}) or {}
+    architecture = brief.get("architecture_brief", {}) or {}
+    migration_fields = {
+        "migration_source_of_truth": architecture.get("migration_source_of_truth", ""),
+        "legacy_paths": architecture.get("legacy_paths", []) or [],
+        "legacy_terms": architecture.get("legacy_terms", []) or [],
+        "default_entrypoints": architecture.get("default_entrypoints", []) or [],
+        "validators": architecture.get("validators", []) or [],
+        "sample_outputs": architecture.get("sample_outputs", []) or [],
+    }
+    migration_active = any(bool(v) for v in migration_fields.values())
+    if not migration_active:
+        return []
+
+    blockers: List[str] = []
+    if not str(migration_fields["migration_source_of_truth"]).strip():
+        blockers.append("architecture migration requires migration_source_of_truth")
+    if not (migration_fields["legacy_paths"] or migration_fields["legacy_terms"]):
+        blockers.append("architecture migration requires legacy_paths or legacy_terms to sweep")
+    if not migration_fields["default_entrypoints"]:
+        blockers.append("architecture migration requires default_entrypoints to prove the new mainline")
+    if not migration_fields["validators"]:
+        blockers.append("architecture migration requires validators/CI to prove the new structure")
+
+    accepted_records = [
+        r for r in (evidence.get("records", []) or [])
+        if isinstance(r, dict)
+        and str(r.get("id", "")) in accepted_ids
+        and r.get("trust") == "machine_observed"
+    ]
+    commands = [
+        " ".join([
+            str(r.get("command", "")),
+            str(r.get("stdout_summary", "")),
+            str(r.get("tool_input", "")),
+        ]).lower()
+        for r in accepted_records
+    ]
+
+    legacy_tokens = [
+        str(token).strip().lower()
+        for token in (migration_fields["legacy_paths"] + migration_fields["legacy_terms"])
+        if str(token).strip()
+    ]
+    if legacy_tokens:
+        has_sweep = any(
+            ("rg " in cmd or cmd.startswith("rg") or "grep " in cmd)
+            and any(token in cmd for token in legacy_tokens)
+            for cmd in commands
+        )
+        if not has_sweep:
+            blockers.append("architecture migration requires accepted legacy sweep evidence (rg/grep over legacy paths or terms)")
+
+    for entrypoint in migration_fields["default_entrypoints"]:
+        ep = str(entrypoint).strip().lower()
+        if not ep:
+            continue
+        found = any(ep in cmd and ("dry-run" in cmd or "dry run" in cmd or "--check" in cmd) for cmd in commands)
+        if not found:
+            blockers.append(f"architecture migration requires accepted dry-run/check evidence for default entrypoint: {entrypoint}")
+
+    for validator in migration_fields["validators"]:
+        val = str(validator).strip().lower()
+        if not val:
+            continue
+        found = any(val in cmd for cmd in commands)
+        if not found:
+            blockers.append(f"architecture migration requires accepted validator evidence: {validator}")
+
+    for sample in migration_fields["sample_outputs"]:
+        smp = str(sample).strip().lower()
+        if not smp:
+            continue
+        found = any(smp in cmd for cmd in commands)
+        if not found:
+            blockers.append(f"architecture migration requires accepted sample-output alignment evidence: {sample}")
+
     return blockers
 
 

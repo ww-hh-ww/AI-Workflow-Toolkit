@@ -67,6 +67,8 @@ Project Map and task plans do different jobs:
 
 Use `aiwf recipe recommend` when choosing among known patterns (requirements grill, TDD vertical slice, bug fix, architecture health check, release verification, external research decision, exploratory spike, flaky test hunt). Recipes are advisory templates. They may shape breadth, but they must not bypass state gates, cleanup-before-review, independent Tester/Reviewer, or meta-critique.
 
+For architecture migrations or refactors that replace an old mainline, choose the `architecture_migration` recipe and record the migration contract in the Architecture Brief: `migration_source_of_truth`, `legacy_paths`, `legacy_terms`, `default_entrypoints`, `validators`, and sample outputs when relevant. These fields activate a hard close gate: the task cannot close until accepted machine evidence includes legacy sweep, default entrypoint dry-run/check, and validator evidence.
+
 ## External Research and Capability Bridge
 
 External community workflows, plugins, skills, MCP servers, and hooks are inputs to classify, not lifecycle replacements. Run `aiwf capability scan` and check `capability_type`, `lifecycle_overlap`, and `use_policy` before relying on them.
@@ -148,6 +150,15 @@ aiwf state record-quality-brief \
   --architecture-invariant "Existing add/subtract/multiply APIs unchanged" \
   --forbidden-restructure "Do not redesign shared numeric validation" \
   --integration-point "calculator public export path"
+```
+
+For architecture migration tasks, add:
+```
+--migration-source-of-truth "README.md + scripts/new-mainline.sh define the only supported flow" \
+--legacy-path "scripts/old-mainline.sh" \
+--legacy-term "old_handoff" \
+--default-entrypoint "scripts/new-mainline.sh" \
+--validator "scripts/validate.sh"
 ```
 
 ## Evaluation Contract (L1+ required)

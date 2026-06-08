@@ -157,6 +157,18 @@ def main():
             lines.append("- Forbidden restructures:"); [lines.append(f"  - {fr[:160]}") for fr in ab["forbidden_restructures"][:10]]
         if ab.get("architecture_risks"):
             lines.append("- Architecture risks:"); [lines.append(f"  - {ar[:160]}") for ar in ab["architecture_risks"][:10]]
+        if ab.get("migration_source_of_truth"):
+            lines.append(f"- Migration source of truth: {ab['migration_source_of_truth'][:200]}")
+        if ab.get("legacy_paths"):
+            lines.append("- Legacy paths to retire/isolate:"); [lines.append(f"  - {p[:160]}") for p in ab["legacy_paths"][:10]]
+        if ab.get("legacy_terms"):
+            lines.append("- Legacy terms to sweep:"); [lines.append(f"  - {t[:160]}") for t in ab["legacy_terms"][:10]]
+        if ab.get("default_entrypoints"):
+            lines.append("- Default entrypoints:"); [lines.append(f"  - {e[:160]}") for e in ab["default_entrypoints"][:10]]
+        if ab.get("validators"):
+            lines.append("- Validators:"); [lines.append(f"  - {v[:160]}") for v in ab["validators"][:10]]
+        if ab.get("sample_outputs"):
+            lines.append("- Sample outputs:"); [lines.append(f"  - {s[:160]}") for s in ab["sample_outputs"][:10]]
     else:
         lines.append("- Architecture brief: none")
     lines.append("")

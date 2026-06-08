@@ -160,6 +160,16 @@ def rebuild_current_state(base_dir: str) -> str:
             forbidden = arch_brief.get("forbidden_restructures", []) or []
             if forbidden:
                 lines.append(f"- Forbidden: {', '.join(str(f)[:80] for f in forbidden[:5])}")
+            if arch_brief.get("migration_source_of_truth"):
+                lines.append(f"- Migration source of truth: {str(arch_brief['migration_source_of_truth'])[:160]}")
+            legacy_paths = arch_brief.get("legacy_paths", []) or []
+            legacy_terms = arch_brief.get("legacy_terms", []) or []
+            if legacy_paths or legacy_terms:
+                lines.append(f"- Migration legacy sweep: paths={len(legacy_paths)}, terms={len(legacy_terms)}")
+            entrypoints = arch_brief.get("default_entrypoints", []) or []
+            validators = arch_brief.get("validators", []) or []
+            if entrypoints or validators:
+                lines.append(f"- Migration behavior checks: entrypoints={len(entrypoints)}, validators={len(validators)}")
         lines.append("")
 
     # ── Rejected Routes ──

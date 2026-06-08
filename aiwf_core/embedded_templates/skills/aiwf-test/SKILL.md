@@ -98,6 +98,16 @@ System Coverage is required when system_integration_obligations exist. Verify th
 
 Check: integration_points tested?, public_api_changes verified?, forbidden_restructures violated in evidence? If testing reveals gap → suspected_route=executor (path declared but missed) or planner (path never declared → request ACR).
 
+## Architecture Migration Evidence
+
+If `architecture_brief` declares `migration_source_of_truth`, `legacy_paths`, `legacy_terms`, `default_entrypoints`, or `validators`, treat this as an architecture migration task. You must produce behavior-level evidence, not only local tests:
+- Run a legacy sweep such as `rg "old_term|old_path"` or equivalent over the repository. If old references remain, classify whether they are archived/legacy-only or still on the mainline.
+- Run each declared default entrypoint with `--dry-run`, `--check`, or the closest non-destructive equivalent.
+- Run each declared validator/CI command.
+- Check declared sample outputs if present.
+
+Record these commands with `aiwf state record-testing` and/or role evidence so Reviewer can accept the machine evidence. Unit tests alone are never adequate for an architecture migration.
+
 ## Recording Results (REQUIRED — gate will block closure without this)
 
 You MUST call `aiwf state record-testing` before exiting. Without testing.json with status=adequate|passed, prepare_close will reject.

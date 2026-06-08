@@ -2,6 +2,10 @@
 
 AIWF is the embedded governance and visibility layer for long-horizon Claude Code and Reasonix engineering sessions.
 
+## Runtime Protocol
+
+On every new turn, resume, compaction, or task continuation, run `aiwf status` before deciding the next workflow action. Obey `Recovery`, `PRIMARY`, and `REQUIRED NEXT` unless an AIWF command resolves the blocker. If your intended action conflicts with status, stop and explain the conflict instead of relying on memory.
+
 ## Product Boundary
 
 - Coding agents own engineering intelligence: inspect, reason, design, edit, run, test, and debug.
