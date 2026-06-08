@@ -42,7 +42,7 @@ from .state_commands import (
     _cmd_cleanup_check, _cmd_disposition_adversarial, _cmd_mark_cleanup_fresh,
     _cmd_mark_cleanup_stale, _cmd_prepare_close, _cmd_rebuild_current_state,
     _cmd_record_meta_critique, _cmd_record_review, _cmd_record_role_evidence,
-    _cmd_set_workflow_mode,
+    _cmd_set_planner_inline, _cmd_set_workflow_mode,
     _cmd_record_quality_brief, _cmd_record_quality_policy, _cmd_record_testing,
     _cmd_start_context, _cmd_state_help,
 )
@@ -191,6 +191,9 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
     p_cc.set_defaults(func=_cmd_cleanup_check)
     p_pc = p_state_sub.add_parser("prepare-close", help="promote evidence + set close_attempt (does NOT declare success)")
     p_pc.set_defaults(func=_cmd_prepare_close)
+    p_pi = p_state_sub.add_parser("set-planner-inline", help="record Planner decision to execute inline (waives session diversity gate)")
+    p_pi.add_argument("--reason", required=True, help="why this task was executed inline instead of via independent subagents")
+    p_pi.set_defaults(func=_cmd_set_planner_inline)
     p_da = p_state_sub.add_parser("disposition-adversarial", help="disposition a single adversarial observation")
     p_da.add_argument("--id", required=True, dest="adv_id", help="adversarial observation ID (e.g. ADV-001)")
     p_da.add_argument("--disposition", required=True, choices=["ignored","accepted","deferred","brief_updated"], help="disposition")

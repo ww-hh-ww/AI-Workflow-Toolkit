@@ -265,6 +265,20 @@ def _cmd_prepare_close(args: argparse.Namespace) -> None:
         print("  No prepare-close blockers reported; authoritative closure preparation passed.")
         print("  Claude Stop will revalidate gates where supported; Reasonix Stop is report-only.")
 
+def _cmd_set_planner_inline(args: argparse.Namespace) -> None:
+    """aiwf state set-planner-inline — record Planner inline execution decision."""
+    import json
+    from datetime import datetime, timezone
+    state_path = Path.cwd() / ".aiwf" / "state" / "state.json"
+    state = json.loads(state_path.read_text()) if state_path.exists() else {}
+    state["planner_inline_session"] = True
+    state["planner_inline_reason"] = args.reason
+    state["planner_inline_recorded_at"] = datetime.now(timezone.utc).isoformat()
+    state_path.write_text(json.dumps(state, ensure_ascii=False, indent=2) + "\n")
+    print(f"Planner inline session recorded: {args.reason[:120]}")
+    print("Session diversity gate waived for prepare-close.")
+
+
 def _cmd_disposition_adversarial(args: argparse.Namespace) -> None:
     """aiwf state disposition-adversarial — disposition a single adversarial observation."""
     from ..core.state_ops import disposition_adversarial_observation

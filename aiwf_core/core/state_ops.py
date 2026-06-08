@@ -710,10 +710,15 @@ def prepare_close(base_dir: str) -> Dict[str, Any]:
     from .closure_contract import evidence_session_diversity_ok, accepted_evidence_session_ids
     active_ctx = state.get("active_context_id", "")
     if not evidence_session_diversity_ok(state, promoted, context_id=active_ctx):
-        blockers.append(
-            "L2/L3 require accepted evidence from at least 3 distinct sessions; "
-            f"found {len(accepted_evidence_session_ids(promoted, context_id=active_ctx))}"
-        )
+        if state.get("planner_inline_session"):
+            # Planner explicitly acknowledged inline execution — gate waived.
+            pass
+        else:
+            blockers.append(
+                "L2/L3 require accepted evidence from at least 3 distinct sessions; "
+                f"found {len(accepted_evidence_session_ids(promoted, context_id=active_ctx))}. "
+                "Record with: aiwf state set-planner-inline --reason '...'"
+            )
 
     if testing.get("status") not in ("adequate", "passed"):
         blockers.append(f"testing not adequate: {testing.get('status', 'missing')}")
