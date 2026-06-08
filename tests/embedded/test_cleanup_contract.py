@@ -60,7 +60,7 @@ class TestCleanupGate(unittest.TestCase):
             json.loads((self.tmp / ".aiwf" / "state" / "fix-loop.json").read_text()),
         )
         self.assertFalse(gates["passed"])
-        self.assertIn("cleanup not fresh", gates["blockers"])
+        self.assertTrue(any("cleanup not fresh" in b for b in gates["blockers"]))
 
     def test_cleanup_stale_blocks_close(self):
         """cleanup_status=stale blocks closure."""
@@ -77,7 +77,7 @@ class TestCleanupGate(unittest.TestCase):
             json.loads((self.tmp / ".aiwf" / "state" / "fix-loop.json").read_text()),
         )
         self.assertFalse(gates["passed"])
-        self.assertIn("cleanup not fresh", gates["blockers"])
+        self.assertTrue(any("cleanup not fresh" in b for b in gates["blockers"]))
 
     def test_cleanup_fresh_allows_close_with_other_gates_met(self):
         """cleanup_status=fresh passes when other gates are valid."""

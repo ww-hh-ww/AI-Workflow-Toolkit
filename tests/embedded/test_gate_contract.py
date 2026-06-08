@@ -88,7 +88,7 @@ class TestGates(unittest.TestCase):
         )
         self.assertTrue(gates["close_attempt"])
         self.assertFalse(gates["passed"])
-        self.assertIn("review not accepted", gates["blockers"])
+        self.assertTrue(any("review not accepted" in b for b in gates["blockers"]))
 
 
 if __name__ == "__main__":

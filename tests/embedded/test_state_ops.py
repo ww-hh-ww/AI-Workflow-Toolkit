@@ -123,7 +123,7 @@ class TestStateOps(unittest.TestCase):
         result = prepare_close(str(self.tmp))
 
         self.assertTrue(result["close_attempt_set"])
-        self.assertEqual(result["state"]["phase"], "closing")
+        self.assertEqual(result["state"]["phase"], "closed")
 
         ev = _rj(self.tmp / ".aiwf" / "evidence" / "records.json")
         self.assertEqual(ev["records"][0]["status"], "accepted")

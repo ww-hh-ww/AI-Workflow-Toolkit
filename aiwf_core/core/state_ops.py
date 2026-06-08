@@ -699,14 +699,14 @@ def prepare_close(base_dir: str) -> Dict[str, Any]:
 
     phase = state.get("phase", "discussing")
     if phase in ("discussing", "planned", "closed"):
-        blockers.append(f"phase not ready for close: {phase}")
+        blockers.append(f"phase not ready for close: {phase}. Progress through planning → implementing → testing → reviewing → closing")
 
     accepted_records = [
         r for r in (promoted.get("records", []) or [])
         if r.get("status") == "accepted"
     ]
     if not accepted_records:
-        blockers.append("no accepted evidence")
+        blockers.append("no accepted evidence. Evidence must be machine_observed+strong (auto-accepted) or listed in review.accepted_evidence_ids")
     from .closure_contract import evidence_session_diversity_ok, accepted_evidence_session_ids
     active_ctx = state.get("active_context_id", "")
     if not evidence_session_diversity_ok(state, promoted, context_id=active_ctx):
@@ -721,28 +721,28 @@ def prepare_close(base_dir: str) -> Dict[str, Any]:
             )
 
     if testing.get("status") not in ("adequate", "passed"):
-        blockers.append(f"testing not adequate: {testing.get('status', 'missing')}")
+        blockers.append(f"testing not adequate: {testing.get('status', 'missing')}. Run aiwf state record-testing --status passed --command '...' --evidence-id EV-xxx")
     # Asset integrity: testing.json must have actual test commands recorded
     if not testing.get("commands") or len(testing.get("commands", []) or []) == 0:
-        blockers.append("testing.json has no test commands — Tester may not have run real tests")
+        blockers.append("testing.json has no test commands — Tester may not have run real tests. Run aiwf state record-testing --status passed --command '<test-cmd>'")
 
     if review.get("result") != "accepted":
-        blockers.append("review not accepted")
+        blockers.append("review not accepted. Run aiwf state record-review --result accepted --closure-allowed --accepted-evidence-id EV-xxx")
     # Asset integrity: review.json must appear to come from an independent session
     if review.get("result") == "unknown":
         blockers.append("review.json has result=unknown — Reviewer may not have run")
     if state.get("scope_violation", False):
-        blockers.append("scope violation unresolved")
+        blockers.append("scope violation unresolved. Revert violating files (git checkout -- <file>) or resolve via aiwf state resolve-fix-loop --resolution '...'")
 
     # Check for hard blockers that no level can auto-fix
     if review.get("stale_items"):
         blockers.append("stale_items non-empty; run mark_cleanup_fresh first")
     if review.get("cleanup_blockers"):
-        blockers.append("cleanup_blockers non-empty; resolve before close")
+        blockers.append("cleanup_blockers non-empty. Run aiwf state mark-cleanup-fresh after resolving: " + ", ".join(review["cleanup_blockers"][:3]))
     if review.get("structure_blockers"):
-        blockers.append("structure_blockers non-empty; resolve before close")
+        blockers.append("structure_blockers non-empty. Resolve structural issues then re-run review with --structure-status accepted")
     if fix_loop.get("status") == "open":
-        blockers.append("fix-loop is open; resolve before close")
+        blockers.append("fix-loop is open. Run aiwf state resolve-fix-loop --resolution '<how it was resolved>'")
     # Pending adversarial observations block close preparation
     from .review_contract import has_pending_adversarial_observations
     if has_pending_adversarial_observations(review):
@@ -750,7 +750,7 @@ def prepare_close(base_dir: str) -> Dict[str, Any]:
             1 for o in (review.get("adversarial_observations", []) or [])
             if isinstance(o, dict) and o.get("disposition") == "pending"
         )
-        blockers.append(f"{pending_count} adversarial observation(s) pending Planner disposition")
+        blockers.append(f"{pending_count} adversarial observation(s) pending Planner disposition. Run aiwf state disposition-adversarial --id <ADV-xxx> --disposition <ignored|accepted|deferred|brief_updated> --reason '...'")
 
     # Handle cleanup_status
     cleanup_missing = not review.get("cleanup_status") or review["cleanup_status"] in ("unknown", None, "")
@@ -768,15 +768,16 @@ def prepare_close(base_dir: str) -> Dict[str, Any]:
         # L2/L3: missing cleanup/structure is a blocker
         if cleanup_missing:
             blockers.append(
-                f"cleanup_status missing for {level}; L2/L3 require explicit cleanup review")
+                f"cleanup_status missing for {level}. Run aiwf state mark-cleanup-fresh for L2/L3")
         if structure_missing:
             blockers.append(
-                f"structure_status missing for {level}; L2/L3 require explicit structure review")
+                f"structure_status missing for {level}. Run aiwf state record-review with --structure-status accepted")
 
     close_attempt_set = len(blockers) == 0
     if close_attempt_set:
-        state["phase"] = "closing"
-        state["close_attempt"] = True
+        from .closure_contract import set_closure_complete
+        set_closure_complete(state)
+        state["closure_allowed"] = True
         _write(state_path, state)
 
         # Write task-history and auto-cleanup for tasks without task ledger (L0 inline)

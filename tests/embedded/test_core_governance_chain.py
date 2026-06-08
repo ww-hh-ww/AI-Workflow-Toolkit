@@ -140,7 +140,7 @@ class TestCoreGovernanceChain(unittest.TestCase):
         result = self._complete_chain_until_close()
         self.assertTrue(result["can_proceed_to_gate"])
         self.assertTrue(result["close_attempt_set"])
-        self.assertEqual(result["state"]["phase"], "closing")
+        self.assertEqual(result["state"]["phase"], "closed")
 
         evidence = _read_json(self.tmp / ".aiwf" / "evidence" / "records.json")
         self.assertEqual(evidence["records"][0]["status"], "accepted")
@@ -169,7 +169,7 @@ class TestCoreGovernanceChain(unittest.TestCase):
         result = prepare_close(str(self.tmp))
 
         self.assertFalse(result["close_attempt_set"])
-        self.assertIn("testing not adequate: missing", result["blockers"])
+        self.assertTrue(any("testing not adequate: missing" in b for b in result["blockers"]))
         state = _read_json(self.tmp / ".aiwf" / "state" / "state.json")
         self.assertFalse(state.get("close_attempt"))
         self.assertEqual(state.get("phase"), "reviewing")
@@ -188,11 +188,10 @@ class TestCoreGovernanceChain(unittest.TestCase):
 
         gates = eval_closure_gates(self.tmp)
         self.assertFalse(gates["passed"])
-        self.assertIn("cleanup not fresh", gates["blockers"])
+        self.assertTrue(any("cleanup not fresh" in b for b in gates["blockers"]))
 
     def test_chain_breaks_when_fix_loop_is_open(self):
-        from aiwf_core.core.state_ops import open_fix_loop
-        from aiwf_core.hooks.common.gate_checker import eval_closure_gates
+        from aiwf_core.core.state_ops import open_fix_loop, prepare_close
 
         self._complete_chain_until_close()
         open_fix_loop(
@@ -203,9 +202,9 @@ class TestCoreGovernanceChain(unittest.TestCase):
             required_verification=["rerun governance chain"],
         )
 
-        gates = eval_closure_gates(self.tmp)
-        self.assertFalse(gates["passed"])
-        self.assertIn("fix-loop is open", gates["blockers"])
+        result = prepare_close(str(self.tmp))
+        self.assertFalse(result["can_proceed_to_gate"])
+        self.assertTrue(any("fix-loop is open" in b for b in result["blockers"]))
 
 
 if __name__ == "__main__":

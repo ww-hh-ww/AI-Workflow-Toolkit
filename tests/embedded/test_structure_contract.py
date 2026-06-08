@@ -60,7 +60,7 @@ class TestStructureGate(unittest.TestCase):
             json.loads((self.tmp / ".aiwf" / "state" / "fix-loop.json").read_text()),
         )
         self.assertFalse(gates["passed"])
-        self.assertIn("structure review not accepted", gates["blockers"])
+        self.assertTrue(any("structure review not accepted" in b for b in gates["blockers"]))
 
     def test_structure_needs_fix_blocks(self):
         self._set_close_attempt(); self._accept_evidence()

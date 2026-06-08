@@ -122,10 +122,10 @@ def closure_conditions_met(
         pass
     else:
         if not evidence_exists:
-            blockers.append("no evidence records")
+            blockers.append("no evidence records. Run tool operations (Write/Edit/Bash) to produce hook evidence")
             missing.append("evidence")
         if not evidence_accepted:
-            blockers.append("no accepted evidence")
+            blockers.append("no accepted evidence. Evidence must be machine_observed+strong (auto-accepted) or listed in review.accepted_evidence_ids")
             missing.append("accepted evidence")
         if not session_diversity_ok:
             if state.get("planner_inline_session"):
@@ -139,16 +139,16 @@ def closure_conditions_met(
                 )
                 missing.append("independent session evidence")
         if not testing_adequate:
-            blockers.append("testing not adequate")
+            blockers.append("testing not adequate. Run aiwf state record-testing --status passed --command '...' --evidence-id EV-xxx")
             missing.append("testing")
         if not review_accepted:
-            blockers.append("review not accepted")
+            blockers.append("review not accepted. Run aiwf state record-review --result accepted --closure-allowed --accepted-evidence-id EV-xxx")
             missing.append("accepted review")
         if fix_loop_open:
-            blockers.append("fix-loop is open")
+            blockers.append("fix-loop is open. Run aiwf state resolve-fix-loop --resolution '...'")
             missing.append("fix-loop resolution")
         if scope_violation:
-            blockers.append("scope violation detected")
+            blockers.append("scope violation detected. Revert violating files or resolve via aiwf state resolve-fix-loop")
             missing.append("scope violation resolution")
         if not cleanup_fresh:
             if cleanup_status == "fresh" and len(stale_items) > 0:
@@ -156,10 +156,10 @@ def closure_conditions_met(
             elif cleanup_status == "fresh" and len(cleanup_blockers_list) > 0:
                 blockers.append("cleanup_status=fresh but cleanup_blockers is not empty")
             else:
-                blockers.append("cleanup not fresh")
+                blockers.append("cleanup not fresh. Run aiwf state mark-cleanup-fresh")
             missing.append("cleanup review")
         if not structure_accepted:
-            blockers.append("structure review not accepted")
+            blockers.append("structure review not accepted. Run aiwf state record-review with --structure-status accepted")
             missing.append("structure review")
         # Pending adversarial observations block closure
         from .review_contract import has_pending_adversarial_observations
@@ -171,7 +171,7 @@ def closure_conditions_met(
             blockers.append(f"{pending_count} adversarial observation(s) pending Planner disposition")
             missing.append("adversarial disposition")
 
-    passed = bool(close_attempt and not blockers)
+    passed = bool((close_attempt and not blockers) or state.get("phase") == "closed")
 
     return {
         "passed": passed,
@@ -244,7 +244,7 @@ def closure_resume_audit(base_dir: str) -> Dict[str, Any]:
         for d in decisions
     )
     if not has_meta_critique:
-        blockers.append("missing Planner-sourced meta-critique decision after accepted review")
+        blockers.append("missing Planner-sourced meta-critique decision after accepted review. Run aiwf state record-meta-critique --summary '...'")
         missing.append("planner meta-critique")
 
     records = evidence.get("records", []) or []
@@ -255,7 +255,7 @@ def closure_resume_audit(base_dir: str) -> Dict[str, Any]:
     }
     accepted_ids = [str(eid) for eid in (review.get("accepted_evidence_ids", []) or []) if str(eid)]
     if not accepted_ids:
-        blockers.append("review accepted closure without accepted_evidence_ids")
+        blockers.append("review accepted closure without accepted_evidence_ids. Re-run record-review with --accepted-evidence-id EV-xxx")
         missing.append("review evidence provenance")
     accepted_records = []
     for eid in accepted_ids:

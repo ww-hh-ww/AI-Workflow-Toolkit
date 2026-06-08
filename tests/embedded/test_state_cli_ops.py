@@ -151,16 +151,17 @@ class TestStateCliOps(unittest.TestCase):
         self.assertIn("needs review", rv["cleanup_blockers"])
 
     # ── prepare-close ──
-    def test_prepare_close_sets_close_attempt(self):
+    def test_prepare_close_completes_closure(self):
         self._seed_close_ready()
         self._run("state", "prepare-close")
         s = json.loads((self.tmp/".aiwf" / "state" / "state.json").read_text())
-        self.assertTrue(s["close_attempt"])
-        self.assertEqual(s["phase"], "closing")
+        self.assertTrue(s["closure_allowed"])
+        self.assertEqual(s["phase"], "closed")
+        self.assertFalse(s["close_attempt"])
 
     def test_prepare_close_output_short(self):
         r = self._run("state", "prepare-close")
-        self.assertLess(len(r.stdout), 600)
+        self.assertLess(len(r.stdout), 1200)
 
     # ── state help ──
     def test_state_help_lists_all_7(self):

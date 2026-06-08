@@ -121,7 +121,7 @@ class TestV2PathGovernanceContract(unittest.TestCase):
         result = prepare_close(str(self.tmp))
         evidence = json.loads((self.tmp / ".aiwf" / "evidence" / "records.json").read_text())
         self.assertFalse(result["close_attempt_set"])
-        self.assertIn("no accepted evidence", result["blockers"])
+        self.assertTrue(any("no accepted evidence" in b for b in result["blockers"]))
         self.assertEqual(evidence["records"][0]["status"], "pending")
 
     def test_l2_empty_adversarial_observations_are_allowed_but_pending_blocks(self):
