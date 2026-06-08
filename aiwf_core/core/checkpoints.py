@@ -21,6 +21,35 @@ def _run(cmd, cwd, timeout=15):
         return r if r.returncode == 0 else None
     except: return None
 
+def _current_untracked_files(root: Path) -> List[str]:
+    r = _run(["git", "ls-files", "--others", "--exclude-standard"], root)
+    if not r:
+        return []
+    return [line.strip() for line in r.stdout.splitlines() if line.strip()]
+
+def _remove_untracked_before_restore(root: Path) -> None:
+    """Remove current untracked files before restoring checkpoint content.
+
+    A pre-restore backup checkpoint is created before this runs, so removed
+    files remain recoverable. Checkpoint storage itself is never removed.
+    """
+    for rel in _current_untracked_files(root):
+        if _is_checkpoint(rel):
+            continue
+        target = root / rel
+        if target.is_file() or target.is_symlink():
+            target.unlink(missing_ok=True)
+        elif target.is_dir():
+            shutil.rmtree(target, ignore_errors=True)
+
+        parent = target.parent
+        while parent != root and parent.exists():
+            try:
+                parent.rmdir()
+            except OSError:
+                break
+            parent = parent.parent
+
 def create_checkpoint(project_root: str, label: str = "", include_governance: bool = True, mode: str = "patch") -> Dict:
     root = Path(project_root)
     ckpt_dir = root / ".aiwf" / "checkpoints"
@@ -199,6 +228,8 @@ def restore_checkpoint(project_root: str, checkpoint_id: str, confirm: bool = Fa
     rr = _run(["git", "reset", "--hard", ckpt["git_head"]], root)
     if not rr: return {"error": "git reset --hard failed", "status": "failed"}
     
+    _remove_untracked_before_restore(root)
+
     # Stash mode: use git stash apply
     if ckpt.get("mode") == "stash":
         stash_ref = ckpt.get("stash_ref") or ckpt.get("stash_hash", "")
@@ -207,16 +238,20 @@ def restore_checkpoint(project_root: str, checkpoint_id: str, confirm: bool = Fa
         if not sr2: return {"error": "git stash apply failed", "status": "failed"}
         return {"status": "restored", "checkpoint": checkpoint_id, "pre_restore_backup": pre["id"], "mode": "stash"}
 
-    # Patch mode: use git apply
+    # Patch mode: restore staged state first, then apply unstaged changes.
+    # Applying staged.patch to both the working tree and index avoids an
+    # index-only restore that leaves newly staged files missing on disk.
+    staged = root / ".aiwf" / "checkpoints" / checkpoint_id / "staged.patch"
+    if staged.exists() and staged.stat().st_size > 0:
+        sw = _run(["git", "apply", str(staged)], root)
+        if not sw: return {"error": "git apply staged.patch to working tree failed", "status": "failed"}
+        sr = _run(["git", "apply", "--cached", str(staged)], root)
+        if not sr: return {"error": "git apply staged.patch failed", "status": "failed"}
+
     tracked = root / ".aiwf" / "checkpoints" / checkpoint_id / "tracked.patch"
     if tracked.exists() and tracked.stat().st_size > 0:
         tr = _run(["git", "apply", str(tracked)], root)
         if not tr: return {"error": "git apply tracked.patch failed", "status": "failed"}
-    
-    staged = root / ".aiwf" / "checkpoints" / checkpoint_id / "staged.patch"
-    if staged.exists() and staged.stat().st_size > 0:
-        sr = _run(["git", "apply", "--cached", str(staged)], root)
-        if not sr: return {"error": "git apply staged.patch failed", "status": "failed"}
     
     # Restore untracked
     untracked_dir = root / ".aiwf" / "checkpoints" / checkpoint_id / "untracked"

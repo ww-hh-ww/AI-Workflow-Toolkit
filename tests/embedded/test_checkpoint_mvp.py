@@ -43,6 +43,13 @@ class TestCheckpointMvp(unittest.TestCase):
         self.assertEqual(r.returncode, 0, f"Failed: {args}\n{r.stderr[:300]}")
         return r
 
+    def _checkpoint_id_for_label(self, label):
+        for d in (self.tmp/".aiwf"/"checkpoints").iterdir():
+            ck = json.loads((d/"CHECKPOINT.json").read_text())
+            if ck.get("label") == label:
+                return d.name
+        self.fail(f"No checkpoint found for label {label!r}")
+
     # ── create ──
     def test_create_makes_checkpoint_dir(self):
         (self.tmp/"README.md").write_text("modified\n")
@@ -108,6 +115,38 @@ class TestCheckpointMvp(unittest.TestCase):
         for d in (self.tmp/".aiwf"/"checkpoints").iterdir(): ck_id = d.name; break
         r = self._run("checkpoint", "restore", ck_id)
         self.assertTrue("dry_run" in r.stdout.lower() or "confirm" in r.stdout.lower(), f"Expected dry_run or confirm, got: {r.stdout[:200]}")
+
+    def test_patch_restore_confirm_restores_tracked_staged_untracked_and_removes_later_untracked(self):
+        (self.tmp/"README.md").write_text("checkpoint-readme\n")
+        (self.tmp/"src").mkdir(exist_ok=True)
+        (self.tmp/"src"/"app.txt").write_text("checkpoint-app\n")
+        (self.tmp/"notes").mkdir(exist_ok=True)
+        (self.tmp/"notes"/"new.txt").write_text("checkpoint-untracked\n")
+        (self.tmp/"src"/"staged.txt").write_text("staged-content\n")
+        subprocess.run(["git", "add", "src/staged.txt"], cwd=str(self.tmp), capture_output=True, timeout=10)
+        self._run_ok("checkpoint", "create", "--mode", "patch", "--label", "restore-real")
+        ck_id = self._checkpoint_id_for_label("restore-real")
+
+        (self.tmp/"README.md").write_text("broken-readme\n")
+        (self.tmp/"src"/"app.txt").write_text("broken-app\n")
+        (self.tmp/"notes"/"new.txt").write_text("broken-untracked\n")
+        (self.tmp/"src"/"staged.txt").write_text("broken-staged\n")
+        (self.tmp/"extra").mkdir(exist_ok=True)
+        (self.tmp/"extra"/"after.txt").write_text("created-after-checkpoint\n")
+        r = self._run_ok("checkpoint", "restore", ck_id, "--confirm")
+
+        self.assertIn("Restored", r.stdout)
+        self.assertEqual((self.tmp/"README.md").read_text(), "checkpoint-readme\n")
+        self.assertEqual((self.tmp/"src"/"app.txt").read_text(), "checkpoint-app\n")
+        self.assertEqual((self.tmp/"notes"/"new.txt").read_text(), "checkpoint-untracked\n")
+        self.assertEqual((self.tmp/"src"/"staged.txt").read_text(), "staged-content\n")
+        self.assertFalse((self.tmp/"extra"/"after.txt").exists())
+
+        status = subprocess.run(["git", "status", "--short", "--untracked-files=all"],
+                                capture_output=True, text=True, cwd=str(self.tmp), timeout=10).stdout
+        self.assertIn("A  src/staged.txt", status)
+        self.assertNotIn("AD src/staged.txt", status)
+        self.assertNotIn("?? extra/after.txt", status)
 
     # ── no side effects ──
     def test_create_no_modify_claude_md(self):
@@ -234,6 +273,29 @@ class TestCheckpointMvp(unittest.TestCase):
         # Working tree should still be dirty
         r = subprocess.run(["git", "status", "--short"], capture_output=True, text=True, cwd=str(self.tmp))
         self.assertIn("README.md", r.stdout, "Working tree should still show README.md as modified")
+
+    def test_stash_restore_confirm_restores_untracked_and_removes_later_untracked(self):
+        (self.tmp/"README.md").write_text("stash-readme\n")
+        (self.tmp/"src").mkdir(exist_ok=True)
+        (self.tmp/"notes").mkdir(exist_ok=True)
+        (self.tmp/"notes"/"new.txt").write_text("stash-untracked\n")
+        (self.tmp/"src"/"staged.txt").write_text("stash-staged\n")
+        subprocess.run(["git", "add", "src/staged.txt"], cwd=str(self.tmp), capture_output=True, timeout=10)
+        self._run_ok("checkpoint", "create", "--mode", "stash", "--label", "stash-restore-real")
+        ck_id = self._checkpoint_id_for_label("stash-restore-real")
+
+        (self.tmp/"README.md").write_text("broken-readme\n")
+        (self.tmp/"notes"/"new.txt").write_text("broken-untracked\n")
+        (self.tmp/"src"/"staged.txt").write_text("broken-staged\n")
+        (self.tmp/"extra").mkdir(exist_ok=True)
+        (self.tmp/"extra"/"after.txt").write_text("created-after-checkpoint\n")
+        r = self._run_ok("checkpoint", "restore", ck_id, "--confirm")
+
+        self.assertIn("Restored", r.stdout)
+        self.assertEqual((self.tmp/"README.md").read_text(), "stash-readme\n")
+        self.assertEqual((self.tmp/"notes"/"new.txt").read_text(), "stash-untracked\n")
+        self.assertEqual((self.tmp/"src"/"staged.txt").read_text(), "stash-staged\n")
+        self.assertFalse((self.tmp/"extra"/"after.txt").exists())
 
     def test_stash_list_shows_mode(self):
         (self.tmp/"README.md").write_text("stash-list\n")
