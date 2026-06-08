@@ -43,7 +43,7 @@ AIWF 使用项目内的 `.aiwf/*.json` 作为唯一流程真相源，并通过 S
 | Stop 闭合行为 | 可在 `close_attempt=true` 时阻塞 | 仅报告，不阻塞 |
 | 权威闭合门 | `prepare-close` + Stop 再验证 | `prepare-close` |
 
-要求：Python 3.10+、Git，以及 Claude Code 或 Reasonix。
+要求：Python 3.9+、Git，以及 Claude Code 或 Reasonix。
 
 ## 安装
 
@@ -52,6 +52,11 @@ git clone https://github.com/ww-hh-ww/AI-Workflow-Toolkit.git
 cd AI-Workflow-Toolkit
 python3 -m pip install -e .
 ```
+
+AIWF 生成的 hook 脚本会**在运行时自动发现** `aiwf_core` 的位置，不硬编码路径：
+- 优先通过标准 Python import（与安装 AIWF 的 Python 相同时）
+- 回退读取 `aiwf install` 写入的 `.aiwf/internal/toolkit-path.txt`
+- 因此 hook 脚本用系统 `python3` 执行，即使 AIWF 是用其他 Python 版本安装的也能正常导入
 
 然后进入需要治理的项目，选择对应平台安装：
 
