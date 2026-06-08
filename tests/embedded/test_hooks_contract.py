@@ -104,6 +104,21 @@ class TestHooks(unittest.TestCase):
         self.assertIn("PRIMARY: refresh closure assets and run prepare-close", ctx)
         self.assertNotIn("PRIMARY: activate task", ctx)
 
+    def test_status_with_execution_plan_without_task_routes_to_plan_only_drift(self):
+        state_path = self.tmp / ".aiwf" / "state" / "state.json"
+        state = json.loads(state_path.read_text())
+        state["request_mode"] = "execution"
+        state["active_plan_id"] = "TASK-PLAN"
+        state["active_task_id"] = None
+        state_path.write_text(json.dumps(state, indent=2))
+
+        r = self._status()
+        ctx = json.loads(r.stdout.strip())["hookSpecificOutput"]["additionalContext"]
+
+        self.assertIn("Recovery:plan_only_drift planner", ctx)
+        self.assertIn("PRIMARY: freeze execution contract and activate planned task TASK-PLAN", ctx)
+        self.assertIn("REQUIRED NEXT:", ctx)
+
     def test_l2_review_write_before_cleanup_is_denied(self):
         state = json.loads((self.tmp / ".aiwf" / "state" / "state.json").read_text())
         state["workflow_level"] = "L2_standard_team"

@@ -39,6 +39,35 @@ class TestTaskPlanArtifact(unittest.TestCase):
         state = json.loads((self.tmp / ".aiwf" / "state" / "state.json").read_text())
         self.assertEqual(state["active_plan_id"], "TASK-001")
 
+    def test_execution_plan_without_active_task_routes_to_plan_only_drift(self):
+        from aiwf_core.core.process_contract import planner_process_guidance
+
+        self._run_ok("plan", "create", "--task-id", "TASK-001", "--context-id", "CTX-001", "--title", "Build route")
+
+        guidance = planner_process_guidance(str(self.tmp))
+
+        self.assertEqual(guidance["recovery"]["state"], "blocked")
+        self.assertEqual(guidance["recovery"]["category"], "plan_only_drift")
+        self.assertEqual(guidance["recovery"]["owner"], "planner")
+        self.assertIn("TASK-001", guidance["recovery"]["primary"])
+        self.assertTrue(any("Plan-only drift" in item for item in guidance["required_now"]))
+        self.assertTrue(any("rewriting the plan" in item for item in guidance["recovery"]["forbidden"]))
+
+    def test_non_execution_plan_remains_open_discussion_not_plan_only_drift(self):
+        from aiwf_core.core.process_contract import planner_process_guidance
+
+        self._run_ok("plan", "create", "--task-id", "TASK-001", "--context-id", "CTX-001", "--title", "Build route")
+        state_path = self.tmp / ".aiwf" / "state" / "state.json"
+        state = json.loads(state_path.read_text())
+        state["request_mode"] = "discussion"
+        state_path.write_text(json.dumps(state, indent=2) + "\n")
+
+        guidance = planner_process_guidance(str(self.tmp))
+
+        self.assertEqual(guidance["recovery"]["state"], "open")
+        self.assertEqual(guidance["recovery"]["category"], "discussion")
+        self.assertFalse(any("Plan-only drift" in item for item in guidance["required_now"]))
+
     def test_plan_checklist_cannot_replace_mechanical_close_gates(self):
         from aiwf_core.core.task_ledger import activate_task, active_task_completion_blockers, upsert_task
         from aiwf_core.core.task_plan import create_task_plan, update_task_plan_section

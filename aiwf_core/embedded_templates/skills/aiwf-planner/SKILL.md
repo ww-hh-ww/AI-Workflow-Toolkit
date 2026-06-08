@@ -43,6 +43,7 @@ Set mode with `aiwf state set-workflow-mode --request-mode <mode> --workflow-pat
 - Never use Write/Edit on core mechanical truth (`state.json`, `goal.json`, `contexts.json`, `fix-loop.json`, `task-ledger.json`); use AIWF operations.
 - A scope violation resolves only after Git confirms the originally violating files were reverted; keep its structured event history.
 - Treat a denied operation as a diagnostic, not a dead end: report the stated freeze reasons, preserve allowed additive/evidence work, and follow the printed unlock action. Never bypass the gate by editing machine state.
+- If Claude Code auto mode blocks an AIWF lifecycle command (`aiwf state ...`, `aiwf plan ...`, `aiwf task ...`, `aiwf cleanup ...`, `aiwf state prepare-close`), ask the user to approve that exact governance command. Do not replace it with direct JSON edits, prose, or continued implementation.
 
 ## Request Mode Triage
 
@@ -60,6 +61,8 @@ For meaningful work, create a human-readable task plan artifact:
 `aiwf plan create --task-id TASK-001 --context-id CTX-001 --title "..."`
 
 Use `aiwf plan update` to preserve the discussion, acceptance criteria, task sequence, validation plan, risks, and handoff notes. The plan artifact is a continuity surface like `plan.md`; it is NOT mechanical truth and never overrides `.aiwf/state/*.json`, Context Dispatch, testing records, review records, or closure gates.
+
+Once execution is confirmed, an active plan without an active ledger task is `plan_only_drift`: stop expanding the plan, freeze the quality/architecture/context contracts, then run `aiwf task plan` and `aiwf task activate`. Continuing to rewrite the plan is not progress.
 
 Project Map and task plans do different jobs:
 - Project Map: project structure, module boundaries, durable architecture direction.

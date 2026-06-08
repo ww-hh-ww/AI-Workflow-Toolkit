@@ -9,8 +9,10 @@ On every new turn, resume, compaction, or task continuation:
 1. Run `aiwf status` before deciding the next workflow action.
 2. Obey `Recovery`, `PRIMARY`, and `REQUIRED NEXT` unless you resolve the blocker with an AIWF command.
 3. If your intended next action conflicts with AIWF status, stop and explain the conflict.
-4. Do not roleplay Executor, Tester, or Reviewer in planner-main when the selected workflow level requires an independent role.
-5. Do not move to Review before cleanup, and do not close from prose. Use task close plus `prepare-close`.
+4. If status reports `plan_only_drift`, stop expanding the plan and freeze the execution contracts/context/task activation before project writes.
+5. If Claude Code auto mode blocks an AIWF lifecycle command, ask the user to approve that exact governance command and do not bypass it by hand-editing `.aiwf` state.
+6. Do not roleplay Executor, Tester, or Reviewer in planner-main when the selected workflow level requires an independent role.
+7. Do not move to Review before cleanup, and do not close from prose. Use task close plus `prepare-close`.
 
 ## Hard Boundary Facts
 

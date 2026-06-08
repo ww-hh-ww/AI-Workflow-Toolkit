@@ -271,6 +271,11 @@ def recovery_lines(cwd, state, goal, review, fix_loop):
         return blocked("missing_step", "reviewer", "complete review or resolve review blockers",
                        "dispatch Reviewer or route fix-loop before prepare-close")
     if not active_task:
+        active_plan = state.get("active_plan_id")
+        if active_plan and request_mode == "execution":
+            return blocked("plan_only_drift", "planner",
+                           f"freeze execution contract and activate planned task {active_plan}",
+                           "record policy/brief/context, then aiwf task plan and aiwf task activate")
         return blocked("missing_step", "planner", "plan and activate one scoped task",
                        "run aiwf task plan, aiwf task activate, then aiwf status")
     if level in ("L2_standard_team", "L3_full_power"):

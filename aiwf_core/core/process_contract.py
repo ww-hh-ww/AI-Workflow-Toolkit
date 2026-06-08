@@ -180,6 +180,26 @@ def _recovery_guidance(
         pass
 
     if not active_task:
+        active_plan = state.get("active_plan_id")
+        if active_plan and request_mode == "execution":
+            return _blocked(
+                "plan_only_drift",
+                "planner",
+                f"freeze execution contract and activate planned task {active_plan}",
+                "A human-readable plan exists, but no active task/context execution contract is running.",
+                [
+                    "record quality policy and Architecture/Evaluation Brief for the plan",
+                    "start a scoped context with allowed_write and forbidden_write",
+                    f"run aiwf task plan {active_plan} --title '...' --allowed-write '...'",
+                    f"run aiwf task activate {active_plan}",
+                    "or switch request_mode to discussion/research/spike if execution is not confirmed",
+                ],
+                [
+                    "do not keep rewriting the plan as progress",
+                    "do not dispatch implementation without task activation",
+                    "do not treat plan.md as evidence or mechanical truth",
+                ],
+            )
         return _blocked(
             "missing_step",
             "planner",
@@ -388,7 +408,15 @@ def planner_process_guidance(base_dir: str) -> Dict[str, Any]:
               "context widening cannot legalize past writes"
         )
     if not active_task and request_mode not in ("discussion", "clarification", "research"):
-        required.append("Plan and activate one task before project writes: aiwf task plan ...; aiwf task activate <TASK-ID>")
+        active_plan = state.get("active_plan_id")
+        if active_plan and request_mode == "execution":
+            required.append(
+                f"Plan-only drift: active plan {active_plan} exists without an active task; "
+                "freeze quality/architecture/context contracts, then run "
+                f"aiwf task plan {active_plan} ... and aiwf task activate {active_plan}"
+            )
+        else:
+            required.append("Plan and activate one task before project writes: aiwf task plan ...; aiwf task activate <TASK-ID>")
     if level in ("L2_standard_team", "L3_full_power"):
         missing_eval = [
             key for key in ("user_visible_outcome", "acceptance_criteria", "test_obligations", "review_obligations")

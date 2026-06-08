@@ -4,7 +4,7 @@ AIWF is the embedded governance and visibility layer for long-horizon Claude Cod
 
 ## Runtime Protocol
 
-On every new turn, resume, compaction, or task continuation, run `aiwf status` before deciding the next workflow action. Obey `Recovery`, `PRIMARY`, and `REQUIRED NEXT` unless an AIWF command resolves the blocker. If your intended action conflicts with status, stop and explain the conflict instead of relying on memory.
+On every new turn, resume, compaction, or task continuation, run `aiwf status` before deciding the next workflow action. Obey `Recovery`, `PRIMARY`, and `REQUIRED NEXT` unless an AIWF command resolves the blocker. If your intended action conflicts with status, stop and explain the conflict instead of relying on memory. If status reports `plan_only_drift`, stop expanding the plan and freeze the execution contracts/context/task activation before project writes. If Claude Code auto mode blocks an AIWF lifecycle command, ask the user to approve that exact governance command and do not bypass it by hand-editing `.aiwf` state.
 
 ## Product Boundary
 

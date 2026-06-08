@@ -123,6 +123,8 @@ class TestInstall(unittest.TestCase):
         self.assertIn("PRIMARY", content)
         self.assertIn("REQUIRED NEXT", content)
         self.assertIn("Do not roleplay Executor, Tester, or Reviewer", content)
+        self.assertIn("auto mode blocks an AIWF lifecycle command", content)
+        self.assertIn("do not bypass it by hand-editing", content)
 
     def test_claude_md_managed_block_idempotent(self):
         """Second install does not duplicate managed block."""
