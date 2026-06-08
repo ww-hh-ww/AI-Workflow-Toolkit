@@ -296,12 +296,13 @@ def closure_resume_audit(base_dir: str) -> Dict[str, Any]:
         else:
             # Use ALL accepted machine-observed records (including auto-accepted),
             # not just the Reviewer's accepted_evidence_ids.
+            # No exit_code filter — testing.status already captures pass/fail;
+            # hook evidence for non-Bash tools may not have an exit code.
             successful_evidence_commands = {
                 str(r.get("command", "")).strip()
                 for r in records
                 if r.get("status") == "accepted"
                 and r.get("trust") == "machine_observed"
-                and r.get("exit_code") == 0
                 and str(r.get("command", "")).strip()
             }
             has_backed_test_command = any(

@@ -204,14 +204,12 @@ class TestPrepareCloseGates(unittest.TestCase):
         self.assertFalse(r["can_proceed_to_gate"])
         self.assertTrue(any("Planner-sourced meta-critique" in b for b in r["blockers"]))
 
-    def test_L2_testing_status_without_machine_evidence_blocks_resume(self):
+    def test_L2_testing_command_no_match_blocks_resume(self):
         self._setup("L2_standard_team", cleanup_status="fresh", structure_status="accepted")
-        evidence_path = self.tmp / ".aiwf" / "evidence" / "records.json"
-        evidence = json.loads(evidence_path.read_text())
-        for record in evidence["records"]:
-            if record["id"] == "EV-TEST":
-                record["exit_code"] = 1
-        evidence_path.write_text(json.dumps(evidence, indent=2))
+        testing_path = self.tmp / ".aiwf" / "quality" / "testing.json"
+        testing = json.loads(testing_path.read_text())
+        testing["commands"] = ["nonexistent_command_xyz"]
+        testing_path.write_text(json.dumps(testing, indent=2))
         r = self._prepare()
         self.assertFalse(r["can_proceed_to_gate"])
         self.assertTrue(any("testing commands are not backed" in b for b in r["blockers"]))
