@@ -667,6 +667,14 @@ def prepare_close(base_dir: str) -> Dict[str, Any]:
     level = state.get("workflow_level", "L1_review_light")
     auto_fill_allowed = level in ("L0_direct", "L1_review_light")
 
+    # Auto-promote closure_allowed when Reviewer recorded result=accepted.
+    # Reviewer is adversarial (finds problems, records result); prepare_close owns
+    # the closure gate. Must run BEFORE any blocker checks so downstream gates
+    # (closure_resume_audit, task_ledger, etc.) see the promoted value.
+    if review.get("result") == "accepted" and not review.get("closure_allowed", False):
+        review["closure_allowed"] = True
+        _write(review_path, review)
+
     blockers = []
 
     # Resume-after-interruption gate. Strict only for L2/L3 after accepted review;
@@ -711,8 +719,8 @@ def prepare_close(base_dir: str) -> Dict[str, Any]:
     if not testing.get("commands") or len(testing.get("commands", []) or []) == 0:
         blockers.append("testing.json has no test commands — Tester may not have run real tests")
 
-    if review.get("result") != "accepted" or not review.get("closure_allowed", False):
-        blockers.append("review not accepted / closure not allowed")
+    if review.get("result") != "accepted":
+        blockers.append("review not accepted")
     # Asset integrity: review.json must appear to come from an independent session
     if review.get("result") == "unknown":
         blockers.append("review.json has result=unknown — Reviewer may not have run")
