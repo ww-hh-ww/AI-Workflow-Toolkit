@@ -71,6 +71,15 @@ class TestLifecycleRebase(unittest.TestCase):
         self.assertIn("L1_review_light", content)
         self.assertIn("small_function", content)
 
+    def test_current_state_starts_with_executive_summary(self):
+        self._seed_closed_state()
+        self._rebase()
+        content = (self.tmp/".aiwf"/"reports"/"当前状态.md").read_text()
+        self.assertIn("## Executive Summary", content)
+        self.assertIn("Now: phase=closed", content)
+        self.assertIn("Quality: testing=adequate", content)
+        self.assertIn("Blockers: none", content)
+
     def test_current_state_has_changed_files_not_raw_json(self):
         self._seed_closed_state()
         self._rebase()

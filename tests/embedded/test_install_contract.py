@@ -85,6 +85,16 @@ class TestInstall(unittest.TestCase):
         self.assertIn("Subagent Connection Recovery", planner)
         self.assertIn("interrupted/resumable run", planner)
 
+    def test_planner_and_reviewer_explain_governance_recovery_paths(self):
+        planner = (self.tmp / ".claude" / "skills" / "aiwf-planner" / "SKILL.md").read_text()
+        reviewer = (self.tmp / ".claude" / "skills" / "aiwf-review" / "SKILL.md").read_text()
+        self.assertIn("ask the user to confirm execution", planner)
+        self.assertIn("At stable version boundaries", planner)
+        self.assertIn("coherent rollback point", planner)
+        self.assertIn("do not silently hand-write the plan", planner.lower())
+        self.assertIn("AIWFRoleEvidence", reviewer)
+        self.assertIn("--closure-allowed", reviewer)
+
     def test_status_shows_embedded_mode(self):
         r = _run([sys.executable, "-m", "aiwf_core.cli", "status"], self.tmp)
         self.assertIn("Embedded Claude Code", r.stdout)
@@ -125,6 +135,8 @@ class TestInstall(unittest.TestCase):
         self.assertIn("Do not roleplay Executor, Tester, or Reviewer", content)
         self.assertIn("auto mode blocks an AIWF lifecycle command", content)
         self.assertIn("do not bypass it by hand-editing", content)
+        self.assertIn("ask the user to confirm execution", content)
+        self.assertIn("ask whether to commit/push", content)
 
     def test_claude_md_managed_block_idempotent(self):
         """Second install does not duplicate managed block."""

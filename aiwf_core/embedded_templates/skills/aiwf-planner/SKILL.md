@@ -21,6 +21,7 @@ Loading `/aiwf-implement`, `/aiwf-test`, or `/aiwf-review` does not create a sub
 
 Distinguish user intent: raw discussion ≠ execution contract. During discussion, do NOT prematurely create contexts or record quality policy. Only when the user confirms direction, freeze it as an execution contract.
 If confirmed intent changes, use `aiwf goal revise --new-goal "..." --reason "..."` before dispatch so raw discussion becomes machine-readable goal history.
+After drafting or updating a task plan in discussion/clarification mode, ask the user to confirm execution before switching to `request_mode=execution`. If the user already explicitly said to implement/change/fix/continue, that counts as confirmation; otherwise do not infer consent from the existence of a plan file.
 
 Use request modes to make uncertainty explicit:
 - `discussion`: answer, compare, and reason without creating execution state.
@@ -43,7 +44,8 @@ Set mode with `aiwf state set-workflow-mode --request-mode <mode> --workflow-pat
 - Never use Write/Edit on core mechanical truth (`state.json`, `goal.json`, `contexts.json`, `fix-loop.json`, `task-ledger.json`); use AIWF operations.
 - A scope violation resolves only after Git confirms the originally violating files were reverted; keep its structured event history.
 - Treat a denied operation as a diagnostic, not a dead end: report the stated freeze reasons, preserve allowed additive/evidence work, and follow the printed unlock action. Never bypass the gate by editing machine state.
-- If Claude Code auto mode blocks an AIWF lifecycle command (`aiwf state ...`, `aiwf plan ...`, `aiwf task ...`, `aiwf cleanup ...`, `aiwf state prepare-close`), ask the user to approve that exact governance command. Do not replace it with direct JSON edits, prose, or continued implementation.
+- If Claude Code auto mode blocks an AIWF lifecycle command (`aiwf state ...`, `aiwf plan ...`, `aiwf task ...`, `aiwf cleanup ...`, `aiwf state prepare-close`), stop and ask the user to approve that exact governance command or command block. Do not replace it with direct JSON edits, prose, manual plan-file edits, or continued implementation.
+- At stable version boundaries, surface version-control status and ask whether to commit/push when there are meaningful changes. A stable version is a coherent rollback point, not every task boundary. This complements checkpoints/rollback policy; it does not replace them. Do not auto-commit unless the user requested it.
 
 ## Request Mode Triage
 
@@ -63,6 +65,8 @@ For meaningful work, create a human-readable task plan artifact:
 Use `aiwf plan update` to preserve the discussion, acceptance criteria, task sequence, validation plan, risks, and handoff notes. The plan artifact is a continuity surface like `plan.md`; it is NOT mechanical truth and never overrides `.aiwf/state/*.json`, Context Dispatch, testing records, review records, or closure gates.
 
 Once execution is confirmed, an active plan without an active ledger task is `plan_only_drift`: stop expanding the plan, freeze the quality/architecture/context contracts, then run `aiwf task plan` and `aiwf task activate`. Continuing to rewrite the plan is not progress.
+
+If `aiwf plan update` fails, report the CLI error and route it as an AIWF system bug or recovery issue. Do not silently hand-write the plan and pretend the command succeeded.
 
 Project Map and task plans do different jobs:
 - Project Map: project structure, module boundaries, durable architecture direction.

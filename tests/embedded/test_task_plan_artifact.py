@@ -68,6 +68,15 @@ class TestTaskPlanArtifact(unittest.TestCase):
         self.assertEqual(guidance["recovery"]["category"], "discussion")
         self.assertFalse(any("Plan-only drift" in item for item in guidance["required_now"]))
 
+    def test_plan_update_treats_backslash_content_as_literal_text(self):
+        self._run_ok("plan", "create", "--task-id", "TASK-001", "--context-id", "CTX-001", "--title", "Build route")
+        content = r"Preserve regex capture text: \1 and \g<name> are literal notes."
+
+        self._run_ok("plan", "update", "--task-id", "TASK-001", "--section", "scope", "--content", content)
+
+        plan = (self.tmp / ".aiwf" / "plans" / "TASK-001.md").read_text()
+        self.assertIn(content, plan)
+
     def test_plan_checklist_cannot_replace_mechanical_close_gates(self):
         from aiwf_core.core.task_ledger import activate_task, active_task_completion_blockers, upsert_task
         from aiwf_core.core.task_plan import create_task_plan, update_task_plan_section

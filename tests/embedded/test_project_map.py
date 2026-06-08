@@ -107,6 +107,14 @@ class TestProjectMap(unittest.TestCase):
                       "--text", "test")
         self.assertNotEqual(r.returncode, 0)
 
+    def test_update_treats_backslash_content_as_literal_text(self):
+        self._run("project-map", "init")
+        content = r"Regex-like note: \1 and \g<name> must stay literal."
+        r = self._run("project-map", "update", "--section", "active-direction",
+                      "--text", content)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn(content, self._pm_text())
+
     # ═══════════════════════════════════════════════════════════════
     # Summarize
     # ═══════════════════════════════════════════════════════════════

@@ -111,11 +111,16 @@ def load_task_plan(base_dir: str, task_id: str) -> str:
 def _replace_section(text: str, section_title: str, content: str) -> str:
     import re
     pattern = rf"(## {re.escape(section_title)}\n)(.*?)(?=\n## |\Z)"
-    replacement = rf"\1{content.strip()}\n"
-    new_text, count = re.subn(pattern, replacement, text, flags=re.DOTALL)
+    body = content.strip()
+    new_text, count = re.subn(
+        pattern,
+        lambda match: f"{match.group(1)}{body}\n",
+        text,
+        flags=re.DOTALL,
+    )
     if count:
         return new_text
-    return text.rstrip() + f"\n\n## {section_title}\n{content.strip()}\n"
+    return text.rstrip() + f"\n\n## {section_title}\n{body}\n"
 
 
 def update_task_plan_section(base_dir: str, task_id: str, section: str, content: str) -> Dict[str, object]:

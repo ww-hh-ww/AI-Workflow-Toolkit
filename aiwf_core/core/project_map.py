@@ -119,12 +119,17 @@ def update_project_map_section(project_root: str, section: str, content: str) ->
     # Find the section header and replace everything until next ## header
     import re
     pattern = rf'(## {re.escape(section_name)}\n)(.*?)(?=\n## |\Z)'
-    replacement = rf'\1{content.strip()}\n'
-    new_text, count = re.subn(pattern, replacement, text, flags=re.DOTALL)
+    body = content.strip()
+    new_text, count = re.subn(
+        pattern,
+        lambda match: f"{match.group(1)}{body}\n",
+        text,
+        flags=re.DOTALL,
+    )
 
     if count == 0:
         # Section not found, append
-        new_text = text.rstrip() + f"\n\n## {section_name}\n{content.strip()}\n"
+        new_text = text.rstrip() + f"\n\n## {section_name}\n{body}\n"
 
     p.write_text(new_text, encoding="utf-8")
     return {"section": section, "updated": True}

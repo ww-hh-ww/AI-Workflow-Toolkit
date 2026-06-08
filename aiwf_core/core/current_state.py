@@ -120,8 +120,29 @@ def rebuild_current_state(base_dir: str) -> str:
         "",
     ]
 
-    # ── Goal & Intent ──
     active_goal = goal.get("current_goal") or goal.get("active_goal", "") or "(none)"
+    recs = evidence.get("records", []) or []
+    accepted = sum(1 for r in recs if r.get("status") == "accepted")
+    summary_blockers = []
+    if fix_loop.get("status") == "open":
+        summary_blockers.append(f"fix-loop route={fix_loop.get('route','?')}")
+    if state.get("scope_violation"):
+        summary_blockers.append("scope violation")
+    pending_adv = [
+        o for o in (review.get("adversarial_observations", []) or [])
+        if isinstance(o, dict) and o.get("disposition") == "pending"
+    ]
+    if pending_adv:
+        summary_blockers.append(f"{len(pending_adv)} pending adversarial observation(s)")
+
+    lines.append("## Executive Summary")
+    lines.append(f"- Goal: {active_goal[:200]}")
+    lines.append(f"- Now: phase={state.get('phase', 'unknown')}, task={state.get('active_task_id') or '(none)'}, workflow={state.get('workflow_level', '?')}")
+    lines.append(f"- Quality: testing={testing.get('status', 'missing')}, review={review.get('result', 'unknown')}, evidence={accepted}/{len(recs)} accepted")
+    lines.append("- Blockers: " + (", ".join(summary_blockers) if summary_blockers else "none"))
+    lines.append("")
+
+    # ── Goal & Intent ──
     lines.append("## Goal & Intent")
     lines.append(f"- Goal: v{goal.get('goal_version', 1)}/{goal.get('goal_status', 'discussion')} / {active_goal[:200]}")
     intent_changes = goal.get("intent_changes", []) or []
@@ -211,8 +232,6 @@ def rebuild_current_state(base_dir: str) -> str:
         blockers_list.append("Scope violation")
     if review.get("result") not in ("accepted", "unknown"):
         blockers_list.append(f"Review: {review.get('result')}")
-    pending_adv = [o for o in (review.get("adversarial_observations", []) or [])
-                   if isinstance(o, dict) and o.get("disposition") == "pending"]
     if pending_adv:
         blockers_list.append(f"{len(pending_adv)} adversarial observation(s) pending")
     if blockers_list:
@@ -228,8 +247,6 @@ def rebuild_current_state(base_dir: str) -> str:
     lines.append(f"- Testing: {testing.get('status', 'missing')}")
     lines.append(f"- Review: {review.get('result', 'unknown')}")
 
-    recs = evidence.get("records", []) or []
-    accepted = sum(1 for r in recs if r.get("status") == "accepted")
     lines.append(f"- Evidence: {accepted} accepted / {len(recs)} records")
 
     tasks = history.get("tasks", []) if isinstance(history.get("tasks"), list) else []
