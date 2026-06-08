@@ -281,7 +281,12 @@ def closure_resume_audit(base_dir: str) -> Dict[str, Any]:
             and r.get("exit_code") == 0
             and str(r.get("command", "")).strip()
         }
-        has_backed_test_command = any(cmd in successful_evidence_commands for cmd in test_commands)
+        # Substring match — testing.json may record "pytest -q tests/"
+        # while evidence captures "cd /path && pytest -q tests/".
+        has_backed_test_command = any(
+            any(tc in ec for ec in successful_evidence_commands)
+            for tc in test_commands
+        )
         if not has_backed_test_command:
             blockers.append("testing commands are not backed by accepted successful machine evidence")
             missing.append("testing command evidence")
