@@ -109,6 +109,7 @@ def _cmd_record_testing(args: argparse.Namespace) -> None:
     from ..core.state_ops import record_testing
     testing = record_testing(str(Path.cwd()), args.context_id, args.status,
                    commands=args.commands or None,
+                   evidence_ids=args.evidence_ids or None,
                    untested_risks=args.untested_risks or None,
                    coverage_summary=args.coverage_summary or "",
                    failure_summary=args.failure_summary or "",

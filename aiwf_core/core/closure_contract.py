@@ -266,30 +266,44 @@ def closure_resume_audit(base_dir: str) -> Dict[str, Any]:
             missing.append("machine-observed evidence")
         accepted_records.append(rec)
 
-    test_commands = [
-        str(cmd).strip() for cmd in (testing.get("commands", []) or [])
-        if str(cmd).strip()
+    # Preferred: evidence IDs directly reference accepted machine evidence.
+    test_evidence_ids = [
+        str(eid).strip() for eid in (testing.get("evidence_ids", []) or [])
+        if str(eid).strip()
     ]
-    if not test_commands:
-        blockers.append("testing.json has no test commands")
-        missing.append("testing command provenance")
+    if test_evidence_ids:
+        accepted_ids = {r.get("id", "") for r in accepted_records}
+        backed_ids = [eid for eid in test_evidence_ids if eid in accepted_ids]
+        if not backed_ids:
+            blockers.append(
+                f"testing evidence IDs ({', '.join(test_evidence_ids[:5])}) "
+                "not found among accepted machine evidence"
+            )
+            missing.append("testing evidence ID provenance")
     else:
-        successful_evidence_commands = {
-            str(r.get("command", "")).strip()
-            for r in accepted_records
-            if r.get("trust") == "machine_observed"
-            and r.get("exit_code") == 0
-            and str(r.get("command", "")).strip()
-        }
-        # Substring match — testing.json may record "pytest -q tests/"
-        # while evidence captures "cd /path && pytest -q tests/".
-        has_backed_test_command = any(
-            any(tc in ec for ec in successful_evidence_commands)
-            for tc in test_commands
-        )
-        if not has_backed_test_command:
-            blockers.append("testing commands are not backed by accepted successful machine evidence")
-            missing.append("testing command evidence")
+        # Fallback: substring match on command strings.
+        test_commands = [
+            str(cmd).strip() for cmd in (testing.get("commands", []) or [])
+            if str(cmd).strip()
+        ]
+        if not test_commands:
+            blockers.append("testing.json has no test commands")
+            missing.append("testing command provenance")
+        else:
+            successful_evidence_commands = {
+                str(r.get("command", "")).strip()
+                for r in accepted_records
+                if r.get("trust") == "machine_observed"
+                and r.get("exit_code") == 0
+                and str(r.get("command", "")).strip()
+            }
+            has_backed_test_command = any(
+                any(tc in ec for ec in successful_evidence_commands)
+                for tc in test_commands
+            )
+            if not has_backed_test_command:
+                blockers.append("testing commands are not backed by accepted successful machine evidence")
+                missing.append("testing command evidence")
 
     from .review_contract import has_pending_adversarial_observations
     if has_pending_adversarial_observations(review):

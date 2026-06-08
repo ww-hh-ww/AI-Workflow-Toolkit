@@ -461,6 +461,7 @@ def record_testing(
     context_id: str = "",
     status: str = "adequate",
     commands: Optional[List[str]] = None,
+    evidence_ids: Optional[List[str]] = None,
     untested_risks: Optional[List[str]] = None,
     coverage_summary: str = "",
     failure_summary: str = "",
@@ -490,6 +491,7 @@ def record_testing(
     testing["status"] = status
     testing["context_id"] = context_id
     if commands is not None: testing["commands"] = commands
+    if evidence_ids is not None: testing["evidence_ids"] = evidence_ids
     if untested_risks is not None: testing["untested_risks"] = untested_risks
     if coverage_summary: testing["coverage_summary"] = coverage_summary
     if failure_summary: testing["failure_summary"] = failure_summary
