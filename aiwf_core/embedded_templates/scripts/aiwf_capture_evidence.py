@@ -12,7 +12,7 @@ def main():
         sys.exit(0)
 
     event = normalize(data)
-    if event.tool_name not in ("Write", "Edit", "MultiEdit", "Bash"):
+    if event.tool_name not in ("Write", "Edit", "MultiEdit", "Bash", "Agent", "Task"):
         sys.exit(0)
 
     cwd = event.cwd or str(Path.cwd())

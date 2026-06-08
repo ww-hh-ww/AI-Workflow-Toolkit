@@ -56,9 +56,11 @@ class TestInstall(unittest.TestCase):
     def test_pre_tool_use_has_snapshot_and_scope_and_bash(self):
         s = self._j(".claude/settings.json")
         matchers = [e.get("matcher", "") for e in s["hooks"]["PreToolUse"]]
-        self.assertIn("Write|Edit|MultiEdit|Bash", matchers)  # snapshot
+        self.assertIn("Write|Edit|MultiEdit|Bash|Agent|Task", matchers)  # snapshot
         self.assertIn("Write|Edit|MultiEdit", matchers)       # scope check
         self.assertIn("Bash", matchers)                        # bash guard
+        post_matchers = [e.get("matcher", "") for e in s["hooks"]["PostToolUse"]]
+        self.assertIn("Write|Edit|MultiEdit|Bash|Agent|Task", post_matchers)
 
     def test_skills_exist_with_frontmatter(self):
         for skill in ["aiwf-planner", "aiwf-implement", "aiwf-test",
@@ -226,6 +228,10 @@ class TestReasonixInstall(unittest.TestCase):
                     self.assertIsInstance(entry["match"], str)
                 self.assertIsInstance(entry.get("timeout"), int)
                 commands.append(entry["command"])
+        pre_matches = [entry.get("match", "") for entry in settings["hooks"]["PreToolUse"]]
+        post_matches = [entry.get("match", "") for entry in settings["hooks"]["PostToolUse"]]
+        self.assertTrue(any("agent" in m and "task" in m for m in pre_matches))
+        self.assertTrue(any("agent" in m and "task" in m for m in post_matches))
         self.assertTrue(commands)
         self.assertTrue(all("AIWF_HOOK_ENGINE=reasonix ${REASONIX_PROJECT_DIR}/scripts/" in c for c in commands))
 

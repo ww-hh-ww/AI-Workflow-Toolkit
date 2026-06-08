@@ -126,6 +126,19 @@ class TestEvidence(unittest.TestCase):
         state = json.loads((self.tmp / ".aiwf" / "state" / "state.json").read_text())
         self.assertTrue(state["scope_violation"])
 
+    def test_agent_tool_boundary_captures_subagent_file_changes(self):
+        """Agent/Task tool calls get pre/post snapshots around subagent work."""
+        _snapshot(self.tmp, "Agent", {"agent": "aiwf-executor"})
+        (self.tmp / "src").mkdir(exist_ok=True)
+        (self.tmp / "src" / "agent_created.py").write_text("value = 2\n")
+        _capture(self.tmp, "Agent", {"agent": "aiwf-executor"})
+
+        last = _ev_records(self.tmp)[-1]
+        self.assertEqual(last["tool_name"], "Agent")
+        self.assertIn("src/agent_created.py", last["changed_files"])
+        self.assertEqual(last["changed_files_source"], "pre_post_snapshot")
+        self.assertEqual(last["attribution"], "strong")
+
     def test_internal_paths_never_trigger_scope_violation(self):
         """AIWF internal files excluded from scope checks."""
         s = json.loads((self.tmp / ".aiwf" / "state" / "state.json").read_text())

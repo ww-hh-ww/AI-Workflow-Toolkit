@@ -125,7 +125,7 @@ def _build_settings_json(target: EmbedTarget | None = None) -> Dict[str, Any]:
                 "PreToolUse": [
                     {
                         "command": f"{command_prefix}{scripts}/aiwf_pre_snapshot.py",
-                        "match": "^(write|edit|edit_file|multi_edit|bash|Write|Edit|MultiEdit|Bash)$",
+                        "match": "^(write|edit|edit_file|multi_edit|bash|agent|task|Write|Edit|MultiEdit|Bash|Agent|Task)$",
                         "description": "Capture a pre-tool filesystem snapshot for AIWF evidence",
                         "timeout": 5000,
                     },
@@ -144,7 +144,7 @@ def _build_settings_json(target: EmbedTarget | None = None) -> Dict[str, Any]:
                 ],
                 "PostToolUse": [{
                     "command": f"{command_prefix}{scripts}/aiwf_capture_evidence.py",
-                    "match": "^(write|edit|edit_file|multi_edit|bash|Write|Edit|MultiEdit|Bash)$",
+                    "match": "^(write|edit|edit_file|multi_edit|bash|agent|task|Write|Edit|MultiEdit|Bash|Agent|Task)$",
                     "description": "Capture git-diff evidence after file or shell tools",
                     "timeout": 30000,
                 }],
@@ -165,7 +165,7 @@ def _build_settings_json(target: EmbedTarget | None = None) -> Dict[str, Any]:
             }],
             "PreToolUse": [
                 {
-                    "matcher": "Write|Edit|MultiEdit|Bash",
+                    "matcher": "Write|Edit|MultiEdit|Bash|Agent|Task",
                     "hooks": [{
                         "type": "command",
                         "command": f"{scripts}/aiwf_pre_snapshot.py",
@@ -187,7 +187,7 @@ def _build_settings_json(target: EmbedTarget | None = None) -> Dict[str, Any]:
                 },
             ],
             "PostToolUse": [{
-                "matcher": "Write|Edit|MultiEdit|Bash",
+                "matcher": "Write|Edit|MultiEdit|Bash|Agent|Task",
                 "hooks": [{
                     "type": "command",
                     "command": f"{scripts}/aiwf_capture_evidence.py",
