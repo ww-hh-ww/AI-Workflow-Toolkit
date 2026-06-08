@@ -128,13 +128,16 @@ def closure_conditions_met(
             blockers.append("no accepted evidence")
             missing.append("accepted evidence")
         if not session_diversity_ok:
-            count = len(accepted_evidence_session_ids(
-                evidence, context_id=state.get("active_context_id", "")
-            ))
-            blockers.append(
-                f"L2/L3 require accepted evidence from at least 3 distinct sessions; found {count}"
-            )
-            missing.append("independent session evidence")
+            if state.get("planner_inline_session"):
+                pass  # Planner explicitly waived via set-planner-inline
+            else:
+                count = len(accepted_evidence_session_ids(
+                    evidence, context_id=state.get("active_context_id", "")
+                ))
+                blockers.append(
+                    f"L2/L3 require accepted evidence from at least 3 distinct sessions; found {count}"
+                )
+                missing.append("independent session evidence")
         if not testing_adequate:
             blockers.append("testing not adequate")
             missing.append("testing")
