@@ -173,6 +173,7 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
     p_re.add_argument("--context-id", default="", help="context ID")
     p_re.add_argument("--status", default="pending", choices=["pending","accepted","rejected"], help="initial evidence status")
     p_re.add_argument("--exit-code", default=0, type=int, help="command exit code")
+    p_re.add_argument("--scan-git", action="store_true", help="attach current git working-tree changed files as corroborating evidence")
     p_re.set_defaults(func=_cmd_record_role_evidence)
     p_mcf = p_state_sub.add_parser("mark-cleanup-fresh", help="mark cleanup as fresh, clear stale items")
     p_mcf.add_argument("--note", action="append", default=[], dest="notes", help="repeatable resolved notes")

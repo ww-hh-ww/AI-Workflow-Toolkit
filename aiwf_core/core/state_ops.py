@@ -38,6 +38,7 @@ def record_role_evidence(
     context_id: str = "",
     status: str = "pending",
     exit_code: int = 0,
+    scan_git: bool = False,
 ) -> Dict[str, Any]:
     """Append machine-recorded role evidence for subagent/hook coverage gaps."""
     role = role.strip().lower()
@@ -59,6 +60,19 @@ def record_role_evidence(
 
     active_context = context_id or state.get("active_context_id") or ""
     synthetic_session = active_context or "aiwf"
+    scanned_files: List[str] = []
+    scanned_source = "not_scanned"
+    if scan_git:
+        try:
+            from ..hooks.common.diff_snapshot import detect_changed_files_with_baseline
+            scan = detect_changed_files_with_baseline(base)
+            scanned_files = list(scan.get("files", []) or [])
+            scanned_source = str(scan.get("source", "") or "git_diff")
+        except Exception:
+            scanned_files = []
+            scanned_source = "scan_failed"
+    delivered_files = list(changed_files or [])
+    effective_changed = delivered_files or scanned_files
     record = {
         "id": next_ev_id(records),
         "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -68,14 +82,14 @@ def record_role_evidence(
         "agent_id": agent_id or role,
         "agent_type": agent_type or role,
         "tool_name": "AIWFRoleEvidence",
-        "tool_input": {"role": role, "summary": summary},
+        "tool_input": {"role": role, "summary": summary, "scan_git": bool(scan_git)},
         "command": command[:500] if command else "",
         "exit_code": exit_code,
-        "changed_files": changed_files or [],
+        "changed_files": effective_changed,
         "governance_changed_files": [],
-        "changed_files_source": "role_delivery",
-        "working_tree_changed_files": [],
-        "working_tree_source": "not_scanned",
+        "changed_files_source": "role_delivery_git_scan" if scan_git else "role_delivery",
+        "working_tree_changed_files": scanned_files,
+        "working_tree_source": scanned_source,
         "attribution": "role_command",
         "stdout_summary": summary[:500] if summary else "",
         "stderr_summary": "",

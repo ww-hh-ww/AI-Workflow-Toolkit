@@ -78,6 +78,31 @@ class TestStateCliOps(unittest.TestCase):
         self.assertEqual(rec["changed_files"], ["src/a.py"])
         self.assertEqual(rec["trust"], "machine_observed")
 
+    def test_record_role_evidence_scan_git_corroborates_working_tree(self):
+        subprocess.run(["git", "init", "-b", "main"], cwd=str(self.tmp), capture_output=True, text=True, timeout=TIMEOUT)
+        subprocess.run(["git", "config", "user.email", "a@b.c"], cwd=str(self.tmp), capture_output=True, text=True, timeout=TIMEOUT)
+        subprocess.run(["git", "config", "user.name", "aiwf-test"], cwd=str(self.tmp), capture_output=True, text=True, timeout=TIMEOUT)
+        (self.tmp / "README.md").write_text("baseline\n")
+        subprocess.run(["git", "add", "README.md"], cwd=str(self.tmp), capture_output=True, text=True, timeout=TIMEOUT)
+        subprocess.run(["git", "commit", "-m", "baseline"], cwd=str(self.tmp), capture_output=True, text=True, timeout=TIMEOUT)
+        (self.tmp / "src").mkdir(exist_ok=True)
+        (self.tmp / "src" / "bridge.py").write_text("value = 1\n")
+
+        r = self._run("state", "record-role-evidence",
+                      "--role", "executor",
+                      "--summary", "implemented bridge file",
+                      "--scan-git")
+
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("Git scan:", r.stdout)
+        ev = json.loads((self.tmp/".aiwf" / "evidence" / "records.json").read_text())
+        rec = ev["records"][-1]
+        self.assertEqual(rec["changed_files_source"], "role_delivery_git_scan")
+        self.assertEqual(rec["working_tree_source"], "git_diff")
+        self.assertIn("src/bridge.py", rec["working_tree_changed_files"])
+        self.assertIn("src/bridge.py", rec["changed_files"])
+        self.assertEqual(rec["attribution"], "role_command")
+
     def test_record_review_writes_review_and_reviewer_evidence(self):
         self._run("state", "record-role-evidence", "--role", "executor",
                   "--summary", "implemented", "--status", "accepted")

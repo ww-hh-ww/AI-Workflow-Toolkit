@@ -88,11 +88,14 @@ class TestInstall(unittest.TestCase):
     def test_planner_and_reviewer_explain_governance_recovery_paths(self):
         planner = (self.tmp / ".claude" / "skills" / "aiwf-planner" / "SKILL.md").read_text()
         reviewer = (self.tmp / ".claude" / "skills" / "aiwf-review" / "SKILL.md").read_text()
+        executor = (self.tmp / ".claude" / "agents" / "aiwf-executor.md").read_text()
         self.assertIn("ask the user to confirm execution", planner)
         self.assertIn("At stable version boundaries", planner)
         self.assertIn("coherent rollback point", planner)
         self.assertIn("do not silently hand-write the plan", planner.lower())
         self.assertIn("AIWFRoleEvidence", reviewer)
+        self.assertIn("--scan-git", reviewer)
+        self.assertIn("--scan-git", executor)
         self.assertIn("--closure-allowed", reviewer)
 
     def test_status_shows_embedded_mode(self):

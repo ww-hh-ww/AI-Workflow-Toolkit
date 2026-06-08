@@ -104,7 +104,7 @@ You MUST record review with `aiwf state record-review` before exiting. Do not ha
 
 `--accepted-evidence-id` writes `accepted_evidence_ids`; `--rejected-evidence-id` writes `rejected_evidence_ids`; `--adversarial-observation` writes `adversarial_observations`.
 
-When hooks cannot observe subagent work, `AIWFRoleEvidence` records from `aiwf state record-role-evidence` are the formal recovery path, not prose. Accept them only when they contain concrete role, context, changed files or command summaries, and successful command provenance. For an accepted L2/L3 review, include executor, tester, and reviewer evidence IDs and pass `--closure-allowed`; omitting it intentionally blocks close.
+When hooks cannot observe subagent work, `AIWFRoleEvidence` records from `aiwf state record-role-evidence` are the formal recovery path, not prose. Prefer records created with `--scan-git` because they include working-tree corroboration, but do not call them hook-strong attribution. Accept role evidence only when it contains concrete role, context, changed files or command summaries, and successful command provenance. For an accepted L2/L3 review, include executor, tester, and reviewer evidence IDs and pass `--closure-allowed`; omitting it intentionally blocks close.
 
 Example:
 ```bash

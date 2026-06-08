@@ -201,11 +201,14 @@ def _cmd_record_role_evidence(args: argparse.Namespace) -> None:
             context_id=args.context_id or "",
             status=args.status,
             exit_code=args.exit_code,
+            scan_git=bool(getattr(args, "scan_git", False)),
         )
     except ValueError as e:
         print(f"Role evidence blocked: {e}", file=sys.stderr)
         raise SystemExit(1)
     print(f"Role evidence recorded: {ev['id']} ({ev['agent_type']})")
+    if ev.get("working_tree_source") != "not_scanned":
+        print(f"  Git scan: {ev.get('working_tree_source')} / {len(ev.get('working_tree_changed_files', []) or [])} files")
 
 def _cmd_cleanup_check(args: argparse.Namespace) -> None:
     """aiwf cleanup check — run lifecycle cleanup check (read-only)."""
