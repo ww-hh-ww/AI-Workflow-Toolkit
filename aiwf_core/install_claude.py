@@ -199,6 +199,7 @@ def _build_settings_json(target: EmbedTarget | None = None) -> Dict[str, Any]:
         },
         "permissions": {
             "allow": [
+                "Bash(aiwf:*)",
                 "Bash(scripts/aiwf_status.py:*)",
                 "Bash(scripts/aiwf_pre_snapshot.py:*)",
                 "Bash(scripts/aiwf_scope_check.py:*)",
