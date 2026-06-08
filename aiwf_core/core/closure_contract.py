@@ -272,8 +272,9 @@ def closure_resume_audit(base_dir: str) -> Dict[str, Any]:
         if str(eid).strip()
     ]
     if test_evidence_ids:
-        accepted_ids = {r.get("id", "") for r in accepted_records}
-        backed_ids = [eid for eid in test_evidence_ids if eid in accepted_ids]
+        # Include auto-accepted records, not just Reviewer's accepted_evidence_ids.
+        all_accepted = {r.get("id", "") for r in records if r.get("status") == "accepted"}
+        backed_ids = [eid for eid in test_evidence_ids if eid in all_accepted]
         if not backed_ids:
             blockers.append(
                 f"testing evidence IDs ({', '.join(test_evidence_ids[:5])}) "
@@ -290,10 +291,13 @@ def closure_resume_audit(base_dir: str) -> Dict[str, Any]:
             blockers.append("testing.json has no test commands")
             missing.append("testing command provenance")
         else:
+            # Use ALL accepted machine-observed records (including auto-accepted),
+            # not just the Reviewer's accepted_evidence_ids.
             successful_evidence_commands = {
                 str(r.get("command", "")).strip()
-                for r in accepted_records
-                if r.get("trust") == "machine_observed"
+                for r in records
+                if r.get("status") == "accepted"
+                and r.get("trust") == "machine_observed"
                 and r.get("exit_code") == 0
                 and str(r.get("command", "")).strip()
             }
