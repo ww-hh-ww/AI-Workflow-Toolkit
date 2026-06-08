@@ -7,7 +7,7 @@ name = "aiwf"
 version = "1.0"
 description = "Embedded Claude Code and Reasonix workflow governance for long-horizon engineering work."
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.9"
 license = { file = "LICENSE" }
 authors = [{ name = "ww-hh-ww" }]
 keywords = ["claude-code", "reasonix", "workflow", "governance", "testing", "review"]
