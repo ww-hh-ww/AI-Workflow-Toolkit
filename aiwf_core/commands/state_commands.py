@@ -249,6 +249,13 @@ def _cmd_mark_cleanup_stale(args: argparse.Namespace) -> None:
                        blockers=args.blockers or None, notes=args.notes or None)
     print(f"Cleanup marked stale: {len(args.stale_items)} stale items")
 
+def _cmd_cancel_close(args: argparse.Namespace) -> None:
+    """aiwf state cancel-close — reset close_attempt and unblock task activation."""
+    from ..core.state_ops import cancel_close
+    result = cancel_close(str(Path.cwd()))
+    print(result["message"])
+
+
 def _cmd_prepare_close(args: argparse.Namespace) -> None:
     """aiwf state prepare-close — promote evidence + set close_attempt."""
     from ..core.state_ops import prepare_close

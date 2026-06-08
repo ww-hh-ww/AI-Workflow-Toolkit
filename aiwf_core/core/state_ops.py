@@ -803,6 +803,18 @@ def prepare_close(base_dir: str) -> Dict[str, Any]:
     }
 
 
+def cancel_close(base_dir: str) -> Dict[str, Any]:
+    """Cancel a close attempt — resets close_attempt, phase, closure_allowed."""
+    base = Path(base_dir)
+    state_path = base / ".aiwf" / "state" / "state.json"
+    state = _read(state_path)
+    state["close_attempt"] = False
+    state["closure_allowed"] = False
+    state["phase"] = "reviewing"
+    _write(state_path, state)
+    return {"close_attempt": False, "phase": "reviewing", "message": "Close attempt cancelled. Task activation unblocked."}
+
+
 # ── adversarial observation disposition ─────────────────────────────────
 
 def disposition_adversarial_observation(

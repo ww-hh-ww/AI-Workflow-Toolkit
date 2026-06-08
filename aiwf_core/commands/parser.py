@@ -41,6 +41,7 @@ from .research_commands import (
 from .state_commands import (
     _cmd_cleanup_check, _cmd_disposition_adversarial, _cmd_mark_cleanup_fresh,
     _cmd_mark_cleanup_stale, _cmd_prepare_close, _cmd_rebuild_current_state,
+    _cmd_cancel_close,
     _cmd_record_meta_critique, _cmd_record_review, _cmd_record_role_evidence,
     _cmd_set_planner_inline, _cmd_set_workflow_mode,
     _cmd_record_quality_brief, _cmd_record_quality_policy, _cmd_record_testing,
@@ -190,6 +191,8 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
     p_cc_sub.add_parser("check", help="run lifecycle cleanup check (read-only)").set_defaults(func=_cmd_cleanup_check)
     p_cc.set_defaults(func=_cmd_cleanup_check)
     p_pc = p_state_sub.add_parser("prepare-close", help="promote evidence + set close_attempt (does NOT declare success)")
+    p_cc = p_state_sub.add_parser("cancel-close", help="cancel close attempt — resets close_attempt + phase, unblocks task activation")
+    p_cc.set_defaults(func=_cmd_cancel_close)
     p_pc.set_defaults(func=_cmd_prepare_close)
     p_pi = p_state_sub.add_parser("set-planner-inline", help="record Planner decision to execute inline (waives session diversity gate)")
     p_pi.add_argument("--reason", required=True, help="why this task was executed inline instead of via independent subagents")
