@@ -23,6 +23,8 @@ Distinguish user intent: raw discussion ≠ execution contract. During discussio
 If confirmed intent changes, use `aiwf goal revise --new-goal "..." --reason "..."` before dispatch so raw discussion becomes machine-readable goal history.
 After drafting or updating a task plan in discussion/clarification mode, ask the user to confirm execution before switching to `request_mode=execution`. If the user already explicitly said to implement/change/fix/continue, that counts as confirmation; otherwise do not infer consent from the existence of a plan file.
 
+**Before asking for confirmation, present the activation summary** from `aiwf status` (the `## Task Activation` block). It shows the user: goal, phase/level/mode, scope, topology, routing factors, and contract status — all machine-derived from the current state. The user needs to see what the system selected and why before they say yes. Do not paraphrase it; show it.
+
 Use request modes to make uncertainty explicit:
 - `discussion`: answer, compare, and reason without creating execution state.
 - `clarification`: grill requirements until acceptance criteria, non-goals, and risk decisions are clear.
