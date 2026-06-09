@@ -362,29 +362,25 @@ def _recovery_guidance(
 
 
 def build_activation_summary(base_dir: str) -> str:
-    """Build a concise activation summary for user review before execution."""
+    """Build a user-facing activation summary. Two sections: what we're doing
+    (project plan, for the user) and how we're doing it (governance, for a glance).
+    """
     root = Path(base_dir)
     state = _read(root / ".aiwf" / "state" / "state.json", {})
     goal = _read(root / ".aiwf" / "state" / "goal.json", {})
     contexts = _read(root / ".aiwf" / "state" / "contexts.json", {})
-    lines = ["## Task Activation"]
+    lines = []
     warns = []
 
-    # Goal
     active_goal = goal.get("active_goal") or goal.get("current_goal", "") or "(none)"
-    lines.append(f"Goal: {active_goal[:120]}")
-    if goal.get("confirmed") is False:
-        warns.append("Goal not confirmed by user")
+    level = state.get("workflow_level", "L1_review_light")
+    active_ctx_id = state.get("active_context_id", "")
 
-    # Phase + Level
-    phase = state.get("phase", "?")
-    level = state.get("workflow_level", "?")
-    task_type = state.get("task_type", "") or "?"
-    mode = state.get("request_mode", "?")
-    lines.append(f"Phase: {phase} | Route: {level} / {task_type} | Mode: {mode}")
+    # ── Project Plan ──
+    lines.append("## What We're Doing")
+    lines.append(f"  {active_goal[:200]}")
 
     # Scope
-    active_ctx_id = state.get("active_context_id", "")
     active_ctx = None
     for ctx in contexts.get("contexts", []):
         if ctx.get("id") == active_ctx_id:
@@ -393,64 +389,47 @@ def build_activation_summary(base_dir: str) -> str:
     if active_ctx:
         aw = active_ctx.get("allowed_write", []) or []
         fw = active_ctx.get("forbidden_write", []) or []
-        lines.append(f"Scope: {len(aw)} allowed paths, {len(fw)} forbidden" +
-                     (f" (allowed: {', '.join(aw[:4])})" if aw else ""))
-    else:
-        warns.append("No active context — scope is not defined")
+        if aw:
+            lines.append(f"  Files: {', '.join(aw[:5])}" + (f" (+{len(aw)-5} more)" if len(aw) > 5 else ""))
+        if fw:
+            lines.append(f"  Forbidden: {', '.join(fw[:3])}")
 
-    # Topology
-    if level in ("L2_standard_team", "L3_full_power"):
-        if state.get("planner_inline_session"):
-            lines.append("Topology: Planner inline (session diversity waived)")
-        else:
-            lines.append("Topology: Independent Executor + Tester + Reviewer (3 sessions expected)")
-    else:
-        lines.append("Topology: Planner inline (L0/L1)")
-
-    # Routing
-    factors = state.get("routing_factors", []) or []
-    score = state.get("routing_score", 0)
-    if factors:
-        lines.append(f"Routing: score={score}, factors={', '.join(factors[:6])}")
-
-    # Contracts
+    # Acceptance criteria
     brief = goal.get("quality_brief", {})
-    has_acceptance = bool(brief.get("acceptance_criteria"))
-    has_test_focus = bool(brief.get("test_focus"))
-    has_review_focus = bool(brief.get("review_focus"))
-    arch = brief.get("architecture_brief", {})
-    has_arch = arch and any(v for v in arch.values() if v and v != "" and v != [])
-    contracts = []
-    if has_acceptance or has_test_focus or has_review_focus:
-        contracts.append("evaluation contract")
-    if has_arch:
-        contracts.append("architecture brief")
-    if contracts:
-        lines.append(f"Contracts: {', '.join(contracts)} frozen")
-    else:
-        warns.append("No contracts frozen (evaluation contract + architecture brief)")
+    criteria = brief.get("acceptance_criteria", []) or []
+    if criteria:
+        lines.append(f"  Success: {', '.join(criteria[:3])}")
 
-    # Active plan
-    plan_id = state.get("active_plan_id", "")
-    task_id = state.get("active_task_id", "")
-    if task_id:
-        lines.append(f"Task: {task_id} active")
-    elif plan_id:
-        lines.append(f"Plan: {plan_id} exists, not yet activated")
-        warns.append("Plan exists but no task activated (plan_only_drift risk)")
+    # ── Governance ──
+    lines.append("")
+    lines.append("## Process (glance, not read)")
+    level_label = {"L0_direct": "trivial (self-review ok)", "L1_review_light": "simple (light review)",
+                   "L2_standard_team": "moderate (independent tester + reviewer)",
+                   "L3_full_power": "critical (full team + checkpoints)"}
+    lines.append(f"  Complexity: {level_label.get(level, level)}")
 
-    # Red flags
-    if state.get("scope_violation"):
-        warns.append("Scope violation flag is set")
-    fl = _read(root / ".aiwf" / "state" / "fix-loop.json", {})
-    if fl.get("status") == "open":
-        warns.append("Fix-loop is open — must resolve before activation")
+    topo = "planner handles everything" if level in ("L0_direct", "L1_review_light") else \
+           "independent executor, tester, and reviewer"
+    if state.get("planner_inline_session"):
+        topo += " (inline override recorded)"
+    lines.append(f"  Team: {topo}")
+
+    test_template = state.get("test_template", "")
+    test_depth = {"targeted": "changed code only", "targeted_plus_small_regression": "changed code + nearby",
+                  "regression_plus_boundary_adverse": "full suite + edge cases",
+                  "risk_matrix_plus_integration_adversarial": "full risk matrix + adversarial"}
+    lines.append(f"  Testing: {test_depth.get(test_template, test_template or 'not selected')}")
+
+    contracts_ok = bool(brief.get("acceptance_criteria") or brief.get("test_focus") or brief.get("review_focus"))
+    lines.append(f"  Contracts: {'ready' if contracts_ok else 'missing — planner must fill before execution'}")
+
+    if not goal.get("confirmed", True):
+        warns.append("Goal not confirmed by user — ask before proceeding")
 
     if warns:
         lines.append("")
-        lines.append("## Warnings")
         for w in warns:
-            lines.append(f"  - {w}")
+            lines.append(f"  ! {w}")
 
     return "\n".join(lines)
 
