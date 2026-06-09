@@ -4,14 +4,11 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Dict, Optional
 
-DEFAULT_MAP = """# AIWF Project Map
+DEFAULT_MAP = """# Project Map
 
-This is the human/Planner-facing project map.
-Planner must fill it after inspecting the real project files, architecture, tests, and current AIWF state.
-Do not mechanically populate this file from source-file counts, raw evidence, reports, or unpromoted ideas.
+> **What It Is**: Planner TODO — one sentence. A user who knows nothing about this project should understand what it does.
 
-Machine-readable structure lives in `.aiwf/assets/project-map.json` and other `.aiwf/*.json` contracts.
-This file is for human understanding: what the project is, how it is shaped, what matters next, and why.
+> **How It Works**: Planner TODO — one paragraph. An engineer who has never seen this codebase should know where to start: which directories do what, which files are the entry points, and which design decisions shape the architecture. Do not list every file. Describe boundaries, not contents.
 
 ## One-line Overview
 - Planner TODO: inspect the project and summarize what it does in one sentence.
@@ -25,15 +22,6 @@ This file is for human understanding: what the project is, how it is shaped, wha
 ## Architecture Layers
 - Planner TODO: explain the major layers, entry points, data flow, and boundary rules.
 
-## Data / State Model
-- Planner TODO: summarize durable state, schemas, tables, files, or external resources.
-
-## Core Workflows
-- Planner TODO: describe the main user/developer/runtime workflows and lifecycle transitions.
-
-## Testing Map
-- Planner TODO: summarize test suites, fixtures, commands, and meaningful coverage boundaries.
-
 ## Project Snapshot
 - Planner TODO: concise current-state snapshot based on real project inspection.
 
@@ -43,28 +31,25 @@ This file is for human understanding: what the project is, how it is shaped, wha
 ## Completed Milestones
 - None yet.
 
-## Active Direction
-- Planner TODO: current planning direction and why it matters.
+## Architecture Direction
+- Planner TODO: intended structural direction, constraints, and seams to preserve.
 
 ## Next Candidate Tasks
 - None yet.
 
-## Architecture Direction
-- Planner TODO: intended structural direction, constraints, and seams to preserve.
-
 ## Environment Summary
 - Planner TODO: environment requirements, local setup, generated files, and operational assumptions.
-
-## Open Decisions
-- None yet.
 
 ## Deferred Risks
 - None yet.
 
-## Not-now / Rejected Routes
+## Cleanup Candidates
 - None yet.
 
-## Ideas to Review
+## Open Decisions
+- None yet.
+
+## Not-now / Rejected Routes
 - None yet.
 """
 
@@ -72,14 +57,13 @@ SECTION_MAP = {
     "snapshot": "Project Snapshot",
     "current-stage": "Current Stage",
     "completed-milestones": "Completed Milestones",
-    "active-direction": "Active Direction",
     "next-candidate-tasks": "Next Candidate Tasks",
     "architecture-direction": "Architecture Direction",
     "environment-summary": "Environment Summary",
     "open-decisions": "Open Decisions",
     "deferred-risks": "Deferred Risks",
+    "cleanup-candidates": "Cleanup Candidates",
     "rejected-routes": "Not-now / Rejected Routes",
-    "ideas-to-review": "Ideas to Review",
 }
 
 
