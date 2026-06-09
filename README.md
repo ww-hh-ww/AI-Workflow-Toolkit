@@ -6,6 +6,10 @@ AIWF 是嵌入 Claude Code 与 Reasonix 的长周期工程治理层。
 
 > Intelligence belongs to the coding agent. Governance belongs to AIWF.
 
+> **What This Is**：AIWF 给 AI 编程加了流程骨架。每次 task 从 plan → implement → test → review → close，状态写进 `.aiwf/*.json`，hook 自动抓证据，闭合时有 5 个机械门检查"你做了吗"。不是替你写代码，是确保你不会跳过该做的事。
+>
+> **How It Works**：安装后，你的项目多了三个东西：(1) `scripts/` 里的 hook 脚本，PreToolUse/PostToolUse 自动捕获每次文件变更作为机器证据；(2) `.claude/skills/` 里的角色技能，Planner 调度 Executor/Tester/Reviewer/Close；(3) `.aiwf/` 里的 JSON 状态文件，是唯一流程真相源。每轮 `aiwf status` 注入当前 phase、路由深度和下一步行动。闭合时 `prepare_close` 检查 5 个流程合规门，通过后展示治理总结和变更列表。
+
 ## 为什么需要 AIWF
 
 原生 AI 编程很擅长完成单次任务，但项目持续多个任务和会话后，常见问题会逐渐累积：
@@ -119,6 +123,59 @@ reasonix code .
 | L1 | 小功能、有限范围 | Executor + 轻量独立验证 |
 | L2 | API、多模块、共享逻辑 | Executor + Tester + 对抗 Reviewer |
 | L3 | 安全、迁移、高风险结构变更 | 完整团队 + Checkpoint + 深度结构审查 |
+
+## 一个 Task 的生命周期
+
+```text
+Planner 讨论研究
+→ 用户确认
+→ 冻结合同（目标、范围、评估标准、架构约束）
+→ 机械路由选择 L0-L3 深度
+→ Executor 在允许范围内实现
+→ Tester 按深度模板独立验证
+→ Cleanup
+→ Reviewer 独立审查（对抗模式）
+→ Planner 处置审查意见
+→ prepare_close（5 个流程合规门）
+→ Stop hook 再验证
+→ 闭合，资产同步，交付
+```
+
+| Level | 典型场景 | 测试深度 | 审查深度 |
+|-------|---------|---------|---------|
+| L0 | typo、极小改动 | 变更点验证 | 自审查 |
+| L1 | 小功能、有限范围 | 变更点 + 就近回归 | 轻量审查 |
+| L2 | API、跨模块、共享逻辑 | 全量回归 + 边界 + 对抗 | 独立审查 |
+| L3 | 安全、迁移、高风险结构变更 | 风险矩阵 + 集成 + 对抗 | 完整审查 + Checkpoint |
+
+流程不是固定重流程。AIWF 根据机械信号选择最低 Level，Planner 再根据语义风险主动提高深度。
+激活时展示 What We're Doing + Process，闭合时展示 What Was Done + What Changed + Pay Attention To——都是机器自动生成的，不依赖模型记忆。
+
+## 项目结构
+
+```
+aiwf_core/                     # Python 包
+  core/                        # 核心逻辑
+    state_ops.py               # 状态变更（skills 调用，不手改 JSON）
+    routing.py                 # L0-L3 路由
+    quality_policy.py          # 质量策略（task × level → test/review 深度）
+    task_gravity.py            # 历史压力（纯函数，只读）
+    closure_contract.py        # 闭合门条件
+    task_ledger.py             # 多任务管理
+    process_contract.py        # Planner 流程指导
+  hooks/common/                # Hook 共享逻辑
+    snapshot.py                # 文件快照管线
+    evidence_writer.py         # 证据写入
+    scope_checker.py           # 范围检查
+  commands/                    # CLI 命令
+  embedded_templates/          # Skill + Agent 模板 + Hook 脚本
+    skills/                    # Planner/Executor/Tester/Reviewer/Close/Architect
+    agents/                    # 子代理定义
+    scripts/                   # Hook 脚本
+    CLAUDE.md                  # 嵌入项目的 CLAUDE.md 模板
+tests/embedded/                # 嵌入式合同测试（884 个）
+docs/                          # 技术文档 — 各子系统内部机制
+```
 
 ## 机械状态与 Gravity
 

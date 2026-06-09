@@ -28,7 +28,7 @@ File reading is the #1 token cost (35-45%). Read with precision:
 - Stay within `architecture_brief.allowed_files` / `allowed_new_files`.
 - Respect `architecture_brief.protected_files` and `forbidden_restructures`.
 - Do NOT invent new structure unless explicitly allowed.
-- If implementation changes the project structure (new files, new directories, renamed modules), update `.aiwf/reports/项目地图.md` before handing off to Tester. The Architecture Brief says what's allowed; PROJECT-MAP tells the next person what exists.
+- If implementation changes the project structure (new files, new directories, renamed modules), update `.aiwf/reports/项目地图.md` before handing off to Tester. Also check whether README or `docs/` need updating — new entry points, changed module boundaries, or new subsystems should be reflected in the project documentation.
 - Follow existing code patterns and conventions.
 - Keep changes minimal and focused.
 
