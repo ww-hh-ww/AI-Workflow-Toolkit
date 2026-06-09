@@ -150,6 +150,7 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
     p_rt.add_argument("--repeated-change-hotspot", action="append", default=[], dest="repeated_change_hotspots", help="repeatable repeated-change hotspot")
     p_rt.add_argument("--evidence-id", action="append", default=[], dest="evidence_ids", help="repeatable evidence ID backing test results (preferred over --command)")
     p_rt.add_argument("--adversarial-mode", action="store_true", dest="adversarial_mode", help="Tester ran in adversarial mode")
+    p_rt.add_argument("--force", action="store_true", help="allow same-session testing on L2+ (Planner inline execution only)")
     p_rt.set_defaults(func=_cmd_record_testing)
     p_rrv = p_state_sub.add_parser("record-review", help="record review results and reviewer evidence")
     p_rrv.add_argument("--result", required=True, choices=["accepted","needs_fix","needs_more_testing","evidence_insufficient","scope_violation","rejected"], help="review result")

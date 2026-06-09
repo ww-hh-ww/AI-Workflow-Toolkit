@@ -107,6 +107,45 @@ def _cmd_start_context(args: argparse.Namespace) -> None:
 def _cmd_record_testing(args: argparse.Namespace) -> None:
     """aiwf state record-testing — write testing results."""
     from ..core.state_ops import record_testing
+    import json as _json
+
+    # Guard: L2/L3 must use independent tester session unless forced
+    cwd = Path.cwd()
+    state_path = cwd / ".aiwf" / "state" / "state.json"
+    if state_path.exists():
+        state = _json.loads(state_path.read_text(encoding="utf-8"))
+        level = state.get("workflow_level", "")
+        if level in ("L2_standard_team", "L3_full_power"):
+            evidence_path = cwd / ".aiwf" / "evidence" / "records.json"
+            evidence = _json.loads(evidence_path.read_text(encoding="utf-8")) if evidence_path.exists() else {"records": []}
+            records = evidence.get("records", []) or []
+
+            executor_session = set()
+            tester_session = set()
+            for r in records:
+                if not isinstance(r, dict):
+                    continue
+                role = (r.get("agent_type") or r.get("role") or "").lower()
+                sid = r.get("session_id") or ""
+                if "executor" in role and sid:
+                    executor_session.add(sid)
+                if "tester" in role and sid:
+                    tester_session.add(sid)
+
+            executor_only = executor_session - tester_session
+
+            if executor_only and not args.force:
+                print(
+                    f"Testing blocked: workflow level is {level}, which requires an independent Tester session.\n"
+                    f"  Evidence shows executor work from session(s): {sorted(executor_only)}\n"
+                    f"  No independent tester session found.\n"
+                    f"  Actions:\n"
+                    f"    - Dispatch the aiwf-tester subagent from a new session and run record-testing there, or\n"
+                    f"    - If this is a legitimate Planner inline execution (L0 task), use --force to override.",
+                    file=sys.stderr,
+                )
+                raise SystemExit(1)
+
     testing = record_testing(str(Path.cwd()), args.context_id, args.status,
                    commands=args.commands or None,
                    evidence_ids=args.evidence_ids or None,
