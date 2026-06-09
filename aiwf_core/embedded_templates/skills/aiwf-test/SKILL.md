@@ -22,13 +22,20 @@ Before testing, identify the project's actual validation layers from its scripts
 3. **Integration/system path** — affected modules working together across declared integration points.
 4. **Real usage** — exercise the actual user-facing entrypoint: installed CLI command, API request, application startup/UI workflow, package import/export, build artifact, or equivalent production-shaped path.
 
-For L2/L3, targeted validation, full regression, and real usage disposition are mandatory reporting fields. Full regression and real usage are part of the selected depth, not unilateral scope expansion.
-Record these as `validation_layers` including `targeted`, `full_regression`, and `real_usage`, with `full_suite_status` and `real_usage_status` dispositions.
+Full regression and real usage requirements are determined by `test_template` from `state.json`, not by a universal rule:
 
-- Prefer running them.
-- If an environment, credential, hardware, service, or destructive-risk boundary makes one impossible, record `not_available` or `not_feasible` with the concrete reason and an `untested-risk`.
-- Never record `adequate` merely because unit tests passed.
-- A mocked integration test is not real usage. Name the actual entrypoint and what the user-observable result was.
+- **`targeted` (L0)**: run the exact changed behavior. Full suite and real usage are not required.
+- **`targeted_plus_small_regression` (L1)**: target + nearby regression. Full suite recommended but not required.
+- **`regression_plus_boundary_adverse` (L2)**: full project regression is required. Real usage is required. Run them.
+- **`risk_matrix_plus_integration_adversarial` (L3)**: everything above plus risk matrix and integration adversarials. All surfaces mandatory.
+
+Record `validation_layers` matching the depth you actually executed, with `full_suite_status` and `real_usage_status` dispositions.
+
+- **When the template requires it, run it.** The depth was chosen by mechanical routing for a reason.
+- **Only skip with a concrete, named reason.** "not_available" without naming the blocker is not acceptable. Name the specific environment, credential, hardware, service, or destructive-risk boundary. Record it as an `untested_risk`.
+- **Not feasible ≠ not convenient.** Record `not_feasible` only when the test physically cannot be automated — not when it would take effort.
+- **Never record `adequate` or `passed` on targeted tests alone when the template requires more.** A passing unit test does not satisfy `regression_plus_boundary_adverse`.
+- **A mocked integration test is not real usage.** Name the actual entrypoint and what the user-observable result was.
 
 ## Reading Strategy
 
