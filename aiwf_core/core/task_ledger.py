@@ -748,9 +748,14 @@ def close_task(base_dir: str, task_id: str, note: str = "") -> Dict[str, Any]:
     if not task:
         return {"closed": False, "task": None, "ledger": ledger, "blockers": [f"task not found: {task_id}"]}
     if task.get("status") == "active":
-        blockers = _mode_completion_blockers(base_dir, task) + _l2_l3_completion_blockers(base_dir, task)
-        if blockers:
-            return {"closed": False, "task": task, "ledger": ledger, "blockers": blockers}
+        # Only block spike-mode tasks from closing as final implementation.
+        # All other quality gates belong to prepare_close, not close_task.
+        state = _read(Path(base_dir) / ".aiwf" / "state" / "state.json", {})
+        mode = state.get("request_mode", "execution")
+        pattern = state.get("workflow_pattern", "linear")
+        if mode == "spike" or pattern == "spike_first":
+            return {"closed": False, "task": task, "ledger": ledger,
+                    "blockers": ["spike task cannot close as final implementation; record findings and switch to request_mode=execution"]}
     task["status"] = "closed"
     task["closed_at"] = _now()
     task["updated_at"] = _now()

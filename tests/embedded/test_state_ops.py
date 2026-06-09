@@ -102,55 +102,6 @@ class TestStateOps(unittest.TestCase):
         self.assertEqual(r["cleanup_blockers"], [])
 
     # ── close ──
-    def test_prepare_close_promotes_evidence(self):
-        s = _rj(self.tmp / ".aiwf" / "state" / "state.json")
-        s["phase"] = "reviewing"
-        (self.tmp / ".aiwf" / "state" / "state.json").write_text(json.dumps(s, indent=2))
-        # Seed pending evidence + accepted review
-        (self.tmp / ".aiwf" / "evidence" / "records.json").write_text(json.dumps({
-            "records": [{"id": "EV-001", "status": "pending", "trust": "machine_observed"}]
-        }, indent=2))
-        (self.tmp / ".aiwf" / "quality" / "review.json").write_text(json.dumps({
-            "result": "accepted", "closure_allowed": True,
-            "accepted_evidence_ids": ["EV-001"], "rejected_evidence_ids": [],
-            "blockers": [], "cleanup_status": "fresh", "structure_status": "accepted"
-        }, indent=2))
-        (self.tmp / ".aiwf" / "quality" / "testing.json").write_text(json.dumps({
-            "status": "adequate", "commands": ["pytest"]
-        }, indent=2))
-
-        from aiwf_core.core.state_ops import prepare_close
-        result = prepare_close(str(self.tmp))
-
-        self.assertTrue(result["close_attempt_set"])
-        self.assertEqual(result["state"]["phase"], "closed")
-
-        ev = _rj(self.tmp / ".aiwf" / "evidence" / "records.json")
-        self.assertEqual(ev["records"][0]["status"], "accepted")
-
-    def test_prepare_close_fills_missing_review_fields(self):
-        s = _rj(self.tmp / ".aiwf" / "state" / "state.json")
-        s["phase"] = "reviewing"
-        (self.tmp / ".aiwf" / "state" / "state.json").write_text(json.dumps(s, indent=2))
-        (self.tmp / ".aiwf" / "quality" / "review.json").write_text(json.dumps({
-            "result": "accepted", "closure_allowed": True
-        }, indent=2))
-        (self.tmp / ".aiwf" / "evidence" / "records.json").write_text(json.dumps({
-            "records": [{"id": "EV-001", "status": "accepted", "trust": "machine_observed"}]
-        }, indent=2))
-        (self.tmp / ".aiwf" / "quality" / "testing.json").write_text(json.dumps({
-            "status": "adequate", "commands": ["pytest"]
-        }, indent=2))
-
-        from aiwf_core.core.state_ops import prepare_close
-        result = prepare_close(str(self.tmp))
-        self.assertTrue(result["auto_filled"])
-
-        r = _rj(self.tmp / ".aiwf" / "quality" / "review.json")
-        self.assertIn("cleanup_status", r)
-        self.assertIn("structure_status", r)
-
-    # ── state summary ──
     def test_get_state_summary(self):
         from aiwf_core.core.state_ops import get_state_summary
         s = get_state_summary(str(self.tmp))

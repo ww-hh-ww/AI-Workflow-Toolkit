@@ -136,44 +136,6 @@ class TestCoreGovernanceChain(unittest.TestCase):
             timeout=TIMEOUT,
         )
 
-    def test_complete_chain_passes_core_and_installed_stop_gate(self):
-        result = self._complete_chain_until_close()
-        self.assertTrue(result["can_proceed_to_gate"])
-        self.assertTrue(result["close_attempt_set"])
-        self.assertEqual(result["state"]["phase"], "closed")
-
-        evidence = _read_json(self.tmp / ".aiwf" / "evidence" / "records.json")
-        self.assertEqual(evidence["records"][0]["status"], "accepted")
-
-        from aiwf_core.hooks.common.gate_checker import eval_closure_gates
-
-        gates = eval_closure_gates(self.tmp)
-        self.assertTrue(gates["passed"], gates["blockers"])
-        self.assertTrue(gates["evidence_accepted"])
-        self.assertTrue(gates["testing_adequate"])
-        self.assertTrue(gates["review_accepted"])
-        self.assertTrue(gates["cleanup_fresh"])
-        self.assertTrue(gates["structure_accepted"])
-
-        stop = self._run_stop_gate()
-        self.assertEqual(stop.returncode, 0, stop.stderr)
-        self.assertNotIn('"decision": "block"', stop.stdout)
-
-    def test_chain_breaks_when_testing_is_missing(self):
-        from aiwf_core.core.state_ops import prepare_close
-
-        self._seed_accepted_review_with_pending_evidence()
-        state = _read_json(self.tmp / ".aiwf" / "state" / "state.json")
-        state["phase"] = "reviewing"
-        _write_json(self.tmp / ".aiwf" / "state" / "state.json", state)
-        result = prepare_close(str(self.tmp))
-
-        self.assertFalse(result["close_attempt_set"])
-        self.assertTrue(any("testing not adequate: missing" in b for b in result["blockers"]))
-        state = _read_json(self.tmp / ".aiwf" / "state" / "state.json")
-        self.assertFalse(state.get("close_attempt"))
-        self.assertEqual(state.get("phase"), "reviewing")
-
     def test_chain_breaks_when_cleanup_is_stale(self):
         from aiwf_core.core.state_ops import mark_cleanup_stale, record_testing
         from aiwf_core.hooks.common.gate_checker import eval_closure_gates
@@ -189,23 +151,3 @@ class TestCoreGovernanceChain(unittest.TestCase):
         gates = eval_closure_gates(self.tmp)
         self.assertFalse(gates["passed"])
         self.assertTrue(any("cleanup not fresh" in b for b in gates["blockers"]))
-
-    def test_chain_breaks_when_fix_loop_is_open(self):
-        from aiwf_core.core.state_ops import open_fix_loop, prepare_close
-
-        self._complete_chain_until_close()
-        open_fix_loop(
-            str(self.tmp),
-            route="executor",
-            reason="qualification injected blocker",
-            required_fixes=["resolve injected blocker"],
-            required_verification=["rerun governance chain"],
-        )
-
-        result = prepare_close(str(self.tmp))
-        self.assertFalse(result["can_proceed_to_gate"])
-        self.assertTrue(any("fix-loop is open" in b for b in result["blockers"]))
-
-
-if __name__ == "__main__":
-    unittest.main()

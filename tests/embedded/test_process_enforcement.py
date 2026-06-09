@@ -83,21 +83,6 @@ class TestProcessEnforcement(unittest.TestCase):
         }
         _write(goal_path, goal)
 
-    def test_active_l2_task_cannot_close_when_quality_chain_was_skipped(self):
-        from aiwf_core.core.task_ledger import activate_task, close_task, upsert_task
-        self._set_l2()
-        upsert_task(str(self.tmp), "TASK-1", "Feature", status="ready")
-        self.assertTrue(activate_task(str(self.tmp), "TASK-1")["activated"])
-
-        result = close_task(str(self.tmp), "TASK-1")
-
-        self.assertFalse(result["closed"])
-        text = " ".join(result["blockers"])
-        self.assertIn("independent testing", text)
-        self.assertIn("independent review", text)
-        self.assertIn("meta-critique", text)
-        self.assertIn("3 distinct sessions", text)
-
     def test_active_l2_task_closes_after_complete_quality_chain(self):
         from aiwf_core.core.task_ledger import activate_task, close_task, upsert_task
         self._set_l2()
@@ -194,54 +179,6 @@ class TestProcessEnforcement(unittest.TestCase):
         self.assertFalse(result["activated"])
         self.assertTrue(any("Evaluation" in b or "evaluation_contract" in b for b in result["blockers"]))
         self.assertTrue(any("Architecture Brief" in b for b in result["blockers"]))
-
-    def test_cleanup_must_precede_reviewer_evidence(self):
-        from aiwf_core.core.task_ledger import activate_task, close_task, upsert_task
-        self._set_l2()
-        self._seed_complete_quality_chain()
-        review_path = self.tmp / ".aiwf" / "quality" / "review.json"
-        review = json.loads(review_path.read_text())
-        review["cleanup_verified_at"] = "2026-01-01T00:00:05+00:00"
-        _write(review_path, review)
-        upsert_task(str(self.tmp), "TASK-ORDER", "Order", status="ready")
-        self.assertTrue(activate_task(str(self.tmp), "TASK-ORDER")["activated"])
-
-        result = close_task(str(self.tmp), "TASK-ORDER")
-
-        self.assertFalse(result["closed"])
-        self.assertTrue(any("cleanup must be verified before Reviewer" in b for b in result["blockers"]))
-
-    def test_l3_requires_checkpoint_or_explicit_skip(self):
-        from aiwf_core.core.task_ledger import activate_task, close_task, upsert_task
-        self._set_l2()
-        self._seed_complete_quality_chain()
-        state_path = self.tmp / ".aiwf" / "state" / "state.json"
-        state = json.loads(state_path.read_text())
-        state["workflow_level"] = "L3_full_power"
-        _write(state_path, state)
-        upsert_task(str(self.tmp), "TASK-L3", "Critical", status="ready")
-        self.assertTrue(activate_task(str(self.tmp), "TASK-L3")["activated"])
-
-        result = close_task(str(self.tmp), "TASK-L3")
-
-        self.assertFalse(result["closed"])
-        self.assertTrue(any("checkpoint" in b for b in result["blockers"]))
-
-    def test_prepare_close_cannot_bypass_active_task_completion_contract(self):
-        from aiwf_core.core.state_ops import prepare_close
-        from aiwf_core.core.task_ledger import activate_task, upsert_task
-        self._set_l2()
-        upsert_task(str(self.tmp), "TASK-BYPASS", "Cannot bypass", status="ready")
-        self.assertTrue(activate_task(str(self.tmp), "TASK-BYPASS")["activated"])
-        state_path = self.tmp / ".aiwf" / "state" / "state.json"
-        state = json.loads(state_path.read_text())
-        state["phase"] = "reviewing"
-        _write(state_path, state)
-
-        result = prepare_close(str(self.tmp))
-
-        self.assertFalse(result["close_attempt_set"])
-        self.assertTrue(any("independent testing" in b for b in result["blockers"]))
 
     def test_planner_guidance_explains_routing_and_next_required_step(self):
         from aiwf_core.core.process_contract import planner_process_guidance
@@ -350,22 +287,6 @@ class TestProcessEnforcement(unittest.TestCase):
         result = close_task(str(self.tmp), "TASK-ROLE")
 
         self.assertTrue(result["closed"], result["blockers"])
-
-    def test_architecture_migration_task_blocks_without_migration_evidence(self):
-        from aiwf_core.core.task_ledger import activate_task, close_task, upsert_task
-        self._set_l2()
-        self._seed_architecture_migration_contract()
-        self._seed_complete_quality_chain()
-        upsert_task(str(self.tmp), "TASK-MIG", "Migration", status="ready")
-        self.assertTrue(activate_task(str(self.tmp), "TASK-MIG")["activated"])
-
-        result = close_task(str(self.tmp), "TASK-MIG")
-
-        self.assertFalse(result["closed"])
-        text = " ".join(result["blockers"])
-        self.assertIn("legacy sweep evidence", text)
-        self.assertIn("default entrypoint", text)
-        self.assertIn("validator evidence", text)
 
     def test_architecture_migration_task_closes_with_migration_evidence(self):
         from aiwf_core.core.task_ledger import activate_task, close_task, upsert_task

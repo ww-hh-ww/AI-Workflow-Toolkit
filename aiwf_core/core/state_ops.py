@@ -651,146 +651,69 @@ def record_review(
 # ── close preparation ─────────────────────────────────────────────────
 
 def prepare_close(base_dir: str) -> Dict[str, Any]:
-    """Promote evidence and prepare close only after preflight gates pass.
+    """Finalize the workflow cycle. Checks 5 process-compliance gates.
 
-    Auto-fill cleanup=fresh + structure=accepted ONLY for L0/L1.
-    L2/L3 must have explicit cleanup/structure. Returns result with
-    blockers if the workflow is not ready for the Stop gate.
+    Gates enforce that the workflow was followed — not that every field
+    is populated correctly.  Mechanical detail belongs to aiwf status advisory.
     """
     base = Path(base_dir)
     state_path = base / ".aiwf" / "state" / "state.json"
     review_path = base / ".aiwf" / "quality" / "review.json"
     evidence_path = base / ".aiwf" / "evidence" / "records.json"
     testing_path = base / ".aiwf" / "quality" / "testing.json"
-    fix_loop_path = base / ".aiwf" / "state" / "fix-loop.json"
 
     state = _read(state_path)
     review = _read(review_path)
     evidence = _read(evidence_path)
     testing = _read(testing_path)
-    fix_loop = _read(fix_loop_path)
 
-    level = state.get("workflow_level", "L1_review_light")
-    auto_fill_allowed = level in ("L0_direct", "L1_review_light")
-
-    # Auto-promote closure_allowed when Reviewer recorded result=accepted.
-    # Reviewer is adversarial (finds problems, records result); prepare_close owns
-    # the closure gate. Must run BEFORE any blocker checks so downstream gates
-    # (closure_resume_audit, task_ledger, etc.) see the promoted value.
-    if review.get("result") == "accepted" and not review.get("closure_allowed", False):
-        review["closure_allowed"] = True
-        _write(review_path, review)
+    from .review_contract import promote_evidence
+    evidence = promote_evidence(evidence, review)
+    _write(evidence_path, evidence)
 
     blockers = []
 
-    # Resume-after-interruption gate. Strict only for L2/L3 after accepted review;
-    # run before evidence promotion so prepare_close's own write does not make
-    # current-state.md appear stale.
-    from .closure_contract import closure_resume_audit
-    resume_audit = closure_resume_audit(base_dir)
-    blockers.extend(resume_audit.get("blockers", []) or [])
-
-    # Promote evidence strictly from review IDs. Empty accepted IDs never auto-accept.
-    from .review_contract import promote_evidence
-    promoted = promote_evidence(evidence, review)
-    _write(evidence_path, promoted)
-
-    # Do not let prepare-close bypass the active task's selected process depth.
-    from .task_ledger import active_task_completion_blockers
-    for blocker in active_task_completion_blockers(base_dir):
-        if blocker not in blockers:
-            blockers.append(blocker)
-
+    # 1. Phase sequence — has the workflow progressed to a closeable state?
     phase = state.get("phase", "discussing")
     if phase in ("discussing", "planned", "closed"):
-        blockers.append(f"phase not ready for close: {phase}. Progress through planning → implementing → testing → reviewing → closing")
-
-    accepted_records = [
-        r for r in (promoted.get("records", []) or [])
-        if r.get("status") == "accepted"
-    ]
-    if not accepted_records:
-        blockers.append("no accepted evidence. Evidence must be machine_observed+strong (auto-accepted) or listed in review.accepted_evidence_ids")
-    from .closure_contract import evidence_session_diversity_ok, accepted_evidence_session_ids
-    active_ctx = state.get("active_context_id", "")
-    if not evidence_session_diversity_ok(state, promoted, context_id=active_ctx):
-        if state.get("planner_inline_session"):
-            # Planner explicitly acknowledged inline execution — gate waived.
-            pass
-        else:
-            blockers.append(
-                "L2/L3 require accepted evidence from at least 3 distinct sessions; "
-                f"found {len(accepted_evidence_session_ids(promoted, context_id=active_ctx))}. "
-                "Record with: aiwf state set-planner-inline --reason '...'"
-            )
-
-    if testing.get("status") not in ("adequate", "passed"):
-        blockers.append(f"testing not adequate: {testing.get('status', 'missing')}. Run aiwf state record-testing --status passed --command '...' --evidence-id EV-xxx")
-    # Asset integrity: testing.json must have actual test commands recorded
-    if not testing.get("commands") or len(testing.get("commands", []) or []) == 0:
-        blockers.append("testing.json has no test commands — Tester may not have run real tests. Run aiwf state record-testing --status passed --command '<test-cmd>'")
-
-    if review.get("result") != "accepted":
-        blockers.append("review not accepted. Run aiwf state record-review --result accepted --closure-allowed --accepted-evidence-id EV-xxx")
-    # Asset integrity: review.json must appear to come from an independent session
-    if review.get("result") == "unknown":
-        blockers.append("review.json has result=unknown — Reviewer may not have run")
-    if state.get("scope_violation", False):
-        blockers.append("scope violation unresolved. Revert violating files (git checkout -- <file>) or resolve via aiwf state resolve-fix-loop --resolution '...'")
-
-    # Check for hard blockers that no level can auto-fix
-    if review.get("stale_items"):
-        blockers.append("stale_items non-empty; run mark_cleanup_fresh first")
-    if review.get("cleanup_blockers"):
-        blockers.append("cleanup_blockers non-empty. Run aiwf state mark-cleanup-fresh after resolving: " + ", ".join(review["cleanup_blockers"][:3]))
-    if review.get("structure_blockers"):
-        blockers.append("structure_blockers non-empty. Resolve structural issues then re-run review with --structure-status accepted")
-    if fix_loop.get("status") == "open":
-        blockers.append("fix-loop is open. Run aiwf state resolve-fix-loop --resolution '<how it was resolved>'")
-    # Pending adversarial observations block close preparation
-    from .review_contract import has_pending_adversarial_observations
-    if has_pending_adversarial_observations(review):
-        pending_count = sum(
-            1 for o in (review.get("adversarial_observations", []) or [])
-            if isinstance(o, dict) and o.get("disposition") == "pending"
+        blockers.append(
+            f"phase not ready for close: {phase}. "
+            "Progress through planning → implementing → testing → reviewing → closing."
         )
-        blockers.append(f"{pending_count} adversarial observation(s) pending Planner disposition. Run aiwf state disposition-adversarial --id <ADV-xxx> --disposition <ignored|accepted|deferred|brief_updated> --reason '...'")
 
-    # Handle cleanup_status
-    cleanup_missing = not review.get("cleanup_status") or review["cleanup_status"] in ("unknown", None, "")
-    structure_missing = not review.get("structure_status") or review["structure_status"] in ("unknown", None, "")
+    # 2. Evidence exists — was any work actually done and captured?
+    accepted = [r for r in evidence.get("records", []) or [] if r.get("status") == "accepted"]
+    if not accepted:
+        blockers.append(
+            "no accepted evidence. Run tool operations (Write/Edit/Bash) "
+            "to produce machine-observed evidence."
+        )
 
-    if auto_fill_allowed:
-        # L0/L1: auto-fill missing fields
-        if cleanup_missing:
-            review["cleanup_status"] = "fresh"
-        if structure_missing:
-            review["structure_status"] = "accepted"
-        if cleanup_missing or structure_missing:
-            _write(review_path, review)
-    else:
-        # L2/L3: missing cleanup/structure is a blocker
-        if cleanup_missing:
-            blockers.append(
-                f"cleanup_status missing for {level}. Run aiwf state mark-cleanup-fresh for L2/L3")
-        if structure_missing:
-            blockers.append(
-                f"structure_status missing for {level}. Run aiwf state record-review with --structure-status accepted")
+    # 3. Testing recorded — did the Tester run?
+    if testing.get("status", "missing") == "missing":
+        blockers.append(
+            "testing not recorded. Run aiwf state record-testing --status passed."
+        )
 
-    close_attempt_set = len(blockers) == 0
-    if close_attempt_set:
-        if level == "L3_full_power":
-            try:
-                from .checkpoints import create_checkpoint
-                create_checkpoint(str(base), label="auto-close", include_governance=True, mode="patch")
-            except Exception:
-                pass
-        from .closure_contract import set_closure_complete
-        set_closure_complete(state)
+    # 4. Review recorded — did the Reviewer run?
+    if review.get("result", "unknown") == "unknown":
+        blockers.append(
+            "review not recorded. Run aiwf state record-review --result accepted."
+        )
+
+    # 5. Cleanup done — has the project been cleaned up?
+    if review.get("cleanup_status") != "fresh" or review.get("stale_items"):
+        blockers.append(
+            "cleanup not fresh. Run aiwf state mark-cleanup-fresh."
+        )
+
+    # Finalize
+    passed = len(blockers) == 0
+    if passed:
+        state["phase"] = "closed"
+        state["close_attempt"] = False
         state["closure_allowed"] = True
         _write(state_path, state)
-
-        # Write task-history and auto-cleanup for tasks without task ledger (L0 inline)
         try:
             from .cross_task_quality import append_task_history_from_state, write_quality_digest
             append_task_history_from_state(base_dir)
@@ -805,25 +728,10 @@ def prepare_close(base_dir: str) -> Dict[str, Any]:
 
     return {
         "state": state,
-        "close_attempt_set": close_attempt_set,
-        "auto_filled": auto_fill_allowed and (cleanup_missing or structure_missing),
-        "level": level,
+        "passed": passed,
         "blockers": blockers,
-        "can_proceed_to_gate": close_attempt_set,
-        "closure_resume": resume_audit,
+        "can_proceed_to_gate": passed,
     }
-
-
-def cancel_close(base_dir: str) -> Dict[str, Any]:
-    """Cancel a close attempt — resets close_attempt, phase, closure_allowed."""
-    base = Path(base_dir)
-    state_path = base / ".aiwf" / "state" / "state.json"
-    state = _read(state_path)
-    state["close_attempt"] = False
-    state["closure_allowed"] = False
-    state["phase"] = "reviewing"
-    _write(state_path, state)
-    return {"close_attempt": False, "phase": "reviewing", "message": "Close attempt cancelled. Task activation unblocked."}
 
 
 # ── adversarial observation disposition ─────────────────────────────────

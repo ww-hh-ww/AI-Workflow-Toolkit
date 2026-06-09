@@ -260,9 +260,8 @@ def _cmd_prepare_close(args: argparse.Namespace) -> None:
     """aiwf state prepare-close — promote evidence + set close_attempt."""
     from ..core.state_ops import prepare_close
     result = prepare_close(str(Path.cwd()))
-    prepared = result.get('close_attempt_set', False)
-    print(f"Close prepared: close_attempt={prepared}")
-    if result.get('auto_filled'): print("  Auto-filled: cleanup/structure for L0/L1")
+    passed = result.get('passed', False)
+    print(f"Close prepared: passed={passed}")
     if result.get('blockers'):
         print(f"  Blockers ({len(result['blockers'])}):")
         for b in result['blockers'][:5]: print(f"    - {b}")
