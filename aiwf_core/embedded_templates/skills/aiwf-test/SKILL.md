@@ -36,14 +36,13 @@ Command output is the #2 token cost. Filter ruthlessly:
 - **Run full tests → read only failures**: pipe through `grep -E "FAIL|Error|assert|Traceback"`. Passing tests don't need reading.
 - **Read source only when tests fail**: let test results tell you what to read.
 
-## Evidence Traceability — Make Testing Machine-Verifiable
+## Evidence Traceability — Make Testing Verifiable
 
-Testing results must be traceable to machine evidence. The Reviewer and user need to verify that tests actually ran, not just that status=passed was recorded.
+Testing results must be traceable to actual execution. The Reviewer needs to verify that tests ran, not just read a status summary.
 
-- **Always pass `--evidence-id`** referencing the Bash evidence records that captured your test commands. If you ran `pytest -q tests/`, find the EV-xxx record that contains that command and cite it.
-- **Prefer hook-captured strong evidence**: run tests as Bash commands that go through the Pre/PostToolUse hook pipeline, producing `attribution: strong` evidence records.
-- **If tests were run in a subagent that hooks cannot observe**, record `real_usage_status` or `full_suite_status` as `not_available` with the concrete reason — never fabricate evidence.
-- **Do not record `passed` unless** at least one accepted machine-observed evidence record backs each test command.
+- **Cite the execution trace**: for each test command, reference where the output can be found — a CI log URL, a saved output file, a timestamped shell session. "pytest passed" with no provenance is indistinguishable from not running tests at all.
+- **Run tests through tool execution**: prefer running test commands as actual shell invocations that leave machine-captured traces, rather than summarizing results in prose. The trace is the evidence; the summary is just commentary.
+- **If a test cannot run** (missing environment, credentials, hardware dependency, destructive risk), record what was blocked and why — and what surface remains untested as a result. Never fabricate or guess results.
 
 ## Test Depth (from `.aiwf/state/state.json`)
 

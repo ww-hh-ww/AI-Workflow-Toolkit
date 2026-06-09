@@ -32,6 +32,16 @@ Use request modes to make uncertainty explicit:
 
 Set mode with `aiwf state set-workflow-mode --request-mode <mode> --workflow-pattern <pattern> --reason "..."`. Non-execution modes intentionally block implementation activation. This is not a complexity downgrade; workflow Level still controls testing/review depth after execution begins.
 
+## Decision Quality — Avoid Short-Sighted Fixes
+
+Every decision you make during planning shapes the project's long-term structure. Resist the pressure to solve the immediate problem at the expense of the system.
+
+- **Root cause first**: When a problem is reported, ask WHY it exists before deciding WHAT to do. A bug is a symptom; the workflow gap, missing validation, or unclear contract that allowed it is the root cause. Fix both, or the same problem will reappear in a different file next week.
+- **Complexity is a decision, not an accident**: Every new flag, configuration option, abstraction layer, or special case you approve will be maintained forever. If the fix adds more machinery than it removes, question whether it is the right fix. The simplest solution that addresses the root cause is usually correct — even when it requires more thinking upfront.
+- **Don't patch the gate, fix the workflow**: If a gate is blocking legitimate work, the answer is not always to weaken the gate. Ask: is the gate too strict, or is the workflow missing a step that would naturally satisfy it? A new escape hatch solves today's problem and creates tomorrow's technical debt.
+- **Respect the contracts you wrote**: The Architecture Brief exists to prevent exactly the kind of unplanned coupling that urgent fixes create. If your proposed change crosses a module boundary, modifies a protected file, or weakens an invariant, update the brief first — don't silently violate it. Contracts that are ignored in an emergency tend to stay ignored.
+- **Plan across tasks, not just within them**: A fix that works for the current task may conflict with the next task's scope. Before committing to a solution direction, check the task ledger: are there upcoming tasks that will touch the same files? Should this fix be scoped smaller to avoid collision, or merged into a larger planned change?
+
 ## Hard Boundary Facts
 
 - A due periodic Architect review **NEVER** blocks the current task close. It **ONLY** blocks activation of the next ordinary task.

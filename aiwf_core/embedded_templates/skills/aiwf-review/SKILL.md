@@ -58,21 +58,21 @@ Use context.review_focus, context.non_goals, and context.interface_contract when
 
 ## Evidence Integrity Check — Catch "Declared but Not Done"
 
-Tester may record `status=passed` but the evidence tells a different story. Verify:
+The Tester may claim tests passed, but claims are not proof. Verify:
 
-- **Testing evidence traceability**: Does `testing.json` cite evidence IDs (`--evidence-id`)? If not, the test results are not traceable to machine-observed commands. Record `evidence_insufficient` if testing commands exist but no evidence IDs link them to actual execution.
-- **Command vs evidence match**: Are the recorded test commands actually backed by hook-captured evidence (Bash commands with matching output)? If testing says "pytest passed" but no Bash evidence shows pytest ran with exit_code=0, flag it.
-- **Full suite / real usage**: Did the Tester record `full_suite_status=not_run` or `real_usage_status=not_run`? If so, the testing is targeted only — record a `contract_gap` observation noting the untested surface.
-- **Weak evidence dominance**: If all accepted evidence is `weak` or `role_command` (no hook-captured `strong` evidence), the entire evidence chain is hearsay. Record as `evidence_insufficient` — do not accept.
+- **Traceability**: Can each test claim be traced to an actual execution trace — a CI log, a git-recorded command with output, a timestamped run? If testing says "all tests pass" but there is no machine-captured record of those tests running, flag it. Prose is not evidence.
+- **Surface coverage**: Were all relevant test surfaces exercised (unit, integration, end-to-end, user-facing entrypoints), or only the easiest ones? A targeted unit test that skips integration and real-usage paths is not adequate validation for changes that cross module boundaries.
+- **Command-output alignment**: Do the recorded test commands match the actual commands that produced the pass/fail results? A summary like "tests passed" with no command provenance is indistinguishable from fabrication.
+- **Hearsay vs machine evidence**: Is the evidence chain built on actual tool executions (shell commands, file edits captured by hooks), or on manually written summaries? The latter is hearsay — acceptable only when machine capture is genuinely impossible, and must be explicitly noted as such.
 
 ## Solution Quality Check — Catch "Symptom Fix, Not Root Cause"
 
-The executor may solve the immediate blocker without addressing why it happened. Verify:
+The Executor may solve the immediate problem without addressing why it occurred. Verify:
 
-- **Root cause vs symptom**: Did the fix address the underlying issue, or just the visible error? Example: adding a null-check is a symptom fix; understanding why null was possible is the root cause.
-- **Escape hatch proliferation**: Did this change add a new `--force` flag, a new override field, or a new "skip" mechanism? If so, record `pattern_fragility` — the system is accumulating complexity rather than fixing structural problems.
-- **Gate modification audit**: If any gate condition was changed (added, removed, or weakened), verify: (a) was the gate genuinely too strict, or is the executor just avoiding the real fix? (b) does the change preserve the original protection intent?
-- **Contract compliance**: Does the fix respect the Architecture Brief's `protected_files`, `forbidden_restructures`, and `module_boundaries`? If the fix crosses a declared boundary without updating the brief, record `contract_gap`.
+- **Root cause vs symptom**: Did the fix address the underlying cause, or just the visible error? A null-check suppresses a crash; understanding why null reached that point prevents the crash and all its cousins. If the fix is a guard clause with no investigation of the upstream cause, flag it.
+- **Complexity budget**: Did the solution add new flags, new abstractions, new configuration options, or new special cases? Each addition is a permanent tax on every future reader. If the fix made the system more complex rather than less, it may be the wrong fix — even if it works.
+- **Constraint weakening**: Did the change weaken an existing constraint, contract, or invariant to accommodate the fix? If a previously strict boundary is now relaxed, or a previously enforced rule now has an exception, verify that the weakening was intentional and justified — not just convenient.
+- **Boundary respect**: Did the fix cross module, layer, or component boundaries that should have been respected? A change that reaches into another module's internals to solve a local problem creates coupling that the Architecture Brief may not acknowledge.
 
 ## Review Depth (from `.aiwf/state/state.json` review_template)
 
