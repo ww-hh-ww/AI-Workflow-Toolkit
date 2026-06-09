@@ -1007,7 +1007,12 @@ def resolve_fix_loop(
         elif remaining and not force:
             blockers.append("scope-violating files remain changed: " + ", ".join(remaining[:5]))
         elif not unresolved:
-            blockers.append("scope violation has no structured event history to verify")
+            if force:
+                # All events already resolved_reverted — just clear the flag.
+                state["scope_violation"] = False
+                _write(base / ".aiwf" / "state" / "state.json", state)
+            else:
+                blockers.append("scope violation has no structured event history to verify")
         else:
             scope_resolution = (review_path, review, unresolved, state)
     if fix_loop.get("escalation_required"):
@@ -1031,8 +1036,10 @@ def resolve_fix_loop(
             blocker for blocker in (review.get("blockers", []) or [])
             if not str(blocker).startswith("scope_violation:")
         ]
-        review["result"] = "unknown"
-        review["closure_allowed"] = False
+        if not force:
+            # Normal resolution: reset review to force re-review after fix
+            review["result"] = "unknown"
+            review["closure_allowed"] = False
         state["scope_violation"] = False
         _write(review_path, review)
         _write(base / ".aiwf" / "state" / "state.json", state)
