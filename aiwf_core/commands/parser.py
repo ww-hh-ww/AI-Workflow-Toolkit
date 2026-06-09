@@ -40,8 +40,7 @@ from .research_commands import (
 )
 from .state_commands import (
     _cmd_cleanup_check, _cmd_disposition_adversarial, _cmd_mark_cleanup_fresh,
-    _cmd_mark_cleanup_stale, _cmd_prepare_close, _cmd_rebuild_current_state,
-    _cmd_cancel_close,
+    _cmd_mark_cleanup_stale, _cmd_prepare_close, _cmd_cancel_close,
     _cmd_record_meta_critique, _cmd_record_review, _cmd_record_role_evidence,
     _cmd_set_goal_confirmed, _cmd_set_planner_inline, _cmd_set_workflow_mode,
     _cmd_record_quality_brief, _cmd_record_quality_policy, _cmd_record_testing,
@@ -209,8 +208,6 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
     p_mc = p_state_sub.add_parser("record-meta-critique", help="record structured Planner meta-critique")
     p_mc.add_argument("--summary", required=True, help="what the Planner concluded after reviewing adversarial observations")
     p_mc.set_defaults(func=_cmd_record_meta_critique)
-    p_rcs = p_state_sub.add_parser("rebuild-current-state", help="mechanically rebuild .aiwf/reports/当前状态.md from state files + PROJECT-MAP")
-    p_rcs.set_defaults(func=_cmd_rebuild_current_state)
     p_swm = p_state_sub.add_parser("set-workflow-mode", help="record uncertainty routing mode/pattern")
     p_swm.add_argument("--request-mode", required=True, choices=["discussion","clarification","research","spike","execution"], help="current request mode")
     p_swm.add_argument("--workflow-pattern", default="", choices=["","linear","clarification_first","research_first","spike_first","adversarial_early"], help="uncertainty handling pattern")

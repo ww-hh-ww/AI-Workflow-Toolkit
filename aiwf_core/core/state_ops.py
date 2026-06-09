@@ -229,16 +229,6 @@ def _ensure_critical_assets(base_dir: str) -> list:
         except Exception:
             pass
 
-    # 5. current-state.md
-    cs_path = aiwf / "reports" / "当前状态.md"
-    if not cs_path.exists():
-        try:
-            from .current_state import rebuild_current_state
-            rebuild_current_state(base_dir)
-            filled.append("current-state.md")
-        except Exception:
-            pass
-
     # 6. task-history baseline (if completely empty)
     th_path = aiwf / "history" / "task-history.json"
     if not th_path.exists():
@@ -1494,15 +1484,7 @@ def bootstrap_project(base_dir: str) -> Dict[str, Any]:
     except Exception:
         pass
 
-    # 7. Create initial current-state.md
-    try:
-        from .current_state import rebuild_current_state
-        rebuild_current_state(base_dir)
-        results["tasks"].append("current-state.md created")
-    except Exception:
-        pass
-
-    # 8. Create initial workspace-drift snapshot
+    # 7. Create initial workspace-drift snapshot
     try:
         from .workspace_drift import scan_workspace_drift, write_workspace_drift
         drift = scan_workspace_drift(base_dir)

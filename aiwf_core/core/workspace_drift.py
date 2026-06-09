@@ -375,16 +375,8 @@ def auto_update_baseline(project_root: str) -> Dict[str, Any]:
     if magnitude == "small":
         return result
 
-    # --- MEDIUM+: rebuild current-state only ---
     # PROJECT-MAP.md is human/Planner-facing and must be curated after source
     # inspection, not mechanically overwritten by drift bookkeeping.
-
-    # Rebuild current-state.md — mechanically generated, no model prose
-    try:
-        from .current_state import rebuild_current_state
-        rebuild_current_state(project_root)
-        result["updated"].append("current-state.md rebuilt")
-    except Exception as e:
         result["skipped"].append(f"current-state rebuild: {e}")
 
     if magnitude == "medium":

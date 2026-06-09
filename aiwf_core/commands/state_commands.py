@@ -322,21 +322,6 @@ def _cmd_record_meta_critique(args: argparse.Namespace) -> None:
     print("Planner meta-critique recorded.")
 
 
-def _cmd_rebuild_current_state(args: argparse.Namespace) -> None:
-    """aiwf state rebuild-current-state — mechanically rebuild .aiwf/reports/当前状态.md."""
-    from ..core.current_state import rebuild_current_state
-    content = rebuild_current_state(str(Path.cwd()))
-    print("current-state.md rebuilt mechanically from .aiwf/*.json + PROJECT-MAP.md")
-    print(f"  Length: {len(content)} chars")
-    # Quick validation
-    required = ["## Goal & Intent", "## Current Status", "## Quality Snapshot"]
-    for section in required:
-        if section in content:
-            print(f"  [OK] {section}")
-        else:
-            print(f"  [MISSING] {section}")
-
-
 def _cmd_set_workflow_mode(args: argparse.Namespace) -> None:
     """aiwf state set-workflow-mode — record uncertainty routing shape."""
     from ..core.workflow_patterns import set_workflow_mode

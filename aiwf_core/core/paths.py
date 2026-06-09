@@ -18,8 +18,6 @@ TASK_HISTORY_JSON = ".aiwf/history/task-history.json"
 TASK_LEDGER_JSON = ".aiwf/history/task-ledger.json"
 
 # Human-readable reports (Chinese MD)
-CURRENT_STATE_MD = ".aiwf/reports/当前状态.md"
-REPORT_MD = ".aiwf/reports/闭合报告.md"
 QUALITY_DIGEST_MD = ".aiwf/reports/质量摘要.md"
 PROJECT_MAP_MD = ".aiwf/reports/项目地图.md"
 IDEAS_MD = ".aiwf/reports/ideas.md"
@@ -57,8 +55,6 @@ LEGACY_MAP = {
     "review.json": REVIEW_JSON,
     "task-history.json": TASK_HISTORY_JSON,
     "task-ledger.json": TASK_LEDGER_JSON,
-    "current-state.md": CURRENT_STATE_MD,
-    "report.md": REPORT_MD,
     "quality-digest.md": QUALITY_DIGEST_MD,
     "PROJECT-MAP.md": PROJECT_MAP_MD,
     "baseline.json": BASELINE_JSON,
