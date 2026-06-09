@@ -38,7 +38,6 @@ def current_state_freshness(base_dir: str) -> Dict[str, object]:
     return {
         "status": "stale" if stale_sources else "fresh",
         "stale_sources": stale_sources,
-        "structure_issues": structure_issues,
         "exists": True,
     }
 
