@@ -361,15 +361,109 @@ def _recovery_guidance(
     return _base_recovery()
 
 
+def build_activation_summary(base_dir: str) -> str:
+    """Build a concise activation summary for user review before execution."""
+    root = Path(base_dir)
+    state = _read(root / ".aiwf" / "state" / "state.json", {})
+    goal = _read(root / ".aiwf" / "state" / "goal.json", {})
+    contexts = _read(root / ".aiwf" / "state" / "contexts.json", {})
+    lines = ["## Task Activation"]
+    warns = []
+
+    # Goal
+    active_goal = goal.get("active_goal") or goal.get("current_goal", "") or "(none)"
+    lines.append(f"Goal: {active_goal[:120]}")
+    if goal.get("confirmed") is False:
+        warns.append("Goal not confirmed by user")
+
+    # Phase + Level
+    phase = state.get("phase", "?")
+    level = state.get("workflow_level", "?")
+    task_type = state.get("task_type", "") or "?"
+    mode = state.get("request_mode", "?")
+    lines.append(f"Phase: {phase} | Route: {level} / {task_type} | Mode: {mode}")
+
+    # Scope
+    active_ctx_id = state.get("active_context_id", "")
+    active_ctx = None
+    for ctx in contexts.get("contexts", []):
+        if ctx.get("id") == active_ctx_id:
+            active_ctx = ctx
+            break
+    if active_ctx:
+        aw = active_ctx.get("allowed_write", []) or []
+        fw = active_ctx.get("forbidden_write", []) or []
+        lines.append(f"Scope: {len(aw)} allowed paths, {len(fw)} forbidden" +
+                     (f" (allowed: {', '.join(aw[:4])})" if aw else ""))
+    else:
+        warns.append("No active context — scope is not defined")
+
+    # Topology
+    if level in ("L2_standard_team", "L3_full_power"):
+        if state.get("planner_inline_session"):
+            lines.append("Topology: Planner inline (session diversity waived)")
+        else:
+            lines.append("Topology: Independent Executor + Tester + Reviewer (3 sessions expected)")
+    else:
+        lines.append("Topology: Planner inline (L0/L1)")
+
+    # Routing
+    factors = state.get("routing_factors", []) or []
+    score = state.get("routing_score", 0)
+    if factors:
+        lines.append(f"Routing: score={score}, factors={', '.join(factors[:6])}")
+
+    # Contracts
+    brief = goal.get("quality_brief", {})
+    has_acceptance = bool(brief.get("acceptance_criteria"))
+    has_test_focus = bool(brief.get("test_focus"))
+    has_review_focus = bool(brief.get("review_focus"))
+    arch = brief.get("architecture_brief", {})
+    has_arch = arch and any(v for v in arch.values() if v and v != "" and v != [])
+    contracts = []
+    if has_acceptance or has_test_focus or has_review_focus:
+        contracts.append("evaluation contract")
+    if has_arch:
+        contracts.append("architecture brief")
+    if contracts:
+        lines.append(f"Contracts: {', '.join(contracts)} frozen")
+    else:
+        warns.append("No contracts frozen (evaluation contract + architecture brief)")
+
+    # Active plan
+    plan_id = state.get("active_plan_id", "")
+    task_id = state.get("active_task_id", "")
+    if task_id:
+        lines.append(f"Task: {task_id} active")
+    elif plan_id:
+        lines.append(f"Plan: {plan_id} exists, not yet activated")
+        warns.append("Plan exists but no task activated (plan_only_drift risk)")
+
+    # Red flags
+    if state.get("scope_violation"):
+        warns.append("Scope violation flag is set")
+    fl = _read(root / ".aiwf" / "state" / "fix-loop.json", {})
+    if fl.get("status") == "open":
+        warns.append("Fix-loop is open — must resolve before activation")
+
+    if warns:
+        lines.append("")
+        lines.append("## Warnings")
+        for w in warns:
+            lines.append(f"  - {w}")
+
+    return "\n".join(lines)
+
+
 def planner_process_guidance(base_dir: str) -> Dict[str, Any]:
     """Explain current gates, why they apply, and what Planner should do next."""
     root = Path(base_dir)
     state = _read(root / ".aiwf" / "state" / "state.json", {})
     goal = _read(root / ".aiwf" / "state" / "goal.json", {})
-    testing = _read(root / ".aiwf" / "quality" / "testing.json", {})
-    review = _read(root / ".aiwf" / "quality" / "review.json", {})
+    testing = _read(root / ".aiwf" /"quality" / "testing.json", {})
+    review = _read(root / ".aiwf" /"quality" / "review.json", {})
     fix_loop = _read(root / ".aiwf" / "state" / "fix-loop.json", {})
-    ledger = _read(root / ".aiwf" / "history" / "task-ledger.json", {"tasks": []})
+    ledger = _read(root / ".aiwf" /"history" / "task-ledger.json", {"tasks": []})
     level = state.get("workflow_level", "L1_review_light")
     request_mode = state.get("request_mode", "execution")
     workflow_pattern = state.get("workflow_pattern", "linear")

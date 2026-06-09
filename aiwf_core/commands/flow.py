@@ -114,6 +114,11 @@ def cmd_status(args) -> None:
     product = "Reasonix" if reasonix_settings.exists() else "Claude Code"
     print(f"AIWF V{VERSION} — Embedded {product}")
     print()
+
+    # Activation summary (user-facing, concise)
+    from ..core.process_contract import build_activation_summary
+    print(build_activation_summary(str(root)))
+    print()
     print("── Control Panel ──")
     goal_text = goal.get("current_goal") or goal.get("active_goal", "") or "(none)"
     print(f"  Goal:     v{goal.get('goal_version', 1)}/{goal.get('goal_status', 'discussion')} / {goal_text[:120]}")
