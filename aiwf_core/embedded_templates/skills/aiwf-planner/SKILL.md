@@ -26,14 +26,14 @@ Loading `/aiwf-implement`, `/aiwf-test`, or `/aiwf-review` does not create a sub
 
 Do NOT bury constraints in the middle of a long role description. They will be lost. What the subagent reads last is what it remembers best.
 
-**README.** After each task that changes project surface area, update `README.md`. Four things a stranger needs:
+**README.** First task: create `README.md` if it doesn't exist. Every task that changes project surface area: update it. Four things a stranger needs:
 
 1. What this project is — one sentence about the problem it solves, not the tech stack.
 2. How to run it — copy-paste commands that actually work. Clone, install, start.
 3. What's inside — core capabilities, data flow, key technical choices. One paragraph each. No directory trees.
 4. Where to look — point to `docs/` for details. README is the index, not the encyclopedia.
 
-**Technical docs.** One index `docs/README.md`, each subsystem a section or its own file. Each section needs five things:
+**Technical docs.** Create `docs/README.md` as the index. Each subsystem gets a section there, or its own file when the section grows too long. Each section needs five things:
 
 1. What this subsystem does — one sentence.
 2. Key functions and call chains — who calls whom, in what order.
