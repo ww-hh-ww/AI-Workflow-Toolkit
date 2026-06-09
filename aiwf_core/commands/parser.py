@@ -162,6 +162,7 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
     p_rrv.add_argument("--structure-status", default="", choices=["","accepted","needs_attention","unknown"], help="structure status")
     p_rrv.add_argument("--summary", default="", help="short review evidence summary")
     p_rrv.add_argument("--context-id", default="", help="context ID")
+    p_rrv.add_argument("--force", action="store_true", help="allow same-session review on L2+ (Planner inline execution only)")
     p_rrv.set_defaults(func=_cmd_record_review)
     p_re = p_state_sub.add_parser("record-role-evidence", help="record explicit role evidence when hooks cannot observe a subagent")
     p_re.add_argument("--role", required=True, choices=["executor","tester","reviewer","planner"], help="role that produced the evidence")

@@ -149,6 +149,45 @@ def _cmd_record_testing(args: argparse.Namespace) -> None:
 def _cmd_record_review(args: argparse.Namespace) -> None:
     """aiwf state record-review — write review results and reviewer evidence."""
     from ..core.state_ops import record_review
+    import json as _json
+
+    # Guard: L2/L3 must use independent reviewer session unless forced
+    cwd = Path.cwd()
+    state_path = cwd / ".aiwf" / "state" / "state.json"
+    if state_path.exists():
+        state = _json.loads(state_path.read_text(encoding="utf-8"))
+        level = state.get("workflow_level", "")
+        if level in ("L2_standard_team", "L3_full_power"):
+            evidence_path = cwd / ".aiwf" / "evidence" / "records.json"
+            evidence = _json.loads(evidence_path.read_text(encoding="utf-8")) if evidence_path.exists() else {"records": []}
+            records = evidence.get("records", []) or []
+
+            executor_session = set()
+            reviewer_session = set()
+            for r in records:
+                if not isinstance(r, dict):
+                    continue
+                role = (r.get("agent_type") or r.get("role") or "").lower()
+                sid = r.get("session_id") or ""
+                if "executor" in role and sid:
+                    executor_session.add(sid)
+                if "reviewer" in role and sid:
+                    reviewer_session.add(sid)
+
+            executor_only = executor_session - reviewer_session
+
+            if executor_only and not args.force:
+                print(
+                    f"Review blocked: workflow level is {level}, which requires an independent Reviewer session.\n"
+                    f"  Evidence shows executor work from session(s): {sorted(executor_only)}\n"
+                    f"  No independent reviewer session found.\n"
+                    f"  Actions:\n"
+                    f"    - Dispatch the aiwf-reviewer subagent from a new session and run record-review there, or\n"
+                    f"    - If this is a legitimate Planner inline execution (L0 task), use --force to override.",
+                    file=sys.stderr,
+                )
+                raise SystemExit(1)
+
     observations = []
     for idx, msg in enumerate(args.adversarial_observations or [], start=1):
         observations.append({
