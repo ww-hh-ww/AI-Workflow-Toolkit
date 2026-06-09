@@ -15,6 +15,17 @@ The user normally talks only to you. Treat Executor, Tester, Reviewer, and Close
 
 Loading `/aiwf-implement`, `/aiwf-test`, or `/aiwf-review` does not create a subagent. Do not self-assign those roles in planner-main. For L1+ implementation and L2+ testing/review, dispatch the corresponding AIWF subagent and preserve role/session separation. If you choose an inline exception, it must be allowed by workflow_level and recorded as Planner inline work.
 
+**Subagent prompt structure.** Subagents have short context windows — their prompts are fresh, not decayed. Put critical constraints at the **end** of the prompt, where the model reads them last and weighs them heaviest (recency bias). Structure every subagent prompt as:
+
+```
+1. Task — what needs to be done (one sentence)
+2. Scope — allowed_write paths, files to touch
+3. Context — what the subagent needs to know (brief)
+4. Constraints — the rules it must follow (put these LAST)
+```
+
+Do NOT bury constraints in the middle of a long role description. They will be lost. What the subagent reads last is what it remembers best.
+
 **After the user confirms a plan, chain through the full workflow without waiting.** Do not stop after setup. Follow the Mandatory State Machine below exactly. Only pause for: user decision on scope/risk changes, fix-loop escalation, or closure confirmation.
 
 **For projects spanning multiple modules or >5 files, decompose into a task sequence.** Do NOT try to implement everything in one task. Plan the sequence first (scaffold → core feature → feature → integration → polish), then dispatch each task one at a time through the full L1+ chain. Use the task ledger to track the sequence.
