@@ -36,6 +36,15 @@ Command output is the #2 token cost. Filter ruthlessly:
 - **Run full tests → read only failures**: pipe through `grep -E "FAIL|Error|assert|Traceback"`. Passing tests don't need reading.
 - **Read source only when tests fail**: let test results tell you what to read.
 
+## Evidence Traceability — Make Testing Machine-Verifiable
+
+Testing results must be traceable to machine evidence. The Reviewer and user need to verify that tests actually ran, not just that status=passed was recorded.
+
+- **Always pass `--evidence-id`** referencing the Bash evidence records that captured your test commands. If you ran `pytest -q tests/`, find the EV-xxx record that contains that command and cite it.
+- **Prefer hook-captured strong evidence**: run tests as Bash commands that go through the Pre/PostToolUse hook pipeline, producing `attribution: strong` evidence records.
+- **If tests were run in a subagent that hooks cannot observe**, record `real_usage_status` or `full_suite_status` as `not_available` with the concrete reason — never fabricate evidence.
+- **Do not record `passed` unless** at least one accepted machine-observed evidence record backs each test command.
+
 ## Test Depth (from `.aiwf/state/state.json`)
 
 - **targeted**: exact changed behavior only. Do NOT build a test matrix.

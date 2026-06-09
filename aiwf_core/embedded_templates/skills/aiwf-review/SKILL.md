@@ -56,6 +56,24 @@ What should the next reviewer/tester/Planner know that they won't discover by re
 
 Use context.review_focus, context.non_goals, and context.interface_contract when evaluating the change.
 
+## Evidence Integrity Check — Catch "Declared but Not Done"
+
+Tester may record `status=passed` but the evidence tells a different story. Verify:
+
+- **Testing evidence traceability**: Does `testing.json` cite evidence IDs (`--evidence-id`)? If not, the test results are not traceable to machine-observed commands. Record `evidence_insufficient` if testing commands exist but no evidence IDs link them to actual execution.
+- **Command vs evidence match**: Are the recorded test commands actually backed by hook-captured evidence (Bash commands with matching output)? If testing says "pytest passed" but no Bash evidence shows pytest ran with exit_code=0, flag it.
+- **Full suite / real usage**: Did the Tester record `full_suite_status=not_run` or `real_usage_status=not_run`? If so, the testing is targeted only — record a `contract_gap` observation noting the untested surface.
+- **Weak evidence dominance**: If all accepted evidence is `weak` or `role_command` (no hook-captured `strong` evidence), the entire evidence chain is hearsay. Record as `evidence_insufficient` — do not accept.
+
+## Solution Quality Check — Catch "Symptom Fix, Not Root Cause"
+
+The executor may solve the immediate blocker without addressing why it happened. Verify:
+
+- **Root cause vs symptom**: Did the fix address the underlying issue, or just the visible error? Example: adding a null-check is a symptom fix; understanding why null was possible is the root cause.
+- **Escape hatch proliferation**: Did this change add a new `--force` flag, a new override field, or a new "skip" mechanism? If so, record `pattern_fragility` — the system is accumulating complexity rather than fixing structural problems.
+- **Gate modification audit**: If any gate condition was changed (added, removed, or weakened), verify: (a) was the gate genuinely too strict, or is the executor just avoiding the real fix? (b) does the change preserve the original protection intent?
+- **Contract compliance**: Does the fix respect the Architecture Brief's `protected_files`, `forbidden_restructures`, and `module_boundaries`? If the fix crosses a declared boundary without updating the brief, record `contract_gap`.
+
 ## Review Depth (from `.aiwf/state/state.json` review_template)
 
 - **review_lite**: scope + goal match + basic evidence. Do NOT expand to architecture.
