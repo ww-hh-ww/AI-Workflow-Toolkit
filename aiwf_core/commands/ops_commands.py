@@ -34,6 +34,7 @@ def _cmd_fix_loop_resolve(args: argparse.Namespace) -> None:
             str(Path.cwd()),
             resolution=args.resolution,
             source=args.source or "reviewer",
+            force=bool(getattr(args, 'force', False)),
         )
     except ValueError as e:
         print(f"Fix-loop resolution blocked: {e}", file=sys.stderr)

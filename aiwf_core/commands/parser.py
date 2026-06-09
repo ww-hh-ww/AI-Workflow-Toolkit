@@ -274,6 +274,7 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
     p_fl_resolve = p_fl_sub.add_parser("resolve", help="resolve a fix-loop")
     p_fl_resolve.add_argument("--resolution", required=True, help="how the fix-loop was resolved")
     p_fl_resolve.add_argument("--source", default="reviewer", help="who resolved the fix-loop (default: reviewer)")
+    p_fl_resolve.add_argument("--force", action="store_true", help="force resolution — Planner acknowledges remaining changed files are legitimate (cross-task modifications, not scope violations)")
     p_fl_resolve.set_defaults(func=_cmd_fix_loop_resolve)
     p_fl_status = p_fl_sub.add_parser("status", help="show fix-loop status")
     p_fl_status.set_defaults(func=_cmd_fix_loop_status)

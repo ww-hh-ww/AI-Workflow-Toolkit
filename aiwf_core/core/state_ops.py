@@ -937,8 +937,13 @@ def resolve_fix_loop(
     base_dir: str,
     resolution: str,
     source: str = "reviewer",
+    force: bool = False,
 ) -> Dict[str, Any]:
-    """Resolve a fix-loop only after its mechanical verification gates pass."""
+    """Resolve a fix-loop only after its mechanical verification gates pass.
+
+    When force=True, Planner explicitly acknowledges that remaining changed files
+    are legitimate (e.g. cross-task modifications), not scope violations.
+    """
     base = Path(base_dir)
     fix_loop_path = base / ".aiwf" / "state" / "fix-loop.json"
 
@@ -962,9 +967,9 @@ def resolve_fix_loop(
             str(event.get("path")) for event in unresolved
             if event.get("path") in set(changed.get("files", []) or [])
         })
-        if changed.get("source") == "unavailable":
+        if changed.get("source") == "unavailable" and not force:
             blockers.append("scope violation cannot be verified because git change detection is unavailable")
-        elif remaining:
+        elif remaining and not force:
             blockers.append("scope-violating files remain changed: " + ", ".join(remaining[:5]))
         elif not unresolved:
             blockers.append("scope violation has no structured event history to verify")
