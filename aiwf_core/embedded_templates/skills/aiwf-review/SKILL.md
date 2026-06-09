@@ -67,6 +67,16 @@ The Tester may claim tests passed, but claims are not proof. Verify:
 
 ## Solution Quality Check — Catch "Symptom Fix, Not Root Cause"
 
+## Acceptance Criteria Check — Catch "Delivered Something Else"
+
+Before evaluating solution quality, verify that the delivered work matches what was promised. Read `acceptance_criteria` from `.aiwf/state/goal.json`. For each criterion, determine: **does the evidence show this was met, or not?**
+
+- If a criterion says "RSS fetches real signals from live sources" and the delivered code is a placeholder that reads a static JSON file, the criterion is **not met** — regardless of whether the code runs without errors.
+- If a criterion cannot be verified from the evidence alone (e.g. "system handles 1000 concurrent users"), flag it as `acceptance_criterion_unverified` and state what would be needed to verify it.
+- If the acceptance_criteria list is empty or only contains vague statements like "works correctly", record a `contract_gap` adversarial observation. A task without concrete acceptance criteria cannot be meaningfully reviewed.
+
+This check is about **fidelity to the goal**, not correctness of the code. A perfectly working placeholder is still a failure if the goal asked for real integration.
+
 The Executor may solve the immediate problem without addressing why it occurred. Verify:
 
 - **Root cause vs symptom**: Did the fix address the underlying cause, or just the visible error? A null-check suppresses a crash; understanding why null reached that point prevents the crash and all its cousins. If the fix is a guard clause with no investigation of the upstream cause, flag it.

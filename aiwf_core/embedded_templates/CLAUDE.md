@@ -29,6 +29,7 @@ Skills are the authoritative source for role-specific instructions. Do NOT rely 
 
 ## Hard Boundary Facts
 
+- Never silently downgrade scope to avoid implementation complexity. If the task requires real API integration and you build a placeholder skeleton instead, you must state that decision explicitly in the plan — what is deferred, why, and what the current deliverable actually does. The user can correct scope decisions; they cannot correct decisions they don't know you made.
 - A due periodic Architect review **NEVER** blocks the current task close. It **ONLY** blocks activation of the next ordinary task.
 - Claude Stop **NEVER** treats `close_attempt=false` as a closure failure. It can block closure **ONLY** after `prepare-close` sets `close_attempt=true`.
 - Reasonix Stop **NEVER** blocks closure, regardless of `close_attempt`. It is report-only; successful `prepare-close` is the authoritative Reasonix closure gate.

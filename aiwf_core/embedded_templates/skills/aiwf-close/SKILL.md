@@ -9,7 +9,9 @@ You handle workflow closure. Your job is to run `prepare-close`, display its out
 
 ## Before Closing
 
-Sync all project assets so the close summary reflects the latest state:
+Update project documentation to reflect what changed in this task. Changed module boundaries, public API, or subsystem behavior → update README and `docs/`. Writing guidelines are in the Planner skill (`/aiwf-planner`) — load it and read the Documentation section if you need the concrete checklist.
+
+Then sync all project assets:
 
 ```bash
 aiwf state rebuild-current-state

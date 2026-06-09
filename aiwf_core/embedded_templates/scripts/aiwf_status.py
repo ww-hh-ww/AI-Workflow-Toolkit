@@ -478,7 +478,7 @@ def main():
         "implementing": "EXECUTING phase. Re-read /aiwf-implement skill. Work within allowed_write scope.",
         "testing": "TESTING phase. Re-read /aiwf-test skill. Tests must be tool invocations with evidence, not prose claims.",
         "reviewing": "REVIEWING phase. Re-read /aiwf-review skill. Verify evidence integrity and solution quality.",
-        "closing": "CLOSING phase. Re-read /aiwf-close skill. Sync assets (rebuild-current-state, quality-digest, export-report) before prepare_close. Present prepare_close output to user.",
+        "closing": "CLOSING phase. Re-read /aiwf-close skill. Update README & docs/ for changed subsystems (see /aiwf-planner for writing guide). Sync assets (rebuild-current-state, quality-digest, export-report). Run prepare_close, present output to user.",
         "closed": "Task is CLOSED. Start next task or run periodic Architect review if due.",
     }
     anchor = phase_anchors.get(phase, "")

@@ -26,6 +26,23 @@ Loading `/aiwf-implement`, `/aiwf-test`, or `/aiwf-review` does not create a sub
 
 Do NOT bury constraints in the middle of a long role description. They will be lost. What the subagent reads last is what it remembers best.
 
+**README.** After each task that changes project surface area, update `README.md`. Four things a stranger needs:
+
+1. What this project is — one sentence about the problem it solves, not the tech stack.
+2. How to run it — copy-paste commands that actually work. Clone, install, start.
+3. What's inside — core capabilities, data flow, key technical choices. One paragraph each. No directory trees.
+4. Where to look — point to `docs/` for details. README is the index, not the encyclopedia.
+
+**Technical docs.** One index `docs/README.md`, each subsystem a section or its own file. Each section needs five things:
+
+1. What this subsystem does — one sentence.
+2. Key functions and call chains — who calls whom, in what order.
+3. Data flow — where data enters, how it moves, where it lands.
+4. Edge cases — conditions that break, forbidden operations.
+5. Pitfalls fixed — bugs already solved here and their root causes.
+
+**When to write.** During the task, not after. Changed a subsystem → update its doc. Section too long → split to its own file. Two files always change together → merge them. Structure grows with the code; don't pre-design it.
+
 **After the user confirms a plan, chain through the full workflow without waiting.** Do not stop after setup. Follow the Mandatory State Machine below exactly. Only pause for: user decision on scope/risk changes, fix-loop escalation, or closure confirmation.
 
 **For projects spanning multiple modules or >5 files, decompose into a task sequence.** Do NOT try to implement everything in one task. Plan the sequence first (scaffold → core feature → feature → integration → polish), then dispatch each task one at a time through the full L1+ chain. Use the task ledger to track the sequence.
