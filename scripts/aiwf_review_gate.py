@@ -56,27 +56,13 @@ def main():
 
     gates = eval_closure_gates(cwd)
 
-    if not gates["close_attempt"]:
-        # Not trying to close — optionally warn but don't block
-        issues = []
-        if gates["scope_violation"]:
-            issues.append("scope violation detected")
-        if gates["fix_loop_open"]:
-            issues.append("fix-loop is open")
-        if issues:
-            print(json.dumps({
-                "systemMessage": f"AIWF: {'; '.join(issues)}. Resolve before closing."
-            }))
+    if gates["passed"]:
         allow()
 
-    if not gates["passed"]:
-        block_stop(
-            "AIWF closure gates not met:\n" +
-            "\n".join(f"  - {b}" for b in gates["blockers"])
-        )
-
-    # Gates passed
-    allow()
+    block_stop(
+        "AIWF closure gates not met:\n" +
+        "\n".join(f"  - {b}" for b in gates["blockers"])
+    )
 
 if __name__ == "__main__":
     main()
