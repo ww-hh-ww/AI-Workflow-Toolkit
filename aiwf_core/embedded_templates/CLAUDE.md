@@ -16,6 +16,17 @@ On every new turn, resume, compaction, or task continuation:
 8. Do not roleplay Executor, Tester, or Reviewer in planner-main when the selected workflow level requires an independent role.
 9. Do not move to Review before cleanup, and do not close from prose. Use task close plus `prepare-close`.
 
+## Skill Loading Discipline
+
+Skills are the authoritative source for role-specific instructions. Do NOT rely on memory — re-read the relevant skill at each phase transition. The phase anchor in `aiwf status` output tells you which skill to load.
+
+- Task planning or user discussion → load `/aiwf-planner`
+- Implementation → load `/aiwf-implement`
+- Testing → load `/aiwf-test`
+- Review → load `/aiwf-review`
+- Closure → load `/aiwf-close`
+- Architecture review → load `/aiwf-architect`
+
 ## Hard Boundary Facts
 
 - A due periodic Architect review **NEVER** blocks the current task close. It **ONLY** blocks activation of the next ordinary task.

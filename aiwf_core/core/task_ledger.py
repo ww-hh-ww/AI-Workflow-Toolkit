@@ -304,15 +304,22 @@ def _checkpoint_activation_blockers(base_dir: str, task: Dict[str, Any]) -> List
 
 
 def _user_confirmation_blockers(base_dir: str) -> List[str]:
-    """Block task activation until the user confirms the goal."""
+    """Block L1+ task activation until the user confirms the goal. L0 skips."""
     import json
+    state_path = Path(base_dir) / ".aiwf" / "state" / "state.json"
+    try:
+        state = json.loads(state_path.read_text()) if state_path.exists() else {}
+    except Exception:
+        return []
+    if state.get("workflow_level", "") == "L0_direct":
+        return []
     goal_path = Path(base_dir) / ".aiwf" / "state" / "goal.json"
     try:
         goal = json.loads(goal_path.read_text()) if goal_path.exists() else {}
     except Exception:
         return []
-    if not goal.get("confirmed"):
-        return ["Goal not confirmed by user. Ask the user to confirm before activating tasks."]
+    if goal.get("confirmed") is False:
+        return ["Goal not confirmed by user. Present the plan and ask the user to confirm."]
     return []
 
 

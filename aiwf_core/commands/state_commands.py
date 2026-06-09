@@ -273,6 +273,16 @@ def _cmd_prepare_close(args: argparse.Namespace) -> None:
             print(summary)
         print("\nClosure complete. Stop hook will revalidate.")
 
+def _cmd_set_goal_confirmed(args: argparse.Namespace) -> None:
+    """aiwf state set-goal-confirmed — toggle goal confirmation."""
+    import json
+    goal_path = Path.cwd() / ".aiwf" / "state" / "goal.json"
+    goal = json.loads(goal_path.read_text()) if goal_path.exists() else {}
+    goal["confirmed"] = args.confirmed == "true"
+    goal_path.write_text(json.dumps(goal, ensure_ascii=False, indent=2) + "\n")
+    print(f"Goal confirmed: {goal['confirmed']}")
+
+
 def _cmd_set_planner_inline(args: argparse.Namespace) -> None:
     """aiwf state set-planner-inline — record Planner inline execution decision."""
     import json

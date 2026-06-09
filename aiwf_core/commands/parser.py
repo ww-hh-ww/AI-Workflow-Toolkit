@@ -43,7 +43,7 @@ from .state_commands import (
     _cmd_mark_cleanup_stale, _cmd_prepare_close, _cmd_rebuild_current_state,
     _cmd_cancel_close,
     _cmd_record_meta_critique, _cmd_record_review, _cmd_record_role_evidence,
-    _cmd_set_planner_inline, _cmd_set_workflow_mode,
+    _cmd_set_goal_confirmed, _cmd_set_planner_inline, _cmd_set_workflow_mode,
     _cmd_record_quality_brief, _cmd_record_quality_policy, _cmd_record_testing,
     _cmd_start_context, _cmd_state_help,
 )
@@ -194,6 +194,9 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
     p_cc = p_state_sub.add_parser("cancel-close", help="cancel close attempt — resets close_attempt + phase, unblocks task activation")
     p_cc.set_defaults(func=_cmd_cancel_close)
     p_pc.set_defaults(func=_cmd_prepare_close)
+    p_gc = p_state_sub.add_parser("set-goal-confirmed", help="toggle goal confirmation; L1+ blocks activation when unconfirmed")
+    p_gc.add_argument("--confirmed", required=True, choices=["true", "false"], help="true = user confirmed, false = needs confirmation")
+    p_gc.set_defaults(func=_cmd_set_goal_confirmed)
     p_pi = p_state_sub.add_parser("set-planner-inline", help="record Planner decision to execute inline (waives session diversity gate)")
     p_pi.add_argument("--reason", required=True, help="why this task was executed inline instead of via independent subagents")
     p_pi.set_defaults(func=_cmd_set_planner_inline)
