@@ -31,22 +31,6 @@ def _score(text: str, keywords: List[str]) -> int:
         elif len(kl) >= 4 and kl[:4] in t: s += 1  # prefix match for stemming
     return s
 
-def _parse_current_state_sections(text: str) -> dict:
-    """Extract bullet items from current-state.md sections."""
-    sections = {"lessons": [], "negative": [], "followups": [], "risks": []}
-    current_section = None
-    for line in text.split("\n"):
-        stripped = line.strip()
-        if stripped.startswith("## Carry-forward lessons"): current_section = "lessons"
-        elif stripped.startswith("## Negative patterns"): current_section = "negative"
-        elif stripped.startswith("## Follow-up candidates"): current_section = "followups"
-        elif stripped.startswith("## Deferred risks"): current_section = "risks"
-        elif stripped.startswith("## ") and current_section: current_section = None
-        elif stripped.startswith("- ") and current_section:
-            sections[current_section].append(stripped[2:].strip())
-    return sections
-
-
 def _normalize(text: str) -> str:
     return " ".join(text.strip().lower().split())
 
@@ -66,26 +50,24 @@ def suggest_relevant_lessons(
 ) -> Dict[str, Any]:
     root = Path(project_root)
     review = _rj(root / ".aiwf" / "quality" / "review.json")
-    cs_text = (root / ".aiwf" / "reports" / "当前状态.md").read_text() if (root / ".aiwf" / "reports" / "当前状态.md").exists() else ""
-    cs_sections = _parse_current_state_sections(cs_text)
 
-    # Collect deferred risks from current-state.md
-    drisks_raw = cs_sections.get("risks", []) or []
+    # Collect deferred risks from review.json
+    drisks_raw = []
+    for obs in (review.get("adversarial_observations", []) or []):
+        if isinstance(obs, dict) and obs.get("kind") in ("deferred_risk", "architecture_drift", "testing_debt"):
+            drisks_raw.append(obs.get("message", ""))
 
     # Build filtered keywords (min length 3, no stop words)
     keywords = _extract_keywords(goal, task_type, files)
 
-    # Collect lessons from review.json + current-state.md
+    # Collect lessons from review.json
     all_lessons = []
     for l in review.get("lessons", []) or []:
         text = str(l.get("lesson", l)) if isinstance(l, dict) else str(l)
         applies = str(l.get("applies_to", [])) if isinstance(l, dict) else ""
         all_lessons.append((text, applies, l if isinstance(l, dict) else {}))
-    for cs_lesson in cs_sections["lessons"]:
-        all_lessons.append((cs_lesson, "", {}))
-
-    neg = (review.get("negative_patterns", []) or []) + cs_sections["negative"]
-    fups = (review.get("followups", []) or []) + cs_sections["followups"]
+    neg = review.get("negative_patterns", []) or []
+    fups = review.get("followups", []) or []
 
     # Score and build suggested uses from affects
     scored_lessons = []

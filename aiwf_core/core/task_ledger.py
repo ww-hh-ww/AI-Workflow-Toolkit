@@ -430,10 +430,6 @@ def activation_blockers(base_dir: str, task_id: str, skip_current_state_check: b
             "fix-loop is open; complete required fixes/verification and run aiwf fix-loop resolve"
             + suffix
         )
-    if not skip_current_state_check:
-        cs = current_state_freshness(base_dir)
-        if cs.get("status") == "stale":
-            blockers.append("current-state.md is stale; rebase or refresh summary before activating next task")
     blockers.extend(_quality_activation_blockers(base_dir, task))
     blockers.extend(_periodic_architecture_blockers(base_dir, task))
     blockers.extend(_required_contract_blockers(base_dir, task))
@@ -445,14 +441,6 @@ def activate_task(base_dir: str, task_id: str) -> Dict[str, Any]:
     """Activate a planned task if execution-window gates pass."""
     ledger = load_ledger(base_dir)
     task = _find(ledger["tasks"], task_id)
-    cs = current_state_freshness(base_dir)
-    if cs.get("status") == "stale":
-        return {
-            "activated": False,
-            "task": task,
-            "ledger": ledger,
-            "blockers": ["current-state.md is stale; rebase or refresh summary before activating next task"],
-        }
     if task:
         _apply_mechanical_routing(base_dir, task)
         _refresh_mechanical_assets(base_dir)

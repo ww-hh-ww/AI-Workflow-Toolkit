@@ -64,11 +64,6 @@ class TestMemorySuggest(unittest.TestCase):
         self.assertIn("overflow", out.lower())
 
     # current-state.md
-    def test_current_state_lesson_retrieved(self):
-        self._set_cs("## Carry-forward lessons\n- Division tasks must test +0 and -0.\n")
-        out = self._run("memory", "suggest", "--goal", "Add divide(a,b)", "--task-type", "numeric_semantics").stdout
-        self.assertIn("Division", out)
-
     def test_current_state_unrelated_not_retrieved(self):
         """Unrelated lesson must NOT be retrieved (stop words + min-length filter)."""
         self._set_cs("## Carry-forward lessons\n- Always use tabs for indentation.\n")
@@ -178,22 +173,7 @@ class TestMemorySuggest(unittest.TestCase):
         self.assertLessEqual(c2, 1, f"Review lesson duplicated in suggested_test_focus: {c2}")
 
     # ── deferred risks ──
-    def test_deferred_risk_retrieved(self):
-        self._set_cs("## Deferred risks\n- Overflow policy not yet decided.\n")
-        out = self._run("memory", "suggest", "--goal", "overflow policy decision").stdout
-        self.assertIn("Overflow", out)
-
     def test_unrelated_deferred_risk_not_retrieved(self):
         self._set_cs("## Deferred risks\n- Always use tabs for indentation.\n")
         out = self._run("memory", "suggest", "--goal", "Add divide(a,b)", "--task-type", "numeric_semantics").stdout
         self.assertNotIn("tabs", out.lower())
-
-    def test_deferred_risk_generates_suggested_uses(self):
-        self._set_cs("## Deferred risks\n- Overflow policy not yet decided.\n")
-        out = self._run("memory", "suggest", "--goal", "overflow policy decision").stdout
-        self.assertIn("review_focus", out.lower())
-
-
-
-if __name__ == "__main__":
-    unittest.main()

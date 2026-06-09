@@ -15,57 +15,28 @@ SOURCE_FILES = [
     "state/contexts.json",
     "history/task-history.json",
     "history/task-ledger.json",
-    "reports/闭合报告.md",
-    "reports/质量摘要.md",
 ]
-
-REQUIRED_SECTIONS = [
-    "## Goal & Intent",
-    "## Current Status",
-    "## Quality Snapshot",
-    "## Raw References",
-]
-
-
-def _structure_issues(path: Path) -> List[str]:
-    try:
-        text = path.read_text(encoding="utf-8", errors="ignore")
-    except OSError:
-        return ["current-state.md unreadable"]
-    issues = [f"missing section: {section}" for section in REQUIRED_SECTIONS if section not in text]
-    if len(text.strip()) < 120:
-        issues.append("current-state.md too short to be a useful carry-forward summary")
-    return issues
-
 
 def current_state_freshness(base_dir: str) -> Dict[str, object]:
-    """Return availability/freshness for the Planner carry-forward summary."""
+    """Check whether AIWF state files are mutually consistent. Reads .json directly."""
     root = Path(base_dir)
     aiwf = root / ".aiwf"
-    current = aiwf / "reports" / "当前状态.md"
-    if not current.exists():
-        return {"status": "missing", "stale_sources": [], "exists": False}
+
+    json_sources = [f for f in SOURCE_FILES if f.endswith(".json")]
+    missing = [f for f in json_sources if not (aiwf / f).exists()]
+    if missing:
+        return {"status": "incomplete", "missing": missing, "exists": False}
 
     try:
-        current_mtime = current.stat().st_mtime
+        mtimes = [(f, (aiwf / f).stat().st_mtime) for f in json_sources]
     except OSError:
         return {"status": "unreadable", "stale_sources": [], "exists": True}
 
-    structure_issues = _structure_issues(current)
-
-    stale_sources: List[str] = []
-    for name in SOURCE_FILES:
-        source = aiwf / name
-        if not source.exists() or source == current:
-            continue
-        try:
-            if source.stat().st_mtime > current_mtime:
-                stale_sources.append(name)
-        except OSError:
-            stale_sources.append(name)
+    max_mtime = max(mt for _, mt in mtimes)
+    stale_sources = [f for f, mt in mtimes if mt < max_mtime - 60]
 
     return {
-        "status": "stale" if stale_sources else "incomplete" if structure_issues else "fresh",
+        "status": "stale" if stale_sources else "fresh",
         "stale_sources": stale_sources,
         "structure_issues": structure_issues,
         "exists": True,

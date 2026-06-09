@@ -221,32 +221,6 @@ class TestTaskLedger(unittest.TestCase):
         self.assertEqual(state["test_template"], "regression_plus_boundary_adverse")
         self.assertEqual(state["review_template"], "standard_review")
 
-    def test_stale_current_state_blocks_activation(self):
-        from aiwf_core.core.task_ledger import activate_task, upsert_task
-
-        current = self.tmp / ".aiwf" / "reports" / "当前状态.md"
-        current.parent.mkdir(parents=True, exist_ok=True)
-        current.write_text(
-            "# AIWF Current State\n\n"
-            "## Goal & Intent\n- Goal: test\n\n"
-            "## Current Status\n- Phase: planned\n\n"
-            "## Quality Snapshot\n- Testing: unknown\n\n"
-            "## Raw References\n- state/state.json\n",
-            encoding="utf-8",
-        )
-        time.sleep(0.02)
-        state = json.loads((self.tmp / ".aiwf" / "state" / "state.json").read_text())
-        state["phase"] = "planned"
-        (self.tmp / ".aiwf" / "state" / "state.json").write_text(json.dumps(state, indent=2))
-        upsert_task(str(self.tmp), "TASK-001", "A", status="ready")
-        result = activate_task(str(self.tmp), "TASK-001")
-
-        self.assertFalse(result["activated"])
-        self.assertTrue(any("current-state.md is stale" in b for b in result["blockers"]))
-        after = json.loads((self.tmp / ".aiwf" / "state" / "state.json").read_text())
-        self.assertEqual(after["phase"], "planned")
-        self.assertIsNone(after.get("active_task_id"))
-
     def test_suspend_task_saves_and_restore_state_snapshot(self):
         from aiwf_core.core.task_ledger import activate_task, suspend_task, upsert_task
 
