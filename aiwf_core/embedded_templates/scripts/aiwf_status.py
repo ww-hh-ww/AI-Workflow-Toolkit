@@ -477,7 +477,7 @@ def main():
         "planned": "PLANNED phase. Re-read /aiwf-planner skill. Present activation summary to user, get confirmation, activate task.",
         "implementing": "EXECUTING phase. Re-read /aiwf-implement skill. Work within allowed_write scope.",
         "testing": "TESTING phase. Re-read /aiwf-test skill. Tests must be tool invocations with evidence, not prose claims.",
-        "reviewing": "REVIEWING phase. Re-read /aiwf-review skill. Verify evidence integrity and solution quality.",
+                "reviewing": "REVIEWING phase. Re-read /aiwf-review skill. CHECKLIST: (1) Evidence traceable to tool executions? (2) Acceptance criteria all met? (3) Dead code, debug artifacts, TODO cruft left behind? (4) Changed subsystems have updated docs/README? (5) Root cause fixed or just symptom patched? Record findings with aiwf state record-review.",
         "closing": "CLOSING phase. Re-read /aiwf-close skill. Update README & docs/ for changed subsystems (see /aiwf-planner for writing guide). Sync assets (rebuild-current-state, quality-digest, export-report). Run prepare_close, present output to user.",
         "closed": "Task is CLOSED. Start next task or run periodic Architect review if due.",
     }

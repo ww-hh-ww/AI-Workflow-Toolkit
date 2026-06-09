@@ -592,6 +592,9 @@ def record_review(
     structure_status: str = "",
     summary: str = "",
     context_id: str = "",
+    cleanup_code: str = "",
+    docs_checked: str = "",
+    root_cause: str = "",
 ) -> Dict[str, Any]:
     """Write review.json through a command and append reviewer role evidence."""
     from .state_schema import VALID_REVIEW_RESULTS
@@ -613,6 +616,12 @@ def record_review(
         review["cleanup_status"] = cleanup_status
     if structure_status:
         review["structure_status"] = structure_status
+    if cleanup_code:
+        review["cleanup_code"] = cleanup_code
+    if docs_checked:
+        review["docs_checked"] = docs_checked
+    if root_cause:
+        review["root_cause"] = root_cause
 
     ev = record_role_evidence(
         base_dir,

@@ -227,6 +227,26 @@ def _cmd_record_review(args: argparse.Namespace) -> None:
                 )
                 raise SystemExit(1)
 
+    # Guard: accepted review must confirm cleanup, docs, and root-cause checks
+    if args.result == "accepted" and not args.force:
+        quality_blockers = []
+        if getattr(args, "cleanup_code", "") == "needs_work":
+            quality_blockers.append("code cleanup needed (--cleanup-code needs_work)")
+        if getattr(args, "docs_checked", "") == "no":
+            quality_blockers.append("docs not updated for changed subsystems (--docs-checked no)")
+        if getattr(args, "root_cause", "") == "symptom_only":
+            quality_blockers.append("symptom patch, not root cause fix (--root-cause symptom_only)")
+        if quality_blockers:
+            print(
+                "Review blocked: result=accepted requires all quality checks to pass.\n"
+                + "\n".join(f"  - {b}" for b in quality_blockers) + "\n"
+                + "  Actions:\n"
+                + "    - Fix the issues and re-run record-review with clean flags, or\n"
+                + "    - Use --force to override if these issues are intentional or pre-existing.",
+                file=sys.stderr,
+            )
+            raise SystemExit(1)
+
     observations = []
     for idx, msg in enumerate(args.adversarial_observations or [], start=1):
         observations.append({
@@ -250,6 +270,9 @@ def _cmd_record_review(args: argparse.Namespace) -> None:
             structure_status=args.structure_status or "",
             summary=args.summary or "",
             context_id=args.context_id or "",
+            cleanup_code=getattr(args, "cleanup_code", "") or "",
+            docs_checked=getattr(args, "docs_checked", "") or "",
+            root_cause=getattr(args, "root_cause", "") or "",
         )
     except ValueError as e:
         print(f"Review record blocked: {e}", file=sys.stderr)
