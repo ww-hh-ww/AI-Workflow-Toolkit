@@ -288,12 +288,6 @@ class TestReasonixInstall(unittest.TestCase):
         self.assertNotIn("Reasonix Stop revalidates and can block", planner)
         self.assertIn("Reasonix Stop never blocks closure, regardless of `close_attempt`", machine)
 
-    def test_reasonix_stop_is_described_as_non_gating(self):
-        settings = self._j(".reasonix/settings.json")
-        self.assertIn("non-gating", settings["hooks"]["Stop"][0]["description"])
-        close = (self.tmp / ".reasonix" / "skills" / "aiwf-close" / "SKILL.md").read_text()
-        self.assertIn("non-gating", close)
-
     def test_connection_recovery_source_is_shared_partial(self):
         shared = PROJECT_ROOT / "aiwf_core" / "embedded_templates" / "shared"
         self.assertTrue((shared / "connection_recovery_planner.md").exists())

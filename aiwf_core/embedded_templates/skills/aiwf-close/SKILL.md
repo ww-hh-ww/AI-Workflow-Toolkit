@@ -14,9 +14,14 @@ You handle workflow closure. Your job is to run `prepare-close`, display its out
 3. If the output says `passed=False`, report the blockers and route to fix. Do not proceed.
 4. If the output says `passed=True`, closure is complete. The Stop hook will revalidate.
 
+## Governance Report (machine) vs Engineering Report (Planner)
+
+The `prepare_close` output is the **governance report** — machine-generated from `.aiwf` state. It tells the user whether the process was followed and surfaces quality signals (strong/weak evidence, testing depth, review depth, asset freshness). Display it as-is.
+
+The **engineering report** is the Planner's responsibility — a brief explanation of what changed and why, written for someone who knows the project. Not a file list (that's in Changes). Not a process summary (that's in Governance). A human-readable explanation of: what problem was solved, what approach was taken, and what follow-up work is expected.
+
 ## What You Do NOT Do
 
-- Do NOT write your own summary of what happened. The machine summary is authoritative.
-- Do NOT list deliverables in a table. The Changes section already lists every file.
-- Do NOT write a "注意事项" section. The Warnings section already lists every red flag.
+- Do NOT rewrite or paraphrase the governance report. Display it.
+- Do NOT use the governance report as the engineering report. They are different things.
 - Do NOT declare closure done from conversation context. Only `prepare_close` output is authoritative.

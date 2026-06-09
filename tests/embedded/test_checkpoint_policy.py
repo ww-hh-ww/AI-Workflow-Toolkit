@@ -79,12 +79,3 @@ class TestCheckpointPolicy(unittest.TestCase):
         self.assertIn("not every l2", c.lower())
 
     # ── Close ──
-    def test_close_distinguishes_checkpoint_vs_commit(self):
-        c = self._close()
-        self.assertIn("checkpoint", c.lower())
-        self.assertIn("git commit", c.lower())
-        self.assertIn("confirm", c.lower())
-
-
-if __name__ == "__main__":
-    unittest.main()

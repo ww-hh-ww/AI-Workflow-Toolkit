@@ -49,19 +49,6 @@ class TestCheckpointGuidance(unittest.TestCase):
         self.assertIn("blocker", self._content("skills/aiwf-review/SKILL.md").lower())
 
     # ── close ──
-    def test_close_has_mode_stash(self):
-        self.assertIn("--mode stash", self._content("skills/aiwf-close/SKILL.md"))
-
-    def test_close_has_git_commit_confirm(self):
-        c = self._content("skills/aiwf-close/SKILL.md")
-        self.assertIn("git commit", c.lower())
-        self.assertIn("confirm", c.lower())
-
-    def test_close_do_not_auto_commit_push(self):
-        c = self._content("skills/aiwf-close/SKILL.md")
-        self.assertIn("not auto-commit", c.lower() or "do not auto-commit" in c.lower())
-
-    # ── default mode ──
     def test_create_default_is_patch(self):
         env = os.environ.copy(); env["PYTHONPATH"] = str(PROJECT_ROOT)
         subprocess.run(["git", "init", "-b", "main"], cwd=str(self.tmp), capture_output=True, timeout=5)

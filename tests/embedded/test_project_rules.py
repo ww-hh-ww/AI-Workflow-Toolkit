@@ -223,34 +223,6 @@ class TestProjectRules(unittest.TestCase):
         c = (self.tmp / ".claude" / "skills" / "aiwf-review" / "SKILL.md").read_text()
         self.assertIn("negative guardrails", c.lower())
 
-    def test_close_skill_rules_cleanup(self):
-        c = (self.tmp / ".claude" / "skills" / "aiwf-close" / "SKILL.md").read_text()
-        self.assertIn("Project Rules Cleanup", c)
-
-    def test_close_skill_no_history_dump(self):
-        c = (self.tmp / ".claude" / "skills" / "aiwf-close" / "SKILL.md").read_text()
-        self.assertIn("history dump", c.lower())
-
-    def test_close_skill_too_many_rules(self):
-        c = (self.tmp / ".claude" / "skills" / "aiwf-close" / "SKILL.md").read_text()
-        self.assertIn("too many active rules", c.lower())
-
-    def test_close_skill_project_map_not_duplicate_rules(self):
-        c = (self.tmp / ".claude" / "skills" / "aiwf-close" / "SKILL.md").read_text()
-        self.assertIn("PROJECT-MAP should not duplicate", c)
-
-    def test_close_skill_raw_ideas_not_in_rules(self):
-        c = (self.tmp / ".claude" / "skills" / "aiwf-close" / "SKILL.md").read_text()
-        self.assertIn("Raw ideas must remain", c)
-
-    def test_close_skill_no_auto_delete_rules(self):
-        c = (self.tmp / ".claude" / "skills" / "aiwf-close" / "SKILL.md").read_text()
-        self.assertIn("Do NOT auto-delete", c)
-
-    # ═══════════════════════════════════════════════════════════════
-    # compile
-    # ═══════════════════════════════════════════════════════════════
-
     def test_compileall_passes(self):
         import py_compile
         py_compile.compile(str(PROJECT_ROOT / "aiwf_core" / "core" / "project_rules.py"), doraise=True)

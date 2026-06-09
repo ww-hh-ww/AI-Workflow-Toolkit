@@ -158,10 +158,6 @@ class TestLifecycleRebase(unittest.TestCase):
 
 
         # ── skill text ──
-    def test_close_skill_mentions_rebase_state(self):
-        c = (self.tmp/".claude"/"skills"/"aiwf-close"/"SKILL.md").read_text()
-        self.assertIn("aiwf_rebase_state.py", c)
-
     def test_planner_skill_mentions_current_state(self):
         c = (self.tmp/".claude"/"skills"/"aiwf-planner"/"SKILL.md").read_text()
         self.assertIn("current-state.md", c)

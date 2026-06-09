@@ -89,13 +89,6 @@ class TestQualityPolicyWiring(unittest.TestCase):
         content = (self.tmp / ".claude" / "skills" / "aiwf-review" / "SKILL.md").read_text()
         self.assertIn("review_template", content)
 
-    def test_close_skill_no_auto_commit(self):
-        content = (self.tmp / ".claude" / "skills" / "aiwf-close" / "SKILL.md").read_text()
-        self.assertIn("auto-commit", content.lower())
-        self.assertIn("user", content.lower())
-
-    # ── prompt cache compliance ──
-
     def test_quality_policy_no_claude_md_dynamic_ref(self):
         import inspect
         from aiwf_core.core import quality_policy

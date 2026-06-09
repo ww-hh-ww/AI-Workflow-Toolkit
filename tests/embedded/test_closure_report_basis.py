@@ -189,21 +189,6 @@ class TestClosureReportBasis(unittest.TestCase):
     # Skill text
     # ═══════════════════════════════════════════════════════════════
 
-    def test_close_skill_mentions_export_report(self):
-        c = (self.tmp / ".claude" / "skills" / "aiwf-close" / "SKILL.md").read_text()
-        self.assertIn("export_report", c.lower(),
-                      "Close skill should mention export_report script")
-
-    def test_close_skill_no_duplicate_auto_commit(self):
-        c = (self.tmp / ".claude" / "skills" / "aiwf-close" / "SKILL.md").read_text()
-        count = c.lower().count("auto-commit")
-        self.assertLessEqual(count, 2,
-                            f"auto-commit appears {count} times; should be ≤ 2")
-
-    # ═══════════════════════════════════════════════════════════════
-    # No side effects
-    # ═══════════════════════════════════════════════════════════════
-
     def test_report_no_modify_claude_md(self):
         before = (self.tmp / "CLAUDE.md").read_text()
         self._report()

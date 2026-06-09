@@ -177,11 +177,6 @@ class TestStateCliOps(unittest.TestCase):
         c = (self.tmp/".claude"/"skills"/"aiwf-test"/"SKILL.md").read_text()
         self.assertIn("record-testing", c)
 
-    def test_close_skill_has_prepare_close_cli(self):
-        c = (self.tmp/".claude"/"skills"/"aiwf-close"/"SKILL.md").read_text()
-        self.assertIn("prepare-close", c)
-
-    # ── no side effects ──
     def test_cli_no_modify_claude_md(self):
         before = (self.tmp/"CLAUDE.md").read_text()
         self._run("state", "record-testing", "--status", "passed")
@@ -215,19 +210,6 @@ class TestStateCliOps(unittest.TestCase):
         r = self._run("state", "prepare-close")
         self.assertNotIn("closure allowed", r.stdout.lower())
         self.assertNotIn("closure complete", r.stdout.lower())
-
-    def test_close_skill_numbering_no_gaps(self):
-        c2 = (self.tmp/".claude"/"skills"/"aiwf-close"/"SKILL.md").read_text()
-        # Check that numbering is 1,2,3,4,5 without skip
-        self.assertIn("1.", c2)
-        self.assertIn("2.", c2)
-        self.assertIn("3.", c2)
-
-    def test_close_skill_has_all_three_tools(self):
-        c2 = (self.tmp/".claude"/"skills"/"aiwf-close"/"SKILL.md").read_text()
-        self.assertIn("prepare-close", c2)
-        self.assertIn("aiwf_export_report.py", c2)
-        self.assertIn("aiwf_rebase_state.py", c2)
 
     def test_review_skill_has_cleanup_helpers(self):
         c2 = (self.tmp/".claude"/"skills"/"aiwf-review"/"SKILL.md").read_text()

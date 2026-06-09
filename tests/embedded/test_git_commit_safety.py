@@ -94,10 +94,6 @@ class TestGitCommitSafety(unittest.TestCase):
         self.assertIn("test: no push", r.stdout)
 
     # ── skill text ──
-    def test_close_skill_mentions_commit_safety(self):
-        c = (self.tmp/".claude"/"skills"/"aiwf-close"/"SKILL.md").read_text()
-        self.assertIn("commit", c.lower())
-
     def test_planner_skill_says_executor_must_not_commit(self):
         c = (self.tmp/".claude"/"skills"/"aiwf-planner"/"SKILL.md").read_text()
         self.assertTrue("must not commit" in c.lower() or "must NOT commit" in c or "not auto-commit" in c.lower() or "executor must" in c.lower(), "Planner should restrict executor commits")

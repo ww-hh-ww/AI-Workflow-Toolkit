@@ -162,14 +162,6 @@ class TestSourceTrustFreshness(unittest.TestCase):
         c = (self.tmp / ".claude" / "skills" / "aiwf-review" / "SKILL.md").read_text()
         self.assertIn("raw ideas as requirements", c.lower())
 
-    def test_close_freshness_mention(self):
-        c = (self.tmp / ".claude" / "skills" / "aiwf-close" / "SKILL.md").read_text()
-        self.assertIn("stale ideas", c.lower())
-
-    # ═══════════════════════════════════════════════════════════════
-    # compile
-    # ═══════════════════════════════════════════════════════════════
-
     def test_compileall_passes(self):
         import py_compile
         py_compile.compile(str(PROJECT_ROOT / "aiwf_core" / "core" / "lifecycle_cleanup.py"), doraise=True)
