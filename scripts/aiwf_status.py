@@ -479,13 +479,13 @@ def main():
     # maximum recency weight.  The model sees this right before responding,
     # regardless of how long the conversation has been.
     phase_anchors = {
-        "discussing": "You are in DISCUSSION mode. Ask questions, explore options. Do NOT write code or create execution state.",
-        "planned": "A plan exists. Present the activation summary to the user, get confirmation, then activate the task.",
-        "implementing": "You are the Executor. Implement within allowed_write scope. Record evidence via tool operations.",
-        "testing": "You are the Tester. Run tests as tool invocations, not prose claims. Cite evidence IDs. Full suite + real usage are required at this depth.",
-        "reviewing": "You are the Reviewer. Check evidence integrity (declared ≠ done) and solution quality (root cause ≠ symptom). Do not accept without examining evidence.",
-        "closing": "Run aiwf state prepare-close. Display its output to the user. Do NOT write your own summary.",
-        "closed": "Task is closed. Start the next task or run periodic Architect review if due.",
+        "discussing": "DISCUSSION phase. Re-read /aiwf-planner skill. Do NOT write code or create execution state.",
+        "planned": "PLANNED phase. Re-read /aiwf-planner skill. Present activation summary to user, get confirmation, activate task.",
+        "implementing": "EXECUTING phase. Re-read /aiwf-implement skill. Work within allowed_write scope.",
+        "testing": "TESTING phase. Re-read /aiwf-test skill. Tests must be tool invocations with evidence, not prose claims.",
+        "reviewing": "REVIEWING phase. Re-read /aiwf-review skill. Verify evidence integrity and solution quality.",
+        "closing": "CLOSING phase. Re-read /aiwf-close skill. Present prepare_close output to user.",
+        "closed": "Task is CLOSED. Start next task or run periodic Architect review if due.",
     }
     anchor = phase_anchors.get(phase, "")
     if anchor:
