@@ -475,6 +475,22 @@ def main():
     next_gate = gates.get(phase, "Discuss with user to determine next step")
     lines.append(f"Next: {next_gate}")
 
+    # Phase-specific attention anchor — injected at the END of context for
+    # maximum recency weight.  The model sees this right before responding,
+    # regardless of how long the conversation has been.
+    phase_anchors = {
+        "discussing": "You are in DISCUSSION mode. Ask questions, explore options. Do NOT write code or create execution state.",
+        "planned": "A plan exists. Present the activation summary to the user, get confirmation, then activate the task.",
+        "implementing": "You are the Executor. Implement within allowed_write scope. Record evidence via tool operations.",
+        "testing": "You are the Tester. Run tests as tool invocations, not prose claims. Cite evidence IDs. Full suite + real usage are required at this depth.",
+        "reviewing": "You are the Reviewer. Check evidence integrity (declared ≠ done) and solution quality (root cause ≠ symptom). Do not accept without examining evidence.",
+        "closing": "Run aiwf state prepare-close. Display its output to the user. Do NOT write your own summary.",
+        "closed": "Task is closed. Start the next task or run periodic Architect review if due.",
+    }
+    anchor = phase_anchors.get(phase, "")
+    if anchor:
+        lines.append(f"\n[ATTN] {anchor}")
+
     context = "\n".join(lines)
     if os.environ.get("AIWF_HOOK_ENGINE", "").lower() == "reasonix":
         print(context)
