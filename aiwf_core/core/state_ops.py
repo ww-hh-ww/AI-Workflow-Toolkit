@@ -726,12 +726,139 @@ def prepare_close(base_dir: str) -> Dict[str, Any]:
         except Exception:
             pass
 
+    summary = build_close_summary(base_dir) if passed else ""
+
     return {
         "state": state,
         "passed": passed,
         "blockers": blockers,
         "can_proceed_to_gate": passed,
+        "summary": summary,
     }
+
+
+def build_close_summary(base_dir: str) -> str:
+    """Build a human-readable governance + engineering summary for user review."""
+    base = Path(base_dir)
+    state = _read(base / ".aiwf" / "state" / "state.json")
+    review = _read(base / ".aiwf" / "quality" / "review.json")
+    testing = _read(base / ".aiwf" / "quality" / "testing.json")
+    evidence = _read(base / ".aiwf" / "evidence" / "records.json")
+    goal = _read(base / ".aiwf" / "state" / "goal.json")
+    lines = []
+    warns = []
+
+    records = evidence.get("records", []) or []
+    accepted = [r for r in records if r.get("status") == "accepted"]
+    strong = sum(1 for r in records if r.get("attribution") == "strong")
+    weak = sum(1 for r in records if r.get("attribution") == "weak")
+    role = sum(1 for r in records if r.get("attribution") == "role_command")
+
+    # ── Governance ──
+    lines.append("## Governance")
+    phase = state.get("phase", "?")
+    level = state.get("workflow_level", "?")
+    task_type = state.get("task_type", "") or "?"
+    lines.append(f"Phase: {phase} | Route: {level} / {task_type}")
+
+    # Evidence
+    sessions = set()
+    for r in accepted:
+        sid = str(r.get("session_id", "") or "").strip()
+        aid = str(r.get("agent_id", "") or "").strip()
+        if sid:
+            sessions.add(f"{sid}::{aid}" if aid else sid)
+    lines.append(f"Evidence: {len(records)} records ({strong} strong, {weak} weak, {role} role_command), "
+                 f"{len(accepted)} accepted, {len(sessions)} sessions")
+    if strong == 0 and records:
+        warns.append("All evidence is weak/role_command — no hook-captured strong evidence")
+
+    # Testing
+    tstat = testing.get("status", "missing")
+    tcmds = testing.get("commands", []) or []
+    teids = testing.get("evidence_ids", []) or []
+    fs_stat = testing.get("full_suite_status", "not_run")
+    ru_stat = testing.get("real_usage_status", "not_run")
+    lines.append(f"Testing: {tstat}, {len(tcmds)} commands, {len(teids)} evidence IDs cited")
+    if tstat == "missing":
+        warns.append("Testing was not recorded")
+    if fs_stat == "not_run":
+        warns.append("Tester did not run full project suite")
+    if ru_stat == "not_run":
+        warns.append("Tester did not exercise real user-facing entrypoint")
+    if tcmds and not teids:
+        warns.append("Testing has commands but no evidence IDs — test results not traceable to machine evidence")
+
+    # Review
+    rstat = review.get("result", "unknown")
+    reids = review.get("accepted_evidence_ids", []) or []
+    advs = review.get("adversarial_observations", []) or []
+    meta = goal.get("meta_critique", {}) or {}
+    lines.append(f"Review: {rstat}, {len(reids)} evidence IDs cited, {len(advs)} adversarial observations")
+    if rstat == "accepted" and not reids:
+        warns.append("Reviewer accepted without citing any evidence IDs")
+    if rstat == "unknown":
+        warns.append("Review was not recorded")
+    pending_adv = sum(1 for a in advs if isinstance(a, dict) and a.get("disposition") == "pending")
+    if pending_adv:
+        warns.append(f"{pending_adv} adversarial observations pending Planner disposition")
+    if rstat == "accepted" and meta.get("status") != "completed":
+        warns.append("Planner has not recorded meta-critique after accepted review")
+
+    # Cleanup
+    cstat = review.get("cleanup_status", "unknown")
+    stale = review.get("stale_items", []) or []
+    lines.append(f"Cleanup: {cstat}" + (f", {len(stale)} stale items" if stale else ""))
+
+    # Assets
+    try:
+        from .current_state import current_state_freshness
+        cs = current_state_freshness(base_dir)
+        cs_stat = cs.get("status", "?")
+        lines.append(f"Assets: current-state.md={cs_stat}")
+        if cs_stat != "fresh":
+            warns.append(f"current-state.md is {cs_stat} — run aiwf state rebuild-current-state")
+    except Exception:
+        lines.append("Assets: unable to check freshness")
+
+    try:
+        pm = base / ".aiwf" / "reports" / "项目地图.md"
+        if not pm.exists():
+            warns.append("PROJECT-MAP missing")
+    except Exception:
+        pass
+
+    # Red flags
+    state_scope = state.get("scope_violation", False)
+    if state_scope:
+        warns.append("Scope violation flag is set")
+    fl = _read(base / ".aiwf" / "state" / "fix-loop.json")
+    if fl.get("status") == "open":
+        warns.append("Fix-loop is still open")
+
+    # ── Engineering ──
+    lines.append("")
+    lines.append("## Changes")
+    changed_files = set()
+    for r in records:
+        for f in (r.get("changed_files", []) or []):
+            changed_files.add(f)
+    if changed_files:
+        for f in sorted(changed_files)[:20]:
+            lines.append(f"  {f}")
+        if len(changed_files) > 20:
+            lines.append(f"  ... and {len(changed_files) - 20} more")
+    else:
+        lines.append("  (no changed files recorded in evidence)")
+
+    # ── Warnings ──
+    if warns:
+        lines.append("")
+        lines.append("## Warnings")
+        for w in warns:
+            lines.append(f"  - {w}")
+
+    return "\n".join(lines)
 
 
 # ── adversarial observation disposition ─────────────────────────────────

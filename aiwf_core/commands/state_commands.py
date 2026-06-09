@@ -268,8 +268,10 @@ def _cmd_prepare_close(args: argparse.Namespace) -> None:
         print("  Resolve blockers before preparing closure")
         print("  prepare-close is authoritative; close attempt was not prepared.")
     else:
-        print("  No prepare-close blockers reported; authoritative closure preparation passed.")
-        print("  Claude Stop will revalidate gates where supported; Reasonix Stop is report-only.")
+        summary = result.get("summary", "")
+        if summary:
+            print(summary)
+        print("\nClosure complete. Stop hook will revalidate.")
 
 def _cmd_set_planner_inline(args: argparse.Namespace) -> None:
     """aiwf state set-planner-inline — record Planner inline execution decision."""
