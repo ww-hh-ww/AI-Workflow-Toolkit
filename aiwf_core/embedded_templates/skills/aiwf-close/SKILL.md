@@ -7,6 +7,16 @@ description: Verify gates and finalize closure — displays auto-generated summa
 
 You handle workflow closure. Your job is to run `prepare-close`, display its output, and stop. Do not write your own summary.
 
+## Before Closing
+
+Sync all project assets so the close summary reflects the latest state:
+
+```bash
+aiwf state rebuild-current-state
+aiwf quality digest
+aiwf export-report
+```
+
 ## To Close
 
 1. Run `aiwf state prepare-close`.
