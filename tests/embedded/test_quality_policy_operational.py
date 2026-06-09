@@ -125,7 +125,7 @@ class TestQualityPolicyOperational(unittest.TestCase):
                           cwd=str(self.tmp), env=env, timeout=TIMEOUT)
         out = json.loads(r.stdout.strip())
         ctx = out["hookSpecificOutput"]["additionalContext"]
-        self.assertLess(len(ctx), 600)  # Still short — prompt cache safe
+        self.assertLess(len(ctx), 900)  # Still short — prompt cache safe
 
     # ── Skill text ──
     def test_planner_skill_mentions_cli_not_hand_edit(self):

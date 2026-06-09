@@ -157,6 +157,23 @@ def _recovery_guidance(
         except Exception:
             pass
 
+    if request_mode == "execution" and not goal.get("confirmed"):
+        return _blocked(
+            "user_decision",
+            "planner",
+            "ask the user to confirm the goal before execution",
+            "Goal is not confirmed. Planner must present the plan and get explicit user approval.",
+            [
+                "present the plan to the user and ask for confirmation",
+                "run aiwf state set-goal-confirmed after user approves",
+            ],
+            [
+                "do not activate tasks or start implementation",
+                "do not treat discussion as confirmed execution intent",
+            ],
+            user_decision_required=True,
+        )
+
     try:
         from .capabilities import capability_use_blockers
         cap_blockers = capability_use_blockers(base_dir)

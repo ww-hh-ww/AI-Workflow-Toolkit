@@ -287,6 +287,35 @@ def _refresh_mechanical_assets(base_dir: str) -> None:
         pass
 
 
+def _checkpoint_activation_blockers(base_dir: str, task: Dict[str, Any]) -> List[str]:
+    """L3 tasks require a checkpoint before activation."""
+    import json
+    state_path = Path(base_dir) / ".aiwf" / "state" / "state.json"
+    try:
+        state = json.loads(state_path.read_text()) if state_path.exists() else {}
+    except Exception:
+        return []
+    if state.get("workflow_level") != "L3_full_power":
+        return []
+    ck_dir = Path(base_dir) / ".aiwf" / "checkpoints"
+    if not ck_dir.exists() or not any(ck_dir.iterdir()):
+        return ["L3 task requires a checkpoint before activation. Run aiwf checkpoint create --label 'pre-task'"]
+    return []
+
+
+def _user_confirmation_blockers(base_dir: str) -> List[str]:
+    """Block task activation until the user confirms the goal."""
+    import json
+    goal_path = Path(base_dir) / ".aiwf" / "state" / "goal.json"
+    try:
+        goal = json.loads(goal_path.read_text()) if goal_path.exists() else {}
+    except Exception:
+        return []
+    if not goal.get("confirmed"):
+        return ["Goal not confirmed by user. Ask the user to confirm before activating tasks."]
+    return []
+
+
 def _periodic_architecture_blockers(base_dir: str, task: Dict[str, Any]) -> List[str]:
     """Block ordinary task activation while a periodic architecture review is due."""
     if _is_architecture_review_task(task):
@@ -401,6 +430,7 @@ def activation_blockers(base_dir: str, task_id: str, skip_current_state_check: b
     blockers.extend(_quality_activation_blockers(base_dir, task))
     blockers.extend(_periodic_architecture_blockers(base_dir, task))
     blockers.extend(_required_contract_blockers(base_dir, task))
+    blockers.extend(_user_confirmation_blockers(base_dir))
     return blockers
 
 

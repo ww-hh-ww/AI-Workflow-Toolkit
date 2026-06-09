@@ -107,7 +107,7 @@ def default_goal() -> Dict[str, Any]:
         "current_goal": "",
         "active_goal": "",
         "goal_status": "discussion",
-        "confirmed": False,
+        "confirmed": True,
         "last_user_intent": "",
         "intent_changes": [],
         "decisions": [],

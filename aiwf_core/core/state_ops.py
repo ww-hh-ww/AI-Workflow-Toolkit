@@ -637,6 +637,10 @@ def record_review(
         review["accepted_evidence_ids"].append(ev["id"])
     review["reviewer_evidence_id"] = ev["id"]
 
+    if result != "accepted":
+        from .review_contract import set_review_rejected
+        set_review_rejected(review, blockers or [])
+
     _write(review_path, review)
     if state.get("phase") not in ("closing", "closed"):
         state["phase"] = "reviewing"
@@ -775,6 +779,12 @@ def prepare_close(base_dir: str) -> Dict[str, Any]:
 
     close_attempt_set = len(blockers) == 0
     if close_attempt_set:
+        if level == "L3_full_power":
+            try:
+                from .checkpoints import create_checkpoint
+                create_checkpoint(str(base), label="auto-close", include_governance=True, mode="patch")
+            except Exception:
+                pass
         from .closure_contract import set_closure_complete
         set_closure_complete(state)
         state["closure_allowed"] = True

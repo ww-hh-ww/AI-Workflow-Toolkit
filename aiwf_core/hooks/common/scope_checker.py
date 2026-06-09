@@ -95,6 +95,51 @@ def check_file_write(event: NormalizedEvent) -> ScopeResult:
             active_ctx = ctx
             break
 
+    # Plan-only drift: plan exists but no task activated
+    if state.get("active_plan_id") and state.get("request_mode") == "execution" and not state.get("active_task_id"):
+        return ScopeResult(
+            file_path=file_path, allowed=False,
+            active_context_id=state.get("active_context_id") or "(none)",
+            reason="plan_only_drift: a plan exists but no task is activated. Activate the planned task before writing project files."
+        )
+
+    # Architecture brief constraints: protected_files and forbidden_restructures
+    goal = _read_json(cwd / ".aiwf" / "state" / "goal.json", {})
+    arch_brief = goal.get("quality_brief", {}).get("architecture_brief", {})
+    if arch_brief:
+        protected = arch_brief.get("protected_files", []) or []
+        for pattern in protected:
+            if _path_matches(normalized, pattern):
+                return ScopeResult(
+                    file_path=file_path, allowed=False,
+                    active_context_id=state.get("active_context_id") or "(none)",
+                    reason=f"protected file: '{normalized}' matches protected pattern '{pattern}'. Requires Planner override."
+                )
+        forbidden = arch_brief.get("forbidden_restructures", []) or []
+        for pattern in forbidden:
+            if _path_matches(normalized, pattern):
+                return ScopeResult(
+                    file_path=file_path, allowed=False,
+                    active_context_id=state.get("active_context_id") or "(none)",
+                    reason=f"forbidden restructure: '{normalized}' matches '{pattern}'. This structural change is prohibited by the architecture brief."
+                )
+
+    # Project rules: negative rules block matching file writes
+    try:
+        from ...core.project_rules import list_project_rules
+        rules = list_project_rules(str(cwd), include_retired=False)
+        for rule in rules:
+            if rule.get("type") == "negative" and rule.get("text"):
+                rule_text = rule["text"]
+                if normalized in rule_text or rule_text in normalized:
+                    return ScopeResult(
+                        file_path=file_path, allowed=False,
+                        active_context_id=state.get("active_context_id") or "(none)",
+                        reason=f"negative rule {rule.get('id', '?')}: {rule_text[:120]}"
+                    )
+    except Exception:
+        pass
+
     # Runtime build artifacts — warn but don't block
     _artifact_patterns = (".pytest_cache/", ".coverage", ".mypy_cache/", ".ruff_cache/",
                           "__pycache__/", ".tox/", "node_modules/", ".nyc_output/")
@@ -103,6 +148,22 @@ def check_file_write(event: NormalizedEvent) -> ScopeResult:
                           reason="runtime artifact — allowed, add to project excludes if persistent")
 
     return check_scope(file_path, active_ctx, state, project_root=str(cwd))
+
+
+def _path_matches(file_path: str, pattern: str) -> bool:
+    """Check if file_path matches a simple glob-like pattern."""
+    fp = file_path.lstrip("./")
+    pat = pattern.lstrip("./")
+    if pat.endswith("/") or pat.endswith("/**"):
+        prefix = pat.rstrip("*").rstrip("/")
+        return fp == prefix or fp.startswith(prefix + "/")
+    if pat.startswith("**/"):
+        suffix = pat[3:]
+        return fp == suffix or fp.endswith("/" + suffix)
+    if "*" in pat:
+        import fnmatch
+        return fnmatch.fnmatch(fp, pat)
+    return fp == pat
 
 
 def check_bash(event: NormalizedEvent) -> Dict:
