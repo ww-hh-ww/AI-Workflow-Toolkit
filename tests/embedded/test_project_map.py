@@ -52,18 +52,18 @@ class TestProjectMap(unittest.TestCase):
     def test_default_has_required_sections(self):
         self._run("project-map", "init")
         text = self._pm_text()
-        for section in ["Project Snapshot", "Current Stage", "Active Direction",
+        for section in ["Project Snapshot", "Current Stage", "Architecture Direction",
                          "Next Candidate Tasks", "Deferred Risks", "Rejected Routes"]:
             self.assertIn(section, text, f"Missing section: {section}")
 
     def test_default_prompts_planner_intelligence_not_mechanical_counts(self):
         self._run("project-map", "init")
         text = self._pm_text()
-        self.assertIn("Planner must fill it after inspecting the real project files", text)
+        self.assertIn("What It Is", text)
+        self.assertIn("How It Works", text)
         self.assertIn("One-line Overview", text)
         self.assertIn("Technical Stack", text)
         self.assertIn("Architecture Layers", text)
-        self.assertIn("Machine-readable structure lives in `.aiwf/assets/project-map.json`", text)
 
     # ═══════════════════════════════════════════════════════════════
     # Show
@@ -84,7 +84,7 @@ class TestProjectMap(unittest.TestCase):
 
     def test_update_changes_only_target_section(self):
         self._run("project-map", "init")
-        self._run("project-map", "update", "--section", "active-direction",
+        self._run("project-map", "update", "--section", "architecture-direction",
                   "--text", "Focus on internal quality governance before external adapter expansion.")
         text = self._pm_text()
         self.assertIn("Focus on internal quality governance", text)
@@ -97,7 +97,7 @@ class TestProjectMap(unittest.TestCase):
         r = self._run("project-map", "bootstrap")
         self.assertEqual(r.returncode, 0, r.stderr)
         text = self._pm_text()
-        self.assertIn("Planner must fill it after inspecting the real project files", text)
+        self.assertIn("What It Is", text)
         self.assertNotIn("source files across", text)
         self.assertNotIn("Modules detected:", text)
 
@@ -110,7 +110,7 @@ class TestProjectMap(unittest.TestCase):
     def test_update_treats_backslash_content_as_literal_text(self):
         self._run("project-map", "init")
         content = r"Regex-like note: \1 and \g<name> must stay literal."
-        r = self._run("project-map", "update", "--section", "active-direction",
+        r = self._run("project-map", "update", "--section", "architecture-direction",
                       "--text", content)
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn(content, self._pm_text())
@@ -121,7 +121,7 @@ class TestProjectMap(unittest.TestCase):
 
     def test_summarize_short_output(self):
         self._run("project-map", "init")
-        self._run("project-map", "update", "--section", "active-direction",
+        self._run("project-map", "update", "--section", "architecture-direction",
                   "--text", "Focus on quality governance.")
         out = self._run("project-map", "summarize").stdout
         self.assertIn("Focus on quality governance", out)
@@ -150,7 +150,7 @@ class TestProjectMap(unittest.TestCase):
 
     def test_userpromptsubmit_no_map_content_dump(self):
         self._run("project-map", "init")
-        self._run("project-map", "update", "--section", "active-direction",
+        self._run("project-map", "update", "--section", "architecture-direction",
                   "--text", "secret-map-content-xyz")
         inp = json.dumps({"session_id": "t", "cwd": str(self.tmp), "hook_event_name": "UserPromptSubmit"})
         env = os.environ.copy(); env["PYTHONPATH"] = str(PROJECT_ROOT)

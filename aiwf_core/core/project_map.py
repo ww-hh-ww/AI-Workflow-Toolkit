@@ -145,7 +145,7 @@ def summarize_project_map(project_root: str) -> Dict:
             summary["next_tasks_count"] = len(bullets)
         elif key == "current-stage":
             summary["current_stage"] = val.split("\n")[0].lstrip("- ")[:120] if val else ""
-        elif key == "active-direction":
-            summary["active_direction"] = val.split("\n")[0].lstrip("- ")[:120] if val else ""
+        elif key == "architecture-direction":
+            summary["architecture_direction"] = val.split("\n")[0].lstrip("- ")[:120] if val else ""
 
     return summary

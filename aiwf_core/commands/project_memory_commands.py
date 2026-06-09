@@ -115,7 +115,7 @@ def _cmd_project_map_summarize(args: argparse.Namespace) -> None:
         return
     print("Project Map summary:")
     if s.get("current_stage"): print(f"  Current stage: {s['current_stage']}")
-    if s.get("active_direction"): print(f"  Active direction: {s['active_direction']}")
+    if s.get("architecture_direction"): print(f"  Architecture direction: {s['architecture_direction']}")
     print(f"  Next tasks: {s.get('next_tasks_count', 0)}")
     print(f"  Open decisions: {s.get('open_decisions_count', 0)}")
     print(f"  Deferred risks: {s.get('deferred_risks_count', 0)}")
