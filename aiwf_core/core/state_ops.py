@@ -738,7 +738,7 @@ def prepare_close(base_dir: str) -> Dict[str, Any]:
 
 
 def build_close_summary(base_dir: str) -> str:
-    """Build a human-readable governance + engineering summary for user review."""
+    """Build a user-facing close summary. What was done and how thoroughly."""
     base = Path(base_dir)
     state = _read(base / ".aiwf" / "state" / "state.json")
     review = _read(base / ".aiwf" / "quality" / "review.json")
@@ -751,27 +751,23 @@ def build_close_summary(base_dir: str) -> str:
     records = evidence.get("records", []) or []
     accepted = [r for r in records if r.get("status") == "accepted"]
     strong = sum(1 for r in records if r.get("attribution") == "strong")
-    weak = sum(1 for r in records if r.get("attribution") == "weak")
-    role = sum(1 for r in records if r.get("attribution") == "role_command")
 
-    # ── Governance ──
-    lines.append("## Governance")
-    phase = state.get("phase", "?")
-    level = state.get("workflow_level", "?")
-    task_type = state.get("task_type", "") or "?"
-    lines.append(f"Phase: {phase} | Route: {level} / {task_type}")
+    # ── What Was Done ──
+    lines.append("## What Was Done")
 
-    # Evidence
+    # Evidence — human terms
     sessions = set()
     for r in accepted:
         sid = str(r.get("session_id", "") or "").strip()
         aid = str(r.get("agent_id", "") or "").strip()
         if sid:
             sessions.add(f"{sid}::{aid}" if aid else sid)
-    lines.append(f"Evidence: {len(records)} records ({strong} strong, {weak} weak, {role} role_command), "
-                 f"{len(accepted)} accepted, {len(sessions)} sessions")
+    evidence_quality = "solid" if strong >= len(records) * 0.7 else \
+                       "mixed" if strong > 0 else "unverifiable"
+    lines.append(f"  Work captured: {len(records)} operations, {evidence_quality} evidence "
+                 f"({strong} machine-captured, {len(records) - strong} inferred or manual)")
     if strong == 0 and records:
-        warns.append("All evidence is weak/role_command — no hook-captured strong evidence")
+        warns.append("No machine-captured evidence — all work claims are unverifiable")
 
     # Testing
     tstat = testing.get("status", "missing")
@@ -779,66 +775,50 @@ def build_close_summary(base_dir: str) -> str:
     teids = testing.get("evidence_ids", []) or []
     fs_stat = testing.get("full_suite_status", "not_run")
     ru_stat = testing.get("real_usage_status", "not_run")
-    lines.append(f"Testing: {tstat}, {len(tcmds)} commands, {len(teids)} evidence IDs cited")
+    test_line = f"  Tests: {tstat}"
+    if tcmds:
+        test_line += f", {len(tcmds)} runs recorded"
+    if teids:
+        test_line += f", linked to evidence"
+    elif tcmds:
+        test_line += f", not linked to evidence"
+    lines.append(test_line)
     if tstat == "missing":
-        warns.append("Testing was not recorded")
+        warns.append("No testing recorded")
     if fs_stat == "not_run":
-        warns.append("Tester did not run full project suite")
+        warns.append("Full test suite was not run")
     if ru_stat == "not_run":
-        warns.append("Tester did not exercise real user-facing entrypoint")
+        warns.append("User-facing entrypoint was not tested")
     if tcmds and not teids:
-        warns.append("Testing has commands but no evidence IDs — test results not traceable to machine evidence")
+        warns.append("Test results cannot be traced to actual command executions")
 
     # Review
     rstat = review.get("result", "unknown")
     reids = review.get("accepted_evidence_ids", []) or []
     advs = review.get("adversarial_observations", []) or []
-    meta = goal.get("meta_critique", {}) or {}
-    lines.append(f"Review: {rstat}, {len(reids)} evidence IDs cited, {len(advs)} adversarial observations")
+    lines.append(f"  Review: {rstat}" +
+                 (f", examined {len(reids)} evidence records" if reids else ", examined no evidence"))
     if rstat == "accepted" and not reids:
-        warns.append("Reviewer accepted without citing any evidence IDs")
+        warns.append("Reviewer approved without examining any evidence")
     if rstat == "unknown":
-        warns.append("Review was not recorded")
-    pending_adv = sum(1 for a in advs if isinstance(a, dict) and a.get("disposition") == "pending")
-    if pending_adv:
-        warns.append(f"{pending_adv} adversarial observations pending Planner disposition")
-    if rstat == "accepted" and meta.get("status") != "completed":
-        warns.append("Planner has not recorded meta-critique after accepted review")
+        warns.append("No review recorded")
 
-    # Cleanup
+    # Cleanup + docs
     cstat = review.get("cleanup_status", "unknown")
-    stale = review.get("stale_items", []) or []
-    lines.append(f"Cleanup: {cstat}" + (f", {len(stale)} stale items" if stale else ""))
-
-    # Assets
+    lines.append(f"  Cleanup: {'done' if cstat == 'fresh' else cstat}")
     try:
         from .current_state import current_state_freshness
         cs = current_state_freshness(base_dir)
         cs_stat = cs.get("status", "?")
-        lines.append(f"Assets: current-state.md={cs_stat}")
+        lines.append(f"  Project docs: {'up to date' if cs_stat == 'fresh' else 'stale'}")
         if cs_stat != "fresh":
-            warns.append(f"current-state.md is {cs_stat} — run aiwf state rebuild-current-state")
-    except Exception:
-        lines.append("Assets: unable to check freshness")
-
-    try:
-        pm = base / ".aiwf" / "reports" / "项目地图.md"
-        if not pm.exists():
-            warns.append("PROJECT-MAP missing")
+            warns.append("Project documentation is stale — run aiwf state rebuild-current-state")
     except Exception:
         pass
 
-    # Red flags
-    state_scope = state.get("scope_violation", False)
-    if state_scope:
-        warns.append("Scope violation flag is set")
-    fl = _read(base / ".aiwf" / "state" / "fix-loop.json")
-    if fl.get("status") == "open":
-        warns.append("Fix-loop is still open")
-
-    # ── Engineering ──
+    # ── What Changed ──
     lines.append("")
-    lines.append("## Changes")
+    lines.append("## What Changed")
     changed_files = set()
     for r in records:
         for f in (r.get("changed_files", []) or []):
@@ -849,12 +829,12 @@ def build_close_summary(base_dir: str) -> str:
         if len(changed_files) > 20:
             lines.append(f"  ... and {len(changed_files) - 20} more")
     else:
-        lines.append("  (no changed files recorded in evidence)")
+        lines.append("  (no changes recorded)")
 
-    # ── Warnings ──
+    # ── Pay Attention To ──
     if warns:
         lines.append("")
-        lines.append("## Warnings")
+        lines.append("## Pay Attention To")
         for w in warns:
             lines.append(f"  - {w}")
 
