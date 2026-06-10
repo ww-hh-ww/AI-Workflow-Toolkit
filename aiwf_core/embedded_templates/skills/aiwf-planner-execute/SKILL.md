@@ -63,3 +63,24 @@ Route -> L3 on: destructive, security, data_migration (mechanical).
 Plan many candidates, activate one at a time: `aiwf task plan/activate/close`. Activation blocked if: dependency not closed, execution window occupied, gravity hard_constraints active.
 
 Task activation computes routing from file breadth, cross-module scope, Architecture Brief, risk flags, fix-loop history, and Gravity, then writes matching test depth, review depth, and exploration breadth into state.
+
+## System Integration (L2+)
+
+- L0/L1: full system integration test is Usually not needed. L1: 1 obligation if touching public API.
+- L2/L3: Planner MUST write system integration obligations, covering each affected system path. System Integration Obligations are part of the Evaluation Contract.
+
+## Environment & Workspace
+
+- `aiwf env show` / env scan — environment profile; suspected-environment route needs env evidence before blaming executor.
+- `aiwf workspace scan` — detect untracked files and dirty working tree (workspace drift).
+- `aiwf cleanup check` — stale items, structure drift, PROJECT-MAP freshness; run before review. PROJECT-MAP holds project-level state and direction, distinct from report ideas.
+
+## Quality Surfaces
+
+- Plan minimum guidance: choose the shallowest defensible Level, explain semantic risk, escalate when unsure. surface_type determines depth direction.
+- Prioritize human-visible surfaces in quality policy. Not every catalog surface must be tested — focus on user-facing and integration surfaces.
+- Summarize first, then expand. escalation_required=true means stop execution until resolved.
+
+## Carry-Forward
+
+- After task close, use `aiwf state rebase` to generate `.aiwf/reports/current-state.md` — the carry-forward summary for the next session.

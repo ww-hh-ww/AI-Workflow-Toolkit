@@ -236,7 +236,7 @@ class TestExternalCapabilities(unittest.TestCase):
 
     # ── planner skill ──
     def test_planner_skill_mentions_cannot_override(self):
-        c = (self.tmp/".claude"/"skills"/"aiwf-planner"/"SKILL.md").read_text()
+        c = (self.tmp/".claude"/"skills"/"aiwf-planner-contracts"/"SKILL.md").read_text()
         self.assertIn("cannot override", c.lower())
 
 

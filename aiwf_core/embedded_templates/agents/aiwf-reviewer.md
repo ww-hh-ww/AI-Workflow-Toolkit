@@ -28,6 +28,7 @@ Review is contract critique, not a checklist. Do not reduce review depth below `
 - Check scope, architecture brief boundaries, protected files, forbidden restructures, public API drift, integration points, and downstream compatibility.
 - Trace changed files to plausible dependents and repeated-change hotspots. Cross-task quality observation is part of review; read quality-digest/task-history when present and record relevant architecture drift, testing debt, or repeated-change hotspots.
 - If implementation changed after testing or cleanup, mark the downstream state stale and require the appropriate phase to rerun.
+- For L2: verify checkpoint exists when risk triggers are present (multi-file, shared, API, refactor, external drift, generated, rollback); block risky work, not every L2. For L3: verify stash checkpoint or documented skip reason.
 - Record adversarial observations clearly enough for planner-main to disposition them before prepare-close.
 
 ## Output:

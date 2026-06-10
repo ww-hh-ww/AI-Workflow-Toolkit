@@ -14,7 +14,7 @@ test ! -f "$ROOT/V45.6-CHANGELOG.md"
 test -x "$ROOT/bin/aiwf"
 test ! -d "$ROOT/.ai-workflow"
 test -f "$ROOT/docs/AIWF-TECHNICAL-REPORT.md"
-
+if test -d "$ROOT/.git"; then
 git -C "$ROOT" ls-files | grep -E '(^|/)\.DS_Store$|^\._' && {
   echo "tracked macOS metadata found" >&2
   exit 1
@@ -25,6 +25,7 @@ git -C "$ROOT" ls-files | grep -E '^\.aiwf/|^\.claude/|^\.reasonix/' && {
   exit 1
 } || true
 
+fi
 grep -R -I -E "V45[.]3|v45[.]3|V45[.]4|v45[.]4|V45[.]5|v45[.]5|V45[.]6|v45[.]6" "$ROOT" \
   --exclude-dir=.git --exclude-dir=__pycache__ --exclude-dir=__MACOSX \
   --exclude='*.pyc' --exclude='._*' --exclude='*.zip' --exclude=release-audit.sh && {

@@ -65,7 +65,8 @@ class TestTemplateContracts(unittest.TestCase):
     def test_review_skill_has_review_lite(self):
         content = (self.tmp / ".claude" / "skills" / "aiwf-review" / "SKILL.md").read_text()
         self.assertIn("review_lite", content)
-        self.assertIn("Do NOT expand to architecture", content)
+        # "Do NOT expand to architecture" is in the review-verify sub-skill.
+        self.assertIn("Do NOT expand depth unilaterally", content)
 
     # ── security_sensitive wording ──
     def test_security_sensitive_no_old_wording(self):

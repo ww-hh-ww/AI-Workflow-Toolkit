@@ -65,15 +65,112 @@ def _cmd_fix_loop_status(args: argparse.Namespace) -> None:
         print("  Route history:")
         for rh in fl["route_history"][:10]:
             print(f"    - attempt {rh.get('attempt','?')}: {rh.get('route','?')} ({rh.get('reason','')[:80]})")
+    # Show fix validation if available
+    fv = fl.get("fix_validation")
+    if fv:
+        print("  Fix validation:")
+        print(f"    Checked at:          {fv.get('checked_at', '?')[:19]}")
+        print(f"    Total required:      {fv.get('total_required', 0)}")
+        still = fv.get("still_unresolved", [])
+        stale = fv.get("stale_resolved", [])
+        reverted = fv.get("resolved_reverted", [])
+        if still:
+            print(f"    Still unresolved:    {len(still)}")
+            for p in still[:5]: print(f"      - {p}")
+        if stale:
+            print(f"    Stale/resolved:      {len(stale)}")
+            for p in stale[:5]: print(f"      - {p}")
+        if reverted:
+            print(f"    Resolved/reverted:   {len(reverted)}")
+            for p in reverted[:5]: print(f"      - {p}")
+        if not still and not stale and not reverted:
+            print("    (no paths extracted from required_fixes)")
+    if fl.get("active_repairs"):
+        print("  Active repairs:")
+        for r in fl["active_repairs"][:5]:
+            print(f"    - {r.get('target', '?')} ({r.get('reason', '')[:60]})")
 
 def _cmd_fix_loop_help(args: argparse.Namespace) -> None:
     """aiwf fix-loop — show available subcommands."""
     print("AIWF Fix-Loop")
     print()
     print("Available subcommands:")
-    print("  aiwf fixloop open     — open a fix-loop with route and required fixes")
-    print("  aiwf fixloop resolve  — resolve a fix-loop (does NOT auto-close)")
-    print("  aiwf fixloop status   — show fix-loop status")
+    print("  aiwf fixloop open       — open a fix-loop with route and required fixes")
+    print("  aiwf fixloop resolve    — resolve a fix-loop (re-validates required_fixes)")
+    print("  aiwf fixloop status     — show fix-loop status + fix validation")
+    print("  aiwf fixloop repair     — declare a repair target (opens repair window)")
+    print("  aiwf fixloop revalidate — re-validate required_fixes against current state")
+
+
+def _cmd_fix_loop_repair(args: argparse.Namespace) -> None:
+    """aiwf fixloop repair — declare a repair target for the fix-loop repair window."""
+    import json as _json
+    from pathlib import Path as _P
+    from ..core.state_ops import _read
+    base = _P.cwd()
+    fl_path = base / ".aiwf" / "state" / "fix-loop.json"
+    fl = _read(fl_path)
+    if fl.get("status") != "open":
+        print("Error: no open fix-loop. Open one first with: aiwf fixloop open", file=sys.stderr)
+        raise SystemExit(1)
+
+    target = args.target
+    reason = args.reason or "fix-loop repair"
+    repairs = fl.setdefault("active_repairs", [])
+    from datetime import datetime, timezone
+    repairs.append({
+        "target": target,
+        "reason": reason,
+        "declared_at": datetime.now(timezone.utc).isoformat(),
+        "source": args.source or "planner",
+    })
+    fl_path.write_text(_json.dumps(fl, ensure_ascii=False, indent=2) + "\n")
+
+    print(f"Repair target declared: {target}")
+    print(f"  Reason: {reason[:160]}")
+    print("  Scope guard will allow writes to this file during the repair window.")
+    print("  After repair: re-run fixloop revalidate, then resolve.")
+
+
+def _cmd_fix_loop_revalidate(args: argparse.Namespace) -> None:
+    """aiwf fixloop revalidate — re-validate required_fixes against current state."""
+    from ..core.state_ops import _read, _write
+    from ..core.state.fixloop_ops import _revalidate_required_fixes, _extract_paths_from_fixes
+    from pathlib import Path as _P
+    base = _P.cwd()
+    fl_path = base / ".aiwf" / "state" / "fix-loop.json"
+    fl = _read(fl_path)
+
+    required_fixes = fl.get("required_fixes", []) or []
+    review_path = base / ".aiwf" / "quality" / "review.json"
+    review = _read(review_path)
+    scope_events = review.get("scope_violation_events", []) or []
+    force = bool(getattr(args, 'force', False))
+
+    reval = _revalidate_required_fixes(base, required_fixes, scope_events, force)
+    paths = _extract_paths_from_fixes(required_fixes)
+
+    print("Fix-loop revalidation:")
+    print(f"  Required fixes:  {len(required_fixes)}")
+    print(f"  Target paths:    {len(paths)}")
+    if paths:
+        for p in paths[:10]:
+            print(f"    - {p}")
+    print(f"  Still unresolved:{'none' if not reval['still_unresolved'] else ''}")
+    for p in reval["still_unresolved"][:5]:
+        print(f"    - {p}")
+    print(f"  Stale resolved:  {'none' if not reval['stale_resolved'] else ''}")
+    for p in reval["stale_resolved"][:5]:
+        print(f"    - {p}")
+    print(f"  Resolved/reverted:{'none' if not reval['resolved_reverted'] else ''}")
+    for p in reval["resolved_reverted"][:5]:
+        print(f"    - {p}")
+    if reval["blockers"]:
+        print(f"  Blockers:")
+        for b in reval["blockers"]:
+            print(f"    - {b}")
+    else:
+        print("  All fixes resolved — ready for fixloop resolve.")
 
 def _cmd_arch_change_request(args: argparse.Namespace) -> None:
     """aiwf arch-change request — append an architecture change request."""
@@ -281,4 +378,68 @@ def _cmd_doctor(args: argparse.Namespace) -> None:
         print("✓ All checks passed. AIWF is ready.")
     else:
         print(f"✗ Some checks failed. Run: aiwf install {results.get('mode', 'claude')} --force    to fix.")
+
+
+def _cmd_audit_archive(args: argparse.Namespace) -> None:
+    """aiwf audit-archive <zip> — check a release archive for contamination."""
+    import zipfile
+    archive_path = Path(args.archive)
+    if not archive_path.exists():
+        print(f"Error: archive not found: {args.archive}", file=sys.stderr)
+        raise SystemExit(1)
+
+    # Each contaminant: (segment_to_match, label, match_mode)
+    # match_mode: "segment" = any path segment equals this value
+    #             "suffix" = any path segment ends with this value
+    #             "prefix_dir" = any path segment equals this value (for dir patterns)
+    CONTAMINANTS = [
+        (".git", "git repository", "segment"),
+        ("__MACOSX", "macOS resource fork", "segment"),
+        (".DS_Store", "macOS metadata", "segment"),
+        ("__pycache__", "Python bytecode cache", "segment"),
+        (".pyc", "compiled Python file", "suffix"),
+        (".pyo", "optimized Python bytecode", "suffix"),
+        (".aiwf", "AIWF runtime state", "segment"),
+        (".claude", "Claude Code runtime state", "segment"),
+        (".reasonix", "Reasonix runtime state", "segment"),
+    ]
+
+    found = []
+    file_count = 0
+    try:
+        with zipfile.ZipFile(archive_path) as zf:
+            names = zf.namelist()
+            file_count = len(names)
+            for pattern, label, mode in CONTAMINANTS:
+                for name in names:
+                    segments = name.split("/")
+                    matched = False
+                    for seg in segments:
+                        if mode == "segment" and seg == pattern:
+                            matched = True
+                            break
+                        elif mode == "suffix" and seg.endswith(pattern):
+                            matched = True
+                            break
+                    if matched:
+                        found.append((name, label))
+                        break
+                else:
+                    continue
+    except zipfile.BadZipFile:
+        print(f"Error: not a valid zip file: {args.archive}", file=sys.stderr)
+        raise SystemExit(1)
+
+    print(f"Archive: {args.archive}")
+    print(f"  Files: {file_count}")
+
+    if found:
+        print(f"\n  Contaminants found ({len(found)}):")
+        for name, label in found:
+            print(f"    - [{label}] {name}")
+        print(f"\n  AUDIT FAILED: {len(found)} contaminant(s)")
+        raise SystemExit(1)
+    else:
+        print(f"  Contaminants: none")
+        print(f"\n  AUDIT PASSED")
 

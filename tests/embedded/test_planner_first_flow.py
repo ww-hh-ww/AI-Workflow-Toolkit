@@ -31,7 +31,7 @@ class TestPlannerFirstFlow(unittest.TestCase):
             / "SKILL.md"
         ).read_text()
         self.assertIn("The user normally talks only to you", text)
-        self.assertIn("not as a manual checklist", text)
+        self.assertIn("NOT the lead implementer", text)
 
 
 if __name__ == "__main__":

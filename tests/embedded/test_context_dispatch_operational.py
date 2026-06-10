@@ -80,7 +80,7 @@ class TestContextDispatchOperational(unittest.TestCase):
 
     # ── Planner skill ──
     def test_planner_skill_has_start_context_cli(self):
-        c = (self.tmp/".claude"/"skills"/"aiwf-planner"/"SKILL.md").read_text()
+        c = (self.tmp/".claude"/"skills"/"aiwf-planner-contracts"/"SKILL.md").read_text()
         self.assertIn("aiwf state start-context", c)
         self.assertIn("--purpose", c)
         self.assertIn("--test-focus", c)

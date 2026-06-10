@@ -3,6 +3,8 @@ name: aiwf-test
 description: Template-guided testing based on planner-selected test_template
 ---
 
+**Goal-driven verification:** Map each acceptance criterion to concrete evidence. A command that does not exercise the changed behavior is not sufficient. Prefer real tool invocations with captured output over prose claims about what was tested.
+
 # AIWF Test
 
 This skill contains role instructions for the AIWF Tester. Loading this skill does not create an independent tester session.

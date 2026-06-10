@@ -56,6 +56,7 @@ class EvidenceRecord:
     stderr_summary: str = ""
     status: str = "pending"
     trust: str = "machine_observed"
+    trust_level: str = "role_recorded"  # evidence trust tier (see evidence_schema.TRUST_LEVELS)
 
 
 @dataclass

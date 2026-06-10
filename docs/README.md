@@ -81,7 +81,7 @@ Hook 脚本在目标项目的 `scripts/` 下，运行时需要导入 `aiwf_core`
 
 **session diversity 硬门**：L2/L3 要求 3 个独立 session 的证据，但 Planner inline 执行只有 1 个。修复：`planner_inline_session` 豁免（后来随 58→5 门简化一起移除，因为 session diversity 不再是门）。
 
-**close_attempt 死锁**：prepare_close 设置 `close_attempt=true` 后，如果 Stop hook 被 session diversity 卡住，新 task 激活也被 `close_attempt=true` 阻塞。修复：prepare_close 无 blocker 时直接 `set_closure_complete`（phase=closed, close_attempt=False），不再依赖 Stop hook 来清。
+**close_attempt 死锁（已修复）**：prepare_close 无 blocker 时直接设置 phase=closed, close_attempt=False, closure_allowed=True，不再依赖 Stop hook 来清。`aiwf state cancel-close` 作为恢复路径可重置卡住的 closing 状态。
 
 ## Hook 架构
 
@@ -95,8 +95,8 @@ Hook 脚本在目标项目的 `scripts/` 下，运行时需要导入 `aiwf_core`
 | `aiwf_scope_check.py` | PreToolUse | 阻止范围外的文件写入 |
 | `aiwf_bash_guard.py` | PreToolUse | 阻止危险 shell 命令 |
 | `aiwf_review_gate.py` | Stop | 评估闭合门，决定是否允许 Stop |
-| `aiwf_rebase_state.py` | — | Planner 手动调用，重建状态 |
-| ~~`aiwf_export_report.py`~~ | — | 已删除，闭合报告不再需要 |
+| `aiwf_rebase_state.py` | — | Planner 手动调用，重建 carry-forward 状态 |
+| `aiwf_export_report.py` | — | 生成闭合报告 (`.aiwf/reports/闭合报告.md`) |
 
 ### 生成机制（`aiwf_core/install_claude.py:_write_scripts`）
 

@@ -7,6 +7,47 @@ from typing import Any, Dict, List, Optional
 from .event_model import EvidenceRecord
 from .state_schema import default_evidence, EVIDENCE_KEYS
 
+# ── Evidence Trust Levels ──
+# Ascending order: each level subsumes the trust of all levels below it.
+TRUST_LEVELS = [
+    "claimed",           # model claims, no machine trace
+    "role_recorded",     # subagent delivery record (role evidence)
+    "git_observed",      # git diff corroborates the claim
+    "command_observed",  # real command output captured
+    "cross_checked",     # independently verified by another role (tester + reviewer)
+    "user_verified",     # human confirmed the result is real/usable
+]
+
+# Minimum trust level required for L2+ closure evidence.
+# Closure requires at least one record at or above this level.
+MIN_TRUST_FOR_CLOSURE = {
+    "L0_direct": "claimed",
+    "L1_review_light": "role_recorded",
+    "L2_standard_team": "command_observed",
+    "L3_full_power": "command_observed",
+}
+
+# L2+ requires evidence from multiple independent sessions (executor, tester, reviewer).
+MIN_INDEPENDENT_SESSIONS = {
+    "L0_direct": 0,
+    "L1_review_light": 1,
+    "L2_standard_team": 3,
+    "L3_full_power": 3,
+}
+
+
+def trust_level_rank(level: str) -> int:
+    """Return numeric rank of a trust level (higher = more trustworthy)."""
+    try:
+        return TRUST_LEVELS.index(level)
+    except ValueError:
+        return -1
+
+
+def meets_trust_threshold(level: str, minimum: str) -> bool:
+    """Check if a trust level meets or exceeds a minimum threshold."""
+    return trust_level_rank(level) >= trust_level_rank(minimum)
+
 
 def next_ev_id(records: List[Dict]) -> str:
     """Generate the next evidence ID: EV-001, EV-002, ..."""
@@ -79,6 +120,7 @@ def record_to_dict(record: EvidenceRecord) -> Dict[str, Any]:
         "stderr_summary": record.stderr_summary,
         "status": record.status,
         "trust": record.trust,
+        "trust_level": record.trust_level,
     }
 
 

@@ -113,7 +113,7 @@ class TestGoalThread(unittest.TestCase):
 
     # ── planner skill ──
     def test_planner_skill_mentions_goal_revise(self):
-        c = (self.tmp/".claude"/"skills"/"aiwf-planner"/"SKILL.md").read_text()
+        c = (self.tmp/".claude"/"skills"/"aiwf-planner-contracts"/"SKILL.md").read_text()
         self.assertIn("goal revise", c.lower())
         self.assertIn("raw discussion", c.lower())
 

@@ -36,7 +36,8 @@ class TestStateCliOps(unittest.TestCase):
         (self.tmp/".aiwf" / "quality" / "testing.json").write_text(json.dumps(
             {"status": "adequate", "commands": ["pytest"]}, indent=2))
         (self.tmp/".aiwf" / "evidence" / "records.json").write_text(json.dumps(
-            {"records": [{"id": "EV-001", "status": "accepted", "trust": "machine_observed"}]}, indent=2))
+            {"records": [{"id": "EV-001", "status": "accepted", "trust": "machine_observed",
+                          "trust_level": "command_observed", "session_id": "s1"}]}, indent=2))
         (self.tmp/".aiwf" / "quality" / "review.json").write_text(json.dumps({
             "result": "accepted",
             "closure_allowed": True,
@@ -212,9 +213,9 @@ class TestStateCliOps(unittest.TestCase):
         self.assertNotIn("closure complete", r.stdout.lower())
 
     def test_review_skill_has_cleanup_helpers(self):
-        c2 = (self.tmp/".claude"/"skills"/"aiwf-review"/"SKILL.md").read_text()
-        self.assertIn("mark-cleanup-fresh", c2)
-        self.assertIn("mark-cleanup-stale", c2)
+        c2 = (self.tmp/".claude"/"agents"/"aiwf-reviewer.md").read_text()
+        self.assertIn("cleanup_verified_at", c2)
+        self.assertIn("--cleanup-status", c2)
 
 
 

@@ -173,7 +173,7 @@ aiwf_core/                     # Python 包
     agents/                    # 子代理定义
     scripts/                   # Hook 脚本
     CLAUDE.md                  # 嵌入项目的 CLAUDE.md 模板
-tests/embedded/                # 嵌入式合同测试（884 个）
+tests/embedded/                # 嵌入式合同测试（876 个）
 docs/                          # 技术文档 — 各子系统内部机制
 ```
 

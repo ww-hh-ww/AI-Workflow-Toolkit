@@ -102,7 +102,7 @@ class TestInstall(unittest.TestCase):
 
     def test_status_shows_embedded_mode(self):
         r = _run([sys.executable, "-m", "aiwf_core.cli", "status"], self.tmp)
-        self.assertIn("Embedded Claude Code", r.stdout)
+        self.assertIn("AIWF V1.0 — Claude Code", r.stdout)
         self.assertIn("Phase:", r.stdout)
 
     def test_claude_md_exists(self):
@@ -132,16 +132,12 @@ class TestInstall(unittest.TestCase):
     def test_claude_md_has_runtime_protocol(self):
         """Generated CLAUDE.md tells planner-main how to resume from mechanical state."""
         content = (self.tmp / "CLAUDE.md").read_text()
-        self.assertIn("## Runtime Protocol", content)
-        self.assertIn("Run `aiwf status` before deciding the next workflow action", content)
-        self.assertIn("Recovery", content)
+        self.assertIn("## Runtime Discipline", content)
+        self.assertIn("Every turn: read the `[AIWF]` status block", content)
+        self.assertIn("PRIMARY", content)
+        self.assertIn("No roleplaying independent Tester or Reviewer", content)
         self.assertIn("PRIMARY", content)
         self.assertIn("REQUIRED NEXT", content)
-        self.assertIn("Do not roleplay Executor, Tester, or Reviewer", content)
-        self.assertIn("auto mode blocks an AIWF lifecycle command", content)
-        self.assertIn("do not bypass it by hand-editing", content)
-        self.assertIn("ask the user to confirm execution", content)
-        self.assertIn("ask whether to commit/push", content)
 
     def test_claude_md_managed_block_idempotent(self):
         """Second install does not duplicate managed block."""
@@ -254,7 +250,6 @@ class TestReasonixInstall(unittest.TestCase):
         self.assertIn("runAs: inline", planner)
         self.assertIn("Subagent Connection Recovery", planner)
         self.assertIn("interrupted/resumable run", planner)
-        self.assertIn("Planner Process Guidance", planner)
 
     def test_reasonix_has_explorer_and_curator_subagent_skills(self):
         for skill in ["aiwf-explore", "aiwf-curate"]:
@@ -262,10 +257,10 @@ class TestReasonixInstall(unittest.TestCase):
             self.assertIn("runAs: subagent", content)
 
     def test_reasonix_planner_prompt_contains_complete_state_machine(self):
-        planner = (self.tmp / ".reasonix" / "skills" / "aiwf-planner" / "SKILL.md").read_text()
+        # State machine lives in the planner-execute sub-skill.
+        execute = (self.tmp / ".reasonix" / "skills" / "aiwf-planner-execute" / "SKILL.md").read_text()
         for phrase in [
             "Mandatory State Machine",
-            "Request Mode Triage",
             "Orient",
             "Freeze the contract",
             "Route and dispatch",
@@ -276,17 +271,22 @@ class TestReasonixInstall(unittest.TestCase):
             "Closure",
             "Carry forward",
         ]:
-            self.assertIn(phrase, planner)
-        machine = planner.split("## Mandatory State Machine", 1)[1].split("## How to Run a Task", 1)[0]
+            self.assertIn(phrase, execute)
+        machine = execute.split("## Mandatory State Machine", 1)[1].split("## How to Run a Task", 1)[0]
         self.assertLess(machine.index("Cleanup before review"), machine.index("**Review**"))
-        self.assertIn("Reasonix Stop **NEVER** blocks closure", planner)
-        self.assertIn("run `aiwf status` once, read its Planner Process Guidance, then answer directly", planner)
-        self.assertIn("blocks only activation of the next ordinary task", planner)
-        self.assertIn("periodic Architect review **NEVER** blocks the current task close", planner)
-        self.assertIn("Reasonix Stop **NEVER** blocks closure, regardless of `close_attempt`", planner)
-        self.assertNotIn("Reasonix Stop **NEVER** treats `close_attempt=false`", planner)
-        self.assertNotIn("Reasonix Stop revalidates and can block", planner)
-        self.assertIn("Reasonix Stop never blocks closure, regardless of `close_attempt`", machine)
+
+        # REASONIX.md carries the constitution — platform-neutral hard boundaries.
+        reasonix_md = (self.tmp / "REASONIX.md").read_text()
+        self.assertIn("prepare-close` is the authoritative gate", reasonix_md)
+        self.assertIn("never blocks current task close", reasonix_md)
+
+        # Planner-main provides the core workflow orchestrator guidance.
+        planner = (self.tmp / ".reasonix" / "skills" / "aiwf-planner" / "SKILL.md").read_text()
+        self.assertIn("run `aiwf status`", planner)
+
+        # REASONIX.md carries the hard boundary facts including closure semantics.
+        self.assertIn("never blocks current task close", reasonix_md)
+        self.assertIn("prepare-close` is the authoritative gate", reasonix_md)
 
     def test_connection_recovery_source_is_shared_partial(self):
         shared = PROJECT_ROOT / "aiwf_core" / "embedded_templates" / "shared"
@@ -367,7 +367,7 @@ class TestReasonixInstall(unittest.TestCase):
 
         status = _run([sys.executable, "-m", "aiwf_core.cli", "status"], self.tmp)
         self.assertEqual(status.returncode, 0, status.stderr)
-        self.assertIn("Embedded Reasonix", status.stdout)
+        self.assertIn("AIWF V1.0 — Reasonix", status.stdout)
 
     def test_claude_install_still_supported(self):
         other = Path(tempfile.mkdtemp(prefix="awin_claude_compat_"))

@@ -70,7 +70,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     if argv[0] in {"--version", "version"}:
         print(f"AIWF V{VERSION}")
         return 0
-    known = {"init", "install", "doctor", "status", "state", "cleanup", "plan", "task", "fixloop", "arch-change", "capability", "recipe", "research", "env", "quality", "idea", "rule", "project-map", "memory", "git", "checkpoint", "goal", "workspace", "asset"}
+    known = {"init", "install", "doctor", "status", "next", "state", "cleanup", "plan", "task", "fixloop", "arch-change", "capability", "recipe", "research", "env", "quality", "idea", "rule", "project-map", "memory", "git", "checkpoint", "goal", "workspace", "asset", "audit-archive"}
     if argv and argv[0] not in known and not argv[0].startswith("-"):
         print(f"Unknown command: {argv[0]}", file=sys.stderr)
         print("Primary path: aiwf install reasonix → reasonix code . → /skill aiwf-planner", file=sys.stderr)

@@ -48,7 +48,7 @@ Planner discussion and research
 -> Current-state and report carry-forward
 ```
 
-Claude Stop may revalidate closure only after `close_attempt=true`. Reasonix Stop is report-only; successful `prepare-close` is authoritative.
+`prepare-close` is the authoritative closure gate: it requires testing passed/adequate, review accepted with closure_allowed=true, cleanup fresh, and accepted evidence before setting phase=closed. The Stop hook performs supplementary revalidation using the same gates. `aiwf state cancel-close` recovers from a stuck closing state by resetting close_attempt and reverting phase to reviewing.
 
 ## Development Rules
 

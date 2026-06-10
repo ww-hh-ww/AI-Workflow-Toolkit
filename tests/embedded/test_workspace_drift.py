@@ -135,7 +135,7 @@ class TestWorkspaceDrift(unittest.TestCase):
 
     # ── planner skill ──
     def test_planner_skill_mentions_workspace_scan(self):
-        c = (self.tmp/".claude"/"skills"/"aiwf-planner"/"SKILL.md").read_text()
+        c = (self.tmp/".claude"/"skills"/"aiwf-planner-execute"/"SKILL.md").read_text()
         self.assertIn("workspace scan", c.lower())
 
 

@@ -358,7 +358,7 @@ def _cmd_cancel_close(args: argparse.Namespace) -> None:
 
 
 def _cmd_prepare_close(args: argparse.Namespace) -> None:
-    """aiwf state prepare-close — promote evidence + set close_attempt."""
+    """aiwf state prepare-close — run authoritative closure gate checks."""
     from ..core.state_ops import prepare_close
     result = prepare_close(str(Path.cwd()))
     passed = result.get('passed', False)
@@ -460,7 +460,8 @@ def _cmd_state_help(args: argparse.Namespace) -> None:
     print("  aiwf state mark-cleanup-stale      — mark cleanup as stale")
     print("  aiwf state record-meta-critique    — record structured Planner meta-critique")
     print("  aiwf state set-workflow-mode       — record uncertainty routing mode")
-    print("  aiwf state prepare-close           — promote evidence + set close_attempt")
+    print("  aiwf state prepare-close           — run authoritative closure gate checks")
+    print("  aiwf state cancel-close            — reset close_attempt, recover from stuck closing state")
 
 def _cmd_record_quality_policy(args: argparse.Namespace) -> None:
     """aiwf state record-quality-policy — write quality policy short keys to state.json."""

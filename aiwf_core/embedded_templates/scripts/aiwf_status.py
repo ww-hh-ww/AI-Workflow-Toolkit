@@ -268,30 +268,77 @@ def recovery_lines(cwd, state, goal, review, fix_loop):
     return out
 
 
-def main():
-    raw = sys.stdin.read().strip()
-    cwd = Path.cwd()
-    if raw:
-        try:
-            d = json.loads(raw)
-            if d.get("cwd"):
-                cwd = Path(d["cwd"])
-        except json.JSONDecodeError:
-            pass
+def _build_short_context(cwd, state, goal, review, fix_loop):
+    """Per-turn injection: only what the model needs to decide its next action.
+    ~8-12 lines. No Gravity, no capabilities, no env, no project-map, no templates.
+    """
+    phase = state.get("phase", "discussing")
+    level = state.get("workflow_level", "L1_review_light")
+    mode = state.get("request_mode", "execution")
+    pattern = state.get("workflow_pattern", "linear")
 
-    state_path = cwd / ".aiwf" / "state" / "state.json"
-    if not state_path.exists():
-        print(json.dumps({"hookSpecificOutput": {
-            "hookEventName": "UserPromptSubmit",
-            "additionalContext": "[AIWF] Not initialized. Run: aiwf install reasonix"
-        }}))
-        return
+    lines = ["[AIWF]"]
+    # 1. Phase + mode (1 line)
+    mode_str = f" mode={mode}/{pattern}" if mode != "execution" or pattern != "linear" else ""
+    lines.append(f"Phase: {phase} level={level}{mode_str}")
 
-    state = rj(state_path)
-    goal = rj(cwd / ".aiwf" / "state" / "goal.json")
-    review = rj(cwd / ".aiwf" / "quality" / "review.json")
-    fix_loop = rj(cwd / ".aiwf" / "state" / "fix-loop.json")
+    # 2. Active task + context (1 line)
+    ctx_id = state.get("active_context_id", "")
+    task_id = state.get("active_task_id", "")
+    if task_id:
+        lines.append(f"Task: {task_id} ctx={ctx_id}" if ctx_id else f"Task: {task_id}")
+    elif ctx_id:
+        lines.append(f"Context: {ctx_id}")
 
+    # 3. Health: blockers only (scope violation, fix-loop, review blocking)
+    health_parts = []
+    if state.get("scope_violation"):
+        health_parts.append("scope violation")
+    if fix_loop.get("status") == "open":
+        health_parts.append(f"fix-loop open → {fix_loop.get('route', '?')}")
+    rev = review.get("result", "unknown")
+    if rev in ("rejected", "needs_fix", "needs_more_testing", "scope_violation"):
+        health_parts.append(f"review={rev}")
+    if health_parts:
+        lines.append(f"BLOCKED: {', '.join(health_parts)}")
+    else:
+        lines.append("Health: ok")
+
+    # 4. Recovery / PRIMARY / REQUIRED NEXT (from recovery_lines)
+    rec = recovery_lines(cwd, state, goal, review, fix_loop)
+    if rec:
+        lines.extend(rec[:3])  # Recovery, PRIMARY, REQUIRED NEXT
+
+    # 5. Forbidden (derived from phase + blockers)
+    forbidden = []
+    if state.get("scope_violation"):
+        forbidden.append("project writes outside active context")
+    if fix_loop.get("status") == "open" and not fix_loop.get("escalation_required"):
+        forbidden.append("resolve fix-loop before prepare-close")
+    if rev not in ("accepted", "unknown") and phase in ("reviewing", "closing"):
+        forbidden.append("prepare-close (review not accepted)")
+    if forbidden:
+        lines.append(f"Forbidden: {', '.join(forbidden)}")
+
+    # 6. Phase anchor [ATTN] — always last for recency weight
+    phase_anchors = {
+        "discussing": "DISCUSSION phase. Load /aiwf-planner. Do NOT write code or create execution state.",
+        "planned": "PLANNED phase. Load /aiwf-planner, then /aiwf-planner-contracts to freeze contracts. Present activation summary, get confirmation, activate task.",
+        "implementing": "EXECUTING phase. Load /aiwf-planner-execute then /aiwf-implement. Work within allowed_write scope.",
+        "testing": "TESTING phase. Load /aiwf-test. Tests must be tool invocations with evidence, not prose claims.",
+        "reviewing": "REVIEWING phase. Load /aiwf-review, then /aiwf-review-trace, /aiwf-review-verify, /aiwf-review-output.",
+        "closing": "CLOSING phase. Load /aiwf-close, then /aiwf-planner-docs. Run prepare_close, present output to user.",
+        "closed": "Task CLOSED. Start next task or run periodic Architect review if due.",
+    }
+    anchor = phase_anchors.get(phase, "")
+    if anchor:
+        lines.append(f"\n[ATTN] {anchor}")
+
+    return "\n".join(lines)
+
+
+def _build_full_context(cwd, state, goal, review, fix_loop):
+    """Full context: all state details for debugging. The original verbose output."""
     lines = ["[AIWF]"]
     lines.append(f"Phase: {state.get('phase', 'unknown')}")
     ledger = rj(cwd / ".aiwf" / "history" / "task-ledger.json", {"tasks": []})
@@ -316,7 +363,7 @@ def main():
         except Exception: lines.append("Workspace drift: not scanned")
     else: lines.append("Workspace drift: not scanned")
     cap_path = cwd / ".aiwf" / "assets" / "capabilities.json"
-    cap_legacy = cwd / ".aiwf" / "capabilities.json"  # legacy pre-v2 flat path
+    cap_legacy = cwd / ".aiwf" / "capabilities.json"
     if not cap_path.exists() and cap_legacy.exists():
         cap_path = cap_legacy
     if cap_path.exists():
@@ -335,7 +382,6 @@ def main():
             lines.append("External capabilities: registry available")
     else:
         lines.append("External capabilities: none")
-    # Environment profile
     env_path = cwd / ".aiwf" / "assets" / "environment.json"
     if env_path.exists():
         try:
@@ -350,29 +396,23 @@ def main():
             lines.append("Environment: available")
     else:
         lines.append("Environment: missing")
-    # Project map
     pm_path = cwd / ".aiwf" / "reports" / "项目地图.md"
     if pm_path.exists(): lines.append("Project Map: present")
     else: lines.append("Project Map: missing")
-    # Quality surfaces
     stypes = goal.get("quality_brief", {}).get("surface_types", [])
     if stypes: lines.append(f"Surfaces: {', '.join(stypes)}")
-    # Architecture brief
     ab = goal.get("quality_brief", {}).get("architecture_brief", {})
     has_ab = ab and any(v for v in ab.values() if v and v != "" and v != [])
     if has_ab: lines.append("Architecture: brief present")
     else: lines.append("Architecture: missing")
-    # ACR status
     acrs = fix_loop.get("architecture_change_requests", []) or []
     has_pending_acr = any(a.get("status") == "proposed" for a in acrs)
     if has_pending_acr: lines.append("Architecture changes: pending")
-
     active_goal = goal.get("active_goal", "")
     gv = goal.get("goal_version", 1)
     gs = goal.get("goal_status", "discussion")
     if active_goal:
         lines.append(f"Goal: v{gv}/{gs} / {active_goal[:120]}")
-
     ctx_id = state.get("active_context_id")
     if ctx_id:
         lines.append(f"Active context: {ctx_id}")
@@ -394,15 +434,11 @@ def main():
         lines.append(f"Review: {rev_result}")
     if state.get("close_attempt"):
         lines.append("Close attempt in progress")
-
-    # Quality brief presence
     brief = goal.get("quality_brief", {})
     if brief.get("acceptance_criteria") or brief.get("test_focus"):
         lines.append("Quality brief: present")
     elif goal.get("confirmed"):
         lines.append("Quality brief: missing; planner should record before execution")
-
-    # Quality policy summary (short keys only)
     if state.get("test_template") and state.get("review_template"):
         lines.append(f"Quality: {state.get('workflow_level', '?')} / {state.get('task_type', '?')}")
         lines.append(f"Templates: test={state['test_template']}, review={state['review_template']}")
@@ -413,8 +449,6 @@ def main():
             lines.append("Planner must resolve/escalate before execution")
     elif state.get("phase") in ("implementing", "testing", "reviewing"):
         lines.append("Quality: not selected yet; planner should record quality policy before execution")
-
-    # Determine next gate
     phase = state.get("phase", "discussing")
     gates = {"discussing": "Confirm goal with user and move to planning",
              "planned": "Planner directs implementation",
@@ -425,24 +459,57 @@ def main():
              "closed": "Task closed"}
     next_gate = gates.get(phase, "Discuss with user to determine next step")
     lines.append(f"Next: {next_gate}")
+    return "\n".join(lines)
 
-    # Phase-specific attention anchor — injected at the END of context for
-    # maximum recency weight.  The model sees this right before responding,
-    # regardless of how long the conversation has been.
-    phase_anchors = {
-        "discussing": "DISCUSSION phase. Load /aiwf-planner. Do NOT write code or create execution state.",
-        "planned": "PLANNED phase. Load /aiwf-planner, then /aiwf-planner-contracts to freeze Architecture Brief and Evaluation Contract. Present activation summary, get confirmation, activate task.",
-        "implementing": "EXECUTING phase. Load /aiwf-planner-execute then /aiwf-implement. Work within allowed_write scope.",
-        "testing": "TESTING phase. Load /aiwf-test. Tests must be tool invocations with evidence, not prose claims.",
-        "reviewing": "REVIEWING phase. Load /aiwf-review, then /aiwf-review-trace (coupling analysis), then /aiwf-review-verify (evidence/quality checks), then /aiwf-review-output (record findings).",
-        "closing": "CLOSING phase. Load /aiwf-close, then /aiwf-planner-docs to update README & docs/. Sync assets (aiwf quality digest). Run prepare_close, present output to user.",
-        "closed": "Task is CLOSED. Start next task or run periodic Architect review if due.",
-    }
-    anchor = phase_anchors.get(phase, "")
-    if anchor:
-        lines.append(f"\n[ATTN] {anchor}")
 
-    context = "\n".join(lines)
+def main():
+    raw = sys.stdin.read().strip()
+    cwd = Path.cwd()
+    if raw:
+        try:
+            d = json.loads(raw)
+            if d.get("cwd"):
+                cwd = Path(d["cwd"])
+        except json.JSONDecodeError:
+            pass
+
+    state_path = cwd / ".aiwf" / "state" / "state.json"
+    if not state_path.exists():
+        print(json.dumps({"hookSpecificOutput": {
+            "hookEventName": "UserPromptSubmit",
+            "additionalContext": "[AIWF] Not initialized. Run: aiwf install reasonix"
+        }}))
+        return
+
+    state = rj(state_path)
+    goal = rj(cwd / ".aiwf" / "state" / "goal.json")
+    review = rj(cwd / ".aiwf" / "quality" / "review.json")
+    fix_loop = rj(cwd / ".aiwf" / "state" / "fix-loop.json")
+
+    # --short: per-turn injection (~8-12 lines). Default for UserPromptSubmit hook.
+    # --debug: full verbose output with Gravity, capabilities, env, etc.
+    short_mode = "--short" in sys.argv
+    debug_mode = "--debug" in sys.argv
+
+    if debug_mode:
+        context = _build_full_context(cwd, state, goal, review, fix_loop)
+        # Append [ATTN] anchor to debug mode too
+        phase = state.get("phase", "discussing")
+        phase_anchors = {
+            "discussing": "DISCUSSION phase. Load /aiwf-planner. Do NOT write code or create execution state.",
+            "planned": "PLANNED phase. Load /aiwf-planner, then /aiwf-planner-contracts to freeze contracts.",
+            "implementing": "EXECUTING phase. Load /aiwf-planner-execute then /aiwf-implement.",
+            "testing": "TESTING phase. Load /aiwf-test.",
+            "reviewing": "REVIEWING phase. Load /aiwf-review chain.",
+            "closing": "CLOSING phase. Load /aiwf-close, then /aiwf-planner-docs.",
+            "closed": "Task CLOSED.",
+        }
+        anchor = phase_anchors.get(phase, "")
+        if anchor:
+            context += f"\n\n[ATTN] {anchor}"
+    else:
+        context = _build_short_context(cwd, state, goal, review, fix_loop)
+
     if os.environ.get("AIWF_HOOK_ENGINE", "").lower() == "reasonix":
         print(context)
     else:

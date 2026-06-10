@@ -95,7 +95,7 @@ class TestGitCommitSafety(unittest.TestCase):
 
     # ── skill text ──
     def test_planner_skill_says_executor_must_not_commit(self):
-        c = (self.tmp/".claude"/"skills"/"aiwf-planner"/"SKILL.md").read_text()
+        c = (self.tmp/".claude"/"skills"/"aiwf-planner-meta"/"SKILL.md").read_text()
         self.assertTrue("must not commit" in c.lower() or "must NOT commit" in c or "not auto-commit" in c.lower() or "executor must" in c.lower(), "Planner should restrict executor commits")
 
 

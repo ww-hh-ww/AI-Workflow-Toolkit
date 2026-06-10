@@ -3,13 +3,14 @@ from __future__ import annotations
 
 import argparse
 
-from .flow import cmd_status
+from .flow import cmd_next, cmd_status
 from .ops_commands import (
     _cmd_arch_change_decide, _cmd_arch_change_help, _cmd_arch_change_list,
-    _cmd_arch_change_request, _cmd_checkpoint_create, _cmd_checkpoint_list,
-    _cmd_checkpoint_restore, _cmd_checkpoint_restore_plan, _cmd_checkpoint_show,
-    _cmd_doctor, _cmd_fix_loop_help, _cmd_fix_loop_open,
-    _cmd_fix_loop_resolve, _cmd_fix_loop_status, _cmd_git_commit,
+    _cmd_arch_change_request, _cmd_audit_archive, _cmd_checkpoint_create,
+    _cmd_checkpoint_list, _cmd_checkpoint_restore, _cmd_checkpoint_restore_plan,
+    _cmd_checkpoint_show, _cmd_doctor, _cmd_fix_loop_help, _cmd_fix_loop_open,
+    _cmd_fix_loop_repair, _cmd_fix_loop_resolve, _cmd_fix_loop_revalidate,
+    _cmd_fix_loop_status, _cmd_git_commit,
     _cmd_git_suggest, _cmd_git_summary, _cmd_install,
 )
 from .project_memory_commands import (
@@ -69,7 +70,13 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
     p_install.add_argument("--force", action="store_true", help="force overwrite existing files")
     p_install.set_defaults(func=_cmd_install)
     sub.add_parser("doctor", help="check AIWF embedded installation health").set_defaults(func=_cmd_doctor)
-    sub.add_parser("status", help="show AIWF embedded project status").set_defaults(func=cmd_status)
+    p_status = sub.add_parser("status", help="show AIWF embedded project status (human short default; --prompt for AI, --debug for full)")
+    p_status.add_argument("--prompt", action="store_true", help="AI prompt injection format (~10 lines)")
+    p_status.add_argument("--debug", action="store_true", help="full debug panel with all sections")
+    p_status.set_defaults(func=cmd_status)
+    p_next = sub.add_parser("next", help="show machine-readable next-action directive for current phase")
+    p_next.add_argument("--role", help="frame output for a specific role (planner|executor|tester|reviewer)", default="")
+    p_next.set_defaults(func=cmd_next)
 
     p_state = sub.add_parser("state", help="AIWF state operations (record-quality-policy)")
     p_state_sub = p_state.add_subparsers(dest="state_cmd")
@@ -194,7 +201,7 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
     p_cc_sub = p_cc.add_subparsers(dest="cleanup_cmd")
     p_cc_sub.add_parser("check", help="run lifecycle cleanup check (read-only)").set_defaults(func=_cmd_cleanup_check)
     p_cc.set_defaults(func=_cmd_cleanup_check)
-    p_pc = p_state_sub.add_parser("prepare-close", help="promote evidence + set close_attempt (does NOT declare success)")
+    p_pc = p_state_sub.add_parser("prepare-close", help="run authoritative closure gate checks (testing, review, evidence, cleanup)")
     p_cc = p_state_sub.add_parser("cancel-close", help="cancel close attempt — resets close_attempt + phase, unblocks task activation")
     p_cc.set_defaults(func=_cmd_cancel_close)
     p_pc.set_defaults(func=_cmd_prepare_close)
@@ -283,6 +290,14 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
     p_fl_resolve.set_defaults(func=_cmd_fix_loop_resolve)
     p_fl_status = p_fl_sub.add_parser("status", help="show fix-loop status")
     p_fl_status.set_defaults(func=_cmd_fix_loop_status)
+    p_fl_repair = p_fl_sub.add_parser("repair", help="declare a repair target for the fix-loop repair window")
+    p_fl_repair.add_argument("--target", required=True, help="file path to repair")
+    p_fl_repair.add_argument("--reason", help="why this repair is needed")
+    p_fl_repair.add_argument("--source", default="planner", help="who declared the repair")
+    p_fl_repair.set_defaults(func=_cmd_fix_loop_repair)
+    p_fl_reval = p_fl_sub.add_parser("revalidate", help="re-validate required_fixes against current git diff + review state")
+    p_fl_reval.add_argument("--force", action="store_true", help="skip diff-unavailable checks")
+    p_fl_reval.set_defaults(func=_cmd_fix_loop_revalidate)
     p_fixloop.set_defaults(func=_cmd_fix_loop_help)
     # ── arch-change ──
     p_ac = sub.add_parser("arch-change", help="architecture change requests (request, list, decide)")
@@ -496,5 +511,8 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
     p_asset_refresh.add_argument("--update", action="store_true", help="update hashes for changed files")
     p_asset_refresh.set_defaults(func=_cmd_asset_refresh)
     p_asset.set_defaults(func=_cmd_asset_init)
+    p_audit = sub.add_parser("audit-archive", help="check a release zip for contaminants (.git, __MACOSX, .DS_Store, .pyc, __pycache__)")
+    p_audit.add_argument("archive", help="path to the release zip")
+    p_audit.set_defaults(func=_cmd_audit_archive)
 
     return parser

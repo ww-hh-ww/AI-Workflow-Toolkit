@@ -223,7 +223,14 @@ def classify_file_change(file_path: str) -> str:
 
 
 def _matches(file_path: str, pattern: str) -> bool:
-    """Check if a normalized relative file_path matches a pattern."""
+    """Check if a normalized relative file_path matches a pattern.
+
+    Supports two forms:
+    - Glob patterns: if pattern contains *, ?, [seq], it is treated as a
+      fnmatch glob (e.g. ``src/*.py``, ``**/test_*.py``).
+    - Prefix patterns: plain paths match as exact or directory prefix
+      (e.g. ``src/`` matches ``src/foo.py``, ``README.md`` is exact).
+    """
     fp = str(file_path)
     p = str(pattern).rstrip("/")
     # Strip ./ prefix from pattern too
@@ -232,6 +239,13 @@ def _matches(file_path: str, pattern: str) -> bool:
 
     if p == "*" or p == "." or p == "":
         return True
+
+    # Glob: use fnmatch for patterns with wildcard characters
+    if any(c in p for c in ("*", "?", "[")):
+        import fnmatch
+        return fnmatch.fnmatch(fp, p)
+
+    # Prefix: exact match or directory-prefix match
     if fp == p:
         return True
     if fp.startswith(p + "/"):

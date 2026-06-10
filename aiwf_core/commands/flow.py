@@ -35,6 +35,9 @@ def cmd_status(args) -> None:
         print('  /skill aiwf-planner "describe your goal"')
         return
 
+    debug_mode = getattr(args, 'debug', False)
+    prompt_mode = getattr(args, 'prompt', False)
+
     state = _read_json(root / ".aiwf" / "state" / "state.json", {})
     goal = _read_json(root / ".aiwf" / "state" / "goal.json", {})
     evidence = _read_json(root / ".aiwf" / "evidence" / "records.json", {"records": []})
@@ -42,6 +45,145 @@ def cmd_status(args) -> None:
     review = _read_json(root / ".aiwf" / "quality" / "review.json", {"result": "unknown", "closure_allowed": False, "blockers": []})
     fix_loop = _read_json(root / ".aiwf" / "state" / "fix-loop.json", {"status": "none"})
 
+    if debug_mode:
+        _print_status_debug(root, state, goal, evidence, testing, review, fix_loop,
+                           reasonix_settings, claude_settings)
+    elif prompt_mode:
+        _print_status_prompt(root, state, goal, testing, review, fix_loop)
+    else:
+        _print_status_human(root, state, goal, evidence, testing, review, fix_loop)
+    return
+
+
+def _print_status_human(root, state, goal, evidence, testing, review, fix_loop):
+    """Human-readable short status — ~15 lines. What's happening, can we close, what's next."""
+    product = "Reasonix" if (root / ".reasonix" / "settings.json").exists() else "Claude Code"
+    print(f"AIWF V{VERSION} — {product}")
+    print()
+
+    phase = state.get("phase", "unknown")
+    goal_text = goal.get("current_goal") or goal.get("active_goal", "") or "(none)"
+    print(f"Goal:  {goal_text[:120]}")
+    print(f"Phase: {phase}  level={state.get('workflow_level', 'L1')}  mode={state.get('request_mode', 'execution')}")
+
+    # Can close?
+    blockers = []
+    if fix_loop.get("status") == "open":
+        blockers.append("fix-loop open")
+    if state.get("scope_violation"):
+        blockers.append("scope violation")
+    rstat = review.get("result", "unknown")
+    if rstat not in ("accepted", "unknown"):
+        blockers.append(f"review={rstat}")
+    tstat = testing.get("status", "missing")
+    if tstat == "failed":
+        blockers.append("testing failed")
+    if review.get("cleanup_status") != "fresh":
+        blockers.append("cleanup not fresh")
+    recs = evidence.get("records", []) or []
+    ev_acc = sum(1 for r in recs if r.get("status") == "accepted")
+    if not ev_acc:
+        blockers.append("no accepted evidence")
+
+    can_close = phase == "closed" or (not blockers and phase in ("reviewing", "closing"))
+    print(f"Can close: {'yes' if can_close else 'no'}")
+    if blockers:
+        print(f"  Why: {', '.join(blockers[:3])}")
+
+    # Next action
+    try:
+        from ..core.process_contract import planner_process_guidance
+        guidance = planner_process_guidance(str(root))
+        rec = guidance.get("recovery") or {}
+        if rec and rec.get("state") != "clear":
+            primary = rec.get("primary", "")
+            if primary:
+                print(f"Next: {primary[:160]}")
+    except Exception:
+        pass
+
+    # Evidence + quality
+    print(f"Evidence: {ev_acc} accepted / {len(recs)} raw")
+    print(f"Testing:  {tstat}  Review: {rstat}  Cleanup: {review.get('cleanup_status', '?')}")
+    if state.get("active_task_id"):
+        print(f"Task:     {state['active_task_id']}")
+
+    # Risk
+    risks = []
+    if testing.get("cross_task_risks"):
+        risks.append(f"cross-task risks ({len(testing.get('cross_task_risks', []))})")
+    if testing.get("testing_debt"):
+        risks.append("testing debt")
+    if fix_loop.get("architecture_change_requests"):
+        pending = [a for a in fix_loop.get("architecture_change_requests", [])
+                   if a.get("status") == "proposed"]
+        if pending:
+            risks.append(f"{len(pending)} pending ACR(s)")
+    if risks:
+        print(f"Risk: {', '.join(risks)}")
+
+
+def _print_status_prompt(root, state, goal, testing, review, fix_loop):
+    """AI prompt injection — ~10 lines. Only what the model needs to decide next action."""
+    phase = state.get("phase", "unknown")
+    level = state.get("workflow_level", "L1_review_light")
+    mode = state.get("request_mode", "execution")
+
+    print(f"Phase: {phase}  level={level}  mode={mode}")
+
+    task_id = state.get("active_task_id", "")
+    ctx_id = state.get("active_context_id", "")
+    if task_id:
+        print(f"Task: {task_id}" + (f"  ctx={ctx_id}" if ctx_id else ""))
+
+    blockers = []
+    if fix_loop.get("status") == "open":
+        blockers.append(f"fix-loop open → {fix_loop.get('route', '?')}")
+    if state.get("scope_violation"):
+        blockers.append("scope violation")
+    rstat = review.get("result", "unknown")
+    if rstat not in ("accepted", "unknown"):
+        blockers.append(f"review={rstat}")
+    tstat = testing.get("status", "missing")
+    if tstat == "failed":
+        blockers.append("testing failed")
+    if blockers:
+        print(f"BLOCKED: {', '.join(blockers)}")
+    else:
+        print("Health: ok")
+
+    try:
+        from ..core.process_contract import planner_process_guidance
+        guidance = planner_process_guidance(str(root))
+        rec = guidance.get("recovery") or {}
+        if rec and rec.get("state") != "clear":
+            primary = rec.get("primary", "")
+            if primary:
+                print(f"PRIMARY: {primary[:200]}")
+    except Exception:
+        pass
+
+    # One-line quality
+    print(f"Quality: test={tstat} review={rstat} cleanup={review.get('cleanup_status', '?')}")
+
+    # Phase anchor
+    anchors = {
+        "discussing": "[ATTN] DISCUSSION — load /aiwf-planner, do NOT write code.",
+        "planned": "[ATTN] PLANNED — load /aiwf-planner-contracts, present activation summary.",
+        "implementing": "[ATTN] EXECUTING — work within allowed_write scope.",
+        "testing": "[ATTN] TESTING — run real commands, record evidence.",
+        "reviewing": "[ATTN] REVIEWING — load /aiwf-review chain.",
+        "closing": "[ATTN] CLOSING — load /aiwf-close, run prepare_close.",
+        "closed": "[ATTN] CLOSED.",
+    }
+    anchor = anchors.get(phase, "")
+    if anchor:
+        print(anchor)
+
+
+def _print_status_debug(root, state, goal, evidence, testing, review, fix_loop,
+                        reasonix_settings, claude_settings):
+    """Full debug panel — current verbose output with all sections."""
     recs = evidence.get("records", []) or []
     ev_acc = sum(1 for r in recs if r.get("status") == "accepted")
     from ..core.current_state import current_state_freshness
@@ -345,6 +487,159 @@ def _ideas_status(root: Path) -> str:
     if any(is_idea_active(i) for i in raw_candidates):
         return "available"
     return "none"
+
+
+def cmd_next(args) -> None:
+    """Output machine-readable next-action directive for the current phase."""
+    root = Path.cwd()
+    state_path = root / ".aiwf" / "state" / "state.json"
+
+    role = getattr(args, "role", None) or ""
+    role = role.strip().lower() if role else ""
+
+    # ── Role-specific mode: works even without state ──
+    if role:
+        role_actions = {
+            "planner": ("Run aiwf status; determine next gate; freeze contracts before execution",
+                        "Planner owns the workflow and decides routing",
+                        "Roleplaying executor/tester/reviewer for L2+; skipping gates"),
+            "executor": ("Read context scope and architecture_brief; implement within allowed_write",
+                         "Executor is scoped to assigned context; implement then hand off to Tester",
+                         "Architecture changes without ACR; hand-editing AIWF state; committing code"),
+            "tester": ("Validate at selected test depth; record all commands with output",
+                       "Independent testing is required before review; tests must be traceable",
+                       "Recording adequate without running full regression when template requires; prose-only claims"),
+            "reviewer": ("Verify cleanup_verified_at, audit evidence, check architecture boundaries, record adversarial observations",
+                         "Independent review is required before closure; contract critique, not checklist",
+                         "Reviewing own code; skipping cleanup verification; defaulting to full test rerun"),
+        }
+        action, why, forbidden = role_actions.get(role, role_actions["planner"])
+        print(f"NEXT_ROLE: {role}")
+        print(f"ACTION: {action}")
+        print(f"WHY: {why}")
+        print(f"FORBIDDEN: {forbidden}")
+        return
+
+    if not state_path.exists():
+        print("NEXT_ROLE: user")
+        print("ACTION: aiwf install reasonix (or claude)")
+        print("WHY: no AIWF state found")
+        return
+
+    state = _read_json(state_path, {})
+    goal = _read_json(root / ".aiwf" / "state" / "goal.json", {})
+    contexts = _read_json(root / ".aiwf" / "state" / "contexts.json", {"contexts": []})
+    review = _read_json(root / ".aiwf" / "quality" / "review.json", {"result": "unknown"})
+    fix_loop = _read_json(root / ".aiwf" / "state" / "fix-loop.json", {"status": "none"})
+    testing = _read_json(root / ".aiwf" / "quality" / "testing.json", {"status": "missing"})
+
+    phase = state.get("phase", "discussing")
+    request_mode = state.get("request_mode", "execution")
+    level = state.get("workflow_level", "L1_review_light")
+    ctx_id = state.get("active_context_id") or ""
+    ctx = next((c for c in contexts.get("contexts", []) or [] if c.get("id") == ctx_id), {})
+
+    role = getattr(args, "role", None) or ""
+    role = role.strip().lower() if role else ""
+
+    # ── Role-specific mode: show directive for a specific role regardless of phase ──
+    if role:
+        role_actions = {
+            "planner": {
+                "action": "Run aiwf status; determine next gate; freeze contracts before execution",
+                "why": "Planner owns the workflow and decides routing",
+                "forbidden": "Roleplaying executor/tester/reviewer for L2+; skipping gates",
+            },
+            "executor": {
+                "action": f"Read context {ctx_id} scope and architecture_brief; implement within allowed_write",
+                "why": "Executor is scoped to assigned context; implement then hand off to Tester",
+                "forbidden": "Architecture changes without ACR; hand-editing AIWF state; committing code",
+            },
+            "tester": {
+                "action": f"Validate at depth {state.get('test_template', 'targeted')}; record all commands with output",
+                "why": "Independent testing is required before review; tests must be traceable",
+                "forbidden": "Recording adequate without running full regression when template requires; prose-only claims",
+            },
+            "reviewer": {
+                "action": "Verify cleanup_verified_at, audit evidence, check architecture boundaries, record adversarial observations",
+                "why": "Independent review is required before closure; contract critique, not checklist",
+                "forbidden": "Reviewing own code; skipping cleanup verification; defaulting to full test rerun",
+            },
+        }
+        ra = role_actions.get(role, role_actions["planner"])
+        print(f"NEXT_ROLE: {role}")
+        print(f"ACTION: {ra['action']}")
+        print(f"WHY: {ra['why']}")
+        print(f"FORBIDDEN: {ra['forbidden']}")
+        print(f"PHASE: {phase}")
+        print(f"LEVEL: {level}")
+        if fix_loop.get("status") == "open":
+            print(f"FIX_LOOP: open (route={fix_loop.get('route', '?')})")
+        return
+
+    # ── Phase → next role & action ──
+    phase_map = {
+        "discussing": {
+            "role": "planner",
+            "action": f"Confirm goal and freeze contracts (request_mode={request_mode})",
+            "why": "Contracts must be frozen before any code is written",
+            "forbidden": "Project writes; only state, goal, and plan changes allowed",
+        },
+        "planned": {
+            "role": "executor" if level != "L0_direct" else "planner",
+            "action": f"Implement within context {ctx_id}" if ctx_id else "Activate task first (aiwf task activate)",
+            "why": f"Phase={phase}, level={level}, context={ctx_id or 'none'}",
+            "forbidden": f"Writes outside allowed_write; architecture changes without ACR",
+        },
+        "implementing": {
+            "role": "tester",
+            "action": f"Validate changes at depth {state.get('test_template', 'targeted')}",
+            "why": f"Implementation recorded; independent testing required at level {level}",
+            "forbidden": "Prose-only testing; must record commands and results",
+        },
+        "testing": {
+            "role": "reviewer",
+            "action": "Independent review against evaluation contract",
+            "why": f"Testing status={testing.get('status')}; review depth={state.get('review_template', 'standard')}",
+            "forbidden": "Review before cleanup verification; reviewing own code",
+        },
+        "reviewing": {
+            "role": "planner",
+            "action": "Disposition adversarial observations, then prepare-close",
+            "why": f"Review result={review.get('result')}",
+            "forbidden": "Closing without meta-critique and fix-loop resolution",
+        },
+        "closing": {
+            "role": "planner",
+            "action": "Resolve blockers, complete meta-critique, run prepare-close",
+            "why": "Closure requires all gates passed",
+            "forbidden": "New implementation; only fix-loop and contract updates",
+        },
+        "closed": {
+            "role": "planner",
+            "action": "Carry forward: run aiwf state rebase, review current-state.md",
+            "why": "Workflow complete; prepare for next cycle",
+            "forbidden": "Re-opening closed tasks without new goal",
+        },
+    }
+
+    info = phase_map.get(phase, phase_map["discussing"])
+
+    # ── Default: next role for current phase ──
+    print(f"NEXT_ROLE: {info['role']}")
+    print(f"ACTION: {info['action']}")
+    print(f"WHY: {info['why']}")
+    print(f"FORBIDDEN: {info['forbidden']}")
+    print(f"PHASE: {phase}")
+    print(f"LEVEL: {level}")
+
+    # Extra context
+    if fix_loop.get("status") == "open":
+        print(f"FIX_LOOP: open (route={fix_loop.get('route', '?')}, attempt={fix_loop.get('attempt_count', 0)})")
+    if state.get("scope_violation"):
+        print("SCOPE_VIOLATION: true — resolve before closure")
+    if state.get("quality_escalation_required"):
+        print(f"ESCALATION: {state.get('quality_escalation_reason', '')[:120]}")
 
 
 def _quality_brief_status(goal: Dict[str, Any]) -> str:

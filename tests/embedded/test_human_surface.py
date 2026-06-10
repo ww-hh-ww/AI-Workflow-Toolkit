@@ -149,7 +149,7 @@ class TestHumanSurface(unittest.TestCase):
 
     # ── planner skill ──
     def test_planner_skill_prioritizes_human_surface(self):
-        c = (self.tmp/".claude"/"skills"/"aiwf-planner"/"SKILL.md").read_text()
+        c = (self.tmp/".claude"/"skills"/"aiwf-planner-execute"/"SKILL.md").read_text()
         self.assertIn("current-state.md", c)
         self.assertIn("Summarize first", c)
 

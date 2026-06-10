@@ -89,9 +89,19 @@ if $AUDIT_FAILED; then
 fi
 
 echo "   Audit passed"
+	echo "4. Second-opinion audit (aiwf audit-archive)..."
+	PYTHONPATH="$ROOT" python3 -m aiwf_core.cli audit-archive "$WORKDIR/release.zip" || {
+		echo ""
+		echo "RELEASE AUDIT FAILED (aiwf audit-archive)"
+		exit 1
+	}
 
 cp "$WORKDIR/release.zip" "$ROOT/$RELEASE"
 echo ""
 echo "Release: $ROOT/$RELEASE"
 echo "Files:   $FILE_COUNT"
-echo "PASSED"
+	echo "PASSED"
+	echo ""
+	echo "Distribute this file: $RELEASE"
+	echo "  Do NOT repackage or extract-and-rezip — use the exact file."
+	echo "  Verify any downloaded copy with: aiwf audit-archive <zip>"

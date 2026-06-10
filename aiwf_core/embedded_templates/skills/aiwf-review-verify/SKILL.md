@@ -3,6 +3,8 @@ name: aiwf-review-verify
 description: Evidence integrity, solution quality, acceptance criteria — verify what was delivered
 ---
 
+**Simplicity check:** Flag speculative abstraction, unnecessary configurability, broad refactors, or changes that solve a narrower problem with a larger system. If a simpler implementation would satisfy the same acceptance criteria, the current one is over-engineered.
+
 # AIWF Review — Verify
 
 ## Evidence Integrity Check — Catch "Declared but Not Done"

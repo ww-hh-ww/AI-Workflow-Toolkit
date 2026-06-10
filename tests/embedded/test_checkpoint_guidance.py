@@ -23,27 +23,27 @@ class TestCheckpointGuidance(unittest.TestCase):
 
     # ── planner ──
     def test_planner_has_mode_stash(self):
-        self.assertIn("--mode stash", self._content("skills/aiwf-planner/SKILL.md"))
+        self.assertIn("--mode stash", self._content("skills/aiwf-planner-meta/SKILL.md"))
 
     def test_planner_has_mode_patch(self):
-        self.assertIn("--mode patch", self._content("skills/aiwf-planner/SKILL.md"))
+        self.assertIn("--mode patch", self._content("skills/aiwf-planner-meta/SKILL.md"))
 
     def test_planner_mentions_L2_L3_risky(self):
-        c = self._content("skills/aiwf-planner/SKILL.md")
+        c = self._content("skills/aiwf-planner-meta/SKILL.md")
         self.assertIn("L2", c)
         self.assertIn("L3", c)
 
     def test_planner_says_not_a_git_commit(self):
-        self.assertIn("not a git commit", self._content("skills/aiwf-planner/SKILL.md").lower())
+        self.assertIn("not a git commit", self._content("skills/aiwf-planner-meta/SKILL.md").lower())
 
     # ── reviewer ──
     def test_reviewer_has_stash_patch(self):
-        c = self._content("skills/aiwf-review/SKILL.md")
+        c = self._content("agents/aiwf-reviewer.md")
         self.assertIn("stash checkpoint", c.lower())
         self.assertIn("patch checkpoint", c.lower())
 
     def test_reviewer_has_skip_reason(self):
-        self.assertIn("skip reason", self._content("skills/aiwf-review/SKILL.md").lower())
+        self.assertIn("skip reason", self._content("agents/aiwf-reviewer.md").lower())
 
     def test_reviewer_missing_checkpoint_blocker(self):
         self.assertIn("blocker", self._content("skills/aiwf-review/SKILL.md").lower())

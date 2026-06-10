@@ -159,7 +159,7 @@ class TestLifecycleRebase(unittest.TestCase):
 
         # ── skill text ──
     def test_planner_skill_mentions_current_state(self):
-        c = (self.tmp/".claude"/"skills"/"aiwf-planner"/"SKILL.md").read_text()
+        c = (self.tmp/".claude"/"skills"/"aiwf-planner-execute"/"SKILL.md").read_text()
         self.assertIn("current-state.md", c)
 
     # ── status ──

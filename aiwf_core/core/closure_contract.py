@@ -90,21 +90,36 @@ def closure_conditions_met(
             blockers.append("no accepted evidence")
             missing.append("accepted evidence")
 
-        if testing.get("status", "missing") == "missing":
+        tstat = testing.get("status", "missing")
+        if tstat == "missing":
             blockers.append("testing not recorded")
             missing.append("testing")
+        elif tstat not in ("passed", "adequate"):
+            blockers.append(f"testing status is '{tstat}', not passed/adequate")
+            missing.append("testing")
 
-        if review.get("result", "unknown") == "unknown":
+        rstat = review.get("result", "unknown")
+        if rstat == "unknown":
             blockers.append("review not recorded")
+            missing.append("review")
+        elif rstat != "accepted":
+            blockers.append(f"review result is '{rstat}', not accepted")
+            missing.append("review")
+
+        if rstat == "accepted" and not review.get("closure_allowed", False):
+            blockers.append("review closure_allowed is false")
             missing.append("review")
 
         if review.get("cleanup_status") != "fresh" or review.get("stale_items"):
             blockers.append("cleanup not fresh")
             missing.append("cleanup")
 
+    # Only pass when close_attempt is true, phase is in a closeable state,
+    # AND all gates actually pass. Phase=="closed" is historical — it
+    # should not bypass live blocker checks.
     passed = bool(
-        (close_attempt and not blockers)
-        or state.get("phase") == "closed"
+        (close_attempt or state.get("phase") == "closed")
+        and not blockers
     )
 
     return {

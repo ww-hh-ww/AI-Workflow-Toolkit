@@ -31,8 +31,8 @@ When `escalation_required=true`: STOP. Do NOT send more fixes. Re-evaluate scope
 
 ## Checkpoint Policy
 
-- L0/L1: no checkpoint needed by default. L2: risk-triggered (multi-file change, shared/core logic, public API, refactor touching existing behavior). Use `aiwf checkpoint create --mode patch`. L3: MUST create stash checkpoint (`aiwf checkpoint create --mode stash`).
-- Executor must not commit. Commits are Planner/Close-stage actions only after closure is allowed and user confirms.
+- L0/L1: no checkpoint needed by default. L2: risk-triggered (multi-file change, shared/core logic, public API, refactor touching existing behavior). Use `aiwf checkpoint create --mode patch`. L3: MUST create stash checkpoint (`aiwf checkpoint create --mode stash`) or record a documented skip reason.
+- Executor must not commit; checkpoints are not a git commit. Commits are Planner/Close-stage actions only after closure is allowed and user confirms.
 
 ## Architecture Change Requests
 

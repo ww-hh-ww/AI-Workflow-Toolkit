@@ -17,8 +17,8 @@ class TestCheckpointPolicy(unittest.TestCase):
     def tearDownClass(cls):
         shutil.rmtree(cls.tmp, ignore_errors=True)
 
-    def _planner(self): return (self.tmp/".claude"/"skills"/"aiwf-planner"/"SKILL.md").read_text()
-    def _reviewer(self): return (self.tmp/".claude"/"skills"/"aiwf-review"/"SKILL.md").read_text()
+    def _planner(self): return (self.tmp/".claude"/"skills"/"aiwf-planner-meta"/"SKILL.md").read_text()
+    def _reviewer(self): return (self.tmp/".claude"/"agents"/"aiwf-reviewer.md").read_text()  # checkpoint details are in reviewer agent
     def _close(self): return (self.tmp/".claude"/"skills"/"aiwf-close"/"SKILL.md").read_text()
 
     # ── L0/L1 no default ──

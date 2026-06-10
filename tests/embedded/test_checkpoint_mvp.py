@@ -187,12 +187,12 @@ class TestCheckpointMvp(unittest.TestCase):
         self.assertEqual(len(found), 0, f"Recursive copy found: {found}")
 
     def test_planner_skill_mentions_checkpoint(self):
-        c2 = (self.tmp/".claude"/"skills"/"aiwf-planner"/"SKILL.md").read_text()
+        c2 = (self.tmp/".claude"/"skills"/"aiwf-planner-meta"/"SKILL.md").read_text()
         self.assertIn("checkpoint create", c2.lower())
         self.assertIn("L2", c2)
 
     def test_reviewer_skill_mentions_checkpoint(self):
-        c2 = (self.tmp/".claude"/"skills"/"aiwf-review"/"SKILL.md").read_text()
+        c2 = (self.tmp/".claude"/"agents"/"aiwf-reviewer.md").read_text()
         self.assertIn("checkpoint", c2.lower())
 
     def test_status_shows_checkpoint_available(self):

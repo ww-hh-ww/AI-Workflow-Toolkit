@@ -132,6 +132,17 @@ def record_post_tool_event(
     project_files = [f for f in op_files if classify_file_change(f) == "project"]
     gov_files = [f for f in op_files if classify_file_change(f) == "governance"]
 
+    # Compute trust_level so closure gates can evaluate evidence quality.
+    # Mirrors context_ops.record_role_evidence trust-level logic.
+    if final_source == "pre_post_snapshot":
+        trust_lvl = "command_observed"
+    elif final_attribution == "strong":
+        trust_lvl = "git_observed"
+    elif command:
+        trust_lvl = "command_observed"
+    else:
+        trust_lvl = "role_recorded"
+
     record_dict = {
         "id": record.id,
         "timestamp": record.timestamp,
@@ -154,6 +165,7 @@ def record_post_tool_event(
         "stderr_summary": record.stderr_summary,
         "status": record.status,
         "trust": record.trust,
+        "trust_level": trust_lvl,
     }
 
     records = evidence.get("records", [])

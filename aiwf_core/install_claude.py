@@ -156,7 +156,7 @@ def _build_settings_json(target: EmbedTarget | None = None) -> Dict[str, Any]:
 
     # Pre-compute shell-quoted paths: "${CLAUDE_PROJECT_DIR}/scripts/aiwf_xxx.py"
     qs = f'"{scripts}'
-    q_status       = qs + '/aiwf_status.py"'
+    q_status       = qs + '/aiwf_status.py" --short'
     q_pre_snapshot = qs + '/aiwf_pre_snapshot.py"'
     q_scope_check  = qs + '/aiwf_scope_check.py"'
     q_bash_guard   = qs + '/aiwf_bash_guard.py"'
@@ -273,6 +273,8 @@ SCRIPT_TEMPLATES = {
     "aiwf_bash_guard.py": "scripts/aiwf_bash_guard.py",
     "aiwf_capture_evidence.py": "scripts/aiwf_capture_evidence.py",
     "aiwf_review_gate.py": "scripts/aiwf_review_gate.py",
+    "aiwf_export_report.py": "scripts/aiwf_export_report.py",
+    "aiwf_rebase_state.py": "scripts/aiwf_rebase_state.py",
 }
 
 

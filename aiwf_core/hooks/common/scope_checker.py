@@ -147,6 +147,26 @@ def check_file_write(event: NormalizedEvent) -> ScopeResult:
         return ScopeResult(file_path=file_path, allowed=True,
                           reason="runtime artifact — allowed, add to project excludes if persistent")
 
+    # Fix-loop repair window: when a fix-loop is open, allow minimal writes
+    # to files referenced in required_fixes. This breaks the deadlock where
+    # fix-loop says "fix file X" but scope guard says "can't write file X".
+    fix_loop = _read_json(cwd / ".aiwf" / "state" / "fix-loop.json", {})
+    if fix_loop.get("status") == "open":
+        import re
+        required_fixes = fix_loop.get("required_fixes", []) or []
+        for rf in required_fixes:
+            if not isinstance(rf, str):
+                continue
+            # Extract file paths from the fix description
+            paths = re.findall(r'([\w./-]+\.[\w]+)', rf)
+            for p in paths:
+                p_clean = p.lstrip("./")
+                if normalized == p_clean or normalized.endswith("/" + p_clean):
+                    return ScopeResult(
+                        file_path=file_path, allowed=True,
+                        reason=f"fix-loop repair window: '{normalized}' is a required_fix target"
+                    )
+
     return check_scope(file_path, active_ctx, state, project_root=str(cwd))
 
 

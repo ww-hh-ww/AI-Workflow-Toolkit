@@ -5,6 +5,8 @@ description: Scoped implementation within context allowed_write boundaries
 
 # AIWF Implement
 
+**Surgical change rule:** Every changed line must trace to the active task, Architecture Brief, or a required test fix. Do not refactor, restructure, or improve adjacent code unless the task explicitly requires it. Minimal implementation beats speculative abstraction.
+
 This skill contains role instructions for the AIWF Executor. Loading this skill does not create an independent subagent.
 
 If you are planner-main, do not implement by roleplaying executor. Dispatch the `aiwf-executor` subagent and pass it the active task/context. Only continue inline for an explicitly L0_direct task where Planner inline execution is allowed.
