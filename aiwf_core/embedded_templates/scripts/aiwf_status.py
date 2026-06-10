@@ -430,12 +430,12 @@ def main():
     # maximum recency weight.  The model sees this right before responding,
     # regardless of how long the conversation has been.
     phase_anchors = {
-        "discussing": "DISCUSSION phase. Re-read /aiwf-planner skill. Do NOT write code or create execution state.",
-        "planned": "PLANNED phase. Re-read /aiwf-planner skill. Present activation summary to user, get confirmation, activate task.",
-        "implementing": "EXECUTING phase. Re-read /aiwf-implement skill. Work within allowed_write scope.",
-        "testing": "TESTING phase. Re-read /aiwf-test skill. Tests must be tool invocations with evidence, not prose claims.",
-                "reviewing": "REVIEWING phase. Re-read /aiwf-review skill. CHECKLIST: (1) Evidence traceable to tool executions? (2) Acceptance criteria all met? (3) Dead code, debug artifacts, TODO cruft left behind? (4) Changed subsystems have updated docs/README? (5) Root cause fixed or just symptom patched? Record findings with aiwf state record-review.",
-        "closing": "CLOSING phase. Re-read /aiwf-close skill. Update README & docs/ for changed subsystems (see /aiwf-planner for writing guide). Sync assets (aiwf quality digest). Run prepare_close, present output to user.",
+        "discussing": "DISCUSSION phase. Load /aiwf-planner. Do NOT write code or create execution state.",
+        "planned": "PLANNED phase. Load /aiwf-planner, then /aiwf-planner-contracts to freeze Architecture Brief and Evaluation Contract. Present activation summary, get confirmation, activate task.",
+        "implementing": "EXECUTING phase. Load /aiwf-planner-execute then /aiwf-implement. Work within allowed_write scope.",
+        "testing": "TESTING phase. Load /aiwf-test. Tests must be tool invocations with evidence, not prose claims.",
+        "reviewing": "REVIEWING phase. Load /aiwf-review, then /aiwf-review-trace (coupling analysis), then /aiwf-review-verify (evidence/quality checks), then /aiwf-review-output (record findings).",
+        "closing": "CLOSING phase. Load /aiwf-close, then /aiwf-planner-docs to update README & docs/. Sync assets (aiwf quality digest). Run prepare_close, present output to user.",
         "closed": "Task is CLOSED. Start next task or run periodic Architect review if due.",
     }
     anchor = phase_anchors.get(phase, "")

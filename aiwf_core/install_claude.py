@@ -242,9 +242,16 @@ _TEMPLATE_ROOT = Path(__file__).resolve().parent / "embedded_templates"
 
 SKILL_TEMPLATES = {
     "aiwf-planner": "skills/aiwf-planner/SKILL.md",
+    "aiwf-planner-docs": "skills/aiwf-planner-docs/SKILL.md",
+    "aiwf-planner-contracts": "skills/aiwf-planner-contracts/SKILL.md",
+    "aiwf-planner-execute": "skills/aiwf-planner-execute/SKILL.md",
+    "aiwf-planner-meta": "skills/aiwf-planner-meta/SKILL.md",
     "aiwf-implement": "skills/aiwf-implement/SKILL.md",
     "aiwf-test": "skills/aiwf-test/SKILL.md",
     "aiwf-review": "skills/aiwf-review/SKILL.md",
+    "aiwf-review-trace": "skills/aiwf-review-trace/SKILL.md",
+    "aiwf-review-verify": "skills/aiwf-review-verify/SKILL.md",
+    "aiwf-review-output": "skills/aiwf-review-output/SKILL.md",
     "aiwf-close": "skills/aiwf-close/SKILL.md",
     "aiwf-architect": "skills/aiwf-architect/SKILL.md",
     "aiwf-explore": "skills/aiwf-explore/SKILL.md",
@@ -698,7 +705,7 @@ def doctor(mode: str | None = None) -> Dict[str, Any]:
         "scripts": {},
     }
 
-    for skill in ["aiwf-planner", "aiwf-implement", "aiwf-test", "aiwf-review", "aiwf-close", "aiwf-architect", "aiwf-explore", "aiwf-curate"]:
+    for skill in ["aiwf-planner", "aiwf-planner-docs", "aiwf-planner-contracts", "aiwf-planner-execute", "aiwf-planner-meta", "aiwf-implement", "aiwf-test", "aiwf-review", "aiwf-review-trace", "aiwf-review-verify", "aiwf-review-output", "aiwf-close", "aiwf-architect", "aiwf-explore", "aiwf-curate"]:
         path = root / target.config_dir / "skills" / skill / "SKILL.md"
         exists = path.exists()
         has_frontmatter = False
