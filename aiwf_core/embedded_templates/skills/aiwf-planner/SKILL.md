@@ -134,7 +134,7 @@ For confirmed execution or resume only:
 1. Run `aiwf env scan` + `aiwf capability scan`.
 2. If project has existing code (not empty scaffold), read key source files to understand architecture.
 3. **Fill missing assets — both human and machine**:
-   - Human (reports/): PROJECT-MAP boilerplate → `aiwf project-map update` with real info. current-state.md stale → `aiwf state rebuild-current-state`. quality-digest.md missing → `aiwf quality digest`.
+   - Human (reports/): PROJECT-MAP boilerplate → `aiwf project-map update` with real info. quality-digest.md missing → `aiwf quality digest`.
    - Machine (JSON): task-history empty → `aiwf project bootstrap`. No env profile → `aiwf env scan`. No capabilities → `aiwf capability scan`. Drift unchecked → `aiwf workspace scan`.
    - Verify with `aiwf status` that all Awareness items show "present" or "available", not "missing".
 4. Summarize first: present the user with what this project is, what modules exist, what state it was left in, and what assets were filled.
@@ -246,7 +246,7 @@ Route → L3 on: destructive, security, data_migration (mechanical).
 
 ## State Files to Read Each Session
 
-`.aiwf/reports/当前状态.md` (first!), `.aiwf/state/state.json`, `.aiwf/state/goal.json`, `.aiwf/quality/review.json`, `.aiwf/state/fix-loop.json`, `.aiwf/reports/质量摘要.md`.
+`.aiwf/state/state.json`, `.aiwf/state/goal.json`, `.aiwf/quality/review.json`, `.aiwf/state/fix-loop.json`, `.aiwf/reports/质量摘要.md`.
 
 ## Fix-Loop Handling
 

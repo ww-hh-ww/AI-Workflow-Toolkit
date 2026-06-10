@@ -282,12 +282,3 @@ def _cmd_doctor(args: argparse.Namespace) -> None:
     else:
         print(f"✗ Some checks failed. Run: aiwf install {results.get('mode', 'claude')} --force    to fix.")
 
-def _cmd_export_report(args: argparse.Namespace) -> None:
-    """aiwf export-report — generate AIWF summary report."""
-    import subprocess
-    script = Path.cwd() / "scripts" / "aiwf_export_report.py"
-    if script.exists():
-        subprocess.run([sys.executable, str(script)], check=False)
-    else:
-        print("scripts/aiwf_export_report.py not found. Run: aiwf install claude")
-        raise SystemExit(1)

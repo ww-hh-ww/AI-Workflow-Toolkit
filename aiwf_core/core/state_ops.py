@@ -811,7 +811,7 @@ def build_close_summary(base_dir: str) -> str:
         cs_stat = cs.get("status", "?")
         lines.append(f"  Project docs: {'up to date' if cs_stat == 'fresh' else 'stale'}")
         if cs_stat != "fresh":
-            warns.append("Project documentation is stale — run aiwf state rebuild-current-state")
+            warns.append("Project documentation may be stale — Planner should refresh README and docs/")
     except Exception:
         pass
 

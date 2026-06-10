@@ -26,47 +26,8 @@ SOURCE_FILES = [
     "quality/review.json",
     "history/task-history.json",
     "history/task-ledger.json",
-    "reports/当前状态.md",
-    "reports/闭合报告.md",
     "reports/质量摘要.md",
 ]
-
-REQUIRED_CURRENT_STATE_SECTIONS = [
-    "## Goal & Intent",
-    "## Current Status",
-    "## Quality Snapshot",
-    "## Raw References",
-]
-
-
-def current_state_status(cwd):
-    current = cwd / ".aiwf" / "reports" / "当前状态.md"
-    if not current.exists():
-        return "none"
-    try:
-        current_mtime = current.stat().st_mtime
-    except OSError:
-        return "unreadable"
-    stale = []
-    for name in SOURCE_FILES:
-        source = cwd / ".aiwf" / name
-        if not source.exists():
-            continue
-        try:
-            if source.stat().st_mtime > current_mtime:
-                stale.append(name)
-        except OSError:
-            stale.append(name)
-    if stale:
-        return "stale"
-    try:
-        text = current.read_text(encoding="utf-8", errors="ignore")
-        if any(section not in text for section in REQUIRED_CURRENT_STATE_SECTIONS) or len(text.strip()) < 120:
-            return "incomplete"
-    except OSError:
-        return "unreadable"
-    return "available"
-
 
 def gravity_summary_lines(cwd):
     """Gravity: historical pressure — hotspots, fix-loop trend, drift, pending ADV."""
@@ -267,7 +228,7 @@ def recovery_lines(cwd, state, goal, review, fix_loop):
     if not active_task and state.get("phase") in ("reviewing", "closing"):
         if review.get("result") == "accepted":
             return blocked("closure", "planner", "refresh closure assets and run prepare-close",
-                           "refresh PROJECT-MAP/current-state/quality digest/closure report, then run aiwf state prepare-close")
+                           "refresh PROJECT-MAP and quality digest, then run aiwf state prepare-close")
         return blocked("missing_step", "reviewer", "complete review or resolve review blockers",
                        "dispatch Reviewer or route fix-loop before prepare-close")
     if not active_task:
@@ -333,10 +294,6 @@ def main():
 
     lines = ["[AIWF]"]
     lines.append(f"Phase: {state.get('phase', 'unknown')}")
-    cs_status = current_state_status(cwd)
-    lines.append(f"Current state: {cs_status}")
-    if cs_status in ("stale", "missing", "incomplete"):
-        lines.append("Hint: run aiwf state rebuild-current-state to mechanically regenerate current-state.md")
     ledger = rj(cwd / ".aiwf" / "history" / "task-ledger.json", {"tasks": []})
     tasks = ledger.get("tasks", []) if isinstance(ledger.get("tasks"), list) else []
     active_tasks = [t.get("id") for t in tasks if t.get("status") == "active" and t.get("id")]
@@ -478,7 +435,7 @@ def main():
         "implementing": "EXECUTING phase. Re-read /aiwf-implement skill. Work within allowed_write scope.",
         "testing": "TESTING phase. Re-read /aiwf-test skill. Tests must be tool invocations with evidence, not prose claims.",
                 "reviewing": "REVIEWING phase. Re-read /aiwf-review skill. CHECKLIST: (1) Evidence traceable to tool executions? (2) Acceptance criteria all met? (3) Dead code, debug artifacts, TODO cruft left behind? (4) Changed subsystems have updated docs/README? (5) Root cause fixed or just symptom patched? Record findings with aiwf state record-review.",
-        "closing": "CLOSING phase. Re-read /aiwf-close skill. Update README & docs/ for changed subsystems (see /aiwf-planner for writing guide). Sync assets (rebuild-current-state, quality-digest, export-report). Run prepare_close, present output to user.",
+        "closing": "CLOSING phase. Re-read /aiwf-close skill. Update README & docs/ for changed subsystems (see /aiwf-planner for writing guide). Sync assets (aiwf quality digest). Run prepare_close, present output to user.",
         "closed": "Task is CLOSED. Start next task or run periodic Architect review if due.",
     }
     anchor = phase_anchors.get(phase, "")

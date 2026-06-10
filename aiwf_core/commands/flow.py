@@ -261,11 +261,11 @@ def cmd_status(args) -> None:
     ckpt_dir = root / ".aiwf" / "checkpoints"
     ckpt_exists = ckpt_dir.exists() and any(ckpt_dir.iterdir())
     print(f"  Checkpoint: {'available' if ckpt_exists else 'none'}")
-    print("  .aiwf/reports/当前状态.md      carry-forward summary")
-    print("  .aiwf/reports/闭合报告.md      closure basis")
+    print("  .aiwf/reports/质量摘要.md      quality trends")
+    print("  .aiwf/reports/项目地图.md      architecture direction")
     print("  .aiwf/state|quality|evidence   machine state")
     print()
-    print("  CLI: aiwf doctor | aiwf export-report | aiwf workspace scan | aiwf capability scan")
+    print("  CLI: aiwf doctor | aiwf workspace scan | aiwf capability scan")
 
 
 def _next_action(state, review, fix_loop, drift_pending, cap_high):

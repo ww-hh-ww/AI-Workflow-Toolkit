@@ -206,7 +206,6 @@ def _build_settings_json(target: EmbedTarget | None = None) -> Dict[str, Any]:
                 "Bash(scripts/aiwf_bash_guard.py:*)",
                 "Bash(scripts/aiwf_capture_evidence.py:*)",
                 "Bash(scripts/aiwf_review_gate.py:*)",
-                "Bash(scripts/aiwf_export_report.py:*)",
                 "Read(.aiwf/**)",
                 "Write(.aiwf/**)",
                 "Edit(.aiwf/**)",
@@ -267,8 +266,6 @@ SCRIPT_TEMPLATES = {
     "aiwf_bash_guard.py": "scripts/aiwf_bash_guard.py",
     "aiwf_capture_evidence.py": "scripts/aiwf_capture_evidence.py",
     "aiwf_review_gate.py": "scripts/aiwf_review_gate.py",
-    "aiwf_export_report.py": "scripts/aiwf_export_report.py",
-    "aiwf_rebase_state.py": "scripts/aiwf_rebase_state.py",
 }
 
 
@@ -763,7 +760,7 @@ def doctor(mode: str | None = None) -> Dict[str, Any]:
 
     for script in ["aiwf_status.py", "aiwf_pre_snapshot.py", "aiwf_scope_check.py",
                     "aiwf_bash_guard.py", "aiwf_capture_evidence.py",
-                    "aiwf_review_gate.py", "aiwf_export_report.py", "aiwf_rebase_state.py"]:
+                    "aiwf_review_gate.py"]:
         path = root / "scripts" / script
         exists = path.exists()
         executable = exists and (path.stat().st_mode & 0o111)
@@ -828,7 +825,6 @@ def show_status() -> str:
     lines.append("Continue:")
     lines.append(f"  {target.planner_command}    # discuss with planner-main")
     lines.append("  aiwf doctor                            # check installation health")
-    lines.append("  aiwf export-report                     # generate summary report")
 
     return "\n".join(lines) + "\n"
 

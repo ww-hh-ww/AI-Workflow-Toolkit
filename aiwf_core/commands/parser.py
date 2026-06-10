@@ -8,7 +8,7 @@ from .ops_commands import (
     _cmd_arch_change_decide, _cmd_arch_change_help, _cmd_arch_change_list,
     _cmd_arch_change_request, _cmd_checkpoint_create, _cmd_checkpoint_list,
     _cmd_checkpoint_restore, _cmd_checkpoint_restore_plan, _cmd_checkpoint_show,
-    _cmd_doctor, _cmd_export_report, _cmd_fix_loop_help, _cmd_fix_loop_open,
+    _cmd_doctor, _cmd_fix_loop_help, _cmd_fix_loop_open,
     _cmd_fix_loop_resolve, _cmd_fix_loop_status, _cmd_git_commit,
     _cmd_git_suggest, _cmd_git_summary, _cmd_install,
 )
@@ -70,7 +70,7 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
     p_install.set_defaults(func=_cmd_install)
     sub.add_parser("doctor", help="check AIWF embedded installation health").set_defaults(func=_cmd_doctor)
     sub.add_parser("status", help="show AIWF embedded project status").set_defaults(func=cmd_status)
-    sub.add_parser("export-report", help="generate AIWF summary report to .aiwf/reports/闭合报告.md").set_defaults(func=_cmd_export_report)
+
     p_state = sub.add_parser("state", help="AIWF state operations (record-quality-policy)")
     p_state_sub = p_state.add_subparsers(dest="state_cmd")
     p_qp = p_state_sub.add_parser("record-quality-policy", help="record quality policy in state.json (short keys only)")

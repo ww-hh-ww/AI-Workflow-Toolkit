@@ -95,7 +95,7 @@ Planner must follow the complete state machine:
 9. Fix-loop routes failures and repeats affected downstream stages.
 10. Planner dispositions observations and records meta-critique.
 11. Planner verifies checkpoint requirements and closes the ledger task. A due periodic Architect blocks only the next ordinary task activation.
-12. Refresh assets/reports/current-state, then run authoritative `prepare-close`.
+12. Refresh quality digest, then run authoritative `prepare-close`.
 13. Claude Stop revalidates and can block only when `close_attempt=true`; ordinary Stop does not create a closure attempt. Reasonix Stop reports only.
 
 For process-audit or explanation-only requests, Planner runs `aiwf status` once and answers directly. It must not turn the audit into source exploration or state mutation.

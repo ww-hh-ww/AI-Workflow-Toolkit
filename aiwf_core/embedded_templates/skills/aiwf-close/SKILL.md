@@ -14,9 +14,7 @@ Update project documentation to reflect what changed in this task. Changed modul
 Then sync all project assets:
 
 ```bash
-aiwf state rebuild-current-state
 aiwf quality digest
-aiwf export-report
 ```
 
 ## To Close
