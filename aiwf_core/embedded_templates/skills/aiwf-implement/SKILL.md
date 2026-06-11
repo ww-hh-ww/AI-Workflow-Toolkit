@@ -5,64 +5,43 @@ description: Scoped implementation within context allowed_write boundaries
 
 # AIWF Implement
 
-**Surgical change rule:** Every changed line must trace to the active task, Architecture Brief, or a required test fix. Do not refactor, restructure, or improve adjacent code unless the task explicitly requires it. Minimal implementation beats speculative abstraction.
+**Surgical change rule:** Every changed line must trace to the active plan's Scope or Verification. Do not refactor, restructure, or improve adjacent code unless the task explicitly requires it. Minimal implementation beats speculative abstraction.
 
-This skill contains role instructions for the AIWF Executor. Loading this skill does not create an independent subagent.
-
-If you are planner-main, do not implement by roleplaying executor. Dispatch the `aiwf-executor` subagent and pass it the active task/context. Only continue inline for an explicitly L0_direct task where Planner inline execution is allowed.
-
-When executed inside the AIWF Executor subagent, implement changes within a **specific context's scope**.
+Loading this skill does not create an independent subagent. Follow `.aiwf/state/state.json` `execution_topology`: L0 may be inline; L1 may be single agent with machine evidence; L2/L3 require the planned independent topology unless Planner recorded an explicit substitute. If you are planner-main, no roleplaying executor when the active route requires a separate executor.
 
 ## Before Starting
-1. Read the context's scope from `.aiwf/state/contexts.json` — find your assigned context and its `allowed_write`/`forbidden_write` paths.
-2. Read `.aiwf/state/goal.json` `quality_brief.architecture_brief` — understand structural boundaries, allowed/protected files, forbidden restructures.
-3. Understand the task — ask planner-main if unclear.
-4. Do NOT write outside `allowed_write`. If you need to, report to planner-main.
+
+1. Read your assigned context from `.aiwf/state/contexts.json` — `allowed_write` / `forbidden_write`.
+2. Read `.aiwf/state/goal.json` `quality_brief.architecture_brief` — structural boundaries, protected files, forbidden restructures.
+3. Do NOT write outside `allowed_write`. Report to planner-main if you need to expand scope.
 
 ## Reading Strategy
 
-File reading is the #1 token cost (35-45%). Read with precision:
-- **Locate first**: Use grep/Glob to find specific functions, classes, or patterns.
-- **Read selectively**: Use Read with offset/limit — read only the lines you need. Don't read entire files.
-- **Tests first**: test files show expected behavior more concisely than implementation.
+Locate first with grep/Glob, then read selectively with offset/limit. Tests show expected behavior more concisely than implementation.
 
 ## During Implementation
-- Stay within `architecture_brief.allowed_files` / `allowed_new_files`.
-- Respect `architecture_brief.protected_files` and `forbidden_restructures`.
+
+- Respect `architecture_brief.allowed_files`, `protected_files`, `forbidden_restructures`.
 - Do NOT invent new structure unless explicitly allowed.
-- If implementation changes the project structure (new files, new directories, renamed modules), update `.aiwf/reports/项目地图.md` before handing off to Tester.
-- Follow existing code patterns and conventions.
-- Keep changes minimal and focused.
+- If the plan says Docs/Assets impact=yes for project-map, update `.aiwf/reports/项目地图.md` with new files/directories/renamed modules. If impact=no, skip.
+- Follow existing code patterns. Keep changes minimal and focused.
 
 ## Architecture Change
-If the current `architecture_brief` is insufficient, stop and report:
-```
-Architecture change needed
-- Reason: ...
-- Proposed change: ...
-- Affected files/modules: ...
-- Why current contract is insufficient: ...
-```
-Do NOT silently expand architecture or restructure outside allowed boundaries.
 
-To request a change:
+If the architecture brief is insufficient, stop and report the gap. Do NOT silently expand architecture. Request changes via:
 ```
-aiwf arch-change request   --source executor   --reason "Need new shared validation module"   --proposed-change "Add src/shared/validation.js"   --affected-file src/shared/validation.js   --affected-module calculator   --current-contract-gap "architecture_brief allowed only src/calc.js"   --scope-impact "Adds new shared module"   --risk "May broaden behavior across operations"
+aiwf arch-change request --source executor --reason "..." --proposed-change "..." \
+  --affected-file <path> --affected-module <name> --current-contract-gap "..." \
+  --scope-impact "..." --risk "..."
 ```
-
-Do NOT silently: add architecture, modify protected files, expand public API, move files/modules, redesign shared helpers.
 
 ## After Implementation
-Report back to planner-main with:
-1. List of changed files.
-2. List of commands run with exit codes.
-3. Any issues or scope concerns.
-4. Any architecture contract concerns.
 
-**Evidence is captured automatically by PostToolUse hooks when the engine exposes tool calls.** If planner-main reports missing executor evidence after subagent work, use `aiwf state record-role-evidence --role executor --summary "..." --changed-file <path> --scan-git` as the formal recovery path when git can see the working tree. Do not rely on prose handoff as evidence.
+Report to planner-main: changed files, commands run with exit codes, scope/architecture concerns. Evidence is captured automatically by hooks; if missing, use `aiwf state record-role-evidence --role executor --summary "..." --changed-file <path> --scan-git`.
 
 ## Scope Rules
-- `allowed_write` is the set of paths you may modify.
-- `forbidden_write` is the set of paths you must NEVER touch.
-- `architecture_brief.allowed_files` / `protected_files` / `forbidden_restructures` are additional hard boundaries.
+
+- `allowed_write`: paths you may modify.
+- `forbidden_write`: paths you must NEVER touch.
+- `architecture_brief.allowed_files` / `protected_files` / `forbidden_restructures`: additional hard boundaries.
 - If unsure about a boundary, ASK planner-main.

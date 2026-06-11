@@ -44,6 +44,17 @@ from pathlib import Path
 
 MAX_ITEMS = 5
 MAX_HISTORY = 100
+QUALITY_DIMENSIONS = [
+    "requirement_fit",
+    "architecture_fit",
+    "minimality",
+    "correctness",
+    "test_adequacy",
+    "maintainability",
+    "risk_debt",
+    "human_trust",
+]
+REVIEW_BASIS = ["goal", "plan", "scope", "evidence", "testing", "impact"]
 
 def rj(path, default=None):
     try: return json.loads(path.read_text(encoding="utf-8")) if path.exists() else (default or {})
@@ -60,6 +71,66 @@ def changed_files_from_evidence(evidence):
             for path in rec.get("changed_files") or []:
                 changed.add(path)
     return sorted(changed)
+
+
+def impact_quality_summary_requested(base, state):
+    task_id = state.get("active_task_id") or state.get("active_plan_id") or ""
+    if not task_id:
+        return False
+    plan_path = base / ".aiwf" / "plans" / f"{task_id}.md"
+    if not plan_path.exists():
+        return False
+    try:
+        text = plan_path.read_text(encoding="utf-8")
+    except Exception:
+        return False
+    import re
+    match = re.search(r"## (?:Impact|Docs / Assets Impact)\n(.*?)(?=\n## |\Z)", text, re.DOTALL)
+    if not match:
+        return False
+    return bool(re.search(r"-\s+quality_summary:\s*yes\b", match.group(1), re.IGNORECASE))
+
+
+def quality_dimension_summary(review):
+    dims = review.get("quality_dimensions") or {}
+    if not isinstance(dims, dict) or not dims:
+        return "not scored"
+    counts = {"PASS": 0, "RISK": 0, "FAIL": 0}
+    non_pass = []
+    for dim in QUALITY_DIMENSIONS:
+        value = dims.get(dim, {})
+        score = value.get("score") if isinstance(value, dict) else str(value or "")
+        if score in counts:
+            counts[score] += 1
+        if score and score != "PASS":
+            non_pass.append(f"{dim}={score}")
+    text = f"PASS={counts['PASS']} RISK={counts['RISK']} FAIL={counts['FAIL']}"
+    if non_pass:
+        text += " (" + ", ".join(non_pass[:5]) + ")"
+    return text
+
+
+def review_basis_summary(review):
+    basis = review.get("review_basis") or {}
+    if not isinstance(basis, dict) or not basis:
+        return "not recorded"
+    counts = {"covered": 0, "gap": 0, "not_applicable": 0, "missing": 0}
+    exceptions = []
+    for name in REVIEW_BASIS:
+        value = basis.get(name, {})
+        status = value.get("status") if isinstance(value, dict) else "missing"
+        if status not in counts:
+            status = "missing"
+        counts[status] += 1
+        if status != "covered":
+            exceptions.append(f"{name}={status}")
+    text = (
+        f"covered={counts['covered']} gap={counts['gap']} "
+        f"not_applicable={counts['not_applicable']} missing={counts['missing']}"
+    )
+    if exceptions:
+        text += " (" + ", ".join(exceptions[:5]) + ")"
+    return text
 
 
 def upsert_history(base, state, goal, evidence, testing, review, contexts, fix_loop):
@@ -84,6 +155,8 @@ def upsert_history(base, state, goal, evidence, testing, review, contexts, fix_l
         "testing_status": testing.get("status", "missing"),
         "untested_risk_count": len(testing.get("untested_risks", []) or []),
         "review_result": review.get("result", "unknown"),
+        "review_verdict": review.get("verdict", "pending"),
+        "review_basis_status": review_basis_summary(review),
         "fix_loop_attempt_count": fix_loop.get("attempt_count", 0) or 0,
         "cleanup_status": review.get("cleanup_status", ""),
         "structure_status": review.get("structure_status", ""),
@@ -192,7 +265,8 @@ def main():
     report_exists = (base / ".aiwf" / "reports" / "闭合报告.md").exists()
     history = upsert_history(base, state, goal, evidence, testing, review, contexts, fix_loop)
     qd_path = base / ".aiwf" / "reports" / "质量摘要.md"
-    qd_path.write_text("\n".join(quality_digest_lines(history, testing, review)) + "\n", encoding="utf-8")
+    if impact_quality_summary_requested(base, state):
+        qd_path.write_text("\n".join(quality_digest_lines(history, testing, review)) + "\n", encoding="utf-8")
 
     lines = []
     lines.append("# AIWF Current State")
@@ -214,7 +288,7 @@ def main():
     lines.append("## Executive Summary")
     lines.append(f"- Goal: {goal.get('current_goal') or goal.get('active_goal', '') or '(none)'}")
     lines.append(f"- Now: phase={state.get('phase', 'unknown')}, task={state.get('active_task_id') or '(none)'}, workflow={state.get('workflow_level', state.get('workflow_strength', '?'))}")
-    lines.append(f"- Quality: testing={testing.get('status', 'missing')}, review={review.get('result', 'unknown')}, evidence={accepted_count}/{len(evidence.get('records', []) or [])} accepted")
+    lines.append(f"- Quality: testing={testing.get('status', 'missing')}, review={review.get('result', 'unknown')}, verdict={review.get('verdict', 'pending')}, evidence={accepted_count}/{len(evidence.get('records', []) or [])} accepted")
     lines.append("- Blockers: " + (", ".join(blockers) if blockers else "none"))
     lines.append("")
     lines.append("## Goal & Intent")
@@ -231,6 +305,9 @@ def main():
     lines.append("## Quality Snapshot")
     lines.append(f"- Testing: {testing.get('status', 'missing')}")
     lines.append(f"- Review: {review.get('result', 'unknown')}")
+    lines.append(f"- Verdict: {review.get('verdict', 'pending')}")
+    lines.append(f"- Quality dimensions: {quality_dimension_summary(review)}")
+    lines.append(f"- Review basis: {review_basis_summary(review)}")
     lines.append(f"- Accepted evidence: {accepted_count}")
     lines.append("")
     lines.append("## Last closed task")
@@ -256,7 +333,7 @@ def main():
     if testing.get("commands"): lines.append(f"- Commands: {', '.join(testing['commands'][:3])}")
     lines.append("")
 
-    lines.append(f"## Review result: {review.get('result', 'unknown')}")
+    lines.append(f"## Review result: {review.get('result', 'unknown')} / verdict: {review.get('verdict', 'pending')}")
     lines.append("")
 
     lines.append("## Task history trend")
@@ -265,7 +342,10 @@ def main():
     lines.append("")
 
     lines.append("## Quality digest")
-    lines.append("- .aiwf/reports/质量摘要.md")
+    if qd_path.exists():
+        lines.append("- .aiwf/reports/质量摘要.md")
+    else:
+        lines.append("- not generated (Impact.quality_summary is not yes)")
     lines.append("")
 
     lessons = trunc(review.get("lessons", []))
@@ -307,7 +387,7 @@ def main():
     lines.append("")
     lines.append("## Raw audit references")
     lines.append("- .aiwf/reports/闭合报告.md" if report_exists else "- .aiwf/reports/闭合报告.md (not generated)")
-    lines.append("- .aiwf/reports/质量摘要.md")
+    lines.append("- .aiwf/reports/质量摘要.md" if qd_path.exists() else "- .aiwf/reports/质量摘要.md (not generated)")
     lines.append("- .aiwf/evidence/records.json")
     lines.append("- .aiwf/quality/review.json")
     lines.append("")

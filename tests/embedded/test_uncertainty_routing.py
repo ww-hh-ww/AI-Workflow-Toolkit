@@ -28,6 +28,24 @@ class TestUncertaintyRouting(unittest.TestCase):
         self.assertEqual(r.returncode, 0, f"{args}\nstdout={r.stdout}\nstderr={r.stderr}")
         return r
 
+    def _seed_plan(self, task_id):
+        plan_dir = self.tmp / ".aiwf" / "plans"
+        plan_dir.mkdir(parents=True, exist_ok=True)
+        plan_path = plan_dir / f"{task_id}.md"
+        if not plan_path.exists():
+            plan_path.write_text(
+                f"# {task_id}\n\n"
+                "> AI working plan.\n\n"
+                "## Goal\nTest\n\n## Route\n- How: fix\n\n"
+                "## Scope\n- Change: test\n\n## Risks\n- none\n\n"
+                "## Verification\n- Machine-verifiable: yes\n\n"
+                "## Impact\n- docs: no — test\n- project_map: no — test\n- environment: no — test\n- capabilities: no — test\n- quality_summary: no — test\n\n"
+                "## Done Means\n- test passes\n\n"
+                "## Goal Progress\n- Parent goal: test\n\n"
+                "## Next Steps\n1. done\n",
+                encoding="utf-8",
+            )
+
     def test_default_mode_is_execution_for_backward_compatibility(self):
         state = json.loads((self.tmp / ".aiwf" / "state" / "state.json").read_text())
         self.assertEqual(state["request_mode"], "execution")
@@ -43,6 +61,7 @@ class TestUncertaintyRouting(unittest.TestCase):
             "--reason", "requirements unclear",
         )
         upsert_task(str(self.tmp), "TASK-001", "Premature implementation", status="ready")
+        self._seed_plan("TASK-001")
         result = activate_task(str(self.tmp), "TASK-001")
 
         self.assertFalse(result["activated"])
@@ -68,6 +87,7 @@ class TestUncertaintyRouting(unittest.TestCase):
         (self.tmp / ".aiwf" / "state" / "goal.json").write_text(json.dumps(goal, indent=2))
 
         upsert_task(str(self.tmp), "TASK-001", "Formal implementation", status="ready")
+        self._seed_plan("TASK-001")
         result = activate_task(str(self.tmp), "TASK-001")
         state = json.loads(state_path.read_text())
 
@@ -79,7 +99,16 @@ class TestUncertaintyRouting(unittest.TestCase):
 
         self._run_ok("state", "set-workflow-mode", "--request-mode", "spike", "--workflow-pattern", "linear")
         upsert_task(str(self.tmp), "TASK-001", "Explore feasibility", status="ready")
+        self._seed_plan("TASK-001")
         self.assertTrue(activate_task(str(self.tmp), "TASK-001")["activated"])
+
+        # Set phase=closed to pass the prepare-close gate, then verify spike block
+        state_path = self.tmp / ".aiwf" / "state" / "state.json"
+        state = json.loads(state_path.read_text())
+        state["phase"] = "closed"
+        state["closure_allowed"] = True
+        state["close_prepared_task_id"] = "TASK-001"
+        state_path.write_text(json.dumps(state, indent=2))
 
         result = close_task(str(self.tmp), "TASK-001")
         self.assertFalse(result["closed"])

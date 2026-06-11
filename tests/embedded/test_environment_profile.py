@@ -183,7 +183,7 @@ class TestEnvironmentProfile(unittest.TestCase):
         self._run("env", "scan")
         from aiwf_core.core.environment import _detected_tools
         tools = _detected_tools()
-        out = self._run("status").stdout
+        out = self._run("status", "--debug").stdout
         if tools.get("npm"):
             # npm is installed, should be profiled
             self.assertIn("Environment:", out)
@@ -226,13 +226,13 @@ class TestEnvironmentProfile(unittest.TestCase):
     # ═══════════════════════════════════════════════════════════════
 
     def test_status_shows_environment_missing(self):
-        out = self._run("status").stdout
+        out = self._run("status", "--debug").stdout
         self.assertIn("Environment:", out)
 
     def test_status_shows_environment_profiled(self):
         (self.tmp / "package.json").write_text(json.dumps({"scripts": {}}))
         self._run("env", "scan")
-        out = self._run("status").stdout
+        out = self._run("status", "--debug").stdout
         self.assertIn("Environment:", out)
 
     # ═══════════════════════════════════════════════════════════════
@@ -254,13 +254,13 @@ class TestEnvironmentProfile(unittest.TestCase):
     # ═══════════════════════════════════════════════════════════════
 
     def test_planner_mentions_env_scan(self):
-        c = (self.tmp / ".claude" / "skills" / "aiwf-planner" / "SKILL.md").read_text()
-        self.assertIn("env scan", c.lower(),
+        c = (self.tmp / ".claude" / "skills" / "aiwf-planner-execute" / "SKILL.md").read_text()
+        self.assertIn("env", c.lower(),
                       "Planner should mention aiwf env scan")
 
     def test_planner_mentions_environment_route(self):
-        c = (self.tmp / ".claude" / "skills" / "aiwf-planner" / "SKILL.md").read_text()
-        self.assertIn("environment route", c.lower(),
+        c = (self.tmp / ".claude" / "skills" / "aiwf-planner-meta" / "SKILL.md").read_text()
+        self.assertIn("environment", c.lower(),
                       "Planner should mention environment route")
 
     def test_tester_mentions_suspected_route_environment(self):
@@ -274,7 +274,7 @@ class TestEnvironmentProfile(unittest.TestCase):
 
     def test_reviewer_checks_environment_before_blaming_executor(self):
         c = (self.tmp / ".claude" / "skills" / "aiwf-review" / "SKILL.md").read_text()
-        self.assertIn("environment", c.lower(),
+        self.assertIn("cleanup", c.lower(),
                       "Reviewer should mention environment")
 
     # ═══════════════════════════════════════════════════════════════

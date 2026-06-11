@@ -225,10 +225,15 @@ def recovery_lines(cwd, state, goal, review, fix_loop):
         return blocked("user_decision", "planner", "resolve external research requirement",
                        "promote a research record, or ask user to approve aiwf research skip",
                        user=True)
+    if active_task and state.get("phase") == "closed":
+        return blocked("close_ledger_task", "planner",
+                       f"close active ledger task {active_task}",
+                       f"run aiwf task close {active_task}; prepare-close passed but task ledger is still active",
+                       user=False)
     if not active_task and state.get("phase") in ("reviewing", "closing"):
         if review.get("result") == "accepted":
-            return blocked("closure", "planner", "refresh closure assets and run prepare-close",
-                           "refresh PROJECT-MAP and quality digest, then run aiwf state prepare-close")
+            return blocked("closure", "planner", "follow active plan Impact and run prepare-close",
+                           "follow active plan Impact, then run aiwf state prepare-close")
         return blocked("missing_step", "reviewer", "complete review or resolve review blockers",
                        "dispatch Reviewer or route fix-loop before prepare-close")
     if not active_task:
@@ -281,6 +286,7 @@ def _build_short_context(cwd, state, goal, review, fix_loop):
     # 1. Phase + mode (1 line)
     mode_str = f" mode={mode}/{pattern}" if mode != "execution" or pattern != "linear" else ""
     lines.append(f"Phase: {phase} level={level}{mode_str}")
+    lines.append(f"Process: level={level} mode={mode} route={pattern}")
 
     # 2. Active task + context (1 line)
     ctx_id = state.get("active_context_id", "")
@@ -317,6 +323,8 @@ def _build_short_context(cwd, state, goal, review, fix_loop):
         forbidden.append("resolve fix-loop before prepare-close")
     if rev not in ("accepted", "unknown") and phase in ("reviewing", "closing"):
         forbidden.append("prepare-close (review not accepted)")
+    if phase == "closed" and state.get("active_task_id"):
+        forbidden.append("project writes until task ledger is closed")
     if forbidden:
         lines.append(f"Forbidden: {', '.join(forbidden)}")
 
@@ -328,7 +336,9 @@ def _build_short_context(cwd, state, goal, review, fix_loop):
         "testing": "TESTING phase. Load /aiwf-test. Tests must be tool invocations with evidence, not prose claims.",
         "reviewing": "REVIEWING phase. Load /aiwf-review, then /aiwf-review-trace, /aiwf-review-verify, /aiwf-review-output.",
         "closing": "CLOSING phase. Load /aiwf-close, then /aiwf-planner-docs. Run prepare_close, present output to user.",
-        "closed": "Task CLOSED. Start next task or run periodic Architect review if due.",
+        "closed": ("Task CLOSED. Start next task or run periodic Architect review if due."
+                    if not state.get("active_task_id")
+                    else f"Closure gate passed. Next: run aiwf task close {state['active_task_id']}."),
     }
     anchor = phase_anchors.get(phase, "")
     if anchor:
@@ -431,7 +441,9 @@ def _build_full_context(cwd, state, goal, review, fix_loop):
         lines.append(f"FIX-LOOP OPEN -> {fix_loop.get('route', '?')}")
     rev_result = review.get("result", "unknown")
     if rev_result not in ("unknown",):
-        lines.append(f"Review: {rev_result}")
+        verdict = review.get("verdict", "pending")
+        verdict_part = f" verdict={verdict}" if verdict not in ("", "pending", None) else ""
+        lines.append(f"Review: {rev_result}{verdict_part}")
     if state.get("close_attempt"):
         lines.append("Close attempt in progress")
     brief = goal.get("quality_brief", {})
@@ -477,7 +489,7 @@ def main():
     if not state_path.exists():
         print(json.dumps({"hookSpecificOutput": {
             "hookEventName": "UserPromptSubmit",
-            "additionalContext": "[AIWF] Not initialized. Run: aiwf install reasonix"
+            "additionalContext": "[AIWF] Not initialized. Run: aiwf install claude (or reasonix)"
         }}))
         return
 

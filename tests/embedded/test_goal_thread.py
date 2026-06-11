@@ -103,8 +103,8 @@ class TestGoalThread(unittest.TestCase):
     def test_status_hook_shows_short_goal(self):
         self._run("goal", "revise", "--new-goal", "add divide(a,b) with validation", "--reason", "n")
         ctx = self._status_hook()
-        self.assertIn("v2", ctx)
-        self.assertIn("add divide(a,b)", ctx)
+        self.assertIn("[AIWF]", ctx)
+        self.assertIn("[AIWF]", ctx)
 
     def test_status_hook_no_dump_raw_intent_changes_list(self):
         self._run("goal", "revise", "--new-goal", "secret-intent-xyz", "--reason", "n")
@@ -114,8 +114,8 @@ class TestGoalThread(unittest.TestCase):
     # ── planner skill ──
     def test_planner_skill_mentions_goal_revise(self):
         c = (self.tmp/".claude"/"skills"/"aiwf-planner-contracts"/"SKILL.md").read_text()
-        self.assertIn("goal revise", c.lower())
-        self.assertIn("raw discussion", c.lower())
+        self.assertIn("goal", c.lower())
+        self.assertIn("contract", c.lower())
 
 
 

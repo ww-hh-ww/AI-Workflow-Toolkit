@@ -35,6 +35,9 @@ def record_testing(
     testing_debt: Optional[List[str]] = None,
     repeated_change_hotspots: Optional[List[str]] = None,
     adversarial_mode: bool = False,
+    delta_verification: str = "",
+    reused_evidence_ids: Optional[List[str]] = None,
+    invalidated_evidence_ids: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """Write testing.json consistently. Returns testing dict."""
     base = Path(base_dir)
@@ -65,6 +68,9 @@ def record_testing(
     if testing_debt is not None: testing["testing_debt"] = testing_debt
     if repeated_change_hotspots is not None: testing["repeated_change_hotspots"] = repeated_change_hotspots
     testing["adversarial_mode"] = bool(adversarial_mode)
+    if delta_verification: testing["delta_verification"] = delta_verification
+    if reused_evidence_ids is not None: testing["reused_evidence_ids"] = reused_evidence_ids
+    if invalidated_evidence_ids is not None: testing["invalidated_evidence_ids"] = invalidated_evidence_ids
 
     _write(testing_path, testing)
     state_path = base / ".aiwf" / "state" / "state.json"

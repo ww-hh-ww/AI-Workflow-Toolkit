@@ -21,6 +21,11 @@ def main():
     if gates["passed"]:
         allow()
 
+    # No close attempt was made: closure_conditions_met returns
+    # passed=False with no blockers to mean "ordinary Stop, no gate check".
+    if not gates["blockers"]:
+        allow()
+
     block_stop(
         "AIWF closure gates not met:\n" +
         "\n".join(f"  - {b}" for b in gates["blockers"])

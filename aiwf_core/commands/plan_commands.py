@@ -18,7 +18,7 @@ def _cmd_plan_create(args: argparse.Namespace) -> None:
     result = create_task_plan(str(Path.cwd()), args.task_id, context_id=args.context_id or "", title=args.title or "")
     print(f"Task plan: {args.task_id} created={result['created']}")
     print(f"  Path: {_rel(result['path'])}")
-    print("  Note: plan.md is human-readable; AIWF JSON remains mechanical truth.")
+    print("  Note: .aiwf/plans/ is AI working memory; JSON gates remain mechanical truth.")
 
 
 def _cmd_plan_update(args: argparse.Namespace) -> None:

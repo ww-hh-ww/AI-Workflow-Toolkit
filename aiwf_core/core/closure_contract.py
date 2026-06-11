@@ -110,22 +110,25 @@ def closure_conditions_met(
             blockers.append("review closure_allowed is false")
             missing.append("review")
 
+        from .review_contract import quality_verdict_blockers
+        verdict_blockers = quality_verdict_blockers(review)
+        if verdict_blockers:
+            blockers.extend(verdict_blockers)
+            missing.append("review")
+
         if review.get("cleanup_status") != "fresh" or review.get("stale_items"):
             blockers.append("cleanup not fresh")
             missing.append("cleanup")
 
-    # Only pass when close_attempt is true, phase is in a closeable state,
-    # AND all gates actually pass. Phase=="closed" is historical — it
-    # should not bypass live blocker checks.
-    passed = bool(
-        (close_attempt or state.get("phase") == "closed")
-        and not blockers
-    )
+    # No close attempt and not closed: not passed, but no blockers to report.
+    if not close_attempt and state.get("phase") != "closed":
+        return {"passed": False, "blockers": [], "missing": []}
+
+    passed = not bool(blockers)
 
     return {
         "passed": passed,
         "blockers": blockers,
         "missing": missing,
     }
-
 

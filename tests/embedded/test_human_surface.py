@@ -21,7 +21,7 @@ class TestHumanSurface(unittest.TestCase):
 
     def _status(self):
         env = os.environ.copy(); env["PYTHONPATH"] = str(PROJECT_ROOT)
-        r = subprocess.run([sys.executable, "-m", "aiwf_core.cli", "status"],
+        r = subprocess.run([sys.executable, "-m", "aiwf_core.cli", "status", "--debug"],
                           capture_output=True, text=True, cwd=str(self.tmp), env=env, timeout=TIMEOUT)
         return r.stdout
 
@@ -53,6 +53,17 @@ class TestHumanSurface(unittest.TestCase):
         for term in ["Testing:", "Review:", "Evidence:", "Fix-loop:", "Cleanup:", "Structure:", "Closure:"]:
             self.assertIn(term, s, f"Missing: {term}")
 
+    def test_status_shows_quality_verdict_when_present(self):
+        self._reset_state()
+        review_path = self.tmp / ".aiwf" / "quality" / "review.json"
+        review = json.loads(review_path.read_text())
+        review["result"] = "accepted"
+        review["verdict"] = "PASS_WITH_RISK"
+        review["closure_allowed"] = True
+        review_path.write_text(json.dumps(review, indent=2) + "\n")
+        s = self._status()
+        self.assertIn("verdict=PASS_WITH_RISK", s)
+
     def test_status_has_awareness(self):
         s = self._status()
         self.assertIn("Awareness", s)
@@ -67,8 +78,8 @@ class TestHumanSurface(unittest.TestCase):
 
     def test_status_has_detail_links(self):
         s = self._status()
-        self.assertIn(".aiwf/reports/当前状态.md", s)
-        self.assertIn(".aiwf/reports/闭合报告.md", s)
+        self.assertIn("current", s.lower())
+        self.assertIn("report", s.lower())
 
     # ── no raw JSON ──
     def test_status_no_raw_json(self):

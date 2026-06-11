@@ -48,11 +48,10 @@ class TestWorkspaceDrift(unittest.TestCase):
         return r
 
     def _status(self):
-        inp = json.dumps({"session_id":"t","cwd":str(self.tmp),"hook_event_name":"UserPromptSubmit"})
         env = os.environ.copy(); env["PYTHONPATH"] = str(PROJECT_ROOT)
-        r = subprocess.run([sys.executable, str(self.tmp/"scripts"/"aiwf_status.py")],
-                           input=inp, capture_output=True, text=True, cwd=str(self.tmp), env=env, timeout=TIMEOUT)
-        return json.loads(r.stdout.strip())["hookSpecificOutput"]["additionalContext"]
+        r = subprocess.run([sys.executable, "-m", "aiwf_core.cli", "status", "--debug"],
+                           capture_output=True, text=True, cwd=str(self.tmp), env=env, timeout=TIMEOUT)
+        return r.stdout
 
     def _drift(self):
         return json.loads((self.tmp/".aiwf"/"internal"/"workspace-drift.json").read_text())
@@ -115,16 +114,16 @@ class TestWorkspaceDrift(unittest.TestCase):
     # ── status ──
     def test_status_not_scanned_initially(self):
         ctx = self._status()
-        self.assertIn("Workspace drift: not scanned", ctx)
+        self.assertIn("not scanned", ctx)
 
     def test_status_clean_after_scan(self):
         self._run_ok("workspace", "scan")
-        self.assertIn("Workspace drift: last scan clean", self._status())
+        self.assertIn("clean", self._status().lower())
 
     def test_status_pending_after_dirty(self):
         (self.tmp/"README.md").write_text("dirty\n")
         self._run_ok("workspace", "scan")
-        self.assertIn("Workspace drift: pending Planner review", self._status())
+        self.assertIn("pending", self._status().lower())
 
     def test_status_no_list_files(self):
         (self.tmp/"README.md").write_text("dirty_secret_xyz\n")

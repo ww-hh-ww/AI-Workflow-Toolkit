@@ -168,7 +168,10 @@ def _cmd_record_testing(args: argparse.Namespace) -> None:
                    cross_task_risks=args.cross_task_risks or None,
                    testing_debt=args.testing_debt or None,
                    repeated_change_hotspots=args.repeated_change_hotspots or None,
-                   adversarial_mode=bool(getattr(args, 'adversarial_mode', False)))
+                   adversarial_mode=bool(getattr(args, 'adversarial_mode', False)),
+                   delta_verification=getattr(args, 'delta_verification', '') or '',
+                   reused_evidence_ids=getattr(args, 'reused_evidence_ids', None) or None,
+                   invalidated_evidence_ids=getattr(args, 'invalidated_evidence_ids', None) or None)
     print(f"Testing recorded: status={args.status}")
     if testing.get("evidence_id"): print(f"  Evidence: {testing['evidence_id']} (tester)")
     if args.commands: print(f"  Commands: {len(args.commands)}")
@@ -183,6 +186,12 @@ def _cmd_record_testing(args: argparse.Namespace) -> None:
     if args.inferred_surfaces: print(f"  Inferred surfaces: {', '.join(args.inferred_surfaces)}")
     if args.cross_task_risks: print(f"  Cross-task risks: {len(args.cross_task_risks)}")
     if args.testing_debt: print(f"  Testing debt: {len(args.testing_debt)}")
+    delta = getattr(args, 'delta_verification', '') or ''
+    if delta: print(f"  Delta verification: {delta[:120]}")
+    reused = getattr(args, 'reused_evidence_ids', None) or []
+    if reused: print(f"  Reused evidence: {len(reused)}")
+    invalidated = getattr(args, 'invalidated_evidence_ids', None) or []
+    if invalidated: print(f"  Invalidated evidence: {len(invalidated)}")
 
 
 def _cmd_record_review(args: argparse.Namespace) -> None:
@@ -227,8 +236,11 @@ def _cmd_record_review(args: argparse.Namespace) -> None:
                 )
                 raise SystemExit(1)
 
+    verdict = getattr(args, "verdict", "") or ""
+    effective_accepted = (args.result == "accepted") or verdict in ("PASS", "PASS_WITH_RISK")
+
     # Guard: accepted review must confirm cleanup, docs, and root-cause checks
-    if args.result == "accepted" and not args.force:
+    if effective_accepted and not args.force:
         quality_blockers = []
         if getattr(args, "cleanup_code", "") == "needs_work":
             quality_blockers.append("code cleanup needed (--cleanup-code needs_work)")
@@ -238,7 +250,7 @@ def _cmd_record_review(args: argparse.Namespace) -> None:
             quality_blockers.append("symptom patch, not root cause fix (--root-cause symptom_only)")
         if quality_blockers:
             print(
-                "Review blocked: result=accepted requires all quality checks to pass.\n"
+                "Review blocked: accepted/PASS verdict requires all quality checks to pass.\n"
                 + "\n".join(f"  - {b}" for b in quality_blockers) + "\n"
                 + "  Actions:\n"
                 + "    - Fix the issues and re-run record-review with clean flags, or\n"
@@ -257,10 +269,182 @@ def _cmd_record_review(args: argparse.Namespace) -> None:
             "suggestion": "",
             "disposition": "pending",
         })
+    # V2 quality dimensions
+    dims = {}
+    dim_scores = getattr(args, "dimension_scores", None) or []
+    dim_notes = getattr(args, "dimension_notes", None) or []
+    from ..core.state_schema import (
+        QUALITY_DIMENSIONS, VALID_DIMENSION_SCORES,
+        REVIEW_BASIS, VALID_BASIS_STATUSES,
+    )
+    for entry in dim_scores:
+        if "=" in entry:
+            name, score = entry.split("=", 1)
+            name = name.strip()
+            score = score.strip()
+            if name not in QUALITY_DIMENSIONS:
+                print(f"Review record blocked: unknown quality dimension: {name}", file=sys.stderr)
+                raise SystemExit(1)
+            if score not in VALID_DIMENSION_SCORES or score == "unscored":
+                print(f"Review record blocked: invalid score for {name}: {score}", file=sys.stderr)
+                raise SystemExit(1)
+            dims[name] = {"score": score, "note": ""}
+    for entry in dim_notes:
+        if "=" in entry:
+            key, note = entry.split("=", 1)
+            name = key.replace("_note", "").strip()
+            if name not in QUALITY_DIMENSIONS:
+                print(f"Review record blocked: unknown quality dimension note: {name}", file=sys.stderr)
+                raise SystemExit(1)
+            if name in dims:
+                dims[name]["note"] = note.strip()
+
+    # V2 review basis
+    basis = {}
+    basis_statuses = getattr(args, "basis_statuses", None) or []
+    basis_notes = getattr(args, "basis_notes", None) or []
+    for entry in basis_statuses:
+        if "=" in entry:
+            name, status = entry.split("=", 1)
+            name = name.strip()
+            status = status.strip()
+            if name not in REVIEW_BASIS:
+                print(f"Review record blocked: unknown review basis: {name}", file=sys.stderr)
+                raise SystemExit(1)
+            if status not in VALID_BASIS_STATUSES or status == "missing":
+                print(f"Review record blocked: invalid basis status for {name}: {status}", file=sys.stderr)
+                raise SystemExit(1)
+            basis[name] = {"status": status, "note": ""}
+    for entry in basis_notes:
+        if "=" in entry:
+            key, note = entry.split("=", 1)
+            name = key.replace("_note", "").strip()
+            if name not in REVIEW_BASIS:
+                print(f"Review record blocked: unknown review basis note: {name}", file=sys.stderr)
+                raise SystemExit(1)
+            if name in basis:
+                basis[name]["note"] = note.strip()
+
+    if verdict in ("PASS", "PASS_WITH_RISK"):
+        missing = [name for name in QUALITY_DIMENSIONS if name not in dims]
+        if missing:
+            print(
+                "Review record blocked: PASS/PASS_WITH_RISK requires scored quality dimensions.\n"
+                + "  Missing: " + ", ".join(missing),
+                file=sys.stderr,
+            )
+            raise SystemExit(1)
+        failed = [name for name, entry in dims.items() if entry.get("score") == "FAIL"]
+        if failed:
+            print(
+                "Review record blocked: closure verdict cannot include FAIL dimensions.\n"
+                + "  Failed: " + ", ".join(failed),
+                file=sys.stderr,
+            )
+            raise SystemExit(1)
+        risks = [name for name, entry in dims.items() if entry.get("score") == "RISK"]
+        if verdict == "PASS" and risks:
+            print(
+                "Review record blocked: PASS cannot include RISK dimensions; use PASS_WITH_RISK or resolve them.\n"
+                + "  Risk: " + ", ".join(risks),
+                file=sys.stderr,
+            )
+            raise SystemExit(1)
+        if verdict == "PASS_WITH_RISK":
+            if not risks:
+                print("Review record blocked: PASS_WITH_RISK requires at least one RISK dimension.", file=sys.stderr)
+                raise SystemExit(1)
+            missing_notes = [name for name in risks if not str(dims[name].get("note", "")).strip()]
+            if missing_notes:
+                print(
+                    "Review record blocked: RISK dimensions require dimension notes.\n"
+                    + "  Missing notes: " + ", ".join(missing_notes),
+                    file=sys.stderr,
+                )
+                raise SystemExit(1)
+        missing_basis = [name for name in REVIEW_BASIS if name not in basis]
+        if missing_basis:
+            print(
+                "Review record blocked: PASS/PASS_WITH_RISK requires review basis coverage.\n"
+                + "  Missing: " + ", ".join(missing_basis),
+                file=sys.stderr,
+            )
+            raise SystemExit(1)
+        basis_gaps = [name for name, entry in basis.items() if entry.get("status") == "gap"]
+        if basis_gaps:
+            print(
+                "Review record blocked: closure verdict cannot include review basis gaps.\n"
+                + "  Gaps: " + ", ".join(basis_gaps),
+                file=sys.stderr,
+            )
+            raise SystemExit(1)
+        basis_notes_missing = [
+            name for name, entry in basis.items()
+            if entry.get("status") == "not_applicable" and not str(entry.get("note", "")).strip()
+        ]
+        if basis_notes_missing:
+            print(
+                "Review record blocked: not_applicable review basis items require notes.\n"
+                + "  Missing notes: " + ", ".join(basis_notes_missing),
+                file=sys.stderr,
+            )
+            raise SystemExit(1)
+    elif verdict in ("REVISE", "REJECT"):
+        if not args.blockers:
+            print(
+                f"Review record blocked: {verdict} requires at least one --blocker explaining the quality failure.",
+                file=sys.stderr,
+            )
+            raise SystemExit(1)
+        missing_basis = [name for name in REVIEW_BASIS if name not in basis]
+        if missing_basis:
+            print(
+                f"Review record blocked: {verdict} requires review basis coverage.\n"
+                + "  Missing: " + ", ".join(missing_basis),
+                file=sys.stderr,
+            )
+            raise SystemExit(1)
+        basis_gaps = [name for name, entry in basis.items() if entry.get("status") == "gap"]
+        if not basis_gaps:
+            print(
+                f"Review record blocked: {verdict} requires at least one review basis gap.",
+                file=sys.stderr,
+            )
+            raise SystemExit(1)
+        gap_notes_missing = [
+            name for name in basis_gaps
+            if not str(basis[name].get("note", "")).strip()
+        ]
+        if gap_notes_missing:
+            print(
+                "Review record blocked: gap review basis items require notes.\n"
+                + "  Missing notes: " + ", ".join(gap_notes_missing),
+                file=sys.stderr,
+            )
+            raise SystemExit(1)
+        if dims:
+            failed = [name for name, entry in dims.items() if entry.get("score") == "FAIL"]
+            risks = [name for name, entry in dims.items() if entry.get("score") == "RISK"]
+            if verdict == "REVISE" and not (failed or risks):
+                print(
+                    "Review record blocked: REVISE with quality dimensions requires at least one RISK or FAIL dimension.",
+                    file=sys.stderr,
+                )
+                raise SystemExit(1)
+            if verdict == "REJECT" and not failed:
+                print(
+                    "Review record blocked: REJECT with quality dimensions requires at least one FAIL dimension.",
+                    file=sys.stderr,
+                )
+                raise SystemExit(1)
+
     try:
         review = record_review(
             str(Path.cwd()),
-            result=args.result,
+            result=getattr(args, "result", "") or "",
+            verdict=getattr(args, "verdict", "") or "",
+            quality_dimensions=dims or None,
+            review_basis=basis or None,
             closure_allowed=bool(args.closure_allowed),
             accepted_evidence_ids=args.accepted_evidence_ids or None,
             rejected_evidence_ids=args.rejected_evidence_ids or None,
@@ -277,7 +461,8 @@ def _cmd_record_review(args: argparse.Namespace) -> None:
     except ValueError as e:
         print(f"Review record blocked: {e}", file=sys.stderr)
         raise SystemExit(1)
-    print(f"Review recorded: result={review.get('result')}")
+    verdict_str = f" verdict={review.get('verdict')}" if review.get('verdict') not in ('pending', '', None) else ""
+    print(f"Review recorded: result={review.get('result')}{verdict_str}")
     print(f"  Closure allowed: {review.get('closure_allowed', False)}")
     if review.get("reviewer_evidence_id"):
         print(f"  Evidence: {review['reviewer_evidence_id']} (reviewer)")
@@ -372,7 +557,11 @@ def _cmd_prepare_close(args: argparse.Namespace) -> None:
         summary = result.get("summary", "")
         if summary:
             print(summary)
-        print("\nClosure complete. Stop hook will revalidate.")
+        task_id = result.get("state", {}).get("active_task_id", "") or ""
+        if task_id:
+            print(f"\nClosure gate passed. Next: run aiwf task close {task_id}.")
+        else:
+            print("\nClosure complete. Stop hook will revalidate.")
 
 def _cmd_set_goal_confirmed(args: argparse.Namespace) -> None:
     """aiwf state set-goal-confirmed — toggle goal confirmation."""

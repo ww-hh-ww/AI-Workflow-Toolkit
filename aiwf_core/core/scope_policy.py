@@ -39,6 +39,12 @@ def check_scope(
         )
 
     if not active_context:
+        # Window guard: phase=closed with active task → block project writes until ledger closed
+        if state and state.get("phase") == "closed" and state.get("active_task_id"):
+            return ScopeResult(
+                file_path=normalized, allowed=False,
+                reason=f"prepare-close passed but task ledger still active ({state.get('active_task_id')}); run aiwf task close first",
+            )
         return ScopeResult(file_path=normalized, allowed=True, reason="no active context")
 
     allowed_write: List[str] = active_context.get("allowed_write", []) or []
@@ -191,6 +197,7 @@ GOVERNANCE_ALLOWED_PREFIXES = [
     ".aiwf/quality/testing.json",
     ".aiwf/quality/review.json",
     ".aiwf/state/fix-loop.json",
+    ".aiwf/plans/",
     ".aiwf/reports/",
     ".aiwf/internal/baseline.json",
     ".aiwf/assets/",

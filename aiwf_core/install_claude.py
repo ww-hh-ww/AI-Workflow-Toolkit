@@ -613,6 +613,20 @@ def install_embedded(mode: str = "claude", force: bool = False) -> Dict[str, Any
     # Migrate legacy flat-layout .aiwf files to v2 subdirectory layout.
     _migrate_legacy_paths()
 
+    # Brownfield scan: if project isn't empty, run full bootstrap.
+    # Must run BEFORE AIWF writes any files (CLAUDE.md, settings, scripts, etc.)
+    # so the scan only sees real user project files, not AIWF-installed ones.
+    try:
+        project_files = list(_project_root().glob("*"))
+        ignored = {".aiwf", ".claude", ".reasonix", ".git", ".DS_Store", "scripts", target.instruction_file}
+        non_aiwf = [p for p in project_files if p.name not in ignored]
+        if non_aiwf:
+            from .core.state_ops import bootstrap_project
+            bootstrap_project(str(_project_root()))
+            results["created"].append(rel(_project_root() / ".aiwf" / "history" / "task-history.json"))
+    except Exception:
+        pass
+
     # Embedded install uses the compact .aiwf state directory only.
     results["updated"].append(rel(_write_instruction_md(target)))
     results["updated"].append(rel(_write_settings(target)))
@@ -642,35 +656,15 @@ def install_embedded(mode: str = "claude", force: bool = False) -> Dict[str, Any
     _tk_cfg.write_text(str(_aiwf_toolkit_root()))
     results["created"].append(rel(_tk_cfg))
 
-    # Brownfield scan: if project isn't empty, run full bootstrap
-    try:
-        project_files = list(_project_root().glob("*"))
-        ignored = {".aiwf", ".claude", ".reasonix", ".git", ".DS_Store"}
-        non_aiwf = [p for p in project_files if p.name not in ignored]
-        if non_aiwf:
-            from .core.state_ops import bootstrap_project
-            bootstrap_project(str(_project_root()))
-            results["created"].append(rel(_project_root() / ".aiwf" / "history" / "task-history.json"))
-    except Exception:
-        pass
-
     # Write human-readable README
     readme_path = _aiwf_dir() / "README.md"
     if not readme_path.exists() or force:
         readme_path.write_text(_template_text("README.md"), encoding="utf-8")
         results["created"].append(rel(readme_path))
 
-    # Auto-init PROJECT-MAP if missing
-    from .core.project_map import ensure_project_map
-    pm_path = ensure_project_map(str(_project_root()))
-    if pm_path.exists():
-        results["created"].append(rel(pm_path))
-
-    # Auto-init idea inbox if missing
-    from .core.ideas import ensure_ideas_file
-    ideas_path = ensure_ideas_file(str(_project_root()))
-    if ideas_path.exists():
-        results["created"].append(rel(ideas_path))
+    # PROJECT-MAP and ideas are NOT auto-created on install.
+    # Impact.project_map controls when project-map is generated.
+    # Ideas inbox is deprecated; decisions go into plan sections.
 
     # Write git baseline so PostToolUse diffs exclude install artifacts
     from .hooks.common.diff_snapshot import write_install_baseline

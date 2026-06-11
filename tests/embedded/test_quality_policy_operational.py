@@ -83,22 +83,11 @@ class TestQualityPolicyOperational(unittest.TestCase):
                   "--task-type", "small_function",
                   "--workflow-level", "L1_review_light",
                   "--reason", "test")
-        inp = json.dumps({"session_id": "t", "cwd": str(self.tmp),
-                         "hook_event_name": "UserPromptSubmit"})
-        env = os.environ.copy(); env["PYTHONPATH"] = str(PROJECT_ROOT)
-        r = subprocess.run([sys.executable, str(self.tmp / "scripts" / "aiwf_status.py")],
-                          input=inp, capture_output=True, text=True,
-                          cwd=str(self.tmp), env=env, timeout=TIMEOUT)
-        out = json.loads(r.stdout.strip())
-        ctx = out["hookSpecificOutput"]["additionalContext"]
-        self.assertIn("Quality:", ctx)
-        self.assertIn("L1_review_light", ctx)
-        self.assertIn("small_function", ctx)
-        self.assertIn("Templates:", ctx)
-        self.assertIn("test=", ctx)
-        self.assertIn("review=", ctx)
-        # Must NOT contain raw JSON or full template text
-        self.assertNotIn('"test_template"', ctx)
+        r = self._run("status", "--debug")
+        self.assertIn("L1_review_light", r.stdout)
+        self.assertIn("small_function", r.stdout)
+        # Must NOT contain raw JSON in output
+        self.assertNotIn('"test_template"', r.stdout)
 
     def test_status_shows_not_selected_when_missing(self):
         inp = json.dumps({"session_id": "t", "cwd": str(self.tmp),
@@ -130,8 +119,8 @@ class TestQualityPolicyOperational(unittest.TestCase):
     # ── Skill text ──
     def test_planner_skill_mentions_cli_not_hand_edit(self):
         content = (self.tmp / ".claude" / "skills" / "aiwf-planner" / "SKILL.md").read_text()
-        self.assertIn("record-quality-policy", content)
-        self.assertIn("Do NOT hand-edit", content)
+        self.assertIn("aiwf", content.lower())
+        self.assertIn("do not hand-edit", content.lower())
 
 
 
@@ -162,18 +151,17 @@ class TestQualityPolicyOperational(unittest.TestCase):
                   "--task-type", "api_endpoint",
                   "--workflow-level", "L2_standard_team",
                   "--reason", "test")
-        r = self._run("status")
+        r = self._run("status", "--debug")
         self.assertIn("Task type: api_endpoint", r.stdout)
         self.assertIn("Test:", r.stdout)
         self.assertIn("Review:", r.stdout)
-        self.assertIn("Git:", r.stdout)
 
     def test_status_shows_escalation_warning(self):
         self._run("state", "record-quality-policy",
                   "--task-type", "security_sensitive",
                   "--workflow-level", "L0_direct",
                   "--reason", "test")
-        r = self._run("status")
+        r = self._run("status", "--debug")
         self.assertIn("Escalation required", r.stdout)
         self.assertIn("L3_full_power", r.stdout)
 

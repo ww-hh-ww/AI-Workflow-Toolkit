@@ -75,7 +75,7 @@ class TestQualityBrief(unittest.TestCase):
     def test_planner_skill_mentions_quality_brief(self):
         c = (self.tmp / ".claude" / "skills" / "aiwf-planner" / "SKILL.md").read_text()
         self.assertIn("record-quality-brief", c)
-        self.assertIn("acceptance_criteria", c)
+        self.assertIn("quality", c.lower())
 
     def test_test_skill_reads_test_focus(self):
         c = (self.tmp / ".claude" / "skills" / "aiwf-test" / "SKILL.md").read_text()

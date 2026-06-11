@@ -47,6 +47,13 @@ from .state_commands import (
     _cmd_record_quality_brief, _cmd_record_quality_policy, _cmd_record_testing,
     _cmd_start_context, _cmd_state_help,
 )
+from .claims_commands import (
+    _cmd_claim_help, _cmd_claim_list, _cmd_claim_record, _cmd_claim_verify,
+)
+from .route_commands import (
+    _cmd_route_downgrade, _cmd_route_explain, _cmd_route_help,
+    _cmd_route_substitute,
+)
 from .task_commands import (
     _cmd_task_activate, _cmd_task_close, _cmd_task_help, _cmd_task_plan,
     _cmd_task_status, _cmd_task_suspend,
@@ -57,7 +64,7 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="aiwf",
         description="AIWF — Embedded coding-shell workflow governance.",
-        epilog="Primary path: aiwf install reasonix → reasonix code . → /skill aiwf-planner",
+        epilog="Primary path: aiwf install claude (or reasonix)",
         formatter_class=argparse.RawTextHelpFormatter,
     )
     sub = parser.add_subparsers(dest="cmd")
@@ -157,10 +164,18 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
     p_rt.add_argument("--repeated-change-hotspot", action="append", default=[], dest="repeated_change_hotspots", help="repeatable repeated-change hotspot")
     p_rt.add_argument("--evidence-id", action="append", default=[], dest="evidence_ids", help="repeatable evidence ID backing test results (preferred over --command)")
     p_rt.add_argument("--adversarial-mode", action="store_true", dest="adversarial_mode", help="Tester ran in adversarial mode")
+    p_rt.add_argument("--delta-verification", default="", help="delta verification narrative — what was re-verified vs reused")
+    p_rt.add_argument("--reused-evidence-id", action="append", default=[], dest="reused_evidence_ids", help="repeatable evidence IDs reused from prior testing")
+    p_rt.add_argument("--invalidated-evidence-id", action="append", default=[], dest="invalidated_evidence_ids", help="repeatable evidence IDs invalidated by this fix")
     p_rt.add_argument("--force", action="store_true", help="allow same-session testing on L2+ (Planner inline execution only)")
     p_rt.set_defaults(func=_cmd_record_testing)
-    p_rrv = p_state_sub.add_parser("record-review", help="record review results and reviewer evidence")
-    p_rrv.add_argument("--result", required=True, choices=["accepted","needs_fix","needs_more_testing","evidence_insufficient","scope_violation","rejected"], help="review result")
+    p_rrv = p_state_sub.add_parser("record-review", help="record review results and reviewer evidence (V2: use --verdict for quality outcome)")
+    p_rrv.add_argument("--verdict", default="", choices=["","PASS","PASS_WITH_RISK","REVISE","REJECT"], help="V2 quality verdict (derives result + closure)")
+    p_rrv.add_argument("--result", default="", choices=["","accepted","needs_fix","needs_more_testing","evidence_insufficient","scope_violation","rejected"], help="V1 review result (use --verdict for V2)")
+    p_rrv.add_argument("--dimension-score", action="append", default=[], dest="dimension_scores", metavar="NAME=PASS|RISK|FAIL", help="repeatable dimension score (e.g. correctness=PASS)")
+    p_rrv.add_argument("--dimension-note", action="append", default=[], dest="dimension_notes", metavar="NAME_NOTE=text", help="repeatable dimension note (e.g. correctness_note=logic verified)")
+    p_rrv.add_argument("--basis-status", action="append", default=[], dest="basis_statuses", metavar="NAME=covered|gap|not_applicable", help="repeatable review basis status for goal/plan/scope/evidence/testing/impact")
+    p_rrv.add_argument("--basis-note", action="append", default=[], dest="basis_notes", metavar="NAME_NOTE=text", help="repeatable review basis note (required for gap/not_applicable)")
     p_rrv.add_argument("--closure-allowed", action="store_true", help="allow closure when result=accepted")
     p_rrv.add_argument("--accepted-evidence-id", action="append", default=[], dest="accepted_evidence_ids", help="repeatable accepted evidence ID")
     p_rrv.add_argument("--rejected-evidence-id", action="append", default=[], dest="rejected_evidence_ids", help="repeatable rejected evidence ID")
@@ -168,9 +183,9 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
     p_rrv.add_argument("--adversarial-observation", action="append", default=[], dest="adversarial_observations", help="repeatable adversarial observation message")
     p_rrv.add_argument("--cleanup-status", default="", choices=["","fresh","needs_attention","stale","unknown"], help="cleanup status")
     p_rrv.add_argument("--structure-status", default="", choices=["","accepted","needs_attention","unknown"], help="structure status")
-    p_rrv.add_argument("--cleanup-code", default="", choices=["","clean","needs_work","not_applicable"], help="code cleanliness check (dead code, debug artifacts, TODOs)")
-    p_rrv.add_argument("--docs-checked", default="", choices=["","yes","no","not_applicable"], help="whether changed subsystems have updated docs")
-    p_rrv.add_argument("--root-cause", default="", choices=["","fixed","symptom_only","not_applicable"], help="whether the fix addressed root cause")
+    p_rrv.add_argument("--cleanup-code", default="", choices=["","clean","needs_work","not_applicable"], help="code cleanliness check")
+    p_rrv.add_argument("--docs-checked", default="", choices=["","yes","no","not_applicable"], help="docs updated for changed subsystems")
+    p_rrv.add_argument("--root-cause", default="", choices=["","fixed","symptom_only","not_applicable"], help="whether fix addressed root cause")
     p_rrv.add_argument("--summary", default="", help="short review evidence summary")
     p_rrv.add_argument("--context-id", default="", help="context ID")
     p_rrv.add_argument("--force", action="store_true", help="allow same-session review on L2+ (Planner inline execution only)")
@@ -227,6 +242,44 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
     p_swm.add_argument("--external-research-required", action="store_true", help="flag external research requirement")
     p_swm.set_defaults(func=_cmd_set_workflow_mode)
     p_state.set_defaults(func=_cmd_state_help)
+    # ── route override (V2-A) ──
+    p_route = sub.add_parser("route", help="routing override and explanation (V2-A topology operations)")
+    p_route_sub = p_route.add_subparsers(dest="route_cmd")
+    p_route_sub.add_parser("explain", help="explain current routing decision").set_defaults(func=_cmd_route_explain)
+    p_rd = p_route_sub.add_parser("downgrade", help="request topology downgrade with recorded reason")
+    p_rd.add_argument("--to", required=True,
+                      choices=["single_agent", "single_agent_with_machine_evidence",
+                               "light_review", "standard_team", "fanout_merge"],
+                      help="target execution topology")
+    p_rd.add_argument("--reason", required=True, help="why downgrade is safe for this task")
+    p_rd.add_argument("--substitute", default="", help="alternative verification that replaces the waived topology")
+    p_rd.set_defaults(func=_cmd_route_downgrade)
+    p_rs = p_route_sub.add_parser("substitute", help="waive topology requirement with alternative verification")
+    p_rs.add_argument("--use", required=True,
+                      choices=["single_agent", "single_agent_with_machine_evidence",
+                               "light_review", "standard_team", "fanout_merge"],
+                      help="alternative execution topology to use")
+    p_rs.add_argument("--waive", required=True, help="what topology requirement is being waived")
+    p_rs.add_argument("--reason", required=True, help="why the alternative is sufficient")
+    p_rs.add_argument("--substitute", required=True, help="alternative verification that replaces the waived requirement")
+    p_rs.set_defaults(func=_cmd_route_substitute)
+    p_route.set_defaults(func=_cmd_route_help)
+    # ── claim-evidence alignment ──
+    p_claim = sub.add_parser("claim", help="claim-evidence alignment (record, verify, list)")
+    p_claim_sub = p_claim.add_subparsers(dest="claim_cmd")
+    p_clr = p_claim_sub.add_parser("record", help="record a claim linked to evidence")
+    p_clr.add_argument("--text", required=True, help="claim text (what is being asserted)")
+    p_clr.add_argument("--task-id", default="", help="task this claim belongs to")
+    p_clr.add_argument("--evidence-id", action="append", default=[], dest="evidence_ids", help="repeatable evidence ID backing this claim")
+    p_clr.add_argument("--claim-id", default="", help="custom claim ID (auto-generated if omitted)")
+    p_clr.set_defaults(func=_cmd_claim_record)
+    p_clv = p_claim_sub.add_parser("verify", help="auto-verify claim-evidence alignment")
+    p_clv.add_argument("--task-id", default="", help="only verify claims for this task")
+    p_clv.set_defaults(func=_cmd_claim_verify)
+    p_cll = p_claim_sub.add_parser("list", help="list claims")
+    p_cll.add_argument("--task-id", default="", help="filter by task")
+    p_cll.set_defaults(func=_cmd_claim_list)
+    p_claim.set_defaults(func=_cmd_claim_help)
     # ── task plan artifacts ──
     p_plan = sub.add_parser("plan", help="task plan artifacts (create, update, show, summarize, list)")
     p_plan_sub = p_plan.add_subparsers(dest="plan_cmd")
@@ -237,7 +290,7 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
     p_plc.set_defaults(func=_cmd_plan_create)
     p_plu = p_plan_sub.add_parser("update", help="update one plan section")
     p_plu.add_argument("--task-id", required=True, help="task ID")
-    p_plu.add_argument("--section", required=True, choices=["open-questions","decisions","scope","implementation","testing","review","evidence","checklist"], help="section key")
+    p_plu.add_argument("--section", required=True, choices=["goal","route","scope","risks","decision","verification","impact","docs-assets","done-means","goal-progress","next-steps","open-questions","decisions","implementation","testing","review","evidence","checklist"], help="section key (new: goal/route/scope/risks/decision/verification/impact(docs-assets)/done-means/goal-progress/next-steps; old names map to new)")
     p_plu.add_argument("--content", required=True, help="replacement section content")
     p_plu.set_defaults(func=_cmd_plan_update)
     p_pls = p_plan_sub.add_parser("show", help="show one task plan")
@@ -259,6 +312,9 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
     p_tp.add_argument("--allowed-write", action="append", default=[], dest="allowed_write", help="repeatable allowed write path")
     p_tp.add_argument("--parallel-safe", action="store_true", help="Planner verified independent parallel execution")
     p_tp.add_argument("--note", action="append", default=[], dest="notes", help="repeatable task note")
+    p_tp.add_argument("--parent-goal", default="", dest="parent_goal", help="GOAL-ID this task serves")
+    p_tp.add_argument("--parent-plan", default="", dest="parent_plan", help="PLAN-ID this task belongs to")
+    p_tp.add_argument("--milestone", default="", help="milestone this task advances")
     p_tp.set_defaults(func=_cmd_task_plan)
     p_ta = p_task_sub.add_parser("activate", help="activate a task if execution-window gates pass")
     p_ta.add_argument("task_id", help="task ID")
@@ -281,6 +337,9 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
     p_fl_open.add_argument("--reason", required=True, help="reason for opening the fix-loop")
     p_fl_open.add_argument("--required-fix", action="append", default=[], dest="required_fixes", help="repeatable required fixes")
     p_fl_open.add_argument("--required-verification", action="append", default=[], dest="required_verification", help="repeatable required verification steps")
+    p_fl_open.add_argument("--invalidated-file", action="append", default=[], dest="invalidated_files", help="repeatable files invalidated by this fix-loop")
+    p_fl_open.add_argument("--invalidated-obligation", action="append", default=[], dest="invalidated_obligations", help="repeatable obligations invalidated by this fix-loop")
+    p_fl_open.add_argument("--invalidated-evidence", action="append", default=[], dest="invalidated_evidence_ids", help="repeatable evidence IDs invalidated by this fix-loop")
     p_fl_open.add_argument("--source", default="reviewer", help="who opened the fix-loop (default: reviewer)")
     p_fl_open.set_defaults(func=_cmd_fix_loop_open)
     p_fl_resolve = p_fl_sub.add_parser("resolve", help="resolve a fix-loop")
@@ -383,7 +442,9 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
     p_qual = sub.add_parser("quality", help="quality surface obligations (surfaces, surface)")
     p_qual_sub = p_qual.add_subparsers(dest="quality_cmd")
     p_qual_sub.add_parser("surfaces", help="list known quality surfaces").set_defaults(func=_cmd_quality_surfaces)
-    p_qual_sub.add_parser("digest", help="refresh cross-task quality digest").set_defaults(func=_cmd_quality_digest)
+    p_qd = p_qual_sub.add_parser("digest", help="refresh cross-task quality digest")
+    p_qd.add_argument("--force", action="store_true", help="bypass Impact quality_summary guard")
+    p_qd.set_defaults(func=_cmd_quality_digest)
     p_qs = p_qual_sub.add_parser("surface", help="show obligations for a surface")
     p_qs.add_argument("name", help="surface name (e.g. api_endpoint)")
     p_qs.set_defaults(func=_cmd_quality_surface)

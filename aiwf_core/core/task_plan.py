@@ -1,4 +1,9 @@
-"""Task-level plan artifacts: human-readable recovery notes, never truth."""
+"""Task plan artifacts — AI working memory, not long-form documentation.
+
+.aiwf/plans/<TASK-ID>.md is the AI's current-task workbench:
+compact, actionable, under 80 lines. It guides execution but does not
+replace .aiwf JSON gates for closure.
+"""
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -7,14 +12,29 @@ from typing import Dict, List
 import json
 
 VALID_PLAN_SECTIONS = {
-    "open-questions": "Open Questions",
-    "decisions": "Decisions",
-    "scope": "Scope And Non-Goals",
-    "implementation": "Implementation Outline",
-    "testing": "Test Obligations",
-    "review": "Review Focus",
-    "evidence": "Evidence Links",
-    "checklist": "Current Checklist",
+    # New V2 sections
+    "goal": "Goal",
+    "route": "Route",
+    "scope": "Scope",
+    "risks": "Risks",
+    "decision": "Current Decision",
+    "verification": "Verification",
+    "impact": "Impact",
+    "docs-assets": "Impact",  # backward-compat: old name → Impact
+    "done-means": "Done Means",
+    "goal-progress": "Goal Progress",
+    "next-steps": "Next Steps",
+}
+
+# Backward-compat: old V1 section names → new V2 section names
+SECTION_COMPAT = {
+    "open-questions": "goal",
+    "decisions": "decision",
+    "implementation": "route",
+    "testing": "verification",
+    "review": "verification",
+    "evidence": "verification",
+    "checklist": "next-steps",
 }
 
 
@@ -40,45 +60,57 @@ def plan_path(base_dir: str, task_id: str) -> Path:
 def _default_plan(task_id: str, context_id: str = "", title: str = "") -> str:
     title = title or task_id
     return "\n".join([
-        f"# AIWF Task Plan: {task_id}",
+        f"# {task_id}",
         "",
-        "> Human-readable task plan and recovery artifact. This file is not AIWF mechanical truth.",
-        "> Closure still depends on .aiwf JSON gates: evidence, testing, cleanup, review, meta-critique, and prepare-close.",
+        "> AI working plan. Compact task-local execution memory.",
+        "> Closure gates: .aiwf JSON (testing, review, evidence, cleanup, meta-critique).",
         "",
-        "## Metadata",
-        f"- Task: {task_id}",
-        f"- Context: {context_id or '(none)'}",
-        f"- Title: {title}",
-        f"- Created: {_now()}",
-        "- Truth source: .aiwf/state/*.json, .aiwf/quality/*.json, .aiwf/evidence/*.json, .aiwf/history/*.json",
+        "## Goal",
+        f"{title}",
         "",
-        "## Open Questions",
-        "- None yet.",
+        "## Route",
+        "- How: (fill — what approach, why this way)",
+        "- Alternatives considered: (fill or N/A)",
         "",
-        "## Decisions",
-        "- None yet.",
+        "## Scope",
+        "- Change: (fill)",
+        "- Do NOT change: (fill)",
         "",
-        "## Scope And Non-Goals",
-        "- Scope must match contexts.json allowed_write.",
-        "- This plan cannot expand write boundaries.",
+        "## Risks",
+        "- (fill or none)",
         "",
-        "## Implementation Outline",
-        "- Pending.",
+        "## Current Decision",
+        "- Approach: (fill)",
+        "- Why: (fill)",
         "",
-        "## Test Obligations",
-        "- Pending.",
+        "## Verification",
+        "- Must verify: (fill)",
+        "- Machine-verifiable: yes / no",
+        "- Can waive subagent if: (fill or N/A)",
         "",
-        "## Review Focus",
-        "- Pending.",
+        "## Impact",
         "",
-        "## Evidence Links",
-        "- Evidence IDs are recorded in .aiwf/evidence/records.json.",
+        "> One block for all read/write/sync decisions. yes/no/unknown + short reason.",
+        "> Review checks this against actual changes. No other suggest/read/write policy needed.",
         "",
-        "## Current Checklist",
-        "- [ ] Execution contract frozen in JSON before implementation.",
-        "- [ ] Testing recorded in testing.json.",
-        "- [ ] Cleanup verified before review.",
-        "- [ ] Review recorded in review.json.",
+        "- docs:          unknown — fill",
+        "- project_map:   unknown — fill",
+        "- environment:   unknown — fill",
+        "- capabilities:  unknown — fill",
+        "- quality_summary: unknown — fill",
+        "",
+        "## Done Means",
+        "- This task is done when: (fill)",
+        "",
+        "## Goal Progress",
+        "- Parent goal: (fill)",
+        "- This task advances milestone: (fill)",
+        "- Goal complete after: (fill — which tasks remain)",
+        "",
+        "## Next Steps",
+        "1. (fill)",
+        "2. (fill)",
+        "3. (fill)",
         "",
     ]) + "\n"
 
@@ -124,15 +156,17 @@ def _replace_section(text: str, section_title: str, content: str) -> str:
 
 
 def update_task_plan_section(base_dir: str, task_id: str, section: str, content: str) -> Dict[str, object]:
-    if section not in VALID_PLAN_SECTIONS:
+    # Backward-compat: map old V1 section names to new V2 sections
+    effective = SECTION_COMPAT.get(section, section)
+    if effective not in VALID_PLAN_SECTIONS:
         raise ValueError(f"unknown plan section: {section}")
     path = plan_path(base_dir, task_id)
     if not path.exists():
         create_task_plan(base_dir, task_id)
     text = path.read_text(encoding="utf-8")
-    text = _replace_section(text, VALID_PLAN_SECTIONS[section], content)
+    text = _replace_section(text, VALID_PLAN_SECTIONS[effective], content)
     path.write_text(text, encoding="utf-8")
-    return {"path": str(path), "updated": True, "section": section}
+    return {"path": str(path), "updated": True, "section": section, "effective_section": effective}
 
 
 def summarize_task_plan(base_dir: str, task_id: str) -> Dict[str, object]:
@@ -159,3 +193,164 @@ def list_task_plans(base_dir: str) -> List[Dict[str, object]]:
     for path in sorted(root.glob("*.md")):
         plans.append({"task_id": path.stem, "path": str(path)})
     return plans
+
+
+# Impact categories — the single block that governs read/write/sync decisions
+IMPACT_CATEGORIES = ["docs", "project_map", "environment", "capabilities", "quality_summary"]
+VALID_IMPACT_VALUES = {"yes", "no"}
+
+# Patterns that indicate an unfilled/placeholder Impact value — must be rejected
+_IMPACT_PLACEHOLDER_SUBSTRINGS = [
+    "unknown",
+    "fill",
+    "(reason)",
+    "todo",
+    "yes / no / unknown",
+    "yes/no/unknown",
+]
+
+
+def parse_plan_impact(base_dir: str, task_id: str) -> Dict[str, str]:
+    """Parse the Impact section from a plan and return {category: value}.
+
+    Returns empty dict if plan or Impact section not found.
+    Used by Review to check Impact consistency against actual changes.
+    """
+    import re
+    text = load_task_plan(base_dir, task_id)
+    if not text:
+        return {}
+
+    # Find Impact section (new heading "## Impact" or old "## Docs / Assets Impact")
+    m = re.search(r'## (?:Impact|Docs / Assets Impact)\n(.*?)(?=\n## |\Z)', text, re.DOTALL)
+    if not m:
+        return {}
+
+    impact = {}
+    body = m.group(1)
+    for cat in IMPACT_CATEGORIES:
+        pattern = rf'-\s+{cat}:\s*(yes|no)'
+        match = re.search(pattern, body)
+        if match:
+            impact[cat] = match.group(1)
+    return impact
+
+
+def validate_plan_impact(base_dir: str, task_id: str) -> List[str]:
+    """Check if the Impact section is complete and valid.
+
+    Returns a list of issues (empty = valid). Used as a planning gate.
+    docs and project_map are required; all categories must be yes/no with a reason.
+    Placeholder values (unknown, fill, (reason), TODO, etc.) are rejected.
+    """
+    import re
+    text = load_task_plan(base_dir, task_id)
+    issues = []
+
+    if not text:
+        issues.append("Impact section missing — plan must have an Impact block")
+        return issues
+
+    # Find Impact section
+    m = re.search(r'## (?:Impact|Docs / Assets Impact)\n(.*?)(?=\n## |\Z)', text, re.DOTALL)
+    if not m:
+        issues.append("Impact section missing — plan must have an Impact block")
+        return issues
+
+    body = m.group(1)
+
+    for cat in IMPACT_CATEGORIES:
+        # Extract the full value text after the category label
+        pattern = rf'-\s+{cat}:\s*(.+)'
+        match = re.search(pattern, body)
+        if not match:
+            issues.append(f"Impact.{cat}: missing — all 5 categories must be yes/no with a reason")
+            continue
+
+        raw = match.group(1).strip().lower()
+
+        # Check for placeholder patterns
+        for ph in _IMPACT_PLACEHOLDER_SUBSTRINGS:
+            if ph in raw:
+                issues.append(
+                    f"Impact.{cat}: appears unfilled (contains '{ph}') — "
+                    f"must be yes or no with a short reason"
+                )
+                break
+        else:
+            # Not a placeholder — check if it starts with yes/no
+            if raw.startswith("yes"):
+                if len(raw) <= 4 or raw[3:].strip() in ("", "-", "—", ":"):
+                    issues.append(f"Impact.{cat}: yes requires a reason after the value")
+            elif raw.startswith("no"):
+                if len(raw) <= 3 or raw[2:].strip() in ("", "-", "—", ":"):
+                    issues.append(f"Impact.{cat}: no requires a reason after the value")
+            else:
+                issues.append(f"Impact.{cat}: must be yes or no with a reason, got '{match.group(1).strip()[:40]}'")
+
+    return issues
+
+def impact_review_check(base_dir: str, task_id: str, changed_files: list) -> dict:
+    """Check Impact declarations against actual changed files.
+
+    Returns {"warnings": [...], "blockers": [...]} for use by Review/Close gates.
+    Only checks docs, project_map, and quality_summary — the categories with
+    detectable file patterns.
+    """
+    impact = parse_plan_impact(base_dir, task_id)
+    if not impact:
+        return {"warnings": ["Impact section not found — cannot verify consistency"], "blockers": []}
+
+    warnings = []
+    blockers = []
+
+    def _matches(changed, patterns):
+        """Check if a changed file path matches any of the given patterns.
+        Matches against the full path and the filename component (case-insensitive).
+        """
+        lower = changed.lower()
+        for p in patterns:
+            if lower == p or p in lower:
+                return True
+            # Also check just the filename for path patterns
+            name = Path(changed).name.lower()
+            if name == p or p in name:
+                return True
+        return False
+
+    # Doc patterns: README, CHANGELOG, anything in docs/ or doc/
+    doc_patterns = {"readme.md", "readme", "changelog.md", "changelog", "docs/", "doc/"}
+    # Project-map patterns: the human markdown, the machine JSON, any path component
+    pm_patterns = {"project-map.md", "项目地图.md", "project-map.json", "project_map"}
+    # Quality summary patterns
+    qs_patterns = {"质量摘要.md", "quality-digest.md", "quality_digest", "quality-digest"}
+
+    # Check docs
+    docs_val = impact.get("docs", "")
+    docs_changed = [f for f in changed_files if _matches(f, doc_patterns)]
+    if docs_val == "no" and docs_changed:
+        blockers.append(
+            f"Impact.docs=no but doc files were changed: {', '.join(docs_changed[:3])}"
+        )
+    elif docs_val == "yes" and not docs_changed:
+        warnings.append("Impact.docs=yes but no doc files detected in changes")
+
+    # Check project_map
+    pm_val = impact.get("project_map", "")
+    pm_changed = [f for f in changed_files if _matches(f, pm_patterns)]
+    if pm_val == "no" and pm_changed:
+        blockers.append(
+            f"Impact.project_map=no but project-map files were changed: {', '.join(pm_changed[:3])}"
+        )
+    elif pm_val == "yes" and not pm_changed:
+        warnings.append("Impact.project_map=yes but no project-map files detected in changes")
+
+    # Check quality_summary
+    qs_val = impact.get("quality_summary", "")
+    qs_changed = [f for f in changed_files if _matches(f, qs_patterns)]
+    if qs_val == "no" and qs_changed:
+        blockers.append(
+            f"Impact.quality_summary=no but quality digest was written: {', '.join(qs_changed[:3])}"
+        )
+
+    return {"warnings": warnings, "blockers": blockers}

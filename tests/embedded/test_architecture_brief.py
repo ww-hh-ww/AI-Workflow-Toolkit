@@ -146,12 +146,12 @@ class TestArchitectureBrief(unittest.TestCase):
     def test_status_shows_architecture_present(self):
         self._run("state", "record-quality-brief",
                   "--target-structure", "Add peer operation")
-        out = self._run("status").stdout
+        out = self._run("status", "--debug").stdout
         self.assertIn("Architecture:", out)
         self.assertIn("brief present", out.lower())
 
     def test_status_shows_architecture_missing_by_default(self):
-        out = self._run("status").stdout
+        out = self._run("status", "--debug").stdout
         self.assertIn("Architecture:", out)
 
     # ═══════════════════════════════════════════════════════════════
@@ -186,8 +186,8 @@ class TestArchitectureBrief(unittest.TestCase):
 
     def test_executor_says_stop_and_report_architecture_change(self):
         c = (self.tmp / ".claude" / "skills" / "aiwf-implement" / "SKILL.md").read_text()
-        self.assertIn("Architecture change needed", c,
-                      "Executor should say Architecture change needed")
+        self.assertIn("stop and report the gap", c,
+                      "Executor should say stop and report the gap")
 
     def test_reviewer_checks_allowed_protected_files(self):
         c = (self.tmp / ".claude" / "skills" / "aiwf-review" / "SKILL.md").read_text()

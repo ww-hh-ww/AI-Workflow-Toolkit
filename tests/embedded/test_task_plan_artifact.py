@@ -34,7 +34,7 @@ class TestTaskPlanArtifact(unittest.TestCase):
         plan = self.tmp / ".aiwf" / "plans" / "TASK-001.md"
         self.assertTrue(plan.exists())
         text = plan.read_text()
-        self.assertIn("not AIWF mechanical truth", text)
+        self.assertIn("AI working plan", text)
         self.assertIn("TASK-001", text)
         state = json.loads((self.tmp / ".aiwf" / "state" / "state.json").read_text())
         self.assertEqual(state["active_plan_id"], "TASK-001")
@@ -97,6 +97,8 @@ class TestTaskPlanArtifact(unittest.TestCase):
         (self.tmp / ".aiwf" / "state" / "goal.json").write_text(json.dumps(goal, indent=2))
 
         create_task_plan(str(self.tmp), "TASK-001", context_id="CTX-001", title="Plan says done")
+        update_task_plan_section(str(self.tmp), "TASK-001", "impact",
+            "- docs: no — test-only task\n- project_map: no — test\n- environment: no — test\n- capabilities: no — test\n- quality_summary: no — test\n")
         update_task_plan_section(str(self.tmp), "TASK-001", "testing", "- [x] All tests passed\n- [x] Reviewed\n")
         upsert_task(str(self.tmp), "TASK-001", "L2 work", status="ready", allowed_write=["src/a.py"])
         self.assertTrue(activate_task(str(self.tmp), "TASK-001")["activated"])
@@ -104,6 +106,106 @@ class TestTaskPlanArtifact(unittest.TestCase):
         blockers = active_task_completion_blockers(str(self.tmp))
         self.assertTrue(any("independent testing" in b for b in blockers))
         self.assertTrue(any("independent review" in b for b in blockers))
+
+
+    # ── Impact validation tests ──
+
+    def test_default_plan_impact_placeholders_do_not_validate(self):
+        """Default template Impact with 'unknown — fill' must be rejected."""
+        from aiwf_core.core.task_plan import create_task_plan, validate_plan_impact
+
+        create_task_plan(str(self.tmp), "TASK-001", context_id="CTX-001", title="Test")
+        issues = validate_plan_impact(str(self.tmp), "TASK-001")
+        self.assertTrue(len(issues) > 0, f"Default plan Impact should have issues, got: {issues}")
+        self.assertTrue(any("unfilled" in i for i in issues),
+                        f"Should detect unfilled placeholders, got: {issues}")
+
+    def test_impact_yes_no_requires_reason(self):
+        """Impact values of 'yes' or 'no' without a reason must be rejected."""
+        from aiwf_core.core.task_plan import create_task_plan, update_task_plan_section, validate_plan_impact
+
+        create_task_plan(str(self.tmp), "TASK-001", context_id="CTX-001", title="Test")
+        # Set Impact with yes/no but no reason
+        update_task_plan_section(str(self.tmp), "TASK-001", "impact",
+            "- docs: yes\n- project_map: no\n- environment: no — ok\n- capabilities: no — ok\n- quality_summary: no — ok\n")
+        issues = validate_plan_impact(str(self.tmp), "TASK-001")
+        self.assertTrue(any("requires a reason" in i for i in issues),
+                        f"Bare yes/no without reason should be rejected, got: {issues}")
+
+    def test_unknown_docs_or_project_map_blocks_activation(self):
+        """Impact with unknown docs or project_map must block activation."""
+        from aiwf_core.core.task_ledger import activation_blockers, upsert_task
+
+        state_path = self.tmp / ".aiwf" / "state" / "state.json"
+        state = json.loads(state_path.read_text())
+        state["workflow_level"] = "L1_review_light"
+        state["request_mode"] = "execution"
+        state_path.write_text(json.dumps(state, indent=2))
+
+        # Write a plan with unknown docs — should not pass validation
+        plan_dir = self.tmp / ".aiwf" / "plans"
+        plan_dir.mkdir(parents=True, exist_ok=True)
+        (plan_dir / "TASK-001.md").write_text(
+            "# TASK-001\n\n"
+            "> AI working plan.\n\n"
+            "## Goal\nTest\n\n"
+            "## Route\n- How: test\n\n"
+            "## Scope\n- Change: test\n\n"
+            "## Risks\n- none\n\n"
+            "## Verification\n- Machine-verifiable: yes\n\n"
+            "## Impact\n"
+            "- docs: unknown — fill\n"
+            "- project_map: no — test\n"
+            "- environment: no — test\n"
+            "- capabilities: no — test\n"
+            "- quality_summary: no — test\n\n"
+            "## Done Means\n- test\n\n"
+            "## Goal Progress\n- Parent goal: test\n\n"
+            "## Next Steps\n1. done\n",
+            encoding="utf-8",
+        )
+
+        upsert_task(str(self.tmp), "TASK-001", "Test", status="ready", allowed_write=["test.py"])
+        blockers = activation_blockers(str(self.tmp), "TASK-001")
+        self.assertTrue(any("Impact" in b for b in blockers),
+                        f"Unknown docs should block activation, got: {blockers}")
+
+    def test_valid_impact_allows_activation(self):
+        """A properly filled Impact section with yes/no + reasons allows activation."""
+        from aiwf_core.core.task_ledger import activation_blockers, upsert_task
+
+        state_path = self.tmp / ".aiwf" / "state" / "state.json"
+        state = json.loads(state_path.read_text())
+        state["workflow_level"] = "L1_review_light"
+        state["request_mode"] = "execution"
+        state["active_plan_id"] = "TASK-001"
+        state_path.write_text(json.dumps(state, indent=2))
+
+        plan_dir = self.tmp / ".aiwf" / "plans"
+        plan_dir.mkdir(parents=True, exist_ok=True)
+        (plan_dir / "TASK-001.md").write_text(
+            "# TASK-001\n\n"
+            "> AI working plan.\n\n"
+            "## Goal\nTest\n\n"
+            "## Route\n- How: test\n\n"
+            "## Scope\n- Change: test\n\n"
+            "## Risks\n- none\n\n"
+            "## Verification\n- Machine-verifiable: yes\n\n"
+            "## Impact\n"
+            "- docs: no — no docs changed\n"
+            "- project_map: no — no structure change\n"
+            "- environment: no — same env\n"
+            "- capabilities: no — no new deps\n"
+            "- quality_summary: no — no quality impact\n\n"
+            "## Done Means\n- test\n\n"
+            "## Goal Progress\n- Parent goal: test\n\n"
+            "## Next Steps\n1. done\n",
+            encoding="utf-8",
+        )
+
+        upsert_task(str(self.tmp), "TASK-001", "Test", status="ready", allowed_write=["test.py"])
+        blockers = activation_blockers(str(self.tmp), "TASK-001")
+        self.assertEqual([], blockers, f"Valid Impact should have no blockers, got: {blockers}")
 
 
 if __name__ == "__main__":

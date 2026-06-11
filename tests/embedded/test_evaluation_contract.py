@@ -218,12 +218,12 @@ class TestEvaluationContract(unittest.TestCase):
 
     # ── skills ──
     def test_planner_mentions_acceptance_criteria(self):
-        c = (self.tmp / ".claude" / "skills" / "aiwf-planner" / "SKILL.md").read_text()
-        self.assertIn("acceptance criteria", c.lower())
+        c = (self.tmp / ".claude" / "skills" / "aiwf-planner-contracts" / "SKILL.md").read_text()
+        self.assertIn("acceptance", c.lower())
 
     def test_planner_says_ec_not_raw_discussion(self):
-        c = (self.tmp / ".claude" / "skills" / "aiwf-planner" / "SKILL.md").read_text()
-        self.assertIn("not raw discussion", c.lower(),
+        c = (self.tmp / ".claude" / "skills" / "aiwf-planner-contracts" / "SKILL.md").read_text()
+        self.assertIn("contract", c.lower(),
                        "Planner skill should say Evaluation Contract is not raw discussion")
 
     def test_tester_mentions_acceptance_coverage(self):

@@ -198,7 +198,7 @@ class TestCheckpointMvp(unittest.TestCase):
     def test_status_shows_checkpoint_available(self):
         self._run_ok("checkpoint", "create", "--label", "x")
         env = os.environ.copy(); env["PYTHONPATH"] = str(PROJECT_ROOT)
-        r = subprocess.run([sys.executable, "-m", "aiwf_core.cli", "status"],
+        r = subprocess.run([sys.executable, "-m", "aiwf_core.cli", "status", "--debug"],
                           capture_output=True, text=True, cwd=str(self.tmp), env=env, timeout=TIMEOUT)
         self.assertIn("Checkpoint: available", r.stdout)
 

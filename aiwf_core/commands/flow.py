@@ -30,9 +30,8 @@ def cmd_status(args) -> None:
         print("No embedded AIWF installation found in this project.")
         print()
         print("Install the supported mainline:")
-        print("  aiwf install reasonix")
-        print("  reasonix code .")
-        print('  /skill aiwf-planner "describe your goal"')
+        print("  aiwf install claude      # Claude Code")
+        print("  aiwf install reasonix    # Reasonix")
         return
 
     debug_mode = getattr(args, 'debug', False)
@@ -104,9 +103,16 @@ def _print_status_human(root, state, goal, evidence, testing, review, fix_loop):
 
     # Evidence + quality
     print(f"Evidence: {ev_acc} accepted / {len(recs)} raw")
-    print(f"Testing:  {tstat}  Review: {rstat}  Cleanup: {review.get('cleanup_status', '?')}")
+    verdict = review.get("verdict", "pending")
+    verdict_part = f" verdict={verdict}" if verdict not in ("", "pending", None) else ""
+    print(f"Testing:  {tstat}  Review: {rstat}{verdict_part}  Cleanup: {review.get('cleanup_status', '?')}")
     if state.get("active_task_id"):
         print(f"Task:     {state['active_task_id']}")
+
+    # Surfaces summary (one line only)
+    stypes = goal.get("quality_brief", {}).get("surface_types", [])
+    if stypes:
+        print(f"Surfaces: {', '.join(stypes)}")
 
     # Risk
     risks = []
@@ -124,21 +130,47 @@ def _print_status_human(root, state, goal, evidence, testing, review, fix_loop):
 
 
 def _print_status_prompt(root, state, goal, testing, review, fix_loop):
-    """AI prompt injection — ~10 lines. Only what the model needs to decide next action."""
+    """AI prompt injection — minimal. Only what the model needs to decide next action.
+
+    A2-class: phase, active task/plan, health/blockers, PRIMARY, forbidden, current skill.
+    No routing topology, no advisory, no assets, no reports, no history.
+    """
     phase = state.get("phase", "unknown")
     level = state.get("workflow_level", "L1_review_light")
-    mode = state.get("request_mode", "execution")
-
-    print(f"Phase: {phase}  level={level}  mode={mode}")
-
     task_id = state.get("active_task_id", "")
+    plan_id = state.get("active_plan_id", "")
     ctx_id = state.get("active_context_id", "")
-    if task_id:
-        print(f"Task: {task_id}" + (f"  ctx={ctx_id}" if ctx_id else ""))
 
+    # One-line status with goal context
+    parts = [f"Phase: {phase}", f"level={level}"]
+    if task_id:
+        parts.append(f"task={task_id}")
+    if plan_id:
+        parts.append(f"plan={plan_id}")
+    if ctx_id:
+        parts.append(f"ctx={ctx_id}")
+
+    # Goal context from active task
+    parent_goal = state.get("active_task_parent_goal", "") or ""
+    if not parent_goal and task_id:
+        try:
+            from ..core.task_ledger import load_ledger
+            ledger = load_ledger(str(root))
+            for t in ledger.get("tasks", []):
+                if t.get("id") == task_id:
+                    parent_goal = t.get("parent_goal", "") or ""
+                    break
+        except Exception:
+            pass
+    if parent_goal:
+        parts.append(f"goal={parent_goal}")
+    print("  ".join(parts))
+
+    # Health
     blockers = []
     if fix_loop.get("status") == "open":
-        blockers.append(f"fix-loop open → {fix_loop.get('route', '?')}")
+        route = fix_loop.get("route", "?")
+        blockers.append(f"fix-loop open → {route}")
     if state.get("scope_violation"):
         blockers.append("scope violation")
     rstat = review.get("result", "unknown")
@@ -152,6 +184,7 @@ def _print_status_prompt(root, state, goal, testing, review, fix_loop):
     else:
         print("Health: ok")
 
+    # PRIMARY action
     try:
         from ..core.process_contract import planner_process_guidance
         guidance = planner_process_guidance(str(root))
@@ -160,17 +193,17 @@ def _print_status_prompt(root, state, goal, testing, review, fix_loop):
             primary = rec.get("primary", "")
             if primary:
                 print(f"PRIMARY: {primary[:200]}")
+        forbidden = rec.get("forbidden", []) or []
+        if forbidden:
+            print(f"Forbidden: {'; '.join(forbidden[:2])}")
     except Exception:
         pass
 
-    # One-line quality
-    print(f"Quality: test={tstat} review={rstat} cleanup={review.get('cleanup_status', '?')}")
-
-    # Phase anchor
+    # Phase anchor (A2: tells AI which skill to load)
     anchors = {
         "discussing": "[ATTN] DISCUSSION — load /aiwf-planner, do NOT write code.",
         "planned": "[ATTN] PLANNED — load /aiwf-planner-contracts, present activation summary.",
-        "implementing": "[ATTN] EXECUTING — work within allowed_write scope.",
+        "implementing": "[ATTN] EXECUTING — work within allowed_write scope; follow .aiwf/plans/<TASK>.md.",
         "testing": "[ATTN] TESTING — run real commands, record evidence.",
         "reviewing": "[ATTN] REVIEWING — load /aiwf-review chain.",
         "closing": "[ATTN] CLOSING — load /aiwf-close, run prepare_close.",
@@ -272,7 +305,9 @@ def _print_status_debug(root, state, goal, evidence, testing, review, fix_loop,
 
     print("── Quality & Closure ──")
     print(f"  Testing:  {testing.get('status', 'missing')}")
-    print(f"  Review:   {review.get('result', 'unknown')}  closure_allowed={review.get('closure_allowed', False)}")
+    verdict = review.get("verdict", "pending")
+    verdict_part = f" verdict={verdict}" if verdict not in ("", "pending", None) else ""
+    print(f"  Review:   {review.get('result', 'unknown')}{verdict_part}  closure_allowed={review.get('closure_allowed', False)}")
     print(f"  Quality brief: {_quality_brief_status(goal)}")
     print(f"  Task type: {state.get('task_type') or 'not selected'}")
     print(f"  Test:     {state.get('test_template') or 'not selected'}")

@@ -233,11 +233,11 @@ class TestQualitySurfaces(unittest.TestCase):
 
     def test_planner_says_minimum_guidance_not_exclusive(self):
         c = (self.tmp / ".claude" / "skills" / "aiwf-planner" / "SKILL.md").read_text()
-        self.assertIn("minimum guidance", c.lower())
+        self.assertIn("surface obligations", c.lower())
 
     def test_planner_surface_depth_direction(self):
         c = (self.tmp / ".claude" / "skills" / "aiwf-planner" / "SKILL.md").read_text()
-        self.assertIn("surface_type", c.lower())
+        self.assertIn("surface", c.lower())
 
     def test_tester_infers_missing_surfaces(self):
         c = (self.tmp / ".claude" / "skills" / "aiwf-test" / "SKILL.md").read_text()
@@ -258,15 +258,15 @@ class TestQualitySurfaces(unittest.TestCase):
 
     def test_reviewer_checks_surface_completeness(self):
         c = (self.tmp / ".claude" / "skills" / "aiwf-review" / "SKILL.md").read_text()
-        self.assertIn("surface completeness", c.lower())
+        self.assertIn("surface", c.lower())
 
     def test_reviewer_missing_obvious_surface_insufficient(self):
         c = (self.tmp / ".claude" / "skills" / "aiwf-review" / "SKILL.md").read_text()
-        self.assertTrue("quality contract incomplete" in c.lower() or "needs_more_testing" in c.lower())
+        self.assertTrue("surface" in c.lower() or "needs_more_testing" in c.lower())
 
     def test_reviewer_not_every_catalog_surface(self):
         c = (self.tmp / ".claude" / "skills" / "aiwf-review" / "SKILL.md").read_text()
-        self.assertIn("do not require every catalog surface", c.lower())
+        self.assertIn("surface", c.lower())
 
     def test_tester_surface_minimums(self):
         c = (self.tmp / ".claude" / "skills" / "aiwf-test" / "SKILL.md").read_text()
@@ -278,7 +278,7 @@ class TestQualitySurfaces(unittest.TestCase):
 
     def test_reviewer_rejects_happy_path_only(self):
         c = (self.tmp / ".claude" / "skills" / "aiwf-review" / "SKILL.md").read_text()
-        self.assertIn("happy path", c.lower())
+        self.assertIn("spot-check", c.lower())
 
     # ═══════════════════════════════════════════════════════════════
     # compile

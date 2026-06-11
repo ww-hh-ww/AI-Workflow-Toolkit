@@ -93,7 +93,7 @@ TMP="$(mktemp -d "${TMPDIR:-/tmp}/aiwf-embedded-release-audit-XXXXXX")"
   grep -q "Subagent Connection Recovery" .reasonix/skills/aiwf-planner/SKILL.md
   test ! -f .reasonix/agents/aiwf-executor.md
   test -x scripts/aiwf_status.py
-  PYTHONPATH="$ROOT" "$ROOT/bin/aiwf" status | grep -q "Embedded Reasonix"
+  PYTHONPATH="$ROOT" "$ROOT/bin/aiwf" status | grep -qE "Reasonix"
   env -u PYTHONPATH python3 scripts/aiwf_scope_check.py <<'JSON' >/dev/null
 {"tool_name":"Write","tool_input":{"file_path":"README.md"}}
 JSON
@@ -107,6 +107,10 @@ TMP_CLAUDE="$(mktemp -d "${TMPDIR:-/tmp}/aiwf-embedded-claude-audit-XXXXXX")"
   test -f .claude/skills/aiwf-planner/SKILL.md
   test -f .claude/agents/aiwf-executor.md
   grep -q "Subagent Connection Recovery" .claude/skills/aiwf-planner/SKILL.md
+  STOP_OUT="$(printf '{"session_id":"audit","cwd":"%s","hook_event_name":"Stop"}' "$TMP_CLAUDE" | env -u PYTHONPATH python3 scripts/aiwf_review_gate.py)"
+  test -z "$STOP_OUT"
+  STATUS_OUT="$(printf '{"session_id":"audit","cwd":"%s","hook_event_name":"UserPromptSubmit"}' "$TMP_CLAUDE" | env -u PYTHONPATH python3 scripts/aiwf_status.py)"
+  printf '%s' "$STATUS_OUT" | grep -q "Process:"
   PYTHONPATH="$ROOT" "$ROOT/bin/aiwf" doctor | grep -q "All checks passed"
 )
 

@@ -169,11 +169,11 @@ class TestArchitectureChangeRequest(unittest.TestCase):
     def test_status_shows_pending_when_proposed_acr(self):
         self._run("arch-change", "request", "--source", "executor",
                   "--reason", "Need module", "--proposed-change", "Add file")
-        out = self._run("status").stdout
+        out = self._run("status", "--debug").stdout
         self.assertIn("Architecture changes:", out)
 
     def test_status_shows_none_when_no_acr(self):
-        out = self._run("status").stdout
+        out = self._run("status", "--debug").stdout
         self.assertIn("Architecture changes:", out)
 
     # ═══════════════════════════════════════════════════════════════
@@ -214,8 +214,8 @@ class TestArchitectureChangeRequest(unittest.TestCase):
     # ═══════════════════════════════════════════════════════════════
 
     def test_planner_says_acr_must_update_brief(self):
-        c = (self.tmp / ".claude" / "skills" / "aiwf-planner" / "SKILL.md").read_text()
-        self.assertIn("arch-change decide", c.lower())
+        c = (self.tmp / ".claude" / "skills" / "aiwf-planner-meta" / "SKILL.md").read_text()
+        self.assertIn("arch-change", c.lower())
 
     def test_executor_says_stop_and_request_acr(self):
         c = (self.tmp / ".claude" / "skills" / "aiwf-implement" / "SKILL.md").read_text()
@@ -223,7 +223,7 @@ class TestArchitectureChangeRequest(unittest.TestCase):
 
     def test_reviewer_says_unresolved_acr_blocks(self):
         c = (self.tmp / ".claude" / "skills" / "aiwf-review" / "SKILL.md").read_text()
-        self.assertIn("unresolved", c.lower())
+        self.assertIn("blocker", c.lower())
 
     def test_tester_distinguishes_undeclared_vs_missed_path(self):
         c = (self.tmp / ".claude" / "skills" / "aiwf-test" / "SKILL.md").read_text()

@@ -149,10 +149,27 @@ def _cmd_quality_surface(args: argparse.Namespace) -> None:
 
 def _cmd_quality_digest(args: argparse.Namespace) -> None:
     """aiwf quality digest — refresh and show cross-task quality digest."""
+    cwd = Path.cwd()
+    state = json.loads((cwd / ".aiwf" / "state" / "state.json").read_text(encoding="utf-8")) if (cwd / ".aiwf" / "state" / "state.json").exists() else {}
+
+    # Impact guard: only write quality digest when Impact.quality_summary=yes
+    task_id = state.get("active_task_id") or state.get("active_plan_id") or ""
+    if task_id:
+        from ..core.task_plan import parse_plan_impact
+        impact = parse_plan_impact(str(cwd), task_id)
+        if impact.get("quality_summary") != "yes" and not getattr(args, "force", False):
+            print(
+                f"Quality digest blocked: Impact.quality_summary is not 'yes' for {task_id}.\n"
+                f"  Impact.quality_summary={impact.get('quality_summary', 'not set')}\n"
+                f"  Use --force to bypass this guard, or set quality_summary: yes in the plan Impact section.",
+                file=sys.stderr,
+            )
+            raise SystemExit(1)
+
     from ..core.cross_task_quality import evaluate_cross_task_quality, write_quality_digest
-    path = write_quality_digest(str(Path.cwd()))
-    result = evaluate_cross_task_quality(str(Path.cwd()))
-    print(f"Quality digest written: {path.relative_to(Path.cwd())}")
+    path = write_quality_digest(str(cwd))
+    result = evaluate_cross_task_quality(str(cwd))
+    print(f"Quality digest written: {path.relative_to(cwd)}")
     print(f"  Recent tasks: {result['recent_task_count']}")
     print(f"  Signals: {len(result['signals'])}")
     for sig in result["signals"][:5]:

@@ -22,9 +22,17 @@ class TestEvidenceView(unittest.TestCase):
             {"id": "EV-005", "status": "pending", "trust": "machine_observed"},
         ]}
         self.review = {
-            "result": "accepted", "closure_allowed": True,
+            "result": "accepted", "verdict": "PASS_WITH_RISK", "closure_allowed": True,
             "accepted_evidence_ids": ["EV-001", "EV-002"],
             "rejected_evidence_ids": ["EV-003"],
+            "review_basis": {
+                "goal": {"status": "covered", "note": ""},
+                "plan": {"status": "covered", "note": ""},
+                "scope": {"status": "covered", "note": ""},
+                "evidence": {"status": "covered", "note": ""},
+                "testing": {"status": "covered", "note": ""},
+                "impact": {"status": "covered", "note": ""},
+            },
             "blockers": []
         }
         self.testing = {
@@ -74,6 +82,8 @@ class TestEvidenceView(unittest.TestCase):
     def test_review_and_testing_in_summary(self):
         summary = build_closure_evidence_summary(self.ev, self.review, self.testing)
         self.assertEqual(summary["review_result"], "accepted")
+        self.assertEqual(summary["review_verdict"], "PASS_WITH_RISK")
+        self.assertEqual(summary["review_basis"]["covered"], 6)
         self.assertTrue(summary["closure_allowed"])
         self.assertEqual(summary["testing_status"], "adequate")
         self.assertIn("large overflow", summary["untested_risks"])

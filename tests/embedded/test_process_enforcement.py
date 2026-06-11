@@ -24,6 +24,42 @@ class TestProcessEnforcement(unittest.TestCase):
         _write(state_path, state)
         self._seed_planning_contracts()
 
+    def _seed_plan(self, task_id):
+        """Create a minimal .aiwf/plans/<task_id>.md so L1+ activation won't block."""
+        plan_dir = self.tmp / ".aiwf" / "plans"
+        plan_dir.mkdir(parents=True, exist_ok=True)
+        plan_path = plan_dir / f"{task_id}.md"
+        if not plan_path.exists():
+            plan_path.write_text(
+                f"# {task_id}\n\n"
+                "> AI working plan.\n\n"
+                "## Goal\nTest task\n\n"
+                "## Route\n- How: direct fix\n\n"
+                "## Scope\n- Change: test files\n\n"
+                "## Risks\n- none\n\n"
+                "## Verification\n- Machine-verifiable: yes\n\n"
+                "## Impact\n- docs: no — test\n- project_map: no — test\n- environment: no — test\n- capabilities: no — test\n- quality_summary: no — test\n\n"
+                "## Done Means\n- test passes\n\n"
+                "## Goal Progress\n- Parent goal: test\n\n"
+                "## Next Steps\n1. done\n",
+                encoding="utf-8",
+            )
+
+    def _plan_and_activate(self, task_id):
+        """Seed a plan then activate — L1+ requires a plan before activation."""
+        self._seed_plan(task_id)
+        from aiwf_core.core.task_ledger import activate_task
+        result = activate_task(str(self.tmp), task_id)
+        return result
+
+    def _mark_prepare_close_passed(self):
+        state_path = self.tmp / ".aiwf" / "state" / "state.json"
+        state = json.loads(state_path.read_text())
+        state["phase"] = "closed"
+        state["closure_allowed"] = True
+        state["close_attempt"] = False
+        _write(state_path, state)
+
     def _seed_planning_contracts(self):
         goal_path = self.tmp / ".aiwf" / "state" / "goal.json"
         goal = json.loads(goal_path.read_text())
@@ -88,11 +124,24 @@ class TestProcessEnforcement(unittest.TestCase):
         self._set_l2()
         self._seed_complete_quality_chain()
         upsert_task(str(self.tmp), "TASK-1", "Feature", status="ready")
+        self._seed_plan("TASK-1")
         self.assertTrue(activate_task(str(self.tmp), "TASK-1")["activated"])
+        self._mark_prepare_close_passed()
 
         result = close_task(str(self.tmp), "TASK-1")
 
         self.assertTrue(result["closed"], result["blockers"])
+
+    def test_active_task_close_blocks_before_prepare_close(self):
+        from aiwf_core.core.task_ledger import activate_task, close_task, upsert_task
+        upsert_task(str(self.tmp), "TASK-PREPCLOSE", "Feature", status="ready")
+        self._seed_plan("TASK-PREPCLOSE")
+        self.assertTrue(activate_task(str(self.tmp), "TASK-PREPCLOSE")["activated"])
+
+        result = close_task(str(self.tmp), "TASK-PREPCLOSE")
+
+        self.assertFalse(result["closed"])
+        self.assertTrue(any("prepare-close" in b for b in result["blockers"]))
 
     def test_periodic_architecture_review_blocks_ordinary_activation(self):
         from aiwf_core.core.task_ledger import activate_task, upsert_task
@@ -100,6 +149,7 @@ class TestProcessEnforcement(unittest.TestCase):
             "tasks": [{"id": f"TASK-{i}", "title": "Done"} for i in range(10)]
         })
         upsert_task(str(self.tmp), "TASK-NEXT", "Next feature", status="ready")
+        self._seed_plan("TASK-NEXT")
 
         result = activate_task(str(self.tmp), "TASK-NEXT")
 
@@ -113,6 +163,7 @@ class TestProcessEnforcement(unittest.TestCase):
         })
         upsert_task(str(self.tmp), "ARCH-010", "[Architect] milestone review", status="ready")
 
+        self._seed_plan("ARCH-010")
         result = activate_task(str(self.tmp), "ARCH-010")
 
         self.assertTrue(result["activated"], result["blockers"])
@@ -125,6 +176,7 @@ class TestProcessEnforcement(unittest.TestCase):
             allowed_write=["api/handler.py", "core/service.py"],
         )
 
+        self._seed_plan("TASK-ROUTE")
         result = activate_task(str(self.tmp), "TASK-ROUTE")
 
         self.assertTrue(result["activated"], result["blockers"])
@@ -151,6 +203,7 @@ class TestProcessEnforcement(unittest.TestCase):
             allowed_write=["scripts/install.sh", "scripts/check.sh"],
         )
 
+        self._seed_plan("TASK-SMALL")
         result = activate_task(str(self.tmp), "TASK-SMALL")
 
         self.assertTrue(result["activated"], result["blockers"])
@@ -174,6 +227,7 @@ class TestProcessEnforcement(unittest.TestCase):
         _write(goal_path, goal)
         upsert_task(str(self.tmp), "TASK-NO-CONTRACT", "Missing contract", status="ready")
 
+        self._seed_plan("TASK-NO-CONTRACT")
         result = activate_task(str(self.tmp), "TASK-NO-CONTRACT")
 
         self.assertFalse(result["activated"])
@@ -188,14 +242,15 @@ class TestProcessEnforcement(unittest.TestCase):
         self.assertEqual(guidance["recovery"]["state"], "blocked")
         self.assertEqual(guidance["recovery"]["category"], "missing_step")
         self.assertEqual(guidance["recovery"]["primary"], "plan and activate one scoped task")
-        self.assertTrue(any("Explorer" in x for x in guidance["advisory"]))
-        self.assertTrue(any("minimum depth" in x for x in guidance["advisory"]))
+        # Diet: advisory is now silent in default guidance (reserved for --debug)
+        self.assertIsInstance(guidance["advisory"], list)
 
     def test_recovery_guidance_for_missing_l2_tester(self):
         from aiwf_core.core.process_contract import planner_process_guidance
         from aiwf_core.core.task_ledger import activate_task, upsert_task
         self._set_l2()
         upsert_task(str(self.tmp), "TASK-REC", "Needs tester", status="ready")
+        self._seed_plan("TASK-REC")
         self.assertTrue(activate_task(str(self.tmp), "TASK-REC")["activated"])
 
         recovery = planner_process_guidance(str(self.tmp))["recovery"]
@@ -218,6 +273,7 @@ class TestProcessEnforcement(unittest.TestCase):
             "real_usage_status": "passed",
         })
         upsert_task(str(self.tmp), "TASK-CLEAN", "Needs cleanup", status="ready")
+        self._seed_plan("TASK-CLEAN")
         self.assertTrue(activate_task(str(self.tmp), "TASK-CLEAN")["activated"])
 
         recovery = planner_process_guidance(str(self.tmp))["recovery"]
@@ -237,6 +293,7 @@ class TestProcessEnforcement(unittest.TestCase):
         review["adversarial_observations"] = [{"id": "ADV-1", "disposition": "pending"}]
         _write(review_path, review)
         upsert_task(str(self.tmp), "TASK-ADV", "Needs meta", status="ready")
+        self._seed_plan("TASK-ADV")
         self.assertTrue(activate_task(str(self.tmp), "TASK-ADV")["activated"])
 
         recovery = planner_process_guidance(str(self.tmp))["recovery"]
@@ -257,6 +314,7 @@ class TestProcessEnforcement(unittest.TestCase):
         from aiwf_core.core.task_ledger import activate_task, close_task, upsert_task
         self._set_l2()
         upsert_task(str(self.tmp), "TASK-ROLE", "Role evidence", status="ready")
+        self._seed_plan("TASK-ROLE")
         self.assertTrue(activate_task(str(self.tmp), "TASK-ROLE")["activated"])
 
         exec_ev = record_role_evidence(
@@ -283,6 +341,7 @@ class TestProcessEnforcement(unittest.TestCase):
             summary="reviewed role delivery evidence",
         )
         record_meta_critique(str(self.tmp), "Review accepted after adversarial disposition")
+        self._mark_prepare_close_passed()
 
         result = close_task(str(self.tmp), "TASK-ROLE")
 
@@ -318,7 +377,9 @@ class TestProcessEnforcement(unittest.TestCase):
         review["accepted_evidence_ids"].extend(["EV-4", "EV-5", "EV-6"])
         _write(review_path, review)
         upsert_task(str(self.tmp), "TASK-MIG", "Migration", status="ready")
+        self._seed_plan("TASK-MIG")
         self.assertTrue(activate_task(str(self.tmp), "TASK-MIG")["activated"])
+        self._mark_prepare_close_passed()
 
         result = close_task(str(self.tmp), "TASK-MIG")
 
@@ -335,7 +396,8 @@ class TestProcessEnforcement(unittest.TestCase):
 
         guidance = planner_process_guidance(str(self.tmp))
 
-        self.assertTrue(any("Tier 1 assets are stale" in x for x in guidance["conditional"]))
+        # Diet: asset staleness is now silent in default guidance (reserved for --debug)
+        self.assertFalse(any("Tier 1 assets are stale" in x for x in guidance["conditional"]))
 
     def test_planner_guidance_explains_scope_recovery_and_freeze_reason(self):
         from aiwf_core.core.process_contract import planner_process_guidance
@@ -367,6 +429,7 @@ class TestProcessEnforcement(unittest.TestCase):
         source.write_text("VALUE = 1\n", encoding="utf-8")
         upsert_task(str(self.tmp), "TASK-ASSET", "Asset refresh", status="ready",
                     allowed_write=["src/feature.py"])
+        self._seed_plan("TASK-ASSET")
         self.assertTrue(activate_task(str(self.tmp), "TASK-ASSET")["activated"])
         project_map = self.tmp / ".aiwf" / "assets" / "project-map.json"
         self.assertTrue(project_map.exists())
@@ -374,6 +437,7 @@ class TestProcessEnforcement(unittest.TestCase):
 
         source.write_text("VALUE = 2\n", encoding="utf-8")
         # Mechanical routing promotes this semantic task to L1, whose close remains light.
+        self._mark_prepare_close_passed()
         self.assertTrue(close_task(str(self.tmp), "TASK-ASSET")["closed"])
         asset = json.loads(project_map.read_text())
         module = next(m for m in asset["modules"] if m["path"] == "src/feature.py")

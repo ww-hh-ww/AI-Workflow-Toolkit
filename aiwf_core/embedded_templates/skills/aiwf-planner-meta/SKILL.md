@@ -5,9 +5,12 @@ description: Meta-critique, fix-loop handling, checkpoints, and architecture cha
 
 # AIWF Planner — Meta
 
-## Meta-Critique (after Review, before close)
+## Meta-Critique (after Review, before prepare-close)
 
-Disposition each adversarial observation: `aiwf state disposition-adversarial --id ADV-001 --disposition accepted --reason "..."`
+L2/L3: run meta-critique by default.
+L0/L1: run it only when there are pending adversarial observations, review risks, or repeated fix-loop/cross-task signals.
+
+When triggered, disposition each adversarial observation: `aiwf state disposition-adversarial --id ADV-001 --disposition accepted --reason "..."`
 (ignored | accepted | deferred | brief_updated). Pending dispositions block prepare-close.
 Then record structured meta-critique: `aiwf state record-meta-critique --summary "..."`.
 

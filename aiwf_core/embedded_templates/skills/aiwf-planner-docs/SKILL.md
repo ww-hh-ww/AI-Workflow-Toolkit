@@ -5,7 +5,7 @@ description: Project documentation writing guide — README and technical docs s
 
 # AIWF Planner — Documentation
 
-Write or update project documentation after each task that changed module boundaries, public API, or subsystem behavior.
+Only write documentation when active plan Impact.docs=yes. If Impact.docs=no, do not invent documentation work. If Impact.docs=yes, update only the docs named by the plan or scope section.
 
 **README.** First task: create `README.md` if it doesn't exist. Every task that changes project surface area: update it. Four things a stranger needs:
 
@@ -22,4 +22,4 @@ Write or update project documentation after each task that changed module bounda
 4. Edge cases — conditions that break, forbidden operations.
 5. Pitfalls fixed — bugs already solved here and their root causes.
 
-**When to write.** During the task, not after. Changed a subsystem -> update its doc. Section too long -> split to its own file. Two files always change together -> merge them. Structure grows with the code; don't pre-design it.
+**When to write.** Controlled by active plan Impact.docs. Write during the task, not after. If Impact.docs=yes and the plan names specific docs, update those. Structure grows with the code; don't pre-design it.

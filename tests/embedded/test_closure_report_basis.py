@@ -66,6 +66,18 @@ class TestClosureReportBasis(unittest.TestCase):
         self._run("state", "record-quality-brief", "--acceptance", "must work",
                   "--test-focus", "normal subtraction", "--review-focus", "no regression")
 
+    def _quality_dimensions(self, risk=False):
+        from aiwf_core.core.state_schema import QUALITY_DIMENSIONS
+        dims = {}
+        for dim in QUALITY_DIMENSIONS:
+            score = "RISK" if risk and dim == "risk_debt" else "PASS"
+            dims[dim] = {"score": score, "note": "risk accepted" if score == "RISK" else ""}
+        return dims
+
+    def _review_basis(self):
+        from aiwf_core.core.state_schema import REVIEW_BASIS
+        return {name: {"status": "covered", "note": ""} for name in REVIEW_BASIS}
+
     def _seed_full_accept(self):
         """Set all gate fields to accepted/passing values."""
         (self.tmp / ".aiwf" / "evidence" / "records.json").write_text(json.dumps({
@@ -78,14 +90,34 @@ class TestClosureReportBasis(unittest.TestCase):
         (self.tmp / ".aiwf" / "quality" / "testing.json").write_text(json.dumps(
             {"status": "adequate", "commands": ["pytest"], "untested_risks": []}, indent=2))
         (self.tmp / ".aiwf" / "quality" / "review.json").write_text(json.dumps({
-            "result": "accepted", "closure_allowed": True, "cleanup_status": "fresh",
+            "result": "accepted", "verdict": "PASS_WITH_RISK", "closure_allowed": True, "cleanup_status": "fresh",
             "structure_status": "accepted", "stale_items": [], "cleanup_blockers": [],
-            "blockers": [], "accepted_evidence_ids": ["EV-001"], "rejected_evidence_ids": []
+            "blockers": [], "accepted_evidence_ids": ["EV-001"], "rejected_evidence_ids": [],
+            "quality_dimensions": self._quality_dimensions(risk=True),
+            "review_basis": self._review_basis(),
         }, indent=2))
         s = json.loads((self.tmp / ".aiwf" / "state" / "state.json").read_text())
         s["close_attempt"] = True
         s["phase"] = "closing"
         (self.tmp / ".aiwf" / "state" / "state.json").write_text(json.dumps(s, indent=2))
+
+    def _seed_active_plan(self, task_id="TASK-001", impact=None):
+        impact = impact or {
+            "docs": "yes",
+            "project_map": "no",
+            "environment": "no",
+            "capabilities": "no",
+            "quality_summary": "no",
+        }
+        plan_dir = self.tmp / ".aiwf" / "plans"
+        plan_dir.mkdir(parents=True, exist_ok=True)
+        body = "\n".join(f"- {k}: {v} — test" for k, v in impact.items())
+        (plan_dir / f"{task_id}.md").write_text(f"# {task_id}\n\n## Impact\n{body}\n")
+        state_path = self.tmp / ".aiwf" / "state" / "state.json"
+        state = json.loads(state_path.read_text())
+        state["active_task_id"] = task_id
+        state["active_plan_id"] = task_id
+        state_path.write_text(json.dumps(state, indent=2))
 
     # ═══════════════════════════════════════════════════════════════
     # Sections present
@@ -157,6 +189,14 @@ class TestClosureReportBasis(unittest.TestCase):
         self.assertIn(".aiwf/state/state.json", r)
         self.assertIn(".aiwf/reports/闭合报告.md", r)
 
+    def test_report_surfaces_quality_verdict_and_dimensions(self):
+        self._seed_full_accept()
+        r = self._report()
+        self.assertIn("- Verdict: PASS_WITH_RISK", r)
+        self.assertIn("- Quality dimensions: PASS=7 RISK=1 FAIL=0", r)
+        self.assertIn("- Review basis: covered=6 gap=0 not_applicable=0 missing=0", r)
+        self.assertIn("risk_debt: RISK", r)
+
     # ═══════════════════════════════════════════════════════════════
     # No raw JSON dump
     # ═══════════════════════════════════════════════════════════════
@@ -184,6 +224,46 @@ class TestClosureReportBasis(unittest.TestCase):
         r = self._report()
         self.assertIn("## Closure Gate", r)
         self.assertIn("ALLOWED", r)
+
+    def test_report_closure_gate_shows_impact_when_active_plan_exists(self):
+        self._seed_full_accept()
+        self._seed_active_plan()
+        r = self._report()
+        self.assertIn("- Impact complete: True", r)
+        self.assertIn("- Impact consistent: True", r)
+        self.assertIn("ALLOWED", r)
+
+    def test_report_closure_gate_blocks_impact_mismatch(self):
+        self._seed_full_accept()
+        (self.tmp / ".aiwf" / "evidence" / "records.json").write_text(json.dumps({
+            "records": [{
+                "id": "EV-001", "status": "accepted", "trust": "machine_observed",
+                "changed_files": ["README.md"],
+            }]
+        }, indent=2))
+        self._seed_active_plan(impact={
+            "docs": "no",
+            "project_map": "no",
+            "environment": "no",
+            "capabilities": "no",
+            "quality_summary": "no",
+        })
+        r = self._report()
+        self.assertIn("- Impact complete: True", r)
+        self.assertIn("- Impact consistent: False", r)
+        self.assertIn("BLOCKED", r)
+        self.assertIn("Impact.docs=no but docs changed", r)
+
+    def test_closure_gate_blocks_quality_verdict_contradiction(self):
+        self._seed_full_accept()
+        review_path = self.tmp / ".aiwf" / "quality" / "review.json"
+        review = json.loads(review_path.read_text())
+        review["verdict"] = "PASS"
+        review_path.write_text(json.dumps(review, indent=2))
+        r = self._report()
+        self.assertIn("## Closure Gate", r)
+        self.assertIn("BLOCKED", r)
+        self.assertIn("quality verdict PASS cannot have RISK dimensions", r)
 
     # ═══════════════════════════════════════════════════════════════
     # Skill text

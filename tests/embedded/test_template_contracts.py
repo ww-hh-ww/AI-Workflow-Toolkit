@@ -57,6 +57,13 @@ class TestTemplateContracts(unittest.TestCase):
         content = (self.tmp / ".claude" / "skills" / "aiwf-test" / "SKILL.md").read_text()
         self.assertIn("Do NOT build a test matrix", content)
 
+    def test_test_skill_locks_plan_verification_and_changed_file_risk(self):
+        content = (self.tmp / ".claude" / "skills" / "aiwf-test" / "SKILL.md").read_text()
+        self.assertIn("Testing Basis Contract", content)
+        self.assertIn("active plan's `Verification` section", content)
+        self.assertIn("risk implied by changed files", content)
+        self.assertIn("return to Planner to update the plan", content)
+
     def test_review_skill_mentions_review_template(self):
         content = (self.tmp / ".claude" / "skills" / "aiwf-review" / "SKILL.md").read_text()
         self.assertIn("review_template", content)
@@ -67,6 +74,61 @@ class TestTemplateContracts(unittest.TestCase):
         self.assertIn("review_lite", content)
         # "Do NOT expand to architecture" is in the review-verify sub-skill.
         self.assertIn("Do NOT expand depth unilaterally", content)
+
+    def test_review_skill_locks_goal_plan_scope_evidence_testing_impact_basis(self):
+        content = (self.tmp / ".claude" / "skills" / "aiwf-review" / "SKILL.md").read_text()
+        self.assertIn("Review Basis Contract", content)
+        self.assertIn("Goal + Plan + Scope + Evidence + Testing + Impact", content)
+        self.assertIn("active plan's `Impact` section", content)
+        self.assertIn("Do not accept by testing status alone", content)
+
+    def test_planner_execute_locks_plan_drift_update_before_continuing(self):
+        content = (self.tmp / ".claude" / "skills" / "aiwf-planner-execute" / "SKILL.md").read_text()
+        self.assertIn("Plan Drift During Execution", content)
+        self.assertIn("aiwf plan update --task-id <TASK-ID>", content)
+        self.assertIn("Plan is the pre-work contract; prepare-close is the post-work gate", content)
+
+    def test_close_skill_requires_prepare_close_before_task_close(self):
+        content = (self.tmp / ".claude" / "skills" / "aiwf-close" / "SKILL.md").read_text()
+        self.assertIn("while the active task is still active", content)
+        self.assertIn("If `passed=True`, run `aiwf task close <ACTIVE-TASK-ID>`", content)
+        self.assertIn("Do NOT close the ledger task before `prepare_close` passes", content)
+
+    def test_review_output_skill_promotes_quality_verdict_dimensions(self):
+        content = (self.tmp / ".claude" / "skills" / "aiwf-review-output" / "SKILL.md").read_text()
+        self.assertIn("--verdict PASS", content)
+        self.assertIn("--dimension-score requirement_fit=PASS", content)
+        self.assertIn("--basis-status goal=covered", content)
+        self.assertIn("--basis-status impact=covered", content)
+        self.assertIn("--docs-checked not_applicable", content)
+        self.assertIn("PASS_WITH_RISK", content)
+        self.assertIn("Requires at least one `--blocker`", content)
+        self.assertIn("at least one must be FAIL", content)
+        self.assertIn("symptom-only", content)
+        self.assertIn("Use full V2 Quality Verdict when the route is L2/L3", content)
+
+    def test_review_output_records_quality_basis(self):
+        content = (self.tmp / ".claude" / "skills" / "aiwf-review-output" / "SKILL.md").read_text()
+        self.assertIn("Review Basis Recording", content)
+        self.assertIn("Every V2 verdict must record all six review basis items", content)
+        self.assertIn("active `.aiwf/plans/<TASK>.md`", content)
+        self.assertIn("changed-file risk", content)
+        self.assertIn("Use `gap` when that source contradicts closure", content)
+        self.assertIn("Impact-Aware Docs Check", content)
+
+    def test_review_output_maps_quality_dimensions_to_engineering_questions(self):
+        content = (self.tmp / ".claude" / "skills" / "aiwf-review-output" / "SKILL.md").read_text()
+        for required in [
+            "Quality Dimension Questions",
+            "Goal, Evaluation Contract, and active plan Done Means",
+            "architecture_brief invariants",
+            "speculative abstraction",
+            "Plan.Verification, changed-file risk",
+            "hidden coupling or unclear ownership",
+            "deferred tests, hotspots, and technical debt",
+            "trust the evidence chain",
+        ]:
+            self.assertIn(required, content)
 
     # ── security_sensitive wording ──
     def test_security_sensitive_no_old_wording(self):

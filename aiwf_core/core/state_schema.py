@@ -49,6 +49,15 @@ def default_state() -> Dict[str, Any]:
         "external_research_required": False,
         "active_plan_id": "",
         "planned_capability_ids": [],
+        # V2-A routing topology dimensions
+        "verification_need": "standard",
+        "execution_topology": "light_review",
+        "review_need": "optional_light_review",
+        "downgrade_allowed": True,
+        "substitution_allowed": False,
+        "routing_reasons": [],
+        "hard_constraints": [],
+        "substitution_records": [],
     }
 
 STATE_KEYS = {
@@ -66,6 +75,10 @@ STATE_KEYS = {
     "adversarial_mode",
     "request_mode", "workflow_pattern", "pattern_reason",
     "external_research_required", "active_plan_id", "planned_capability_ids",
+    # V2-A routing topology
+    "verification_need", "execution_topology", "review_need",
+    "downgrade_allowed", "substitution_allowed",
+    "routing_reasons", "hard_constraints", "substitution_records",
 }
 
 VALID_PHASES = {
@@ -77,6 +90,12 @@ VALID_REQUEST_MODES = {"discussion", "clarification", "research", "spike", "exec
 VALID_WORKFLOW_PATTERNS = {
     "linear", "clarification_first", "research_first", "spike_first", "adversarial_early",
 }
+VALID_VERIFICATION_NEEDS = {"deterministic", "standard", "broad", "adversarial"}
+VALID_EXECUTION_TOPOLOGIES = {
+    "single_agent", "single_agent_with_machine_evidence",
+    "light_review", "standard_team", "fanout_merge",
+}
+VALID_REVIEW_NEEDS = {"none", "optional_light_review", "required_review", "adversarial_review"}
 
 
 def validate_state(state: Dict[str, Any]) -> List[str]:
@@ -237,7 +256,9 @@ VALID_SUSPECTED_ROUTES = {"executor", "tester", "planner", "environment", ""}
 
 def default_review() -> Dict[str, Any]:
     return {
-        "result": "unknown",
+        # V2 verdict — quality outcome, not just process check
+        "verdict": "pending",  # pending | PASS | PASS_WITH_RISK | REVISE | REJECT
+        "result": "unknown",   # V1 backward-compat (derived from verdict)
         "closure_allowed": False,
         "accepted_evidence_ids": [],
         "rejected_evidence_ids": [],
@@ -262,10 +283,30 @@ def default_review() -> Dict[str, Any]:
         "negative_patterns": [],
         "followups": [],
         "reviewer_evidence_id": "",
+        # V2 quality dimensions — reviewer scores each axis
+        "quality_dimensions": {
+            "requirement_fit": {"score": "unscored", "note": ""},
+            "architecture_fit": {"score": "unscored", "note": ""},
+            "minimality": {"score": "unscored", "note": ""},
+            "correctness": {"score": "unscored", "note": ""},
+            "test_adequacy": {"score": "unscored", "note": ""},
+            "maintainability": {"score": "unscored", "note": ""},
+            "risk_debt": {"score": "unscored", "note": ""},
+            "human_trust": {"score": "unscored", "note": ""},
+        },
+        # V2 review basis — reviewer states which closure sources were evaluated.
+        "review_basis": {
+            "goal": {"status": "missing", "note": ""},
+            "plan": {"status": "missing", "note": ""},
+            "scope": {"status": "missing", "note": ""},
+            "evidence": {"status": "missing", "note": ""},
+            "testing": {"status": "missing", "note": ""},
+            "impact": {"status": "missing", "note": ""},
+        },
     }
 
 REVIEW_KEYS = {
-    "result", "closure_allowed", "accepted_evidence_ids", "rejected_evidence_ids",
+    "verdict", "result", "closure_allowed", "accepted_evidence_ids", "rejected_evidence_ids",
     "blockers", "cleanup_status", "cleanup_notes", "stale_items", "cleanup_blockers",
     "cleanup_verified_at",
     "structure_status", "structure_blockers", "technical_debt_notes",
@@ -274,11 +315,68 @@ REVIEW_KEYS = {
     "repeated_change_hotspots", "adversarial_observations",
     "scope_violation_events",
     "lessons", "negative_patterns", "followups",
-    "reviewer_evidence_id",
+    "reviewer_evidence_id", "quality_dimensions", "review_basis",
 }
 
+VALID_REVIEW_VERDICTS = {"pending", "PASS", "PASS_WITH_RISK", "REVISE", "REJECT"}
+
+# V1 backward-compat: old result values still accepted, mapped from verdict
 VALID_REVIEW_RESULTS = {"unknown", "accepted", "needs_fix", "needs_more_testing",
                          "evidence_insufficient", "scope_violation", "rejected"}
+
+VALID_DIMENSION_SCORES = {"unscored", "PASS", "RISK", "FAIL"}
+VALID_BASIS_STATUSES = {"missing", "covered", "gap", "not_applicable"}
+
+QUALITY_DIMENSIONS = [
+    "requirement_fit",
+    "architecture_fit",
+    "minimality",
+    "correctness",
+    "test_adequacy",
+    "maintainability",
+    "risk_debt",
+    "human_trust",
+]
+
+REVIEW_BASIS = [
+    "goal",
+    "plan",
+    "scope",
+    "evidence",
+    "testing",
+    "impact",
+]
+
+# Verdict → V1 result mapping (for backward compat)
+VERDICT_TO_RESULT = {
+    "pending": "unknown",
+    "PASS": "accepted",
+    "PASS_WITH_RISK": "accepted",
+    "REVISE": "needs_fix",
+    "REJECT": "rejected",
+}
+
+# Verdict → closure_allowed
+VERDICT_CLOSURE = {
+    "pending": False,
+    "PASS": True,
+    "PASS_WITH_RISK": True,
+    "REVISE": False,
+    "REJECT": False,
+}
+
+
+# ── claims.json ───────────────────────────────────────────────────────
+
+def default_claims() -> Dict[str, Any]:
+    return {"claims": []}
+
+CLAIMS_KEYS = {"claims"}
+
+VALID_CLAIM_STATUSES = {"pending", "supported", "unsupported", "overclaimed", "disputed"}
+
+# Strength: strong (machine-observed, reproducible), weak (prose-only, single source)
+VALID_CLAIM_STRENGTHS = {"strong", "weak", "none"}
 
 
 # ── fix-loop.json ─────────────────────────────────────────────────────

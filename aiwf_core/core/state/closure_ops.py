@@ -157,8 +157,11 @@ def prepare_close(base_dir: str) -> Dict[str, Any]:
     if rstat == "accepted" and not review.get("closure_allowed", False):
         blockers.append(
             "review result is accepted but closure_allowed is false. "
-            "Re-run record-review with --closure-allowed true."
+            "Re-run record-review with --verdict PASS or PASS_WITH_RISK."
         )
+
+    from ..review_contract import quality_verdict_blockers
+    blockers.extend(quality_verdict_blockers(review))
 
     # 5. Cleanup done — has the project been cleaned up?
     if review.get("cleanup_status") != "fresh" or review.get("stale_items"):
@@ -166,19 +169,46 @@ def prepare_close(base_dir: str) -> Dict[str, Any]:
             "cleanup not fresh. Run aiwf state mark-cleanup-fresh."
         )
 
+    # 6. Impact consistency — does the active plan's Impact match actual changes?
+    active_task_id = state.get("active_task_id", "") or ""
+    if active_task_id:
+        try:
+            from ..task_plan import validate_plan_impact, impact_review_check
+
+            # 6a. Re-validate Impact completeness at close time
+            impact_issues = validate_plan_impact(base_dir, active_task_id)
+            if impact_issues:
+                blockers.append(
+                    f"Active plan Impact incomplete at close: {'; '.join(impact_issues[:3])}"
+                )
+
+            # 6b. Check Impact declarations against actual changed files
+            changed_files = []
+            for r in accepted:
+                changed_files.extend(r.get("changed_files", []) or [])
+            if changed_files:
+                impact = impact_review_check(base_dir, active_task_id, changed_files)
+                if impact.get("blockers"):
+                    blockers.extend(impact["blockers"])
+                # warnings are informational — surfaced in summary, not blocking
+        except Exception as e:
+            blockers.append(f"Impact consistency check failed: {e}")
+
     # Finalize
     passed = len(blockers) == 0
     if passed:
         state["phase"] = "closed"
         state["close_attempt"] = False
         state["closure_allowed"] = True
+        state["close_prepared_task_id"] = active_task_id
+        state["close_prepared_at"] = datetime.now(timezone.utc).isoformat()
         _write(state_path, state)
         try:
-            from ..cross_task_quality import append_task_history_from_state, write_quality_digest
-            append_task_history_from_state(base_dir)
-            write_quality_digest(base_dir)
+            from ..cross_task_quality import sync_quality_escalation_state
+            sync_quality_escalation_state(base_dir)
         except Exception:
             pass
+        # Quality digest markdown is NOT auto-written here — Impact.quality_summary controls it
         try:
             from ..lifecycle_cleanup import auto_cleanup
             auto_cleanup(base_dir)
@@ -210,6 +240,47 @@ def build_close_summary(base_dir: str) -> str:
     records = evidence.get("records", []) or []
     accepted = [r for r in records if r.get("status") == "accepted"]
     strong = sum(1 for r in records if r.get("attribution") == "strong")
+
+    def quality_dimension_summary(review_obj: Dict[str, Any]) -> str:
+        dims = review_obj.get("quality_dimensions") or {}
+        if not isinstance(dims, dict) or not dims:
+            return "quality dimensions not scored"
+        counts = {"PASS": 0, "RISK": 0, "FAIL": 0}
+        non_pass = []
+        for name, value in dims.items():
+            score = value.get("score") if isinstance(value, dict) else str(value)
+            score = score if score in counts else "UNKNOWN"
+            if score in counts:
+                counts[score] += 1
+            if score != "PASS":
+                non_pass.append(f"{name}={score}")
+        summary = f"quality dimensions PASS={counts['PASS']} RISK={counts['RISK']} FAIL={counts['FAIL']}"
+        if non_pass:
+            summary += " (" + ", ".join(non_pass[:5]) + ")"
+        return summary
+
+    def review_basis_summary(review_obj: Dict[str, Any]) -> str:
+        from ..state_schema import REVIEW_BASIS
+        basis = review_obj.get("review_basis") or {}
+        if not isinstance(basis, dict) or not basis:
+            return "review basis not recorded"
+        counts = {"covered": 0, "gap": 0, "not_applicable": 0, "missing": 0}
+        exceptions = []
+        for name in REVIEW_BASIS:
+            value = basis.get(name, {})
+            status = value.get("status") if isinstance(value, dict) else "missing"
+            if status not in counts:
+                status = "missing"
+            counts[status] += 1
+            if status != "covered":
+                exceptions.append(f"{name}={status}")
+        summary = (
+            f"review basis covered={counts['covered']} gap={counts['gap']} "
+            f"not_applicable={counts['not_applicable']} missing={counts['missing']}"
+        )
+        if exceptions:
+            summary += " (" + ", ".join(exceptions[:5]) + ")"
+        return summary
 
     # ── What Was Done ──
     lines.append("## What Was Done")
@@ -253,10 +324,14 @@ def build_close_summary(base_dir: str) -> str:
 
     # Review
     rstat = review.get("result", "unknown")
+    verdict = review.get("verdict", "pending")
     reids = review.get("accepted_evidence_ids", []) or []
     advs = review.get("adversarial_observations", []) or []
-    lines.append(f"  Review: {rstat}" +
+    lines.append(f"  Review: {rstat}, verdict={verdict}" +
                  (f", examined {len(reids)} evidence records" if reids else ", examined no evidence"))
+    if verdict not in ("", "pending", None):
+        lines.append(f"  Quality verdict: {quality_dimension_summary(review)}")
+        lines.append(f"  Review basis: {review_basis_summary(review)}")
     if rstat == "accepted" and not reids:
         warns.append("Reviewer approved without examining any evidence")
     if rstat == "unknown":
@@ -324,4 +399,3 @@ def cancel_close(base_dir: str) -> Dict[str, Any]:
         else "close attempt cancelled: close_attempt=False, task activation unblocked."
     )
     return {"message": message, "state": state}
-

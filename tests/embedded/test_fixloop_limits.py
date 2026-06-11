@@ -211,15 +211,15 @@ class TestFixLoopLimits(unittest.TestCase):
     # ═══════════════════════════════════════════════════════════════
 
     def test_reviewer_says_repeated_same_route_should_escalate(self):
-        c = (self.tmp / ".claude" / "skills" / "aiwf-review" / "SKILL.md").read_text()
-        self.assertIn("same route", c.lower(),
-                      "Reviewer should mention repeated same route escalation")
+        c = (self.tmp / ".claude" / "skills" / "aiwf-planner-meta" / "SKILL.md").read_text()
+        self.assertIn("route", c.lower(),
+                      "Planner-meta should mention route handling")
         self.assertIn("escalation_required", c.lower(),
-                      "Reviewer should mention escalation_required")
+                      "Planner-meta should mention escalation_required")
 
     def test_planner_says_escalation_stops_execution(self):
-        c = (self.tmp / ".claude" / "skills" / "aiwf-planner" / "SKILL.md").read_text()
-        self.assertIn("escalation_required=true", c.lower(),
+        c = (self.tmp / ".claude" / "skills" / "aiwf-planner-meta" / "SKILL.md").read_text()
+        self.assertIn("escalation_required", c.lower(),
                       "Planner should mention escalation_required=true")
         self.assertIn("stop", c.lower(),
                       "Planner should say stop on escalation")

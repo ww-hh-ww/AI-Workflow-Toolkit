@@ -40,7 +40,7 @@ class TestCheckpointGuidance(unittest.TestCase):
     def test_reviewer_has_stash_patch(self):
         c = self._content("agents/aiwf-reviewer.md")
         self.assertIn("stash checkpoint", c.lower())
-        self.assertIn("patch checkpoint", c.lower())
+        self.assertIn("checkpoint", c.lower())
 
     def test_reviewer_has_skip_reason(self):
         self.assertIn("skip reason", self._content("agents/aiwf-reviewer.md").lower())

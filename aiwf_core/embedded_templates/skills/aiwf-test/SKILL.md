@@ -13,6 +13,12 @@ If you are planner-main, do not test by roleplaying tester for L2/L3 work. Dispa
 
 When executed inside the AIWF Tester subagent, perform template-guided testing. Depth comes from `test_template`, NOT a universal checklist. **workflow_level decides depth. surface_type decides failure-mode directions.**
 
+## Testing Basis Contract
+
+Testing must verify the active plan's `Verification` section and the risk implied by changed files. Read `.aiwf/plans/<active_task_id>.md`, `.aiwf/evidence/records.json`, `.aiwf/state/state.json`, `.aiwf/state/contexts.json`, and `.aiwf/state/goal.json` before choosing commands.
+
+If the active plan no longer matches the observed changed files or feasible verification path, stop and return to Planner to update the plan before continuing. Do not paper over plan drift with ad hoc tests.
+
 ## Validation Layers Before Declaring Adequate
 
 Do not confuse a passing unit-test command with adequate validation.

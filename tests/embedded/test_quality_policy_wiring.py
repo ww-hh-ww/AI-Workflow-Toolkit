@@ -75,11 +75,13 @@ class TestQualityPolicyWiring(unittest.TestCase):
     # ── skill text checks ──
 
     def test_planner_skill_has_quality_policy_selection(self):
-        content = (self.tmp / ".claude" / "skills" / "aiwf-planner" / "SKILL.md").read_text()
-        self.assertIn("task_type", content)
-        self.assertIn("test_template", content)
-        self.assertIn("review_template", content)
-        self.assertIn("exploration_budget", content)
+        # Quality policy selection details live in planner-contracts sub-skill
+        content = (self.tmp / ".claude" / "skills" / "aiwf-planner-contracts" / "SKILL.md").read_text()
+        self.assertIn("quality", content.lower())
+        # Parent planner delegates to sub-skills
+        planner = (self.tmp / ".claude" / "skills" / "aiwf-planner" / "SKILL.md").read_text()
+        self.assertIn("quality policy", planner.lower())
+        self.assertIn("aiwf-planner-contracts", planner.lower())
 
     def test_test_skill_reads_test_template(self):
         content = (self.tmp / ".claude" / "skills" / "aiwf-test" / "SKILL.md").read_text()

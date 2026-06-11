@@ -253,5 +253,201 @@ class TestScopeGuardRepairWindow(unittest.TestCase):
             self.assertNotIn("repair window", result.reason.lower())
 
 
+class TestInvalidatedScope(unittest.TestCase):
+    """P1-1: fix-loop open records invalidated_scope."""
+
+    def test_open_records_invalidated_scope(self):
+        from aiwf_core.core.state.fixloop_ops import open_fix_loop
+        base = tempfile.mkdtemp()
+        for d in [".aiwf/state", ".aiwf/quality"]:
+            (Path(base) / d).mkdir(parents=True, exist_ok=True)
+        (Path(base) / ".aiwf/state/state.json").write_text(json.dumps({
+            "phase": "reviewing", "workflow_level": "L1_review_light",
+        }))
+
+        result = open_fix_loop(
+            base,
+            route="executor",
+            reason="edge-case failed",
+            required_fixes=["fix divide(-0)"],
+            required_verification=["verify divide(-0) throws RangeError"],
+            invalidated_files=["src/calc.js", "tests/calc.test.js"],
+            invalidated_obligations=["divide(-0) throws RangeError"],
+            invalidated_evidence_ids=["EV-TEST-003"],
+        )
+        scope = result.get("invalidated_scope", {})
+        self.assertIsNotNone(scope)
+        self.assertEqual(scope["files"], ["src/calc.js", "tests/calc.test.js"])
+        self.assertEqual(scope["obligations"], ["divide(-0) throws RangeError"])
+        self.assertEqual(scope["evidence_ids"], ["EV-TEST-003"])
+        self.assertEqual(scope["reason"], "edge-case failed")
+
+    def test_open_without_invalidated_scope_still_works(self):
+        from aiwf_core.core.state.fixloop_ops import open_fix_loop
+        base = tempfile.mkdtemp()
+        for d in [".aiwf/state", ".aiwf/quality"]:
+            (Path(base) / d).mkdir(parents=True, exist_ok=True)
+        (Path(base) / ".aiwf/state/state.json").write_text(json.dumps({
+            "phase": "reviewing", "workflow_level": "L1_review_light",
+        }))
+
+        result = open_fix_loop(
+            base,
+            route="planner",
+            reason="discussion needed",
+        )
+        self.assertEqual(result["status"], "open")
+        self.assertNotIn("invalidated_scope", result)
+
+
+class TestDeltaVerification(unittest.TestCase):
+    """P1-2: record-testing stores delta_verification, reused/invalidated evidence."""
+
+    def test_records_delta_verification(self):
+        from aiwf_core.core.state.testing_ops import record_testing
+        base = tempfile.mkdtemp()
+        for d in [".aiwf/state", ".aiwf/quality", ".aiwf/evidence"]:
+            (Path(base) / d).mkdir(parents=True, exist_ok=True)
+        (Path(base) / ".aiwf/state/state.json").write_text(json.dumps({
+            "phase": "implementing", "workflow_level": "L1_review_light",
+        }))
+
+        result = record_testing(
+            base,
+            status="adequate",
+            commands=["npm test -- tests/calc.test.js -t divide"],
+            validation_layers=["targeted"],
+            acceptance_coverage=["divide(-0) throws RangeError: covered"],
+            reused_evidence_ids=["EV-FULL-SUITE-001"],
+            delta_verification="Only divisor validation changed; previous full suite reused.",
+        )
+        self.assertEqual(result["status"], "adequate")
+        self.assertIn("Only divisor validation changed", result.get("delta_verification", ""))
+        self.assertEqual(result.get("reused_evidence_ids"), ["EV-FULL-SUITE-001"])
+
+    def test_delta_fields_not_written_when_empty(self):
+        from aiwf_core.core.state.testing_ops import record_testing
+        base = tempfile.mkdtemp()
+        for d in [".aiwf/state", ".aiwf/quality", ".aiwf/evidence"]:
+            (Path(base) / d).mkdir(parents=True, exist_ok=True)
+        (Path(base) / ".aiwf/state/state.json").write_text(json.dumps({
+            "phase": "implementing", "workflow_level": "L1_review_light",
+        }))
+
+        result = record_testing(base, status="passed", commands=["pytest"])
+        self.assertNotIn("delta_verification", result)
+        self.assertNotIn("reused_evidence_ids", result)
+        self.assertNotIn("invalidated_evidence_ids", result)
+
+
+class TestDeltaReviewInvalidation(unittest.TestCase):
+    """P1-3 + P1-4: fix-loop resolve invalidates review and checks coverage."""
+
+    def test_resolve_with_executor_route_invalidates_review(self):
+        from aiwf_core.core.state.fixloop_ops import open_fix_loop, resolve_fix_loop
+        base = tempfile.mkdtemp()
+        for d in [".aiwf/state", ".aiwf/quality", ".aiwf/evidence"]:
+            (Path(base) / d).mkdir(parents=True, exist_ok=True)
+        (Path(base) / ".aiwf/state/state.json").write_text(json.dumps({
+            "phase": "reviewing", "workflow_level": "L1_review_light",
+        }))
+        (Path(base) / ".aiwf/quality/testing.json").write_text(json.dumps({
+            "status": "passed", "commands": ["pytest"],
+        }))
+        (Path(base) / ".aiwf/quality/review.json").write_text(json.dumps({
+            "result": "accepted", "closure_allowed": True,
+            "cleanup_status": "fresh",
+        }))
+
+        open_fix_loop(
+            base, route="executor", reason="bug fix",
+            required_fixes=["fix calc.js"],
+            invalidated_files=["src/calc.js"],
+        )
+        result = resolve_fix_loop(base, resolution="fixed calc.js", source="executor", force=True)
+
+        self.assertEqual(result["status"], "resolved")
+        review = json.loads((Path(base) / ".aiwf/quality/review.json").read_text())
+        self.assertEqual(review["result"], "unknown")
+        self.assertFalse(review["closure_allowed"])
+        self.assertEqual(review["cleanup_status"], "stale")
+        self.assertTrue(review.get("delta_review_required"))
+
+    def test_resolve_with_planner_route_does_not_invalidate(self):
+        from aiwf_core.core.state.fixloop_ops import open_fix_loop, resolve_fix_loop
+        base = tempfile.mkdtemp()
+        for d in [".aiwf/state", ".aiwf/quality", ".aiwf/evidence"]:
+            (Path(base) / d).mkdir(parents=True, exist_ok=True)
+        (Path(base) / ".aiwf/state/state.json").write_text(json.dumps({
+            "phase": "reviewing", "workflow_level": "L1_review_light",
+        }))
+        (Path(base) / ".aiwf/quality/testing.json").write_text(json.dumps({
+            "status": "passed", "commands": ["pytest"],
+        }))
+        (Path(base) / ".aiwf/quality/review.json").write_text(json.dumps({
+            "result": "accepted", "closure_allowed": True,
+            "cleanup_status": "fresh",
+        }))
+
+        open_fix_loop(
+            base, route="planner", reason="discussion needed",
+            required_fixes=["clarify acceptance criteria"],
+            invalidated_obligations=["clarify spec"],
+        )
+        result = resolve_fix_loop(base, resolution="discussed", source="planner", force=True)
+
+        self.assertEqual(result["status"], "resolved")
+        review = json.loads((Path(base) / ".aiwf/quality/review.json").read_text())
+        self.assertEqual(review["result"], "accepted")  # unchanged
+
+    def test_verification_coverage_blocks_when_uncovered(self):
+        from aiwf_core.core.state.fixloop_ops import open_fix_loop, resolve_fix_loop
+        base = tempfile.mkdtemp()
+        for d in [".aiwf/state", ".aiwf/quality", ".aiwf/evidence"]:
+            (Path(base) / d).mkdir(parents=True, exist_ok=True)
+        (Path(base) / ".aiwf/state/state.json").write_text(json.dumps({
+            "phase": "reviewing", "workflow_level": "L1_review_light",
+        }))
+        (Path(base) / ".aiwf/quality/testing.json").write_text(json.dumps({
+            "status": "passed", "commands": ["pytest"],
+            "acceptance_coverage": ["some test covered"],
+            "delta_verification": "",
+        }))
+        (Path(base) / ".aiwf/quality/review.json").write_text(json.dumps({
+            "result": "accepted", "closure_allowed": True,
+        }))
+
+        open_fix_loop(
+            base, route="planner", reason="discussion",
+            required_verification=["verify completely_unmatched_item_xyz"],
+        )
+        with self.assertRaises(ValueError) as ctx:
+            resolve_fix_loop(base, resolution="done", source="planner", force=True)
+        self.assertIn("required verification not covered", str(ctx.exception))
+
+    def test_verification_coverage_passes_when_covered(self):
+        from aiwf_core.core.state.fixloop_ops import open_fix_loop, resolve_fix_loop
+        base = tempfile.mkdtemp()
+        for d in [".aiwf/state", ".aiwf/quality", ".aiwf/evidence"]:
+            (Path(base) / d).mkdir(parents=True, exist_ok=True)
+        (Path(base) / ".aiwf/state/state.json").write_text(json.dumps({
+            "phase": "reviewing", "workflow_level": "L1_review_light",
+        }))
+        (Path(base) / ".aiwf/quality/testing.json").write_text(json.dumps({
+            "status": "passed", "commands": ["npm test divide"],
+            "acceptance_coverage": ["divide(-0) throws RangeError: covered"],
+        }))
+        (Path(base) / ".aiwf/quality/review.json").write_text(json.dumps({
+            "result": "accepted", "closure_allowed": True,
+        }))
+
+        open_fix_loop(
+            base, route="planner", reason="discussion",
+            required_verification=["divide(-0) throws RangeError"],
+        )
+        result = resolve_fix_loop(base, resolution="done", source="planner", force=True)
+        self.assertEqual(result["status"], "resolved")
+
+
 if __name__ == "__main__":
     unittest.main()

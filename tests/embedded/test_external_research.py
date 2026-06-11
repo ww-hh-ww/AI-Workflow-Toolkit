@@ -27,6 +27,24 @@ class TestExternalResearch(unittest.TestCase):
         self.assertEqual(r.returncode, 0, f"{args}\nstdout={r.stdout}\nstderr={r.stderr}")
         return r
 
+    def _seed_plan(self, task_id):
+        plan_dir = self.tmp / ".aiwf" / "plans"
+        plan_dir.mkdir(parents=True, exist_ok=True)
+        plan_path = plan_dir / f"{task_id}.md"
+        if not plan_path.exists():
+            plan_path.write_text(
+                f"# {task_id}\n\n"
+                "> AI working plan.\n\n"
+                "## Goal\nTest\n\n## Route\n- How: fix\n\n"
+                "## Scope\n- Change: test\n\n## Risks\n- none\n\n"
+                "## Verification\n- Machine-verifiable: yes\n\n"
+                "## Impact\n- docs: no — test\n- project_map: no — test\n- environment: no — test\n- capabilities: no — test\n- quality_summary: no — test\n\n"
+                "## Done Means\n- test passes\n\n"
+                "## Goal Progress\n- Parent goal: test\n\n"
+                "## Next Steps\n1. done\n",
+                encoding="utf-8",
+            )
+
     def test_record_and_promote_research_without_mutating_goal(self):
         goal_path = self.tmp / ".aiwf" / "state" / "goal.json"
         before_goal = json.loads(goal_path.read_text())
@@ -94,6 +112,7 @@ class TestExternalResearch(unittest.TestCase):
             "--external-research-required",
         )
         upsert_task(str(self.tmp), "TASK-001", "Needs research", status="ready")
+        self._seed_plan("TASK-001")
 
         blocked = activate_task(str(self.tmp), "TASK-001")
         self.assertFalse(blocked["activated"])
@@ -122,6 +141,7 @@ class TestExternalResearch(unittest.TestCase):
             "--external-research-required",
         )
         upsert_task(str(self.tmp), "TASK-001", "Skip research", status="ready")
+        self._seed_plan("TASK-001")
         self.assertFalse(activate_task(str(self.tmp), "TASK-001")["activated"])
 
         self._run_ok("research", "skip", "--reason", "User supplied authoritative local source; external search would add no signal")

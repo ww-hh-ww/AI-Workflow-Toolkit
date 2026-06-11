@@ -28,6 +28,23 @@ def _rj(path, default=None):
     try: return json.loads(path.read_text()) if path.exists() else (default or {})
     except: return default or {}
 
+def _read_active_plan_impact(root):
+    """Read the Impact block from the active task's plan, if one exists.
+    Returns {category: value} or {} if no active plan / task.
+    """
+    state = _rj(root / ".aiwf" / "state" / "state.json", {})
+    task_id = state.get("active_task_id", "") or ""
+    if not task_id:
+        return {}
+    plan_path = root / ".aiwf" / "plans" / f"{task_id}.md"
+    if not plan_path.exists():
+        return {}
+    try:
+        from aiwf_core.core.task_plan import parse_plan_impact
+        return parse_plan_impact(str(root), task_id)
+    except Exception:
+        return {}
+
 
 def _is_isolated_legacy_path(path: str) -> bool:
     p = str(path).strip().replace("\\", "/").lstrip("./")
@@ -140,10 +157,13 @@ def check_lifecycle_cleanup(project_root: str) -> Dict[str, Any]:
     }
 
     # ── PROJECT-MAP ──
+    impact = _read_active_plan_impact(root)
     pm_path = root / ".aiwf" / "reports" / "项目地图.md"
     if not pm_path.exists():
-        result["warnings"].append("PROJECT-MAP.md missing; run aiwf project-map init")
-        result["project_map_issues"].append("missing")
+        if impact.get("project_map") == "yes":
+            result["warnings"].append("Impact.project_map=yes but PROJECT-MAP.md missing; run aiwf project-map init")
+            result["project_map_issues"].append("missing")
+        # If Impact.project_map=no or unknown, silence the missing-PROJECT-MAP warning
     else:
         pm_text = pm_path.read_text(encoding="utf-8")
 
@@ -242,8 +262,10 @@ def check_lifecycle_cleanup(project_root: str) -> Dict[str, Any]:
     # ── Environment ──
     env_path = root / ".aiwf" / "assets" / "environment.json"
     if not env_path.exists():
-        result["warnings"].append("environment.json missing; run aiwf env scan")
-        result["environment_issues"].append("environment profile missing")
+        if impact.get("environment") == "yes":
+            result["warnings"].append("Impact.environment=yes but environment.json missing; run aiwf env scan")
+            result["environment_issues"].append("environment profile missing")
+        # If Impact.environment=no or unknown, silence the missing-environment warning
     else:
         try:
             ep = json.loads(env_path.read_text())
@@ -299,17 +321,20 @@ def check_lifecycle_cleanup(project_root: str) -> Dict[str, Any]:
         except: pass
 
     # ── Freshness: current-state carry-forward ──
+    # Only check current-state during/after closure, not during normal execution.
     try:
         from aiwf_core.core.current_state import current_state_freshness
         state = _rj(root / ".aiwf" / "state" / "state.json", {})
-        cs = current_state_freshness(str(root))
-        if cs["status"] == "missing" and (state.get("phase") == "closed" or report_path.exists()):
-            result["warnings"].append("current-state.md missing; run rebase after closure")
-        elif cs["status"] == "stale":
-            stale = ", ".join(cs.get("stale_sources", [])[:5])
-            result["warnings"].append(f"current-state.md may be stale: newer source(s): {stale}")
-        elif cs["status"] == "incomplete":
-            result["warnings"].append("current-state.md incomplete; regenerate with aiwf_rebase_state.py after closure")
+        phase = state.get("phase", "")
+        if phase in ("closed", "closing") or report_path.exists():
+            cs = current_state_freshness(str(root))
+            if cs["status"] == "missing":
+                result["warnings"].append("current-state.md missing; run rebase after closure")
+            elif cs["status"] == "stale":
+                stale = ", ".join(cs.get("stale_sources", [])[:5])
+                result["warnings"].append(f"current-state.md may be stale: newer source(s): {stale}")
+            elif cs["status"] == "incomplete":
+                result["warnings"].append("current-state.md incomplete; regenerate with aiwf_rebase_state.py after closure")
     except Exception:
         pass
 

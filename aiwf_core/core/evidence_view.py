@@ -105,6 +105,18 @@ def build_closure_evidence_summary(
 
     # Add review + testing context
     summary["review_result"] = review.get("result", "unknown")
+    summary["review_verdict"] = review.get("verdict", "pending")
+    basis = review.get("review_basis", {}) or {}
+    basis_counts = {"covered": 0, "gap": 0, "not_applicable": 0, "missing": 0}
+    if isinstance(basis, dict):
+        from .state_schema import REVIEW_BASIS
+        for name in REVIEW_BASIS:
+            entry = basis.get(name, {})
+            status = entry.get("status") if isinstance(entry, dict) else "missing"
+            if status not in basis_counts:
+                status = "missing"
+            basis_counts[status] += 1
+    summary["review_basis"] = basis_counts
     summary["closure_allowed"] = review.get("closure_allowed", False)
     summary["review_blockers"] = review.get("blockers", []) or []
     summary["testing_status"] = testing.get("status", "missing")

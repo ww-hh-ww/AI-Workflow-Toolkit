@@ -43,6 +43,17 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 GOV_PREFIXES = [".aiwf/", ".claude/", ".reasonix/", "scripts/aiwf_", "scripts/__pycache__/", "CLAUDE.md", "REASONIX.md", "AGENTS.md"]
+QUALITY_DIMENSIONS = [
+    "requirement_fit",
+    "architecture_fit",
+    "minimality",
+    "correctness",
+    "test_adequacy",
+    "maintainability",
+    "risk_debt",
+    "human_trust",
+]
+REVIEW_BASIS = ["goal", "plan", "scope", "evidence", "testing", "impact"]
 
 def rj(path, default=None):
     try: return json.loads(path.read_text(encoding="utf-8")) if path.exists() else (default or {})
@@ -101,6 +112,161 @@ def task_history_summary(base):
         "recent_risk_tasks": sum(1 for t in recent if int(t.get("untested_risk_count", 0) or 0) > 0),
         "repeated_files": repeated,
     }
+
+def impact_report(base, state, changed, gov_changed):
+    task_id = state.get("active_task_id") or state.get("active_plan_id") or ""
+    if not task_id:
+        return {"applicable": False, "complete": True, "consistent": True, "blockers": []}
+    plan_path = base / ".aiwf" / "plans" / f"{task_id}.md"
+    if not plan_path.exists():
+        return {"applicable": True, "complete": False, "consistent": False, "blockers": [f"active plan missing: {task_id}"]}
+    try:
+        text = plan_path.read_text(encoding="utf-8")
+    except Exception:
+        return {"applicable": True, "complete": False, "consistent": False, "blockers": [f"active plan unreadable: {task_id}"]}
+    import re
+    match = re.search(r"## (?:Impact|Docs / Assets Impact)\n(.*?)(?=\n## |\Z)", text, re.DOTALL)
+    if not match:
+        return {"applicable": True, "complete": False, "consistent": False, "blockers": ["Impact section missing"]}
+    body = match.group(1)
+    categories = ["docs", "project_map", "environment", "capabilities", "quality_summary"]
+    impact = {}
+    for cat in categories:
+        m = re.search(rf"-\s+{cat}:\s*(yes|no)\b", body, re.IGNORECASE)
+        if m:
+            impact[cat] = m.group(1).lower()
+    blockers = []
+    missing = [cat for cat in categories if cat not in impact]
+    if missing:
+        blockers.append("Impact incomplete: " + ", ".join(missing))
+    all_changed = set(changed) | set(gov_changed)
+    docs_changed = [p for p in all_changed if str(p).lower().endswith((".md", ".rst", ".txt"))]
+    project_map_changed = [p for p in all_changed if "PROJECT-MAP.md" in str(p) or "项目地图.md" in str(p)]
+    qs_changed = [p for p in all_changed if "质量摘要.md" in str(p) or "quality-digest" in str(p)]
+    if impact.get("docs") == "no" and docs_changed:
+        blockers.append("Impact.docs=no but docs changed: " + ", ".join(sorted(docs_changed)[:3]))
+    if impact.get("project_map") == "no" and project_map_changed:
+        blockers.append("Impact.project_map=no but project map changed: " + ", ".join(sorted(project_map_changed)[:3]))
+    if impact.get("quality_summary") == "no" and qs_changed:
+        blockers.append("Impact.quality_summary=no but quality digest changed: " + ", ".join(sorted(qs_changed)[:3]))
+    return {
+        "applicable": True,
+        "complete": not missing,
+        "consistent": not blockers,
+        "blockers": blockers,
+    }
+
+def quality_dimension_lines(review):
+    dims = review.get("quality_dimensions") or {}
+    if not isinstance(dims, dict) or not dims:
+        return ["- Quality dimensions: not scored"]
+    counts = {"PASS": 0, "RISK": 0, "FAIL": 0}
+    details = []
+    for dim in QUALITY_DIMENSIONS:
+        value = dims.get(dim, {})
+        score = value.get("score") if isinstance(value, dict) else str(value or "")
+        note = value.get("note", "") if isinstance(value, dict) else ""
+        if score in counts:
+            counts[score] += 1
+        if score and score != "PASS":
+            line = f"  - {dim}: {score}"
+            if note:
+                line += f" - {str(note)[:160]}"
+            details.append(line)
+    lines = [f"- Quality dimensions: PASS={counts['PASS']} RISK={counts['RISK']} FAIL={counts['FAIL']}"]
+    if details:
+        lines.append("- Non-PASS dimensions:")
+        lines.extend(details[:10])
+    return lines
+
+def review_basis_lines(review):
+    basis = review.get("review_basis") or {}
+    if not isinstance(basis, dict) or not basis:
+        return ["- Review basis: not recorded"]
+    counts = {"covered": 0, "gap": 0, "not_applicable": 0, "missing": 0}
+    details = []
+    for name in REVIEW_BASIS:
+        value = basis.get(name, {})
+        status = value.get("status") if isinstance(value, dict) else "missing"
+        note = value.get("note", "") if isinstance(value, dict) else ""
+        if status not in counts:
+            status = "missing"
+        counts[status] += 1
+        if status != "covered":
+            line = f"  - {name}: {status}"
+            if note:
+                line += f" - {str(note)[:160]}"
+            details.append(line)
+    lines = [
+        f"- Review basis: covered={counts['covered']} gap={counts['gap']} "
+        f"not_applicable={counts['not_applicable']} missing={counts['missing']}"
+    ]
+    if details:
+        lines.append("- Basis gaps / exceptions:")
+        lines.extend(details[:10])
+    return lines
+
+def quality_verdict_blockers(review):
+    verdict = review.get("verdict", "pending")
+    if verdict in ("", None, "pending"):
+        return []
+    if verdict not in ("PASS", "PASS_WITH_RISK", "REVISE", "REJECT"):
+        return [f"unknown review verdict: {verdict}"]
+    if verdict in ("REVISE", "REJECT"):
+        return [f"review verdict is {verdict}; closure requires PASS or PASS_WITH_RISK"]
+    dims = review.get("quality_dimensions") or {}
+    if not isinstance(dims, dict):
+        dims = {}
+    missing = [dim for dim in QUALITY_DIMENSIONS if dim not in dims or not dims.get(dim, {}).get("score")]
+    if missing:
+        return [f"quality verdict {verdict} missing scored dimensions: {', '.join(missing[:5])}"]
+    risk_dims = []
+    fail_dims = []
+    risk_without_note = []
+    for dim in QUALITY_DIMENSIONS:
+        value = dims.get(dim, {})
+        score = value.get("score") if isinstance(value, dict) else ""
+        note = str(value.get("note", "") or "").strip() if isinstance(value, dict) else ""
+        if score == "FAIL":
+            fail_dims.append(dim)
+        elif score == "RISK":
+            risk_dims.append(dim)
+            if not note:
+                risk_without_note.append(dim)
+    blockers = []
+    if fail_dims:
+        blockers.append(f"quality verdict {verdict} has FAIL dimensions: {', '.join(fail_dims)}")
+    if verdict == "PASS" and risk_dims:
+        blockers.append(f"quality verdict PASS cannot have RISK dimensions: {', '.join(risk_dims)}")
+    if verdict == "PASS_WITH_RISK" and not risk_dims:
+        blockers.append("quality verdict PASS_WITH_RISK requires at least one RISK dimension")
+    if risk_without_note:
+        blockers.append(f"RISK dimensions require notes: {', '.join(risk_without_note)}")
+    if review.get("root_cause") == "symptom_only":
+        blockers.append("accepted review is marked symptom_only")
+    basis = review.get("review_basis") or {}
+    if not isinstance(basis, dict):
+        basis = {}
+    missing_basis = []
+    gap_basis = []
+    missing_basis_notes = []
+    for name in REVIEW_BASIS:
+        value = basis.get(name, {})
+        status = value.get("status") if isinstance(value, dict) else ""
+        note = str(value.get("note", "") or "").strip() if isinstance(value, dict) else ""
+        if status in ("", "missing", None):
+            missing_basis.append(name)
+        elif status == "gap":
+            gap_basis.append(name)
+        elif status == "not_applicable" and not note:
+            missing_basis_notes.append(name)
+    if missing_basis:
+        blockers.append(f"review verdict missing review basis coverage: {', '.join(missing_basis)}")
+    if gap_basis:
+        blockers.append(f"review closure verdict has review basis gaps: {', '.join(gap_basis)}")
+    if missing_basis_notes:
+        blockers.append(f"review basis not_applicable items missing notes: {', '.join(missing_basis_notes)}")
+    return blockers
 
 def main():
     base = Path.cwd()
@@ -355,7 +521,10 @@ def main():
     # ── Review ──
     lines.append("## Review")
     lines.append(f"- Result: {review.get('result', 'unknown')}")
+    lines.append(f"- Verdict: {review.get('verdict', 'pending')}")
     lines.append(f"- Closure allowed: {review.get('closure_allowed', False)}")
+    lines.extend(quality_dimension_lines(review))
+    lines.extend(review_basis_lines(review))
     if review.get("blockers"):
         lines.append("- Blockers:"); [lines.append(f"  - {b[:200]}") for b in review["blockers"][:10]]
     lines.append("")
@@ -418,31 +587,41 @@ def main():
     close_attempt = state.get("close_attempt", False)
     ev_ok = len(accepted_ids) > 0
     test_ok = testing.get("status") in ("adequate", "passed")
-    review_ok = review.get("result") == "accepted" and review.get("closure_allowed", False)
+    quality_blockers = quality_verdict_blockers(review)
+    impact = impact_report(base, state, changed, gov_changed)
+    impact_ok = (not impact["applicable"]) or (impact["complete"] and impact["consistent"])
+    review_ok = review.get("result") == "accepted" and review.get("closure_allowed", False) and not quality_blockers
     fix_ok = fix_loop.get("status") != "open"
     scope_ok = not state.get("scope_violation", False)
     cleanup_ok = review.get("cleanup_status") == "fresh" and not review.get("stale_items") and not review.get("cleanup_blockers")
     structure_ok = review.get("structure_status") == "accepted"
-    all_ok = close_attempt and ev_ok and test_ok and review_ok and fix_ok and scope_ok and cleanup_ok and structure_ok
+    all_ok = close_attempt and ev_ok and test_ok and review_ok and fix_ok and scope_ok and cleanup_ok and structure_ok and impact_ok
 
     lines.append(f"- Close attempt: {close_attempt}")
     lines.append(f"- Evidence accepted: {ev_ok} ({len(accepted_ids)} records)")
     lines.append(f"- Testing adequate: {test_ok} ({testing.get('status', '?')})")
-    lines.append(f"- Review accepted: {review_ok}")
+    lines.append(f"- Review accepted: {review_ok} (verdict={review.get('verdict', 'pending')})")
     lines.append(f"- Fix loop clear: {fix_ok}")
     lines.append(f"- Scope clean: {scope_ok}")
     lines.append(f"- Cleanup fresh: {cleanup_ok}")
     lines.append(f"- Structure accepted: {structure_ok}")
+    if impact["applicable"]:
+        lines.append(f"- Impact complete: {impact['complete']}")
+        lines.append(f"- Impact consistent: {impact['consistent']}")
+    else:
+        lines.append("- Impact: not_applicable")
     lines.append(f"- Closure status: {'ALLOWED' if all_ok else 'BLOCKED'}")
     if not all_ok:
         blockers = []
         if not ev_ok: blockers.append("no accepted evidence")
         if not test_ok: blockers.append("testing not adequate")
         if not review_ok: blockers.append("review not accepted")
+        blockers.extend(quality_blockers)
         if not fix_ok: blockers.append("fix-loop open")
         if not scope_ok: blockers.append("scope violation")
         if not cleanup_ok: blockers.append("cleanup not fresh")
         if not structure_ok: blockers.append("structure not accepted")
+        blockers.extend(impact["blockers"])
         if not close_attempt: blockers.append("close_attempt not set")
         if blockers: lines.append(f"- Blockers: {', '.join(blockers)}")
     lines.append("")

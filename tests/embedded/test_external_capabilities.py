@@ -72,6 +72,23 @@ class TestExternalCapabilities(unittest.TestCase):
         (self.tmp/".claude"/"commands").mkdir(parents=True, exist_ok=True)
         (self.tmp/".claude"/"commands"/f"{name}.md").write_text("# Check\nRun checks.\n")
 
+    def _seed_plan(self, task_id):
+        plan_dir = self.tmp / ".aiwf" / "plans"
+        plan_dir.mkdir(parents=True, exist_ok=True)
+        (plan_dir / f"{task_id}.md").write_text(
+            f"# {task_id}\n\n"
+            "## Goal\nTest task\n\n"
+            "## Scope\n- Change: test files\n\n"
+            "## Verification\n- Machine-verifiable: yes\n\n"
+            "## Impact\n"
+            "- docs: no — test\n"
+            "- project_map: no — test\n"
+            "- environment: no — test\n"
+            "- capabilities: no — test\n"
+            "- quality_summary: no — test\n",
+            encoding="utf-8",
+        )
+
     # ── clean install ──
     def test_clean_install_zero_external(self):
         self._run_ok("capability", "scan")
@@ -92,7 +109,8 @@ class TestExternalCapabilities(unittest.TestCase):
         self._add_skill("karpathy", "# Karpathy\nThink first.\n")
         self._run_ok("capability", "scan")
         ctx = self._status()
-        self.assertIn("External capabilities: registry available", ctx)
+        self.assertIn("Process: level=L1_review_light mode=execution route=linear", ctx)
+        self.assertNotIn("External capabilities:", ctx)
         self.assertNotIn("high-risk", ctx)
 
     # ── dangerous skill ──
@@ -106,7 +124,9 @@ class TestExternalCapabilities(unittest.TestCase):
     def test_dangerous_skill_high_risk_status(self):
         self._add_skill("deployer", "# Deployer\nDeploy and git push.\n")
         self._run_ok("capability", "scan")
-        self.assertIn("high-risk entries need Planner review", self._status())
+        ctx = self._status()
+        self.assertIn("Process: level=L1_review_light mode=execution route=linear", ctx)
+        self.assertNotIn("high-risk entries need Planner review", ctx)
 
     # ── unknown hook ──
     def test_external_hook_detected(self):
@@ -118,7 +138,9 @@ class TestExternalCapabilities(unittest.TestCase):
     def test_unknown_hook_high_risk_status(self):
         self._add_hook("Notification")
         self._run_ok("capability", "scan")
-        self.assertIn("high-risk entries need Planner review", self._status())
+        ctx = self._status()
+        self.assertIn("Process: level=L1_review_light mode=execution route=linear", ctx)
+        self.assertNotIn("high-risk entries need Planner review", ctx)
 
     # ── MCP secrets ──
     def test_mcp_no_secrets(self):
@@ -182,13 +204,20 @@ class TestExternalCapabilities(unittest.TestCase):
         self._add_skill("tdd", "# TDD\nWrite a failing test before implementation.\n")
         self._run_ok("capability", "scan")
         upsert_task(str(self.tmp), "TASK-001", "Use external TDD helper", status="ready")
+        self._seed_plan("TASK-001")
 
         without_planned_use = activate_task(str(self.tmp), "TASK-001")
         self.assertTrue(without_planned_use["activated"], without_planned_use["blockers"])
 
         from aiwf_core.core.task_ledger import close_task
+        state_path = self.tmp / ".aiwf" / "state" / "state.json"
+        state = json.loads(state_path.read_text())
+        state["phase"] = "closed"
+        state["closure_allowed"] = True
+        state_path.write_text(json.dumps(state, indent=2))
         close_task(str(self.tmp), "TASK-001")
         upsert_task(str(self.tmp), "TASK-002", "Use external TDD helper", status="ready")
+        self._seed_plan("TASK-002")
         self._run_ok("capability", "plan-use", "skill:tdd")
         blocked = activate_task(str(self.tmp), "TASK-002")
         self.assertFalse(blocked["activated"])
@@ -225,7 +254,9 @@ class TestExternalCapabilities(unittest.TestCase):
 
     # ── status prompt cache ──
     def test_status_none_when_empty(self):
-        self.assertIn("External capabilities: none", self._status())
+        ctx = self._status()
+        self.assertIn("Process: level=L1_review_light mode=execution route=linear", ctx)
+        self.assertNotIn("External capabilities:", ctx)
 
     def test_status_no_dump_registry(self):
         self._add_skill("karpathy", "# Karpathy\nThink first.\n")

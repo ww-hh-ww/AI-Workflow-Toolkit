@@ -16,13 +16,15 @@ def _run(cmd, cwd, **kw):
 class TestInstall(unittest.TestCase):
     """aiwf install claude produces correct files and structure."""
 
-    def setUp(self):
-        self.tmp = Path(tempfile.mkdtemp(prefix="awin_"))
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = Path(tempfile.mkdtemp(prefix="awin_"))
         _run([sys.executable, "-m", "aiwf_core.cli", "install", "claude", "--force"],
-             self.tmp)
+             cls.tmp)
 
-    def tearDown(self):
-        shutil.rmtree(self.tmp, ignore_errors=True)
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.tmp, ignore_errors=True)
 
     def _j(self, rel):
         return json.loads((self.tmp / rel).read_text())
@@ -91,10 +93,9 @@ class TestInstall(unittest.TestCase):
         planner = (self.tmp / ".claude" / "skills" / "aiwf-planner" / "SKILL.md").read_text()
         reviewer = (self.tmp / ".claude" / "skills" / "aiwf-review" / "SKILL.md").read_text()
         executor = (self.tmp / ".claude" / "agents" / "aiwf-executor.md").read_text()
-        self.assertIn("ask the user to confirm execution", planner)
-        self.assertIn("At stable version boundaries", planner)
-        self.assertIn("coherent rollback point", planner)
-        self.assertIn("do not silently hand-write the plan", planner.lower())
+        self.assertIn("ask before switching to", planner.lower())
+        self.assertIn("do not infer consent from a plan file", planner.lower())
+        self.assertIn("do NOT hand-edit", planner)
         self.assertIn("AIWFRoleEvidence", reviewer)
         self.assertIn("--scan-git", reviewer)
         self.assertIn("--scan-git", executor)
@@ -179,13 +180,15 @@ class TestInstall(unittest.TestCase):
 class TestReasonixInstall(unittest.TestCase):
     """aiwf install reasonix preserves AIWF governance while targeting Reasonix."""
 
-    def setUp(self):
-        self.tmp = Path(tempfile.mkdtemp(prefix="awin_reasonix_"))
-        self.result = _run([sys.executable, "-m", "aiwf_core.cli", "install", "reasonix", "--force"],
-                           self.tmp)
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = Path(tempfile.mkdtemp(prefix="awin_reasonix_"))
+        cls.result = _run([sys.executable, "-m", "aiwf_core.cli", "install", "reasonix", "--force"],
+                          cls.tmp)
 
-    def tearDown(self):
-        shutil.rmtree(self.tmp, ignore_errors=True)
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.tmp, ignore_errors=True)
 
     def _j(self, rel):
         return json.loads((self.tmp / rel).read_text())
@@ -200,13 +203,18 @@ class TestReasonixInstall(unittest.TestCase):
         self.assertFalse((self.tmp / ".ai-workflow").exists())
 
     def test_reasonix_force_install_removes_legacy_duplicate_agents(self):
-        agents = self.tmp / ".reasonix" / "agents"
-        agents.mkdir(parents=True, exist_ok=True)
-        (agents / "aiwf-executor.md").write_text("legacy duplicate")
-        result = _run([sys.executable, "-m", "aiwf_core.cli", "install", "reasonix", "--force"],
-                      self.tmp)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertFalse((agents / "aiwf-executor.md").exists())
+        # This test modifies install state — needs isolated tmpdir
+        tmp = Path(tempfile.mkdtemp(prefix="awin_ri_legacy_"))
+        try:
+            _run([sys.executable, "-m", "aiwf_core.cli", "install", "reasonix", "--force"], tmp)
+            agents = tmp / ".reasonix" / "agents"
+            agents.mkdir(parents=True, exist_ok=True)
+            (agents / "aiwf-executor.md").write_text("legacy duplicate")
+            result = _run([sys.executable, "-m", "aiwf_core.cli", "install", "reasonix", "--force"], tmp)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertFalse((agents / "aiwf-executor.md").exists())
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
 
     def test_reasonix_install_output_uses_skill_command(self):
         self.assertIn("reasonix", self.result.stdout)

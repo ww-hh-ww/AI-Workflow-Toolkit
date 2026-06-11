@@ -163,7 +163,8 @@ class TestPlannerAuthorityBoundaries(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "adequate/passed testing"):
             resolve_fix_loop(str(self.tmp), "claimed fixed")
 
-        record_testing(str(self.tmp), status="passed", commands=["pytest"])
+        record_testing(str(self.tmp), status="passed", commands=["pytest"],
+                      acceptance_coverage=["rerun regression suite: covered"])
         resolved = resolve_fix_loop(str(self.tmp), "verified fixed")
         self.assertEqual(resolved["status"], "resolved")
 

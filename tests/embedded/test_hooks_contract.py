@@ -70,6 +70,16 @@ class TestHooks(unittest.TestCase):
                          "hook_event_name": "UserPromptSubmit"})
         return _run_script(self.tmp / "scripts" / "aiwf_status.py", inp, self.tmp)
 
+    def _stop(self):
+        inp = json.dumps({"session_id": "t", "cwd": str(self.tmp),
+                         "hook_event_name": "Stop"})
+        return _run_script(self.tmp / "scripts" / "aiwf_review_gate.py", inp, self.tmp)
+
+    def _write_state(self, name, data):
+        path = self.tmp / ".aiwf" / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(data, indent=2) + "\n")
+
     # ── UserPromptSubmit ──
 
     def test_status_returns_additional_context(self):
@@ -84,6 +94,66 @@ class TestHooks(unittest.TestCase):
         self.assertIn("PRIMARY:", ctx)
         self.assertIn("REQUIRED NEXT:", ctx)
         self.assertLess(len(ctx), 1000)
+
+    # ── Stop ──
+
+    def test_fresh_install_ordinary_stop_allows(self):
+        r = self._stop()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertNotIn('"decision": "block"', r.stdout)
+        self.assertEqual(r.stdout.strip(), "")
+
+    def test_close_attempt_without_review_blocks(self):
+        state = json.loads((self.tmp / ".aiwf" / "state" / "state.json").read_text())
+        state["phase"] = "closing"
+        state["close_attempt"] = True
+        self._write_state("state/state.json", state)
+
+        r = self._stop()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn('"decision": "block"', r.stdout)
+        self.assertIn("review not recorded", r.stdout)
+
+    def test_close_attempt_with_all_gates_passed_allows(self):
+        state = json.loads((self.tmp / ".aiwf" / "state" / "state.json").read_text())
+        state["phase"] = "closing"
+        state["close_attempt"] = True
+        self._write_state("state/state.json", state)
+        self._write_state("evidence/records.json", {
+            "records": [{"id": "EV-001", "status": "accepted", "session_id": "s1"}],
+        })
+        self._write_state("quality/testing.json", {
+            "status": "passed", "commands": ["pytest"],
+        })
+        self._write_state("quality/review.json", {
+            "result": "accepted",
+            "closure_allowed": True,
+            "cleanup_status": "fresh",
+            "stale_items": [],
+        })
+
+        r = self._stop()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertNotIn('"decision": "block"', r.stdout)
+        self.assertEqual(r.stdout.strip(), "")
+
+    def test_no_close_attempt_passed_false_empty_blockers_does_not_block(self):
+        state = json.loads((self.tmp / ".aiwf" / "state" / "state.json").read_text())
+        state["phase"] = "reviewing"
+        state["close_attempt"] = False
+        self._write_state("state/state.json", state)
+        self._write_state("evidence/records.json", {"records": []})
+        self._write_state("quality/testing.json", {"status": "missing"})
+        self._write_state("quality/review.json", {
+            "result": "unknown",
+            "closure_allowed": False,
+            "cleanup_status": "unknown",
+        })
+
+        r = self._stop()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertNotIn('"decision": "block"', r.stdout)
+        self.assertEqual(r.stdout.strip(), "")
 
     def test_status_after_review_without_active_task_routes_to_closure_not_new_task(self):
         state_path = self.tmp / ".aiwf" / "state" / "state.json"
@@ -101,7 +171,7 @@ class TestHooks(unittest.TestCase):
         ctx = json.loads(r.stdout.strip())["hookSpecificOutput"]["additionalContext"]
 
         self.assertIn("Recovery:closure planner", ctx)
-        self.assertIn("PRIMARY: refresh closure assets and run prepare-close", ctx)
+        self.assertIn("PRIMARY: follow active plan Impact and run prepare-close", ctx)
         self.assertNotIn("PRIMARY: activate task", ctx)
 
     def test_status_with_execution_plan_without_task_routes_to_plan_only_drift(self):

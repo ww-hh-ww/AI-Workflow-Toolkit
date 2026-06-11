@@ -348,12 +348,12 @@ def _recovery_guidance(
             "state": "ready",
             "category": "close",
             "owner": "planner",
-            "primary": "close task and prepare-close",
+            "primary": "prepare-close, then close active task",
             "legal_options": [
-                "run aiwf task close <TASK-ID>",
                 "run aiwf state prepare-close",
+                "after prepare-close passes, run aiwf task close <TASK-ID>",
             ],
-            "forbidden": ["do not skip task close before prepare-close"],
+            "forbidden": ["do not close the active task before prepare-close passes"],
             "user_decision_required": False,
             "why": "Testing, cleanup, and review are complete for the active task.",
         }
@@ -541,7 +541,7 @@ def planner_process_guidance(base_dir: str) -> Dict[str, Any]:
             if pending:
                 required.append(f"Planner meta-critique: disposition {len(pending)} adversarial observation(s)")
             else:
-                required.append("Record Planner meta-critique, close the active task, then prepare-close")
+                required.append("Record Planner meta-critique, run prepare-close, then close the active task")
 
     if fix_loop.get("status") == "open":
         fixes = "; ".join(map(str, (fix_loop.get("required_fixes", []) or [])[:2]))
@@ -573,32 +573,10 @@ def planner_process_guidance(base_dir: str) -> Dict[str, Any]:
     except Exception:
         pass
 
-    try:
-        from ..assets.schema import asset_status
-        assets = asset_status(base_dir)
-        if assets.get("overall") == "stale":
-            stale = ", ".join(assets.get("stale_files", [])[:3])
-            conditional.append(
-                "Tier 1 assets are stale; verify source directly and refresh assets"
-                + (f": {stale}" if stale else "")
-            )
-    except Exception:
-        pass
-
-    if not (root / ".aiwf" / "assets" / "environment.json").exists():
-        conditional.append("Environment profile is missing; it will be mechanically scanned at context start")
-    if not (root / ".aiwf" / "assets" / "capabilities.json").exists():
-        conditional.append("Capability registry is missing; scan before relying on external skills/hooks")
-
-    advisory.extend([
-        "Use Explorer when pre-planning research needs broad read-only discovery",
-        "Use aiwf recipe recommend to choose an advisory workflow template; recipes never override .aiwf JSON gates",
-        "Use aiwf plan create/update for human-readable plan.md continuity; the plan artifact is not mechanical truth",
-        "Use Curator after closure only when lessons or negative patterns will change future behavior",
-        "Use memory suggest when prior lessons may affect this task; suggestions never override current contracts",
-        "Treat external community workflows and plugins as capabilities to classify, not as lifecycle replacements",
-        "Mechanical signals select minimum depth; Planner must explain semantic risk and may increase depth or breadth",
-    ])
+    # E-class: asset staleness, missing env/cap, and generic tool advice are
+    # silenced from default guidance. They remain available via --debug.
+    # The AI should not see "Environment profile is missing" or "Use Explorer..."
+    # on every turn unless the current task declares it needs them.
     recovery = _recovery_guidance(base_dir, state, goal, testing, review, fix_loop)
     return {
         "workflow_level": level,

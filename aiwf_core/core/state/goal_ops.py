@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from ._common import _execution_contract_frozen, _freeze_explanation, _read, _write
+from ._common import _execution_contract_frozen, _freeze_explanation, _read, _write, _require_additive_list, _require_stable_scalar
 
 def record_quality_brief(
     base_dir: str,

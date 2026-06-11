@@ -15,6 +15,9 @@ def open_fix_loop(
     required_fixes: Optional[List[str]] = None,
     required_verification: Optional[List[str]] = None,
     source: str = "reviewer",
+    invalidated_files: Optional[List[str]] = None,
+    invalidated_obligations: Optional[List[str]] = None,
+    invalidated_evidence_ids: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """Open a fix-loop with route, reason, required fixes, and verification.
 
@@ -41,6 +44,15 @@ def open_fix_loop(
     fix_loop["reason"] = reason
     fix_loop["required_fixes"] = required_fixes or (fix_loop.get("required_fixes") if was_open else [])
     fix_loop["required_verification"] = required_verification or (fix_loop.get("required_verification") if was_open else [])
+
+    # Record invalidated scope: what files, obligations, and evidence this fix-loop invalidates
+    if invalidated_files or invalidated_obligations or invalidated_evidence_ids:
+        fix_loop["invalidated_scope"] = {
+            "files": list(invalidated_files or []),
+            "obligations": list(invalidated_obligations or []),
+            "evidence_ids": list(invalidated_evidence_ids or []),
+            "reason": reason,
+        }
     fix_loop["source"] = source
     fix_loop["attempt_count"] = attempt
 
@@ -249,8 +261,14 @@ def resolve_fix_loop(
             blockers.append("required verification has not produced adequate/passed testing")
         if not testing.get("commands"):
             blockers.append("required verification has no recorded test commands")
+        # P1-4: check that each required_verification item is mechanically covered
+        uncovered = _check_verification_coverage(fix_loop.get("required_verification", []) or [], testing)
+        if uncovered:
+            blockers.append("required verification not covered in testing: " + "; ".join(uncovered[:5]))
     if blockers:
         raise ValueError("fix-loop resolution blocked: " + "; ".join(blockers))
+    # P1-3: delta review/cleanup invalidation when fixes involved real code changes
+    _invalidate_delta_review(base, fix_loop, state, review_path, review, force)
     if scope_resolution:
         review_path, review, unresolved, state = scope_resolution
         ts = datetime.now(timezone.utc).isoformat()
@@ -275,6 +293,82 @@ def resolve_fix_loop(
     _write(fix_loop_path, fix_loop)
 
     return fix_loop
+
+
+def _check_verification_coverage(
+    required_verification: List[str],
+    testing: Dict[str, Any],
+) -> List[str]:
+    """Check each required_verification item is covered in testing evidence.
+
+    Coverage is checked against: acceptance_coverage, delta_verification,
+    commands, and validation_layers. Simple substring/keyword match — no NLP.
+    """
+    uncovered = []
+    # Build a corpus of all testing evidence text
+    corpus_parts = []
+    for field in ("acceptance_coverage", "delta_verification", "commands", "validation_layers"):
+        val = testing.get(field)
+        if isinstance(val, list):
+            corpus_parts.extend(str(v) for v in val)
+        elif isinstance(val, str) and val:
+            corpus_parts.append(val)
+    corpus = " ".join(corpus_parts).lower()
+
+    for item in required_verification:
+        item_lower = str(item).lower()
+        # Direct substring match first
+        if item_lower in corpus:
+            continue
+        # Check if any keyword from the item appears in the corpus
+        keywords = [w for w in item_lower.split() if len(w) > 3]
+        if keywords and any(kw in corpus for kw in keywords):
+            continue
+        uncovered.append(str(item)[:120])
+    return uncovered
+
+
+def _invalidate_delta_review(
+    base: Path,
+    fix_loop: Dict[str, Any],
+    state: Dict[str, Any],
+    review_path: Path,
+    review: Dict[str, Any],
+    force: bool = False,
+) -> None:
+    """When a fix-loop involves real code changes, invalidate the old review/cleanup.
+
+    Only triggers when:
+    - route is executor or tester (fixes were code-level, not planner/environment)
+    - required_fixes is non-empty OR invalidated_scope is non-empty
+    - scope_violation path hasn't already handled this
+
+    Sets review.result=unknown, closure_allowed=False, cleanup_status=stale.
+    Reviewer must then perform a delta review (only the fix changed_files and
+    invalidated_scope), not a full re-review from scratch.
+    """
+    route = str(fix_loop.get("route", "") or "").lower()
+    if route not in ("executor", "tester"):
+        return
+    required_fixes = fix_loop.get("required_fixes", []) or []
+    invalidated_scope = fix_loop.get("invalidated_scope") or {}
+    if not required_fixes and not invalidated_scope.get("files") and not invalidated_scope.get("obligations"):
+        return
+
+    # Check if scope_violation path already handled this
+    if state.get("scope_violation"):
+        return
+
+    # Invalidate review
+    review["result"] = "unknown"
+    review["closure_allowed"] = False
+    review["cleanup_status"] = "stale"
+    review.setdefault("delta_review_required", True)
+    review.setdefault("delta_review_reason",
+                      f"fix-loop route={route} resolved; delta review required for "
+                      f"{len(required_fixes)} fixes, "
+                      f"{len(invalidated_scope.get('files', []) or [])} invalidated files")
+    _write(review_path, review)
 
 
 def request_architecture_change(

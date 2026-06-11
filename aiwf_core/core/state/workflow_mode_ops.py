@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from ._common import _execution_contract_frozen, _freeze_explanation, _read, _write
+from ..task_ledger import WORKFLOW_LEVELS
 
 def record_quality_policy(
     base_dir: str,

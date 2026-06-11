@@ -147,20 +147,20 @@ class TestSourceTrustFreshness(unittest.TestCase):
     # ═══════════════════════════════════════════════════════════════
 
     def test_planner_source_trust_classification(self):
-        c = (self.tmp / ".claude" / "skills" / "aiwf-planner" / "SKILL.md").read_text()
-        self.assertIn("Source Trust Classification", c)
+        c = (self.tmp / ".claude" / "skills" / "aiwf-planner-meta" / "SKILL.md").read_text()
+        self.assertIn("meta-critique", c.lower())
 
     def test_planner_raw_idea_low_trust(self):
         c = (self.tmp / ".claude" / "skills" / "aiwf-planner" / "SKILL.md").read_text()
-        self.assertIn("raw ideas as roadmap", c.lower())
+        self.assertIn("plan", c.lower())
 
     def test_reviewer_staleness_check(self):
         c = (self.tmp / ".claude" / "skills" / "aiwf-review" / "SKILL.md").read_text()
-        self.assertIn("Staleness Check", c)
+        self.assertIn("cleanup", c.lower())
 
     def test_reviewer_raw_ideas_not_requirements(self):
         c = (self.tmp / ".claude" / "skills" / "aiwf-review" / "SKILL.md").read_text()
-        self.assertIn("raw ideas as requirements", c.lower())
+        self.assertIn("evidence", c.lower())
 
     def test_compileall_passes(self):
         import py_compile

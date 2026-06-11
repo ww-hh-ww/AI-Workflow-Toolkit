@@ -125,6 +125,218 @@ class TestStateCliOps(unittest.TestCase):
         reviewer = [rec for rec in ev["records"] if rec["id"] == reviewer_id][0]
         self.assertEqual(reviewer["agent_type"], "reviewer")
 
+    def _dimension_args(self, overrides=None, notes=None):
+        from aiwf_core.core.state_schema import QUALITY_DIMENSIONS
+        overrides = overrides or {}
+        notes = notes or {}
+        args = []
+        for dim in QUALITY_DIMENSIONS:
+            args.extend(["--dimension-score", f"{dim}={overrides.get(dim, 'PASS')}"])
+            if dim in notes:
+                args.extend(["--dimension-note", f"{dim}_note={notes[dim]}"])
+        return args
+
+    def _dimension_map(self, overrides=None, notes=None):
+        from aiwf_core.core.state_schema import QUALITY_DIMENSIONS
+        overrides = overrides or {}
+        notes = notes or {}
+        return {
+            dim: {"score": overrides.get(dim, "PASS"), "note": notes.get(dim, "")}
+            for dim in QUALITY_DIMENSIONS
+        }
+
+    def _basis_args(self, overrides=None, notes=None):
+        from aiwf_core.core.state_schema import REVIEW_BASIS
+        overrides = overrides or {}
+        notes = notes or {}
+        args = []
+        for name in REVIEW_BASIS:
+            args.extend(["--basis-status", f"{name}={overrides.get(name, 'covered')}"])
+            if name in notes:
+                args.extend(["--basis-note", f"{name}_note={notes[name]}"])
+        return args
+
+    def _basis_map(self, overrides=None, notes=None):
+        from aiwf_core.core.state_schema import REVIEW_BASIS
+        overrides = overrides or {}
+        notes = notes or {}
+        return {
+            name: {"status": overrides.get(name, "covered"), "note": notes.get(name, "")}
+            for name in REVIEW_BASIS
+        }
+
+    def test_record_review_verdict_pass_requires_all_quality_dimensions(self):
+        r = self._run("state", "record-review",
+                      "--verdict", "PASS",
+                      "--cleanup-status", "fresh",
+                      "--structure-status", "accepted",
+                      "--summary", "quality verdict")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("requires scored quality dimensions", r.stderr)
+
+    def test_record_review_verdict_pass_with_all_dimensions_allows_closure(self):
+        r = self._run("state", "record-review",
+                      "--verdict", "PASS",
+                      "--cleanup-status", "fresh",
+                      "--structure-status", "accepted",
+                      "--summary", "quality verdict",
+                      *self._dimension_args(),
+                      *self._basis_args())
+        self.assertEqual(r.returncode, 0, r.stderr)
+        review = json.loads((self.tmp/".aiwf" / "quality" / "review.json").read_text())
+        self.assertEqual(review["verdict"], "PASS")
+        self.assertEqual(review["result"], "accepted")
+        self.assertTrue(review["closure_allowed"])
+        self.assertEqual(review["review_basis"]["goal"]["status"], "covered")
+
+    def test_record_review_verdict_pass_requires_review_basis(self):
+        r = self._run("state", "record-review",
+                      "--verdict", "PASS",
+                      "--cleanup-status", "fresh",
+                      "--structure-status", "accepted",
+                      "--summary", "quality verdict",
+                      *self._dimension_args())
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("requires review basis coverage", r.stderr)
+
+    def test_record_review_verdict_pass_rejects_basis_gap(self):
+        r = self._run("state", "record-review",
+                      "--verdict", "PASS",
+                      "--cleanup-status", "fresh",
+                      "--structure-status", "accepted",
+                      "--summary", "quality verdict",
+                      *self._dimension_args(),
+                      *self._basis_args({"testing": "gap"}, {"testing": "tests did not cover plan"}))
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("closure verdict cannot include review basis gaps", r.stderr)
+
+    def test_record_review_verdict_pass_rejects_risk_dimension(self):
+        r = self._run("state", "record-review",
+                      "--verdict", "PASS",
+                      "--cleanup-status", "fresh",
+                      "--structure-status", "accepted",
+                      "--summary", "quality verdict",
+                      *self._dimension_args({"risk_debt": "RISK"}))
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("PASS cannot include RISK", r.stderr)
+
+    def test_record_review_pass_with_risk_requires_risk_note(self):
+        r = self._run("state", "record-review",
+                      "--verdict", "PASS_WITH_RISK",
+                      "--cleanup-status", "fresh",
+                      "--structure-status", "accepted",
+                      "--summary", "quality verdict",
+                      *self._dimension_args({"risk_debt": "RISK"}))
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("RISK dimensions require dimension notes", r.stderr)
+
+    def test_record_review_pass_with_risk_records_quality_dimensions(self):
+        r = self._run("state", "record-review",
+                      "--verdict", "PASS_WITH_RISK",
+                      "--cleanup-status", "fresh",
+                      "--structure-status", "accepted",
+                      "--summary", "quality verdict",
+                      *self._dimension_args(
+                          {"risk_debt": "RISK"},
+                          {"risk_debt": "deferred manual verification remains"},
+                      ),
+                      *self._basis_args())
+        self.assertEqual(r.returncode, 0, r.stderr)
+        review = json.loads((self.tmp/".aiwf" / "quality" / "review.json").read_text())
+        self.assertEqual(review["verdict"], "PASS_WITH_RISK")
+        self.assertEqual(review["quality_dimensions"]["risk_debt"]["score"], "RISK")
+        self.assertTrue(review["closure_allowed"])
+
+    def test_record_review_pass_with_risk_rejects_symptom_only(self):
+        r = self._run("state", "record-review",
+                      "--verdict", "PASS_WITH_RISK",
+                      "--cleanup-status", "fresh",
+                      "--structure-status", "accepted",
+                      "--root-cause", "symptom_only",
+                      "--summary", "quality verdict",
+                      *self._dimension_args(
+                          {"risk_debt": "RISK"},
+                          {"risk_debt": "temporary risk accepted"},
+                      ))
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("symptom patch", r.stderr)
+
+    def test_record_review_revise_requires_blocker(self):
+        r = self._run("state", "record-review",
+                      "--verdict", "REVISE",
+                      "--summary", "quality verdict",
+                      *self._basis_args({"testing": "gap"}, {"testing": "missing changed-file risk test"}))
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("REVISE requires at least one --blocker", r.stderr)
+
+    def test_record_review_revise_requires_review_basis(self):
+        r = self._run("state", "record-review",
+                      "--verdict", "REVISE",
+                      "--blocker", "test adequacy risk",
+                      "--summary", "quality verdict",
+                      *self._dimension_args({"test_adequacy": "RISK"}))
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("REVISE requires review basis coverage", r.stderr)
+
+    def test_record_review_revise_with_all_pass_dimensions_is_blocked(self):
+        r = self._run("state", "record-review",
+                      "--verdict", "REVISE",
+                      "--blocker", "needs targeted fix",
+                      "--summary", "quality verdict",
+                      *self._dimension_args(),
+                      *self._basis_args({"testing": "gap"}, {"testing": "missing changed-file risk test"}))
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("REVISE with quality dimensions requires", r.stderr)
+
+    def test_record_review_revise_with_no_basis_gap_is_blocked(self):
+        r = self._run("state", "record-review",
+                      "--verdict", "REVISE",
+                      "--blocker", "needs targeted fix",
+                      "--summary", "quality verdict",
+                      *self._dimension_args({"test_adequacy": "RISK"}),
+                      *self._basis_args())
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("REVISE requires at least one review basis gap", r.stderr)
+
+    def test_record_review_revise_records_needs_fix_without_closure(self):
+        r = self._run("state", "record-review",
+                      "--verdict", "REVISE",
+                      "--blocker", "test adequacy risk",
+                      "--summary", "quality verdict",
+                      *self._dimension_args({"test_adequacy": "RISK"}),
+                      *self._basis_args({"testing": "gap"}, {"testing": "missing changed-file risk test"}))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        review = json.loads((self.tmp/".aiwf" / "quality" / "review.json").read_text())
+        self.assertEqual(review["verdict"], "REVISE")
+        self.assertEqual(review["result"], "needs_fix")
+        self.assertFalse(review["closure_allowed"])
+        self.assertIn("test adequacy risk", review["blockers"])
+        self.assertEqual(review["review_basis"]["testing"]["status"], "gap")
+
+    def test_record_review_reject_with_dimensions_requires_fail(self):
+        r = self._run("state", "record-review",
+                      "--verdict", "REJECT",
+                      "--blocker", "wrong architecture direction",
+                      "--summary", "quality verdict",
+                      *self._dimension_args({"architecture_fit": "RISK"}),
+                      *self._basis_args({"plan": "gap"}, {"plan": "plan mismatches implementation"}))
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("REJECT with quality dimensions requires", r.stderr)
+
+    def test_record_review_reject_records_rejected_without_closure(self):
+        r = self._run("state", "record-review",
+                      "--verdict", "REJECT",
+                      "--blocker", "wrong architecture direction",
+                      "--summary", "quality verdict",
+                      *self._dimension_args({"architecture_fit": "FAIL"}),
+                      *self._basis_args({"plan": "gap"}, {"plan": "plan mismatches implementation"}))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        review = json.loads((self.tmp/".aiwf" / "quality" / "review.json").read_text())
+        self.assertEqual(review["verdict"], "REJECT")
+        self.assertEqual(review["result"], "rejected")
+        self.assertFalse(review["closure_allowed"])
+        self.assertIn("wrong architecture direction", review["blockers"])
+
     def test_record_testing_output_is_short(self):
         r = self._run("state", "record-testing", "--status", "adequate",
                       "--command", "pytest")
@@ -163,6 +375,23 @@ class TestStateCliOps(unittest.TestCase):
     def test_prepare_close_output_short(self):
         r = self._run("state", "prepare-close")
         self.assertLess(len(r.stdout), 1200)
+
+    def test_prepare_close_summary_surfaces_quality_verdict(self):
+        self._seed_close_ready()
+        review_path = self.tmp/".aiwf" / "quality" / "review.json"
+        review = json.loads(review_path.read_text())
+        review["verdict"] = "PASS_WITH_RISK"
+        review["quality_dimensions"] = self._dimension_map(
+            {"risk_debt": "RISK"},
+            {"risk_debt": "accepted deferred risk"},
+        )
+        review["review_basis"] = self._basis_map()
+        review_path.write_text(json.dumps(review, indent=2))
+        r = self._run("state", "prepare-close")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("Review: accepted, verdict=PASS_WITH_RISK", r.stdout)
+        self.assertIn("Quality verdict: quality dimensions PASS=7 RISK=1 FAIL=0", r.stdout)
+        self.assertIn("Review basis: review basis covered=6 gap=0", r.stdout)
 
     # ── state help ──
     def test_state_help_lists_all_7(self):

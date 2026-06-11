@@ -29,13 +29,10 @@ class TestContextDispatchOperational(unittest.TestCase):
                               capture_output=True, text=True, cwd=str(self.tmp), env=env, timeout=TIMEOUT)
 
     def _status(self):
-        inp = json.dumps({"session_id":"t","cwd":str(self.tmp),"hook_event_name":"UserPromptSubmit"})
         env = os.environ.copy(); env["PYTHONPATH"] = str(PROJECT_ROOT)
-        r = subprocess.run([sys.executable, str(self.tmp/"scripts"/"aiwf_status.py")],
-                          input=inp, capture_output=True, text=True,
-                          cwd=str(self.tmp), env=env, timeout=TIMEOUT)
-        out = json.loads(r.stdout.strip())
-        return out["hookSpecificOutput"]["additionalContext"]
+        r = subprocess.run([sys.executable, "-m", "aiwf_core.cli", "status", "--debug"],
+                          capture_output=True, text=True, cwd=str(self.tmp), env=env, timeout=TIMEOUT)
+        return r.stdout
 
     # ── CLI ──
     def test_start_context_cli_writes_all_fields(self):

@@ -17,6 +17,46 @@ from .current_state import current_state_freshness
 VALID_TASK_STATUSES = {"candidate", "ready", "active", "blocked", "suspended", "closed", "rejected"}
 WORKFLOW_LEVELS = ["L0_direct", "L1_review_light", "L2_standard_team", "L3_full_power"]
 
+# Task granularity: titles that smell like actions, not deliverables.
+# Tasks must be verifiable outcome units, not single-step actions.
+_ACTION_SMELL_PREFIXES = [
+    "check ", "look at ", "read ", "run ", "view ", "find ", "search ",
+    "open ", "test ", "debug ", "investigate ", "try ", "explore ",
+]
+_ACTION_SMELL_PHRASES = [
+    "change one line", "fix typo", "add comment", "update readme",
+    "跑一下", "看看", "检查一下", "试一下",
+]
+
+
+def _detect_action_smell(title: str) -> List[str]:
+    """Return warnings if a task title looks like an action, not a deliverable.
+
+    A task should describe a verifiable outcome, e.g.:
+      "route CLI is reachable from entry point with smoke test"
+    Not an action step, e.g.:
+      "check routing.py"
+      "run tests"
+      "update README"
+    """
+    warnings = []
+    tl = title.strip().lower()
+    for prefix in _ACTION_SMELL_PREFIXES:
+        if tl.startswith(prefix):
+            warnings.append(
+                f"Task title starts with '{prefix.strip()}' — tasks should describe "
+                f"verifiable outcomes, not actions. Consider merging into a larger deliverable task."
+            )
+            break
+    for phrase in _ACTION_SMELL_PHRASES:
+        if phrase in tl:
+            warnings.append(
+                f"Task title contains '{phrase}' — this smells like an action step. "
+                f"Tasks should be deliverable units with a verifiable outcome."
+            )
+            break
+    return warnings
+
 
 def _read(path: Path, default: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     try:
@@ -80,8 +120,16 @@ def upsert_task(
     allowed_write: Optional[List[str]] = None,
     parallel_safe: bool = False,
     notes: Optional[List[str]] = None,
+    parent_goal: str = "",
+    parent_plan: str = "",
+    milestone: str = "",
 ) -> Dict[str, Any]:
-    """Create/update a task without activating execution."""
+    """Create/update a task without activating execution.
+
+    parent_goal: the GOAL-ID this task serves (task is execution unit, not goal unit).
+    parent_plan: the PLAN-ID this task belongs to.
+    milestone: the milestone this task advances.
+    """
     if status not in VALID_TASK_STATUSES:
         raise ValueError(f"invalid task status: {status}")
     ledger = load_ledger(base_dir)
@@ -115,6 +163,9 @@ def upsert_task(
             "notes": [],
             "created_at": _now(),
             "updated_at": _now(),
+            "parent_goal": "",
+            "parent_plan": "",
+            "milestone": "",
         }
         tasks.append(task)
     if title:
@@ -127,10 +178,17 @@ def upsert_task(
     task["parallel_safe"] = bool(parallel_safe)
     if notes:
         task.setdefault("notes", []).extend(notes)
+    if parent_goal:
+        task["parent_goal"] = parent_goal
+    if parent_plan:
+        task["parent_plan"] = parent_plan
+    if milestone:
+        task["milestone"] = milestone
     task["updated_at"] = _now()
     _sync_active_ids(ledger)
     save_ledger(base_dir, ledger)
-    return {"task": task, "ledger": ledger}
+    granularity = _detect_action_smell(task.get("title", ""))
+    return {"task": task, "ledger": ledger, "granularity_warnings": granularity}
 
 
 def _sync_active_ids(ledger: Dict[str, Any]) -> None:
@@ -166,7 +224,11 @@ def _is_architecture_review_task(task: Dict[str, Any]) -> bool:
 
 
 def _mechanical_routing_factors(base_dir: str, task: Dict[str, Any]) -> Dict[str, bool]:
-    """Derive conservative routing factors from machine-readable task/project state."""
+    """Derive conservative routing factors from machine-readable task/project state.
+
+    V2-A: now produces granular prior_fix_loop, semantic_change, and
+    machine_verifiable factors alongside the original coarse factors.
+    """
     root = Path(base_dir)
     allowed = [str(p) for p in (task.get("allowed_write", []) or []) if str(p)]
     module_roots = {
@@ -181,6 +243,7 @@ def _mechanical_routing_factors(base_dir: str, task: Dict[str, Any]) -> Dict[str
     risk_flags = set(state.get("risk_flags", []) or [])
     non_docs = [p for p in allowed if not p.lower().endswith((".md", ".txt", ".rst"))]
     background = {}
+
     if state.get("cross_task_quality_escalation_required"):
         background["historical_deferred_risk"] = True
     if fix_loop.get("attempt_count", 0) and fix_loop.get("status") != "open":
@@ -188,34 +251,64 @@ def _mechanical_routing_factors(base_dir: str, task: Dict[str, Any]) -> Dict[str
     if brief.get("target_structure") or brief.get("module_boundaries") or brief.get("forbidden_restructures"):
         background["architecture_brief_present"] = True
 
+    # ── V2-A: granular fix_loop classification ──
+    from .routing import classify_fix_loop
+    task_id = str(task.get("id", "") or "")
+    primary_fix_loop, extra_bg = classify_fix_loop(fix_loop, task_id, allowed)
+    for eb in extra_bg:
+        background[eb] = True
+
+    # ── V2-A: granular semantic change classification ──
+    from .routing import classify_semantic_change, detect_machine_verifiable
+    semantic_type = classify_semantic_change(allowed)
+    has_semantic = bool(non_docs)
+    is_mechanical = semantic_type == "semantic_mechanical"
+    is_contract = semantic_type == "semantic_contract"
+    is_core_gate = semantic_type == "semantic_core_gate"
+    is_machine_verifiable = detect_machine_verifiable(allowed, semantic_type)
+
+    # Build factors dict with both V1 (coarse) and V2 (granular) keys.
+    # When a V2 semantic type is present, suppress V1 semantic_change to avoid
+    # double-counting (V2 carries the full weight).
+    has_v2_semantic = is_mechanical or is_contract or is_core_gate
     factors = {
         "cross_module": len(module_roots) > 1,
         "public_api_change": bool(
             "public_api_change" in risk_flags
             or "public_api_changes" in risk_flags
         ),
-        "semantic_change": bool(non_docs),
-        # Historical/project pressure is surfaced separately. It should inform Planner
-        # explanation and optional breadth increases, not permanently inflate every
-        # small task into L3.
+        # V1 backward-compat: coarse semantic_change (suppressed when V2 is present)
+        "semantic_change": has_semantic and not has_v2_semantic,
+        # V2 granular semantic
+        "semantic_mechanical": has_semantic and is_mechanical,
+        "semantic_contract": has_semantic and is_contract,
+        "semantic_core_gate": has_semantic and is_core_gate,
         "historical_deferred_risk": False,
         "security_or_data_risk": bool(
             risk_flags & {"security_sensitive", "security_or_data_risk", "data_migration"}
         ),
         "test_matrix_complexity": bool(
             "test_matrix_complexity" in risk_flags
-            or (bool(non_docs) and bool(brief.get("integration_points")))
-            or (bool(non_docs) and bool(brief.get("architecture_risks")))
+            or (has_semantic and bool(brief.get("integration_points")))
+            or (has_semantic and bool(brief.get("architecture_risks")))
         ),
         "user_decision_needed": bool(state.get("requires_user_decision")),
         "architecture_impact": bool(
             "architecture_impact" in risk_flags
             or bool(brief.get("integration_points") and len(module_roots) > 1)
         ),
+        # V1 backward-compat: coarse prior_fix_loop
         "prior_fix_loop": bool(
             fix_loop.get("status") == "open"
             or "prior_fix_loop" in risk_flags
         ),
+        # V2 granular fix-loop
+        "prior_fix_loop_active": primary_fix_loop == "prior_fix_loop_active",
+        "prior_fix_loop_same_task": primary_fix_loop == "prior_fix_loop_same_task",
+        "prior_fix_loop_same_file": primary_fix_loop == "prior_fix_loop_same_file",
+        "prior_fix_loop_same_module": primary_fix_loop == "prior_fix_loop_same_module",
+        # V2 detection
+        "machine_verifiable": is_machine_verifiable,
         "destructive_command": "destructive_command" in risk_flags,
         "publish_or_deploy": "publish_or_deploy" in risk_flags,
         "data_migration": "data_migration" in risk_flags,
@@ -225,7 +318,11 @@ def _mechanical_routing_factors(base_dir: str, task: Dict[str, Any]) -> Dict[str
 
 
 def _apply_mechanical_routing(base_dir: str, task: Dict[str, Any]) -> Dict[str, Any]:
-    """Compute and persist the minimum workflow level and its depth/breadth policy."""
+    """Compute and persist the minimum workflow level and its depth/breadth policy.
+
+    V2-A: also populates topology dimensions (verification_need, execution_topology,
+    review_need, downgrade_allowed, substitution_allowed, hard_constraints).
+    """
     root = Path(base_dir)
     state_path = root / ".aiwf" / "state" / "state.json"
     state = _read(state_path, {})
@@ -267,6 +364,13 @@ def _apply_mechanical_routing(base_dir: str, task: Dict[str, Any]) -> Dict[str, 
         "git_policy": policy["git_policy"],
         "recommended_minimum_level": recommended,
         "quality_escalation_required": WORKFLOW_LEVELS.index(recommended) > WORKFLOW_LEVELS.index(current),
+        # V2-A topology dimensions
+        "verification_need": decision.get("verification_need", "standard"),
+        "execution_topology": decision.get("execution_topology", "light_review"),
+        "review_need": decision.get("review_need", "optional_light_review"),
+        "downgrade_allowed": decision.get("downgrade_allowed", True),
+        "substitution_allowed": decision.get("substitution_allowed", False),
+        "hard_constraints": decision.get("hard_constraints", []),
     })
     state["complexity"] = {
         "L0_direct": "simple",
@@ -434,7 +538,43 @@ def activation_blockers(base_dir: str, task_id: str, skip_current_state_check: b
     blockers.extend(_periodic_architecture_blockers(base_dir, task))
     blockers.extend(_required_contract_blockers(base_dir, task))
     blockers.extend(_user_confirmation_blockers(base_dir))
+    blockers.extend(_active_plan_blockers(base_dir, task))
     return blockers
+
+
+def _active_plan_blockers(base_dir: str, task: Dict[str, Any]) -> List[str]:
+    """L1+ tasks in execution mode require an active plan before activation.
+
+    .aiwf/plans/<TASK>.md is the AI's working memory for this task.
+    L0 is exempt — trivial changes don't need a written plan.
+    """
+    root = Path(base_dir)
+    state = _read(root / ".aiwf" / "state" / "state.json", {})
+    level = state.get("workflow_level", "L1_review_light")
+    request_mode = state.get("request_mode", "execution")
+
+    if level == "L0_direct":
+        return []
+    if request_mode not in ("execution", ""):
+        return []
+
+    task_id = task.get("id", "")
+    plan_path = root / ".aiwf" / "plans" / f"{task_id}.md"
+    active_plan_id = state.get("active_plan_id", "") or ""
+
+    # Check if a plan for this specific task exists
+    if plan_path.exists():
+        # Plan exists — validate Impact section for L1+
+        from .task_plan import validate_plan_impact
+        impact_issues = validate_plan_impact(base_dir, task_id)
+        if impact_issues:
+            return [f"Plan Impact incomplete: {'; '.join(impact_issues[:3])}"]
+        return []
+
+    return [
+        f"L1+ execution requires an active plan for this task; run: aiwf plan create --task-id {task_id}"
+        + (f" --title '...'" if not task.get("title") else "")
+    ]
 
 
 def activate_task(base_dir: str, task_id: str) -> Dict[str, Any]:
@@ -733,30 +873,98 @@ def active_task_completion_blockers(base_dir: str) -> List[str]:
     task = _find(load_ledger(base_dir).get("tasks", []), task_id)
     if not task:
         return [f"active task is missing from task ledger: {task_id}"]
-    return _mode_completion_blockers(base_dir, task) + _l2_l3_completion_blockers(base_dir, task)
+    blockers = _mode_completion_blockers(base_dir, task) + _l2_l3_completion_blockers(base_dir, task)
+    blockers.extend(_claim_evidence_blockers(base_dir, task_id))
+    return blockers
+
+
+def _claim_evidence_blockers(base_dir: str, task_id: str) -> List[str]:
+    """L1+: unsupported or overclaimed claims block task close.
+
+    Every claim about task completion must be traceable to machine-observed evidence.
+    """
+    state = _read(Path(base_dir) / ".aiwf" / "state" / "state.json", {})
+    level = state.get("workflow_level", "L1_review_light")
+    if level == "L0_direct":
+        return []
+
+    try:
+        from .state.claims_ops import unsupported_claims_blockers
+        return unsupported_claims_blockers(base_dir, task_id=task_id)
+    except Exception:
+        return []
 
 
 def close_task(base_dir: str, task_id: str, note: str = "") -> Dict[str, Any]:
-    """Mark a ledger task closed. This does not close the AIWF workflow."""
+    """Mark a ledger task closed. This does not close the AIWF workflow.
+
+    Returns goal progress: task is an execution unit, not a goal unit.
+    Close output must show: task closed, goal complete status, next task.
+    """
     ledger = load_ledger(base_dir)
     task = _find(ledger["tasks"], task_id)
     if not task:
         return {"closed": False, "task": None, "ledger": ledger, "blockers": [f"task not found: {task_id}"]}
     if task.get("status") == "active":
-        # Only block spike-mode tasks from closing as final implementation.
-        # All other quality gates belong to prepare_close, not close_task.
         state = _read(Path(base_dir) / ".aiwf" / "state" / "state.json", {})
+        if not (state.get("phase") == "closed" and state.get("closure_allowed")):
+            return {
+                "closed": False,
+                "task": task,
+                "ledger": ledger,
+                "blockers": [
+                    "active task cannot close before prepare-close passes; run aiwf state prepare-close first"
+                ],
+            }
         mode = state.get("request_mode", "execution")
         pattern = state.get("workflow_pattern", "linear")
         if mode == "spike" or pattern == "spike_first":
             return {"closed": False, "task": task, "ledger": ledger,
                     "blockers": ["spike task cannot close as final implementation; record findings and switch to request_mode=execution"]}
+        # L2/L3 quality gates: independent testing, review, cleanup must complete first.
+        # active_task_completion_blockers enforces the full quality chain.
+        quality_blockers = active_task_completion_blockers(base_dir)
+        if quality_blockers:
+            return {"closed": False, "task": task, "ledger": ledger, "blockers": quality_blockers}
+        # Lightweight re-check: ensure this is the task that passed prepare-close
+        prepared_task = state.get("close_prepared_task_id", "") or ""
+        prepared_at = state.get("close_prepared_at", "") or ""
+        if prepared_task and prepared_task != task_id:
+            return {"closed": False, "task": task, "ledger": ledger,
+                    "blockers": [f"task {task_id} does not match close_prepared_task_id {prepared_task}; re-run prepare-close"]}
+        if prepared_at:
+            evidence = _read(Path(base_dir) / ".aiwf" / "evidence" / "records.json", {"records": []})
+            for r in evidence.get("records", []) or []:
+                if isinstance(r, dict) and r.get("recorded_at", "") > prepared_at:
+                    return {"closed": False, "task": task, "ledger": ledger,
+                            "blockers": ["new evidence recorded after prepare-close; re-run prepare-close to revalidate"]}
     task["status"] = "closed"
     task["closed_at"] = _now()
     task["updated_at"] = _now()
     if note:
         task.setdefault("notes", []).append(note)
     _sync_active_ids(ledger)
+
+    # Goal progress: find sibling tasks under the same parent goal
+    parent_goal = task.get("parent_goal", "") or ""
+    parent_plan = task.get("parent_plan", "") or ""
+    goal_tasks = []
+    if parent_goal:
+        goal_tasks = [
+            t for t in ledger.get("tasks", [])
+            if t.get("parent_goal") == parent_goal and t.get("id") != task_id
+        ]
+    elif parent_plan:
+        goal_tasks = [
+            t for t in ledger.get("tasks", [])
+            if t.get("parent_plan") == parent_plan and t.get("id") != task_id
+        ]
+
+    closed_count = sum(1 for t in goal_tasks if t.get("status") == "closed") + 1  # +1 for this task
+    total_count = len(goal_tasks) + 1
+    remaining = [t.get("id", "") for t in goal_tasks if t.get("status") not in ("closed", "rejected")]
+    goal_complete = len(remaining) == 0
+
     state_path = Path(base_dir) / ".aiwf" / "state" / "state.json"
     state = _read(state_path, {})
     if state.get("active_task_id") == task_id:
@@ -764,18 +972,45 @@ def close_task(base_dir: str, task_id: str, note: str = "") -> Dict[str, Any]:
         _write(state_path, state)
     save_ledger(base_dir, ledger)
     _refresh_mechanical_assets(base_dir)
+    # Machine-only history and escalation state: always update
     try:
-        from .cross_task_quality import append_task_history_from_state, write_quality_digest
+        from .cross_task_quality import append_task_history_from_state, sync_quality_escalation_state
         append_task_history_from_state(base_dir, task_id=task_id, title=task.get("title", ""))
-        write_quality_digest(base_dir)
+        sync_quality_escalation_state(base_dir)
     except Exception:
         pass
+    # Quality digest markdown is NOT auto-written here — it's controlled by
+    # Impact.quality_summary and only written when explicitly requested
+    # (milestone/retro/release).
     try:
         from .lifecycle_cleanup import auto_cleanup
         auto_cleanup(base_dir)
     except Exception:
         pass
-    return {"closed": True, "task": task, "ledger": ledger, "blockers": []}
+    # Granularity: task without parent goal is an orphan.
+    # Tasks are execution units, not goal units.
+    granularity_warnings = []
+    if not parent_goal and not parent_plan:
+        granularity_warnings.append(
+            "No parent_goal set — task was not linked to a larger goal. "
+            "Use --parent-goal GOAL-xxx when planning tasks to prevent goal drift."
+        )
+
+    return {
+        "closed": True,
+        "task": task,
+        "ledger": ledger,
+        "blockers": [],
+        "goal_progress": {
+            "parent_goal": parent_goal,
+            "parent_plan": parent_plan,
+            "closed_count": closed_count,
+            "total_count": total_count,
+            "goal_complete": goal_complete,
+            "remaining_tasks": remaining,
+        },
+        "granularity_warnings": granularity_warnings,
+    }
 
 
 def ledger_summary(base_dir: str) -> Dict[str, Any]:

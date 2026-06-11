@@ -34,6 +34,12 @@ class TestLifecycleRebase(unittest.TestCase):
                               capture_output=True, text=True, cwd=str(self.tmp), env=env, timeout=TIMEOUT)
 
     def _seed_closed_state(self):
+        from aiwf_core.core.state_schema import QUALITY_DIMENSIONS, REVIEW_BASIS
+        dimensions = {}
+        for dim in QUALITY_DIMENSIONS:
+            score = "RISK" if dim == "risk_debt" else "PASS"
+            dimensions[dim] = {"score": score, "note": "accepted deferred risk" if score == "RISK" else ""}
+        basis = {name: {"status": "covered", "note": ""} for name in REVIEW_BASIS}
         s = json.loads((self.tmp/".aiwf" / "state" / "state.json").read_text())
         s.update({"phase":"closed","close_attempt":False,"closure_allowed":True,
                   "workflow_level":"L1_review_light","task_type":"small_function"})
@@ -45,7 +51,10 @@ class TestLifecycleRebase(unittest.TestCase):
         (self.tmp/".aiwf" / "quality" / "testing.json").write_text(json.dumps(
             {"status":"adequate","commands":["pytest"],"untested_risks":["overflow"]},indent=2))
         (self.tmp/".aiwf" / "quality" / "review.json").write_text(json.dumps({
-            "result":"accepted","lessons":["Path normalization needed","Promote evidence before gate"],
+            "result":"accepted","verdict":"PASS_WITH_RISK",
+            "quality_dimensions": dimensions,
+            "review_basis": basis,
+            "lessons":["Path normalization needed","Promote evidence before gate"],
             "negative_patterns":["Do not use Bash to write JSON state"],
             "followups":["Consider helper for input validation"]
         },indent=2))
@@ -78,7 +87,17 @@ class TestLifecycleRebase(unittest.TestCase):
         self.assertIn("## Executive Summary", content)
         self.assertIn("Now: phase=closed", content)
         self.assertIn("Quality: testing=adequate", content)
+        self.assertIn("verdict=PASS_WITH_RISK", content)
         self.assertIn("Blockers: none", content)
+
+    def test_current_state_carries_quality_verdict_dimensions(self):
+        self._seed_closed_state()
+        self._rebase()
+        content = (self.tmp/".aiwf"/"reports"/"当前状态.md").read_text()
+        self.assertIn("- Verdict: PASS_WITH_RISK", content)
+        self.assertIn("- Quality dimensions: PASS=7 RISK=1 FAIL=0", content)
+        self.assertIn("- Review basis: covered=6 gap=0 not_applicable=0 missing=0", content)
+        self.assertIn("## Review result: accepted / verdict: PASS_WITH_RISK", content)
 
     def test_current_state_has_changed_files_not_raw_json(self):
         self._seed_closed_state()
@@ -146,6 +165,8 @@ class TestLifecycleRebase(unittest.TestCase):
         self.assertEqual(len(history["tasks"]), 1)
         task = history["tasks"][0]
         self.assertEqual(task["testing_status"], "adequate")
+        self.assertEqual(task["review_verdict"], "PASS_WITH_RISK")
+        self.assertIn("covered=6", task["review_basis_status"])
         self.assertIn("src/calc.js", task["changed_files"])
         self.assertEqual(task["untested_risk_count"], 1)
 
@@ -160,10 +181,11 @@ class TestLifecycleRebase(unittest.TestCase):
         # ── skill text ──
     def test_planner_skill_mentions_current_state(self):
         c = (self.tmp/".claude"/"skills"/"aiwf-planner-execute"/"SKILL.md").read_text()
-        self.assertIn("current-state.md", c)
+        self.assertIn("Carry-Forward", c)
+        self.assertIn("state.json and the active plan", c)
 
     # ── status ──
-    def test_status_shows_current_state_available(self):
+    def test_status_short_context_stays_process_focused_after_rebase(self):
         self._seed_closed_state()
         self._rebase()
         inp = json.dumps({"session_id":"t","cwd":str(self.tmp),"hook_event_name":"UserPromptSubmit"})
@@ -173,7 +195,9 @@ class TestLifecycleRebase(unittest.TestCase):
                           cwd=str(self.tmp), env=env, timeout=TIMEOUT)
         out = json.loads(r.stdout.strip())
         ctx = out["hookSpecificOutput"]["additionalContext"]
-        self.assertIn("Current state: available", ctx)
+        self.assertIn("Process: level=L1_review_light mode=execution route=linear", ctx)
+        self.assertIn("Phase: closed", ctx)
+        self.assertNotIn("Current state: available", ctx)
 
     # ── no side effects ──
     def test_rebase_no_modify_claude_md(self):

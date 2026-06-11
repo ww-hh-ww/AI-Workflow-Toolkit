@@ -18,6 +18,9 @@ def _cmd_fix_loop_open(args: argparse.Namespace) -> None:
         required_fixes=args.required_fixes or None,
         required_verification=args.required_verification or None,
         source=args.source or "reviewer",
+        invalidated_files=args.invalidated_files or None,
+        invalidated_obligations=args.invalidated_obligations or None,
+        invalidated_evidence_ids=args.invalidated_evidence_ids or None,
     )
     print(f"Fix-loop opened: status={result['status']}")
     print(f"  Route: {args.route}")
@@ -405,7 +408,10 @@ def _cmd_audit_archive(args: argparse.Namespace) -> None:
     ]
 
     found = []
+    structure_issues = []
     file_count = 0
+    has_root_scripts = False
+    has_embedded_scripts = False
     try:
         with zipfile.ZipFile(archive_path) as zf:
             names = zf.namelist()
@@ -426,6 +432,24 @@ def _cmd_audit_archive(args: argparse.Namespace) -> None:
                         break
                 else:
                     continue
+
+            # Structural checks
+            for name in names:
+                # Root scripts/ check (first segment is "scripts")
+                if name.startswith("scripts/"):
+                    has_root_scripts = True
+                # Embedded scripts check
+                if name.startswith("aiwf_core/embedded_templates/scripts/"):
+                    has_embedded_scripts = True
+                # egg-info check
+                if ".egg-info/" in name or name.endswith(".egg-info"):
+                    if name not in structure_issues:
+                        structure_issues.append(f"egg-info in archive: {name}")
+
+            if has_root_scripts:
+                structure_issues.append("root scripts/ directory found (belongs in aiwf_core/embedded_templates/scripts/)")
+            if has_root_scripts and has_embedded_scripts:
+                structure_issues.append("dual-source drift: both root scripts/ and aiwf_core/embedded_templates/scripts/ exist")
     except zipfile.BadZipFile:
         print(f"Error: not a valid zip file: {args.archive}", file=sys.stderr)
         raise SystemExit(1)
@@ -433,13 +457,19 @@ def _cmd_audit_archive(args: argparse.Namespace) -> None:
     print(f"Archive: {args.archive}")
     print(f"  Files: {file_count}")
 
-    if found:
-        print(f"\n  Contaminants found ({len(found)}):")
-        for name, label in found:
-            print(f"    - [{label}] {name}")
-        print(f"\n  AUDIT FAILED: {len(found)} contaminant(s)")
+    if found or structure_issues:
+        if found:
+            print(f"\n  Contaminants found ({len(found)}):")
+            for name, label in found:
+                print(f"    - [{label}] {name}")
+        if structure_issues:
+            print(f"\n  Structure issues ({len(structure_issues)}):")
+            for issue in structure_issues:
+                print(f"    - {issue}")
+        print(f"\n  AUDIT FAILED: {len(found)} contaminant(s), {len(structure_issues)} structure issue(s)")
         raise SystemExit(1)
     else:
         print(f"  Contaminants: none")
+        print(f"  Structure: clean")
         print(f"\n  AUDIT PASSED")
 

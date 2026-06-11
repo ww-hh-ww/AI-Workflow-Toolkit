@@ -73,17 +73,7 @@ def bootstrap_project(base_dir: str) -> Dict[str, Any]:
     (aiwf / "history" / "task-history.json").write_text(json.dumps(history, indent=2))
     results["tasks"].append("task-history baseline written")
 
-    # 4. Ensure human project map exists, but do not mechanically fill it.
-    from ..project_map import ensure_project_map
-    ensure_project_map(base_dir)
-    results["tasks"].append("PROJECT-MAP scaffold ready for Planner curation")
-
-    # 4b. Ensure idea inbox exists for volatile planning inputs.
-    from ..ideas import ensure_ideas_file
-    ensure_ideas_file(base_dir)
-    results["tasks"].append("ideas.md initialized")
-
-    # 5. Run env scan if possible
+    # 4. Run env scan if possible (machine-only asset)
     try:
         from ..environment import scan_environment, write_environment_profile
         env = scan_environment(base_dir)
@@ -92,7 +82,7 @@ def bootstrap_project(base_dir: str) -> Dict[str, Any]:
     except Exception:
         pass
 
-    # 6. Run capability scan
+    # 5. Run capability scan
     try:
         from ..capabilities import discover_capabilities, write_capabilities_registry
         caps = discover_capabilities(base_dir)
@@ -101,7 +91,7 @@ def bootstrap_project(base_dir: str) -> Dict[str, Any]:
     except Exception:
         pass
 
-    # 7. Create initial workspace-drift snapshot
+    # 6. Create initial workspace-drift snapshot
     try:
         from ..workspace_drift import scan_workspace_drift, write_workspace_drift
         drift = scan_workspace_drift(base_dir)

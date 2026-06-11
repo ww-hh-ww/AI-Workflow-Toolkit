@@ -22,6 +22,9 @@ def _cmd_task_plan(args: argparse.Namespace) -> None:
         allowed_write=args.allowed_write or None,
         parallel_safe=args.parallel_safe,
         notes=args.notes or None,
+        parent_goal=args.parent_goal or "",
+        parent_plan=args.parent_plan or "",
+        milestone=args.milestone or "",
         )
     except ValueError as e:
         print(f"Task update blocked: {e}", file=sys.stderr)
@@ -31,6 +34,17 @@ def _cmd_task_plan(args: argparse.Namespace) -> None:
     print(f"  Dependencies: {len(task.get('dependencies', []) or [])}")
     print(f"  Allowed write: {len(task.get('allowed_write', []) or [])}")
     print(f"  Parallel safe: {task.get('parallel_safe', False)}")
+    if task.get("parent_goal"):
+        print(f"  Parent goal: {task['parent_goal']}")
+    else:
+        print(f"  Parent goal: (none — tasks are execution units; link to a goal with --parent-goal)")
+    if task.get("parent_plan"):
+        print(f"  Parent plan: {task['parent_plan']}")
+    if task.get("milestone"):
+        print(f"  Milestone: {task['milestone']}")
+    # Granularity: warn if task smells like an action step
+    for w in result.get("granularity_warnings", []) or []:
+        print(f"  ! {w}")
 
 
 def _cmd_task_activate(args: argparse.Namespace) -> None:
@@ -52,6 +66,28 @@ def _cmd_task_close(args: argparse.Namespace) -> None:
     if result["blockers"]:
         for blocker in result["blockers"][:5]:
             print(f"  - {blocker}")
+        return
+
+    # Goal progress: a task is an execution unit, not a goal unit.
+    # Every close must show where we are in the larger goal.
+    gp = result.get("goal_progress", {}) or {}
+    parent_goal = gp.get("parent_goal", "")
+    if parent_goal:
+        done = "yes" if gp.get("goal_complete") else "no"
+        print(f"  Task complete: yes")
+        print(f"  Goal ({parent_goal}) complete: {done}")
+        print(f"  Progress: {gp.get('closed_count', 0)}/{gp.get('total_count', 0)} tasks closed")
+        remaining = gp.get("remaining_tasks", []) or []
+        if remaining:
+            print(f"  Next: {' '.join(remaining[:3])}")
+    else:
+        print(f"  Task complete: yes")
+        print(f"  Goal complete: unknown (no parent goal set on this task)")
+        print(f"  Hint: use --parent-goal GOAL-xxx when planning tasks")
+
+    # Granularity warnings
+    for w in result.get("granularity_warnings", []) or []:
+        print(f"  ! {w}")
 
 
 def _cmd_task_suspend(args: argparse.Namespace) -> None:

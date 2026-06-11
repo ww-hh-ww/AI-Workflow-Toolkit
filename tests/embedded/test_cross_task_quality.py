@@ -23,7 +23,7 @@ class TestCrossTaskQuality(unittest.TestCase):
         from aiwf_core.core.state_schema import MVP_STATE_FILES
         for fn, dfn in MVP_STATE_FILES.items():
             p = self.tmp / ".aiwf" / fn; p.parent.mkdir(parents=True, exist_ok=True); p.write_text(json.dumps(dfn(), indent=2) + "\n")
-        for optional in ["task-history.json", "quality-digest.md", "current-state.md"]:
+        for optional in ["task-history.json", "quality-digest.md", "current-state.md", "reports/质量摘要.md"]:
             path = self.tmp / ".aiwf" / optional
             if path.exists():
                 path.unlink()
@@ -55,6 +55,24 @@ class TestCrossTaskQuality(unittest.TestCase):
             "testing_debt": ["integration coverage remains thin"],
         }, indent=2))
 
+    def _seed_plan_impact(self, quality_summary="no"):
+        plan_dir = self.tmp / ".aiwf" / "plans"
+        plan_dir.mkdir(parents=True, exist_ok=True)
+        (plan_dir / "TASK-QD.md").write_text(
+            "# TASK-QD\n\n"
+            "## Impact\n"
+            "- docs: no — test\n"
+            "- project_map: no — test\n"
+            "- environment: no — test\n"
+            "- capabilities: no — test\n"
+            f"- quality_summary: {quality_summary} — test\n",
+            encoding="utf-8",
+        )
+        state_path = self.tmp / ".aiwf" / "state" / "state.json"
+        state = json.loads(state_path.read_text())
+        state["active_plan_id"] = "TASK-QD"
+        state_path.write_text(json.dumps(state, indent=2))
+
     def test_cross_task_quality_evaluates_history_and_observations(self):
         from aiwf_core.core.cross_task_quality import evaluate_cross_task_quality
 
@@ -80,6 +98,7 @@ class TestCrossTaskQuality(unittest.TestCase):
 
     def test_rebase_writes_quality_digest_and_current_state_reference(self):
         self._seed_closed_state()
+        self._seed_plan_impact("yes")
         env = os.environ.copy()
         env["PYTHONPATH"] = str(PROJECT_ROOT)
         r = subprocess.run([sys.executable, str(self.tmp / "scripts" / "aiwf_rebase_state.py")],
@@ -91,6 +110,19 @@ class TestCrossTaskQuality(unittest.TestCase):
         self.assertIn("Tester / Reviewer Observations", digest)
         self.assertIn("Repeated shared module changes", digest)
         self.assertIn(".aiwf/reports/质量摘要.md", current)
+
+    def test_rebase_does_not_write_quality_digest_when_impact_says_no(self):
+        self._seed_closed_state()
+        self._seed_plan_impact("no")
+        env = os.environ.copy()
+        env["PYTHONPATH"] = str(PROJECT_ROOT)
+        r = subprocess.run([sys.executable, str(self.tmp / "scripts" / "aiwf_rebase_state.py")],
+                           capture_output=True, text=True, cwd=str(self.tmp), env=env, timeout=TIMEOUT)
+
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertFalse((self.tmp / ".aiwf" / "reports" / "质量摘要.md").exists())
+        current = (self.tmp / ".aiwf" / "reports" / "当前状态.md").read_text()
+        self.assertIn("not generated (Impact.quality_summary is not yes)", current)
 
     def test_record_testing_accepts_cross_task_fields(self):
         r = self._run("state", "record-testing", "--status", "adequate",
@@ -104,6 +136,7 @@ class TestCrossTaskQuality(unittest.TestCase):
         self.assertIn("src/parser.py", testing["repeated_change_hotspots"])
 
     def test_quality_digest_cli_writes_digest(self):
+        self._seed_plan_impact("yes")
         (self.tmp / ".aiwf" / "history" / "task-history.json").write_text(json.dumps({
             "tasks": [
                 {"id": "t1", "changed_files": ["src/shared.py"], "fix_loop_attempt_count": 1, "untested_risk_count": 0},
@@ -116,7 +149,27 @@ class TestCrossTaskQuality(unittest.TestCase):
         self.assertIn("Quality digest written", r.stdout)
         self.assertTrue((self.tmp / ".aiwf" / "reports" / "质量摘要.md").exists())
 
-    def test_user_prompt_submit_injects_escalate_signal_details(self):
+    def test_quality_digest_blocked_when_impact_quality_summary_no(self):
+        self._seed_plan_impact("no")
+        r = self._run("quality", "digest")
+
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("Impact.quality_summary is not 'yes'", r.stderr)
+
+    def test_quality_digest_allowed_with_force_when_impact_says_no(self):
+        self._seed_plan_impact("no")
+        (self.tmp / ".aiwf" / "history" / "task-history.json").write_text(json.dumps({
+            "tasks": [
+                {"id": "t1", "changed_files": ["src/shared.py"], "fix_loop_attempt_count": 1, "untested_risk_count": 0},
+            ]
+        }, indent=2))
+        r = self._run("quality", "digest", "--force")
+
+        self.assertEqual(r.returncode, 0)
+        self.assertIn("Quality digest written", r.stdout)
+        self.assertTrue((self.tmp / ".aiwf" / "reports" / "质量摘要.md").exists())
+
+    def test_user_prompt_submit_keeps_short_context_process_focused(self):
         (self.tmp / ".aiwf" / "history" / "task-history.json").write_text(json.dumps({
             "tasks": [
                 {"id": "t1", "changed_files": ["src/shared.py"], "fix_loop_attempt_count": 1, "untested_risk_count": 0},
@@ -133,8 +186,9 @@ class TestCrossTaskQuality(unittest.TestCase):
         out = json.loads(r.stdout.strip())
         ctx = out["hookSpecificOutput"]["additionalContext"]
 
-        self.assertIn("QUALITY ESCALATION: repeated hotspot src/shared.py", ctx)
-        self.assertIn("QUALITY ESCALATION: 3 recent fix-loop attempts", ctx)
+        self.assertIn("Process: level=L1_review_light mode=execution route=linear", ctx)
+        self.assertIn("PRIMARY: activate task", ctx)
+        self.assertNotIn("QUALITY ESCALATION:", ctx)
 
     def test_tester_and_reviewer_skills_own_cross_task_quality(self):
         test_skill = (self.tmp / ".claude" / "skills" / "aiwf-test" / "SKILL.md").read_text().lower()

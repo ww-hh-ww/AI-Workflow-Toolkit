@@ -44,6 +44,27 @@ class TestTaskLedger(unittest.TestCase):
         return subprocess.run([sys.executable, "-m", "aiwf_core.cli", *args],
                               capture_output=True, text=True, cwd=str(self.tmp), env=env, timeout=TIMEOUT)
 
+    def _seed_plan(self, task_id):
+        """Create a minimal .aiwf/plans/<task_id>.md so L1+ activation won't block."""
+        plan_dir = self.tmp / ".aiwf" / "plans"
+        plan_dir.mkdir(parents=True, exist_ok=True)
+        plan_path = plan_dir / f"{task_id}.md"
+        if not plan_path.exists():
+            plan_path.write_text(
+                f"# {task_id}\n\n"
+                "> AI working plan.\n\n"
+                "## Goal\nTest task\n\n"
+                "## Route\n- How: direct fix\n\n"
+                "## Scope\n- Change: test files\n\n"
+                "## Risks\n- none\n\n"
+                "## Verification\n- Machine-verifiable: yes\n\n"
+                "## Impact\n- docs: no — test\n- project_map: no — test\n- environment: no — test\n- capabilities: no — test\n- quality_summary: no — test\n\n"
+                "## Done Means\n- test passes\n\n"
+                "## Goal Progress\n- Parent goal: test\n\n"
+                "## Next Steps\n1. done\n",
+                encoding="utf-8",
+            )
+
     def _seed_l2_contracts(self, target_structure="Preserve module boundaries"):
         goal_path = self.tmp / ".aiwf" / "state" / "goal.json"
         goal = json.loads(goal_path.read_text())
@@ -73,7 +94,9 @@ class TestTaskLedger(unittest.TestCase):
 
         upsert_task(str(self.tmp), "TASK-001", "A", status="ready", allowed_write=["src/a.py"])
         upsert_task(str(self.tmp), "TASK-002", "B", status="ready", allowed_write=["src/b.py"])
+        self._seed_plan("TASK-001")
         self.assertTrue(activate_task(str(self.tmp), "TASK-001")["activated"])
+        self._seed_plan("TASK-002")
         second = activate_task(str(self.tmp), "TASK-002")
 
         self.assertFalse(second["activated"])
@@ -84,7 +107,9 @@ class TestTaskLedger(unittest.TestCase):
 
         upsert_task(str(self.tmp), "TASK-001", "A", status="ready", allowed_write=["src/a.py"])
         upsert_task(str(self.tmp), "TASK-002", "B", status="ready", allowed_write=["src/b.py"], parallel_safe=True)
+        self._seed_plan("TASK-001")
         self.assertTrue(activate_task(str(self.tmp), "TASK-001")["activated"])
+        self._seed_plan("TASK-002")
         second = activate_task(str(self.tmp), "TASK-002")
 
         self.assertTrue(second["activated"], second["blockers"])
@@ -94,7 +119,9 @@ class TestTaskLedger(unittest.TestCase):
 
         upsert_task(str(self.tmp), "TASK-001", "A", status="ready", allowed_write=["src/shared.py"])
         upsert_task(str(self.tmp), "TASK-002", "B", status="ready", allowed_write=["src/shared.py"], parallel_safe=True)
+        self._seed_plan("TASK-001")
         self.assertTrue(activate_task(str(self.tmp), "TASK-001")["activated"])
+        self._seed_plan("TASK-002")
         second = activate_task(str(self.tmp), "TASK-002")
 
         self.assertFalse(second["activated"])
@@ -105,11 +132,13 @@ class TestTaskLedger(unittest.TestCase):
 
         upsert_task(str(self.tmp), "TASK-001", "Scaffold", status="ready")
         upsert_task(str(self.tmp), "TASK-002", "Fill", status="ready", dependencies=["TASK-001"])
+        self._seed_plan("TASK-002")
         self.assertFalse(activate_task(str(self.tmp), "TASK-002")["activated"])
         close_task(str(self.tmp), "TASK-001")
+        self._seed_plan("TASK-002")
         self.assertTrue(activate_task(str(self.tmp), "TASK-002")["activated"])
 
-    def test_close_task_appends_task_history_and_quality_digest(self):
+    def test_close_task_appends_task_history_and_quality_escalation(self):
         from aiwf_core.core.task_ledger import close_task, upsert_task
 
         upsert_task(str(self.tmp), "TASK-001", "Scaffold", status="ready")
@@ -125,7 +154,10 @@ class TestTaskLedger(unittest.TestCase):
         history = json.loads((self.tmp / ".aiwf" / "history" / "task-history.json").read_text())
         self.assertEqual(history["tasks"][-1]["id"], "TASK-001")
         self.assertIn("src/a.py", history["tasks"][-1]["changed_files"])
-        self.assertTrue((self.tmp / ".aiwf" / "reports" / "质量摘要.md").exists())
+        # Machine-only history is always appended; quality digest markdown is NOT auto-written
+        # (controlled by Impact.quality_summary)
+        self.assertFalse((self.tmp / ".aiwf" / "reports" / "质量摘要.md").exists(),
+                         "Quality digest should NOT be auto-written on close; Impact.quality_summary controls it")
 
     def test_task_history_archives_trimmed_hotspots(self):
         from aiwf_core.core.cross_task_quality import append_task_history_from_state
@@ -170,6 +202,7 @@ class TestTaskLedger(unittest.TestCase):
         state["workflow_level"] = "L2_standard_team"
         (self.tmp / ".aiwf" / "state" / "state.json").write_text(json.dumps(state, indent=2))
         upsert_task(str(self.tmp), "TASK-001", "Touch hotspot", status="ready", allowed_write=["src/shared.py"])
+        self._seed_plan("TASK-001")
         result = activate_task(str(self.tmp), "TASK-001")
 
         self.assertFalse(result["activated"])
@@ -198,6 +231,7 @@ class TestTaskLedger(unittest.TestCase):
         })
         (self.tmp / ".aiwf" / "state" / "goal.json").write_text(json.dumps(goal, indent=2))
         upsert_task(str(self.tmp), "TASK-001", "Touch hotspot", status="ready", allowed_write=["src/shared.py"])
+        self._seed_plan("TASK-001")
         result = activate_task(str(self.tmp), "TASK-001")
 
         self.assertTrue(result["activated"], result["blockers"])
@@ -213,6 +247,7 @@ class TestTaskLedger(unittest.TestCase):
         }, indent=2))
         self._seed_l2_contracts()
         upsert_task(str(self.tmp), "TASK-001", "Next", status="ready")
+        self._seed_plan("TASK-001")
         result = activate_task(str(self.tmp), "TASK-001")
 
         self.assertTrue(result["activated"], result["blockers"])
@@ -231,6 +266,7 @@ class TestTaskLedger(unittest.TestCase):
         (self.tmp / ".aiwf" / "state" / "state.json").write_text(json.dumps(state, indent=2))
         self._seed_l2_contracts()
         upsert_task(str(self.tmp), "TASK-001", "Suspend me", status="ready")
+        self._seed_plan("TASK-001")
         self.assertTrue(activate_task(str(self.tmp), "TASK-001")["activated"])
         suspended = suspend_task(str(self.tmp), "TASK-001", note="pause")
         self.assertTrue(suspended["suspended"])
@@ -241,6 +277,7 @@ class TestTaskLedger(unittest.TestCase):
         state["workflow_level"] = "L1_review_light"
         state["active_context_id"] = None
         (self.tmp / ".aiwf" / "state" / "state.json").write_text(json.dumps(state, indent=2))
+        self._seed_plan("TASK-001")
         self.assertTrue(activate_task(str(self.tmp), "TASK-001")["activated"])
         restored = json.loads((self.tmp / ".aiwf" / "state" / "state.json").read_text())
         self.assertEqual(restored["workflow_level"], "L2_standard_team")
@@ -264,7 +301,10 @@ class TestTaskLedger(unittest.TestCase):
                            cwd=str(self.tmp), env=env, timeout=TIMEOUT)
         ctx = json.loads(r.stdout.strip())["hookSpecificOutput"]["additionalContext"]
 
-        self.assertIn("ACTIVE TASK QUALITY WARNING: TASK-001 hits hotspot src/shared.py", ctx)
+        # Diet: hotspot warnings are in --debug mode only, not in default short context
+        # Short context shows only phase, task, health, primary, forbidden, anchor
+        self.assertIn("[AIWF]", ctx)
+        self.assertIn("TASK-001", ctx)
 
     def test_cli_task_plan_and_status(self):
         r = self._run("task", "plan", "--task-id", "TASK-001", "--title", "Scaffold", "--status", "ready")
@@ -279,6 +319,57 @@ class TestTaskLedger(unittest.TestCase):
         self.assertIn("Task recorded: TASK-POS", r.stdout)
         status = self._run("task", "status")
         self.assertIn("ready: 1", status.stdout)
+
+    # ── P0-2: Task activation requires plan for the same task ID ──
+
+    def test_task_activation_rejects_mismatched_active_plan(self):
+        """TASK-002 cannot activate using TASK-001's plan."""
+        from aiwf_core.core.task_ledger import activate_task, upsert_task
+
+        # Clean any leftover plan files from other tests
+        plan_dir = self.tmp / ".aiwf" / "plans"
+        for f in list(plan_dir.glob("*.md")):
+            f.unlink()
+
+        state = json.loads((self.tmp / ".aiwf" / "state" / "state.json").read_text())
+        state["workflow_level"] = "L1_review_light"
+        state["request_mode"] = "execution"
+        state["active_plan_id"] = "TASK-001"
+        (self.tmp / ".aiwf" / "state" / "state.json").write_text(json.dumps(state, indent=2))
+
+        # Create plan for TASK-001 only
+        self._seed_plan("TASK-001")
+
+        # Register TASK-002 without its own plan
+        upsert_task(str(self.tmp), "TASK-002", "Should not activate", status="ready",
+                    allowed_write=["test.py"])
+
+        result = activate_task(str(self.tmp), "TASK-002")
+        self.assertFalse(result["activated"],
+                         "TASK-002 should not activate with TASK-001's plan")
+        self.assertTrue(
+            any("L1+ execution requires an active plan for this task" in b
+                for b in result["blockers"]),
+            f"Should require TASK-002's own plan, got: {result['blockers']}"
+        )
+
+    def test_task_activation_requires_plan_for_same_task_id(self):
+        """Activation only succeeds when the plan matches the task ID."""
+        from aiwf_core.core.task_ledger import activate_task, upsert_task
+
+        state = json.loads((self.tmp / ".aiwf" / "state" / "state.json").read_text())
+        state["workflow_level"] = "L1_review_light"
+        state["request_mode"] = "execution"
+        (self.tmp / ".aiwf" / "state" / "state.json").write_text(json.dumps(state, indent=2))
+
+        # Create plan AND task for TASK-001
+        self._seed_plan("TASK-001")
+        upsert_task(str(self.tmp), "TASK-001", "Should activate", status="ready",
+                    allowed_write=["test.py"])
+
+        result = activate_task(str(self.tmp), "TASK-001")
+        self.assertTrue(result["activated"],
+                        f"TASK-001 with its own plan should activate, got: {result['blockers']}")
 
 
 if __name__ == "__main__":

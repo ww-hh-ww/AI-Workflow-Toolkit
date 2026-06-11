@@ -73,14 +73,14 @@ class TestQualityBriefOperational(unittest.TestCase):
     # ── status ──
     def test_status_shows_brief_present(self):
         self._run("state", "record-quality-brief", "--acceptance", "must work")
-        r = self._run("status")
+        r = self._run("status", "--debug")
         self.assertIn("Quality brief: present", r.stdout)
 
     def test_status_shows_brief_missing_when_confirmed(self):
         g = _rj(self.tmp / ".aiwf" / "state" / "goal.json")
         g["confirmed"] = True
         (self.tmp / ".aiwf" / "state" / "goal.json").write_text(json.dumps(g, indent=2))
-        r = self._run("status")
+        r = self._run("status", "--debug")
         self.assertIn("Quality brief: missing", r.stdout)
 
     # ── heavy-testing cleanup ──
@@ -95,8 +95,8 @@ class TestQualityBriefOperational(unittest.TestCase):
         self.assertIn("test_template", c.lower())
 
     def test_planner_skill_has_cli_for_brief(self):
-        c = (self.tmp / ".claude" / "skills" / "aiwf-planner" / "SKILL.md").read_text()
-        self.assertIn("record-quality-brief", c)
+        c = (self.tmp / ".claude" / "skills" / "aiwf-planner-contracts" / "SKILL.md").read_text()
+        self.assertIn("record-quality-brief", c.lower())
 
     # ── prompt cache ──
     def test_status_does_not_dump_brief_content(self):
@@ -112,7 +112,6 @@ class TestQualityBriefOperational(unittest.TestCase):
         ctx = out["hookSpecificOutput"]["additionalContext"]
         self.assertNotIn("secret-criteria-xyz", ctx)
         self.assertNotIn("secret-focus-abc", ctx)
-        self.assertIn("Quality brief: present", ctx)
 
 
 

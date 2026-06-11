@@ -59,10 +59,50 @@ def eval_closure_gates(cwd: Path) -> Dict[str, Any]:
         encoding="utf-8")
     s["evidence"] = promoted
 
-    return closure_conditions_met(
+    result = closure_conditions_met(
         s["state"], s["evidence"], s["testing"],
         s["review"], s["fix_loop"],
     )
+
+    # Impact review check: verify Impact declarations against actual changes
+    # Only runs when there's an active close attempt with an active task
+    active_task_id = s["state"].get("active_task_id", "") or ""
+    if active_task_id and s["state"].get("close_attempt"):
+        try:
+            from aiwf_core.core.task_plan import validate_plan_impact, impact_review_check
+
+            # Re-validate Impact completeness at close time
+            impact_issues = validate_plan_impact(str(cwd), active_task_id)
+            if impact_issues:
+                result["blockers"].append(
+                    f"Active plan Impact incomplete: {'; '.join(impact_issues[:3])}"
+                )
+                result["missing"].append("impact")
+                result["passed"] = False
+
+            # Collect changed files from accepted evidence
+            accepted_records = [
+                r for r in s["evidence"].get("records", []) or []
+                if isinstance(r, dict) and r.get("status") == "accepted"
+            ]
+            changed_files = []
+            for r in accepted_records:
+                changed_files.extend(r.get("changed_files", []) or [])
+
+            if changed_files:
+                impact = impact_review_check(str(cwd), active_task_id, changed_files)
+                if impact["blockers"]:
+                    result["blockers"].extend(impact["blockers"])
+                    result["missing"].append("impact")
+                    result["passed"] = False
+                if impact["warnings"]:
+                    result.setdefault("warnings", []).extend(impact["warnings"])
+        except Exception as e:
+            result["blockers"].append(f"Impact consistency check failed: {e}")
+            result["missing"].append("impact")
+            result["passed"] = False
+
+    return result
 
 
 def get_status_context(cwd: Path) -> Dict[str, Any]:
