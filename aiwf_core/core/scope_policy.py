@@ -92,38 +92,17 @@ def check_scope(
                 reason=f"matched '{p}'",
             )
 
-    # Find other contexts that cover this file to give actionable fix guidance
-    fix_guidance = ""
-    try:
-        import json
-        from pathlib import Path
-        ctx_file = Path(project_root) / ".aiwf" / "state" / "contexts.json"
-        if ctx_file.exists():
-            all_ctx = json.loads(ctx_file.read_text()).get("contexts", [])
-            covering = []
-            for c in all_ctx:
-                if c.get("id") == ctx_id:
-                    continue
-                for aw in (c.get("allowed_write") or []):
-                    if _matches(normalized, str(aw).strip()):
-                        covering.append(c["id"])
-                        break
-            if covering:
-                fix_guidance = (
-                    f" Fix: switch context — 'aiwf state start-context --context-id {covering[0]}'"
-                    f" then activate a task under that context."
-                )
-    except Exception:
-        pass
-    if not fix_guidance:
-        fix_guidance = (
-            f" Fix: file an architecture change request — "
-            f"'aiwf arch-change request --source executor"
-            f" --reason \"need to write {normalized}\""
-            f" --proposed-change \"expand context {ctx_id} allowed_write to cover {normalized}\""
-            f" --affected-file {normalized}'. "
-            f"Planner will approve or deny. Do NOT close the task."
-        )
+    # File is outside allowed_write — stop and file an architecture change request.
+    # Do NOT switch context mid-task (breaks scope contract + audit chain).
+    # Do NOT close the task and recreate (destroys evidence). Let Planner decide.
+    fix_guidance = (
+        f" Fix: stop and file an architecture change request — "
+        f"'aiwf arch-change request --source executor"
+        f" --reason \"need to write {normalized}\""
+        f" --proposed-change \"expand context {ctx_id} allowed_write to cover {normalized}\""
+        f" --affected-file {normalized}'. "
+        f"Planner will approve, deny, or redirect. Do NOT close the task or switch context."
+    )
 
     return ScopeResult(
         allowed=False,

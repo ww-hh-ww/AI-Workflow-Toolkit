@@ -145,15 +145,9 @@ def _print_status_prompt(root, state, goal, testing, review, fix_loop):
     # can't be missed. Repeated at the end as well.
     #
     # Per-topology subagent requirements:
-    #   single_agent: all inline
-    #   light_review: executor=subagent, tester+reviewer=inline (same agent)
-    #   standard_team: all subagent (executor, tester, reviewer)
-    #   fanout_merge: all subagent (parallel)
-    topo = state.get("execution_topology", "")
-    # Per-topology subagent requirements:
-    #   single_agent: all inline (L0)
-    #   light_review: executor=subagent, tester+reviewer=same subagent (L1)
-    #   standard_team: executor+tester+reviewer each subagent (L2)
+    #   single_agent / single_agent_with_machine_evidence: all inline (L0)
+    #   light_review: executor=SUBAGENT, testing+review=one SUBAGENT (L1)
+    #   standard_team: executor+tester+reviewer each SUBAGENT (L2)
     #   fanout_merge: same as standard_team, adversarial depth (L3/security)
     topo = state.get("execution_topology", "")
     needs_exec_sub = topo in ("light_review", "standard_team", "fanout_merge")
@@ -168,11 +162,11 @@ def _print_status_prompt(root, state, goal, testing, review, fix_loop):
                else "inline OK. Stay in allowed_write."), needs_exec_sub),
         "testing": ("/aiwf-test — "
             + ("SPAWN aiwf-tester SUBAGENT. Evidence first." if needs_test_sub
-               else "reviewer-light subagent does testing+review." if is_light_review
+               else "SPAWN aiwf-reviewer SUBAGENT. It handles both testing+review for light_review." if is_light_review
                else "inline OK. record-testing --status adequate."), needs_test_sub or is_light_review),
         "reviewing": ("/aiwf-review — "
             + ("SPAWN aiwf-reviewer SUBAGENT. Cleanup first." if needs_review_sub
-               else "same reviewer-light subagent. record-review." if is_light_review
+               else "SendMessage to same aiwf-reviewer. record-review." if is_light_review
                else "inline OK. record-review."), needs_review_sub or is_light_review),
         "closing": ("/aiwf-close — prepare-close then task close. No JSON hand-edits.", False),
         "closed": ("CLOSED. Run aiwf status.", False),
