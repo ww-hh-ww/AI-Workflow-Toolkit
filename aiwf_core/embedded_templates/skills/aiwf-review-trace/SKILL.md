@@ -15,14 +15,23 @@ Ask:
 - Did any single-point-of-truth file change (paths, constants, base classes)? These are the most dangerous.
 - Was the change scoped correctly? Does the evidence match what the context allowed?
 
-## 2. Ripple Tracing
+## 2. Ripple Tracing — Interface Compatibility
 
-For every changed file that exports anything (function, class, constant, schema), trace the dependency graph outward:
-- **Downstream dependents**: Who imports or calls the changed code? Each importer is a separate correctness question.
-- **Integration path chain**: If `architecture_brief.integration_points` pass through changed files, verify the ENTIRE path.
+For every changed file: trace BOTH directions. A function with a broken caller OR a broken callee is not correct, regardless of its own tests.
+
+### Upstream: who calls me?
+- **Call sites**: For every exported function/method/class whose signature changed, find every call site. Does each call still match the new signature? A renamed parameter or changed return type that compiles/imports is still a break if the caller relies on the old contract.
+- **Implicit contracts**: Did error types, exception behavior, None handling, or side effects change? Callers that relied on the old behavior are broken even if the signature text is identical.
+
+### Downstream: who do I call?
+- **Callee interfaces**: For every external function/method/class the changed code calls, verify the call conforms to the callee's ACTUAL signature (not the changed code's assumption). Read the callee source — do not trust docstrings or type stubs.
+- **Mismatch**: If the changed code passes wrong argument types, wrong keyword names, or expects return values the callee doesn't produce → `interface_break`. This is an executor bug, not a planning gap.
+
+### Integration path chain
+- If `architecture_brief.integration_points` pass through changed files, verify the ENTIRE path end to end.
 - **Architecture Brief cross-check**: changed files vs `allowed_files`, `protected_files`, `forbidden_restructures`.
 
-If the executor only tested the changed file but didn't verify its dependents, that is `needs_more_testing` or `evidence_insufficient` — not a pass.
+If the executor only tested the changed file but didn't verify its dependents or dependencies, that is `needs_more_testing` or `evidence_insufficient` — not a pass.
 
 ## 3. Coupling Hotspots & Pattern Decay
 
@@ -42,6 +51,7 @@ Verify this change complies with the existing architecture brief. You are NOT ju
 ## 5. Signal for the Future
 
 Record as adversarial observations:
+- `interface_break`: changed signature doesn't match caller or callee reality — upstream or downstream
 - `contract_gap`: declared contract doesn't match reality
 - `pattern_fragility`: same fix pattern repeating
 - `hotspot_warning`: file or module changing too often

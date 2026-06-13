@@ -295,6 +295,112 @@ def _node_ids(cwd, state):
     return task_id, plan_id, goal_id, milestone_id
 
 
+def _milestone_signals(cwd, active_milestone_id):
+    """Return activation/verification signals for milestones. Stdlib-only."""
+    milestones_data = rj(cwd / ".aiwf" / "state" / "milestones.json", {})
+    plans_data = rj(cwd / ".aiwf" / "state" / "plans.json", {"plans": []})
+    all_plans = plans_data.get("plans", []) or []
+    all_milestones = milestones_data.get("milestones", []) or []
+    ledger = rj(cwd / ".aiwf" / "runtime" / "history" / "task-ledger.json", {"tasks": []})
+    goals_data = rj(cwd / ".aiwf" / "state" / "goals.json", {"goals": []})
+    all_goals = goals_data.get("goals", []) or []
+    goal_ids_set = {str(g.get("id") or g.get("goal_id") or "") for g in all_goals if isinstance(g, dict)}
+
+    signals = []
+
+    # Scan pending milestones for activatability
+    for m in all_milestones:
+        if not isinstance(m, dict):
+            continue
+        mid = m.get("id") or m.get("milestone_id") or ""
+        if not mid or m.get("status") != "pending":
+            continue
+        covered = m.get("covered_goal_ids", []) or []
+        if not covered:
+            continue
+        ok = True
+        for gid in covered:
+            gid_str = str(gid)
+            goal_plans = [p for p in all_plans
+                          if str(p.get("goal_id") or p.get("target_goal_id") or "") == gid_str]
+            if not goal_plans:
+                ok = False
+                break
+            for p in goal_plans:
+                if not (p.get("task_ids") or []):
+                    ok = False
+                    break
+        if ok:
+            plan_count = len(m.get("plan_ids", []) or [])
+            signals.append(
+                f"MILESTONE ACTIVATABLE {mid}: {len(covered)} goals, {plan_count} plans ready. "
+                f"aiwf milestone update {mid} --status active"
+            )
+
+    # Active milestone verification readiness
+    if active_milestone_id:
+        ms = None
+        for m in all_milestones:
+            if (m.get("id") or m.get("milestone_id")) == active_milestone_id:
+                ms = m
+                break
+        if ms and ms.get("status") not in ("completed", "archived"):
+            blockers = []
+            for pid in (ms.get("plan_ids", []) or []):
+                pid_str = str(pid)
+                plan = None
+                for p in all_plans:
+                    if (p.get("plan_id") or p.get("id") or "") == pid_str:
+                        plan = p
+                        break
+                if not plan:
+                    blockers.append(f"plan missing: {pid_str}")
+                    continue
+                remaining = plan.get("remaining_task_ids", []) or []
+                if plan.get("status") not in ("complete", "completed") or remaining:
+                    blockers.append(f"plan not complete: {pid_str}")
+
+            task_by_id = {str(t.get("id")): t for t in (ledger.get("tasks") or [])
+                          if isinstance(t, dict) and t.get("id")}
+            for tid in (ms.get("task_ids", []) or []):
+                t = task_by_id.get(str(tid))
+                if not t:
+                    blockers.append(f"task missing: {tid}")
+                elif t.get("status") not in ("closed", "rejected"):
+                    blockers.append(f"task not terminal: {tid}")
+
+            for gid in (ms.get("covered_goal_ids", []) or []):
+                if str(gid) not in goal_ids_set:
+                    blockers.append(f"covered goal not registered: {gid}")
+
+            it = ms.get("integration_test", {}) or {}
+            if it.get("status") != "passed":
+                blockers.append("integration test not passed")
+            ar = ms.get("architecture_review", {}) or {}
+            if ar.get("status") not in ("intact",):
+                blockers.append("architecture review not done")
+            ar_blocked = any("architecture review" in b.lower() for b in blockers)
+            it_blocked = any("integration test" in b.lower() for b in blockers)
+            other_blocked = [b for b in blockers
+                             if "integration test" not in b.lower()
+                             and "architecture review" not in b.lower()]
+
+            if not other_blocked and (it_blocked or ar_blocked):
+                missing = []
+                if it_blocked:
+                    missing.append("load /aiwf-milestone-integration")
+                if ar_blocked:
+                    missing.append("load /aiwf-milestone-arch-review")
+                signals.append(f"MILESTONE READY {active_milestone_id}: {'; '.join(missing)}")
+            elif not blockers:
+                signals.append(
+                    f"MILESTONE READY {active_milestone_id}: verification complete "
+                    f"— aiwf milestone close {active_milestone_id}"
+                )
+
+    return signals
+
+
 def _build_short_context(cwd, state, goal, review, fix_loop):
     """Per-turn injection: only what the model needs to decide its next action.
     No Mission, no full tree, no reports, no assets, no raw artifact content.
@@ -333,6 +439,11 @@ def _build_short_context(cwd, state, goal, review, fix_loop):
         lines.append(f"BLOCKED: {', '.join(health_parts)}")
     else:
         lines.append("Health: ok")
+
+    # Milestone activation / verification signals
+    ms_signals = _milestone_signals(cwd, milestone_id)
+    if ms_signals:
+        lines.extend(ms_signals[:2])  # max 2 milestone lines per turn
 
     # 4. Recovery / PRIMARY / REQUIRED NEXT (from recovery_lines)
     rec = recovery_lines(cwd, state, goal, review, fix_loop)

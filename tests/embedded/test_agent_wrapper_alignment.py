@@ -125,15 +125,14 @@ class TestAgentWrapperAlignment(unittest.TestCase):
             "aiwf-review": "reviewer",
         }.items():
             content = self._claude_skill(skill_name)
-            self.assertIn("does not create an independent", content)
-            self.assertIn("planner-main", content)
-            self.assertIn("roleplaying", content)
+            self.assertIn("STOP", content)
+            self.assertIn("Check topology", content)
+            self.assertIn("planner-main", content.lower())
             self.assertIn(role, content.lower())
 
             reasonix_content = self._reasonix_skill(skill_name)
-            self.assertIn("does not create an independent", reasonix_content)
-            self.assertIn("planner-main", reasonix_content)
-            self.assertIn("roleplaying", reasonix_content)
+            self.assertIn("STOP", reasonix_content)
+            self.assertIn("planner-main", reasonix_content.lower())
 
     def test_claude_agents_declare_separate_subagent_session(self):
         for agent_name, role in {

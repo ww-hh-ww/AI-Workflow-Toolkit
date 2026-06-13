@@ -257,6 +257,8 @@ SKILL_TEMPLATES = {
     "aiwf-architect": "skills/aiwf-architect/SKILL.md",
     "aiwf-explore": "skills/aiwf-explore/SKILL.md",
     "aiwf-curate": "skills/aiwf-curate/SKILL.md",
+    "aiwf-milestone-integration": "skills/aiwf-milestone-integration/SKILL.md",
+    "aiwf-milestone-arch-review": "skills/aiwf-milestone-arch-review/SKILL.md",
 }
 
 AGENT_TEMPLATES = {
@@ -378,6 +380,12 @@ REASONIX_SUBAGENT_SKILL_CONFIG = {
         "runAs": "subagent",
         "allowed-tools": "read,glob",
         "model": "deepseek-chat",
+    },
+    "aiwf-milestone-integration": {
+        "runAs": "inline",
+    },
+    "aiwf-milestone-arch-review": {
+        "runAs": "inline",
     },
     "aiwf-close": {
         "runAs": "inline",
@@ -729,7 +737,7 @@ def doctor(mode: str | None = None) -> Dict[str, Any]:
         "scripts": {},
     }
 
-    for skill in ["aiwf-planner", "aiwf-planner-docs", "aiwf-planner-contracts", "aiwf-planner-execute", "aiwf-planner-meta", "aiwf-implement", "aiwf-test", "aiwf-review", "aiwf-review-trace", "aiwf-review-verify", "aiwf-review-output", "aiwf-close", "aiwf-architect", "aiwf-explore", "aiwf-curate"]:
+    for skill in ["aiwf-planner", "aiwf-planner-docs", "aiwf-planner-contracts", "aiwf-planner-execute", "aiwf-planner-meta", "aiwf-implement", "aiwf-test", "aiwf-review", "aiwf-review-trace", "aiwf-review-verify", "aiwf-review-output", "aiwf-close", "aiwf-architect", "aiwf-explore", "aiwf-curate", "aiwf-milestone-integration", "aiwf-milestone-arch-review"]:
         path = root / target.config_dir / "skills" / skill / "SKILL.md"
         exists = path.exists()
         has_frontmatter = False

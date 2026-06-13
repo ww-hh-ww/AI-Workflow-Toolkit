@@ -46,4 +46,5 @@ The Write Guard and Bash Guard enforce this mechanically.
 | testing | `/aiwf-test` |
 | reviewing | `/aiwf-review` → `/aiwf-review-trace` → `/aiwf-review-verify` → `/aiwf-review-output` |
 | closing | `/aiwf-close` + `/aiwf-planner-docs` |
+| milestone verification | `/aiwf-milestone-integration` → `/aiwf-milestone-arch-review` |
 | architecture review | `/aiwf-architect` (periodic, never blocks current task close) |

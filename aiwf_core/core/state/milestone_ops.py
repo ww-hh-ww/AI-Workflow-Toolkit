@@ -93,6 +93,25 @@ def _empty_milestone(
         "recommended_next_frontier": None,
         "advance_policy": advance_policy,
         "checkpoint_level": checkpoint_level,
+        # Milestone integration verification — cross-Goal system integrity
+        "integration_test": {
+            "status": "not_run",        # not_run | passed | failed
+            "commands": [],             # [{command, output_summary, exit_code}]
+            "summary": "",
+            "failed_integration_points": [],
+        },
+        "architecture_review": {
+            "status": "not_run",        # not_run | intact | issues_found
+            "interface_integrity": [],  # [{from_goal, to_goal, status: intact|broken}]
+            "cross_goal_issues": [],
+            "notes": "",
+        },
+        "snapshot": {
+            "goals": {},                # {goal_id: {status, plan_count, task_count}}
+            "deferred": [],             # items carried to next milestone
+            "known_risks": [],
+            "next_milestone_focus": "",
+        },
         "created_at": now,
         "updated_at": now,
     }
@@ -341,11 +360,124 @@ def record_milestone_assessment(
     return {"recorded": True, "milestone": milestone}
 
 
-def close_milestone(base_dir: str, milestone_id: str) -> Dict[str, Any]:
+def record_milestone_integration(
+    base_dir: str,
+    milestone_id: str,
+    status: str,
+    commands: Optional[List[Dict[str, Any]]] = None,
+    summary: str = "",
+    failed_points: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    """Record milestone-level integration test results."""
+    if status not in ("passed", "failed"):
+        raise ValueError(f"invalid integration status: {status}")
     data = load_milestones(base_dir)
     milestone = _find_milestone(data, milestone_id)
     if not milestone:
-        return {"closed": False, "blockers": [f"milestone not found: {milestone_id}"]}
+        raise ValueError(f"milestone not found: {milestone_id}")
+    it = milestone.setdefault("integration_test", {})
+    it["status"] = status
+    if commands:
+        it["commands"] = commands
+    if summary:
+        it["summary"] = summary
+    if failed_points:
+        it["failed_integration_points"] = failed_points
+    milestone["updated_at"] = _now()
+    save_milestones(base_dir, data)
+    return {"recorded": True, "milestone_id": milestone_id, "integration_test": it}
+
+
+def record_milestone_arch_review(
+    base_dir: str,
+    milestone_id: str,
+    status: str,
+    interface_integrity: Optional[List[Dict[str, Any]]] = None,
+    cross_goal_issues: Optional[List[str]] = None,
+    notes: str = "",
+) -> Dict[str, Any]:
+    """Record milestone-level architecture review — cross-Goal interface integrity."""
+    if status not in ("intact", "issues_found"):
+        raise ValueError(f"invalid arch review status: {status}")
+    data = load_milestones(base_dir)
+    milestone = _find_milestone(data, milestone_id)
+    if not milestone:
+        raise ValueError(f"milestone not found: {milestone_id}")
+    ar = milestone.setdefault("architecture_review", {})
+    ar["status"] = status
+    if interface_integrity:
+        ar["interface_integrity"] = interface_integrity
+    if cross_goal_issues:
+        ar["cross_goal_issues"] = cross_goal_issues
+    if notes:
+        ar["notes"] = notes
+    milestone["updated_at"] = _now()
+    save_milestones(base_dir, data)
+    return {"recorded": True, "milestone_id": milestone_id, "architecture_review": ar}
+
+
+def check_milestone_activatable(base_dir: str, milestone_id: str) -> List[str]:
+    """Return reasons a pending milestone cannot be activated. Empty = ready.
+
+    Activation conditions:
+    - Milestone status is 'pending'
+    - Every covered_goal has at least one plan
+    - Every plan for those goals has at least one task assigned
+
+    Read-only. Used by status prompt to suggest activation.
+    """
+    data = load_milestones(base_dir)
+    milestone = _find_milestone(data, milestone_id)
+    if not milestone:
+        return [f"milestone not found: {milestone_id}"]
+
+    reasons = []
+
+    if milestone.get("status") != "pending":
+        reasons.append(f"milestone status is '{milestone.get('status')}', not 'pending'")
+        return reasons
+
+    covered_goals = milestone.get("covered_goal_ids", []) or []
+    if not covered_goals:
+        reasons.append("milestone has no covered_goal_ids")
+        return reasons
+
+    try:
+        from .plan_ops import load_plans
+
+        plans_data = load_plans(base_dir)
+        all_plans = plans_data.get("plans", []) or []
+
+        for gid in covered_goals:
+            gid_str = str(gid)
+            goal_plans = [
+                p for p in all_plans
+                if str(p.get("goal_id") or p.get("target_goal_id") or "") == gid_str
+            ]
+            if not goal_plans:
+                reasons.append(f"covered goal '{gid_str}' has no plan")
+                continue
+            for p in goal_plans:
+                task_ids = p.get("task_ids", []) or []
+                if not task_ids:
+                    pid = p.get("plan_id") or p.get("id") or "?"
+                    reasons.append(f"plan '{pid}' (goal '{gid_str}') has no tasks assigned")
+    except Exception as e:
+        reasons.append(f"activation check failed: {e}")
+
+    return reasons
+
+
+def check_milestone_readiness(base_dir: str, milestone_id: str) -> List[str]:
+    """Return blockers preventing milestone close. Read-only, no side effects.
+
+    Used by status prompt to determine if a milestone is ready for verification,
+    and by close_milestone as the gate logic.
+    """
+    data = load_milestones(base_dir)
+    milestone = _find_milestone(data, milestone_id)
+    if not milestone:
+        return [f"milestone not found: {milestone_id}"]
     synthesis = milestone.get("stage_synthesis", {}) or {}
     blockers = []
     if synthesis.get("status") != "completed":
@@ -382,26 +514,78 @@ def close_milestone(base_dir: str, milestone_id: str) -> Dict[str, Any]:
                 blockers.append(f"milestone task not terminal: {task_id} status={task.get('status')}")
     except Exception as e:
         blockers.append(f"milestone task completion check failed: {e}")
-    # Covered goals: verify all referenced goals are terminal
+    # Covered goals: verify they exist (registered in goal tree).
     try:
-        from .goal_tree_ops import get_goal, goal_exists
+        from .goal_tree_ops import goal_exists
         for gid in milestone.get("covered_goal_ids", []) or []:
             gid_str = str(gid)
             if not goal_exists(base_dir, gid_str):
                 blockers.append(f"milestone covered goal not registered: {gid_str}")
-                continue
-            goal = get_goal(base_dir, gid_str)
-            if goal and goal.get("status") not in ("stable", "archived", "superseded"):
-                blockers.append(
-                    f"milestone covered goal not terminal: {gid_str} status={goal.get('status')}"
-                )
     except Exception as e:
         blockers.append(f"milestone covered goal check failed: {e}")
+
+    # Integration test: must pass before milestone can close.
+    it = milestone.get("integration_test", {}) or {}
+    if it.get("status") != "passed":
+        blockers.append(
+            "milestone integration test not passed. "
+            "Run cross-Goal integration tests covering all covered_goals' "
+            "integration_points, then: aiwf milestone integration-test <ID> --status passed"
+        )
+
+    # Architecture review: must verify cross-Goal interface integrity.
+    ar = milestone.get("architecture_review", {}) or {}
+    if ar.get("status") not in ("intact",):
+        blockers.append(
+            "milestone architecture review not done. "
+            "Verify cross-Goal interface integrity, then: aiwf milestone arch-review <ID> --status intact"
+        )
+    return blockers
+
+
+def close_milestone(base_dir: str, milestone_id: str) -> Dict[str, Any]:
+    data = load_milestones(base_dir)
+    milestone = _find_milestone(data, milestone_id)
+    blockers = check_milestone_readiness(base_dir, milestone_id)
+
     if blockers:
         return {"closed": False, "milestone": milestone, "blockers": blockers}
+
+    # ── Auto-generate snapshot ──
+    snapshot = milestone.setdefault("snapshot", {})
+    try:
+        from .goal_tree_ops import get_goal
+        goals_snap = {}
+        for gid in milestone.get("covered_goal_ids", []) or []:
+            gid_str = str(gid)
+            goal = get_goal(base_dir, gid_str) if goal_exists(base_dir, gid_str) else {}
+            goals_snap[gid_str] = {
+                "status": goal.get("status", "unknown") if goal else "unknown",
+                "title": goal.get("title", "") if goal else "",
+            }
+        snapshot["goals"] = goals_snap
+    except Exception:
+        pass
+    snapshot.setdefault("deferred", [])
+    snapshot.setdefault("known_risks", [])
+    snapshot.setdefault("next_milestone_focus", "")
+
+    # ── Auto git tag ──
+    tag_name = ""
+    try:
+        import subprocess
+        tag_name = milestone_id.lower().replace(" ", "-") + "-" + _now()[:10]
+        subprocess.run(
+            ["git", "tag", tag_name, "-m", f"Milestone {milestone_id} snapshot"],
+            capture_output=True, cwd=str(Path(base_dir)), timeout=10,
+        )
+    except Exception:
+        pass
+
     milestone["status"] = "completed"
     milestone["closed_at"] = _now()
     milestone["updated_at"] = _now()
+    milestone["git_tag"] = tag_name
     if data.get("active_milestone_id") == milestone_id:
         data["active_milestone_id"] = None
     save_milestones(base_dir, data)

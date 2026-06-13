@@ -134,6 +134,7 @@ Ask: what files changed? What public APIs, contracts, or data formats? Did any g
 ### 2. Ripple Tracing
 For every changed file that is a dependency of other code (library, utility, base class, constant definition), trace outward:
 - **Who imports this?** Search for imports of the changed module. Each importer is a potential breakage site.
+- **Who does this call?** For every external function the changed code invokes, verify the call matches the callee's actual signature — wrong argument types or unexpected return values are interface breaks that unit tests of the changed file won't catch.
 - **Which integration_points pass through here?** (from architecture_brief.integration_points). If a declared integration path touches a changed file, the whole path needs testing.
 - **Architecture Brief cross-check**: changed files vs `allowed_files`, `protected_files`, `forbidden_restructures`.
 

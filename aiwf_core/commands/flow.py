@@ -168,7 +168,16 @@ def _print_status_prompt(root, state, goal, testing, review, fix_loop):
             + ("SPAWN aiwf-reviewer SUBAGENT. Cleanup first." if needs_review_sub
                else "SendMessage to same aiwf-reviewer. record-review." if is_light_review
                else "inline OK. record-review."), needs_review_sub or is_light_review),
-        "closing": ("/aiwf-close — prepare-close then task close. No JSON hand-edits.", False),
+        "closing": ("/aiwf-close — "
+            + ("L2/L3: verify 3 independent subagent sessions (executor/tester/reviewer) "
+               "were actually spawned via Agent tool. Do NOT run three CLI commands "
+               "with different --session-id from main session — that is evidence "
+               "fabrication. If subagents were not spawned, cancel close and redo "
+               "from implementing phase." if needs_review_sub
+               else "L1: verify executor evidence + reviewer-light evidence exist. "
+               "prepare-close then task close. No JSON hand-edits." if is_light_review
+               else "prepare-close then task close. No JSON hand-edits."),
+            needs_review_sub),
         "closed": ("CLOSED. Run aiwf status.", False),
     }
     anchor, requires_subagent = anchors.get(phase, ("", False))
@@ -238,6 +247,58 @@ def _print_status_prompt(root, state, goal, testing, review, fix_loop):
         print(f"BLOCKED: {', '.join(blockers)}")
     else:
         print("Health: ok")
+
+    # Milestone activation: scan pending milestones for activatable ones.
+    # Activation = all covered goals have plans, all plans have tasks.
+    try:
+        from ..core.state.milestone_ops import load_milestones, check_milestone_activatable
+        ms_data = load_milestones(str(root))
+        for m in (ms_data.get("milestones", []) or []):
+            if not isinstance(m, dict):
+                continue
+            mid = m.get("id") or m.get("milestone_id") or ""
+            if not mid or m.get("status") != "pending":
+                continue
+            reasons = check_milestone_activatable(str(root), mid)
+            if not reasons:
+                goal_count = len(m.get("covered_goal_ids", []) or [])
+                plan_count = len(m.get("plan_ids", []) or [])
+                print(f"MILESTONE ACTIVATABLE {mid}: {goal_count} goals, {plan_count} plans ready. "
+                      f"Run: aiwf milestone update {mid} --status active")
+    except Exception:
+        pass
+
+    # Milestone verification: when a milestone is close-ready except for
+    # integration_test or arch_review, prompt Planner to run them.
+    try:
+        from ..core.state.milestone_ops import load_milestones, check_milestone_readiness
+        ms_data = load_milestones(str(root))
+        ms_id = ms_data.get("active_milestone_id", "") or ""
+        if not ms_id:
+            ms_id = state.get("active_milestone_id", "") or ""
+        if ms_id:
+            if ms_data.get("milestones"):
+                ms = {m.get("id") or m.get("milestone_id"): m for m in ms_data["milestones"]}.get(ms_id, {})
+            else:
+                ms = {}
+            if ms and ms.get("status") not in ("completed", "archived"):
+                blockers = check_milestone_readiness(str(root), ms_id)
+                # Only integration_test / arch_review blockers → milestone is ready for verification
+                it_blocked = any("integration test" in b.lower() for b in blockers)
+                ar_blocked = any("architecture review" in b.lower() for b in blockers)
+                other_blocked = [b for b in blockers if "integration test" not in b.lower() and "architecture review" not in b.lower()]
+                if not other_blocked and (it_blocked or ar_blocked):
+                    missing = []
+                    if it_blocked:
+                        missing.append("load /aiwf-milestone-integration → test cross-Goal integration points")
+                    if ar_blocked:
+                        missing.append("load /aiwf-milestone-arch-review → verify Goal interfaces")
+                    if missing:
+                        print(f"MILESTONE READY {ms_id}: {'; '.join(missing)}")
+                elif not blockers:
+                    print(f"MILESTONE READY {ms_id}: verification complete — run aiwf milestone close {ms_id}")
+    except Exception:
+        pass
 
     # Downgrade check: when routing recommends higher level than current,
     # Planner must explain to user and get confirmation. Cannot silently drop.

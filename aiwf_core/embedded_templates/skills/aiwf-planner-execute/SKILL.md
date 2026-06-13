@@ -10,18 +10,55 @@ Structure decisions belong to `/aiwf-planner`. This skill handles execution only
 
 ## Approach: Multi-Plan Ordering (上下逼近)
 
-When multiple Plans exist under a Goal, Planner decides activation order.
-The default strategy is **top-down refinement, bottom-up verification**:
+When multiple Plans exist under one or more Goals, Planner decides activation order.
+The default strategy is **top-down refinement, bottom-up verification**.
 
-1. **Top-down pass** — activate structural/framing Plans first to establish interfaces and boundaries.
-2. **Implementation pass** — activate implementation Plans within declared interfaces.
-3. **Bottom-up verification** — verify each Plan's output validates the Plan above it.
-4. **Drift detection** — if a lower Plan's implementation reveals gaps in an upper Plan's design, stop and update the upper Plan before continuing.
+### Activation Checklist (run before every `aiwf task activate`)
+
+1. **Group by plan_kind** — `structural` first (they define interfaces), then `implementation` (they fill interfaces), then `verification` (they validate the result). Never activate an `implementation` Plan whose interface-defining `structural` Plan is not yet complete.
+
+2. **Read Goal depends_on** — `.aiwf/state/goals.json` → each Goal's `depends_on` field. If Goal A depends on Goal B, activate B's Plans before A's. A Goal whose dependencies are incomplete has `blocked` Plans — do not activate them.
+
+3. **Check Plan completion** — for Plans that define interfaces consumed by other Plans: all tasks must be closed, interfaces must be stable (`interface_stability: stable` in Plan metadata). A downstream Plan activated against a moving interface will need rework.
+
+4. **Cross-verify** — before activating a Plan, ask: do any of its task descriptions or context fields reference interfaces defined by an incomplete upstream Plan? If yes → do not activate. Record the dependency explicitly.
+
+5. **Drift detection** — if a lower Plan's implementation reveals gaps in an upper Plan's design, stop and update the upper Plan (`aiwf plan update`) before continuing the lower Plan. Do not silently patch the lower Plan to work around bad interfaces.
+
+### Out-of-order activation
+
+When you activate a Plan out of the default order, record the reason:
+```
+aiwf plan update --plan-id PLAN-XXX --section decision --content "Activated before PLAN-YYY because: <reason>"
+```
 
 Do NOT auto-select next Plan by weight, score, or DFS/BFS traversal.
-Judge semantically: which frontier is ready and unblocked.
 
-When activating a Plan out of order, record the reason in the Plan's decision section.
+## Task-Level Ordering Within a Plan
+
+When creating tasks under a Plan, declare ordering via `--dependency`:
+
+```
+aiwf task create T-002 --title "Wire router to handler" --dependency T-001
+```
+
+A task with `dependencies` cannot activate until all listed task IDs are `closed`. This is mechanically enforced by `aiwf task activate`.
+
+### Declaring dependencies
+
+Before creating tasks, read the Plan's scope and interface declarations. Identify the natural ordering:
+
+1. **Skeleton first** — tasks that create module scaffolding, directory structure, or interface stubs must complete before tasks that fill them in.
+2. **Bottom-up within a module** — if task B calls functions created by task A, A is a dependency of B.
+3. **Cross-module wiring last** — tasks that connect modules (router → handler, API → DB) should declare dependencies on the tasks that build each module.
+
+### Dependency rules
+
+- Only declare dependencies that genuinely block the task. Over-declaring creates unnecessary sequential chokepoints.
+- A task with zero dependencies is independently executable — it can run in parallel with any `parallel_safe` task.
+- Dependency chains must not form cycles. If A depends on B and B depends on A, split them differently.
+
+Read existing task dependencies from `.aiwf/runtime/history/task-ledger.json` before declaring new ones.
 
 ## Mandatory State Machine
 

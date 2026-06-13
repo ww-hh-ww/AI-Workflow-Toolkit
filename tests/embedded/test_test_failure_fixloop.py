@@ -157,8 +157,9 @@ class TestFailureFixLoop(unittest.TestCase):
 
     def test_reviewer_mentions_all_four_routes(self):
         c = (self.tmp / ".claude" / "skills" / "aiwf-review" / "SKILL.md").read_text()
-        self.assertIn("executor", c.lower())
-        self.assertIn("tester", c.lower())
+        self.assertIn("planner-main", c.lower())
+        self.assertIn("testing subagent", c.lower())
+        self.assertIn("single_agent", c.lower())
 
     def test_planner_says_route_planner_requires_user_decision(self):
         c = (self.tmp / ".claude" / "skills" / "aiwf-planner" / "SKILL.md").read_text()

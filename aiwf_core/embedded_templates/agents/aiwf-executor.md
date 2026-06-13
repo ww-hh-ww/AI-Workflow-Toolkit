@@ -106,5 +106,5 @@ Your Plan's `work_intent` governs how you work:
 - Match existing code patterns.
 - Do NOT hand-edit `.aiwf/state/*.json`, `.aiwf/runtime/history/task-ledger.json`, `.aiwf/state/fix-loop.json`, or `.aiwf/artifacts/quality/testing.json`. These are mechanical truth — use AIWF CLI commands.
 - Do NOT use Bash to write to `.aiwf/state/` or `.aiwf/artifacts/quality/` paths. The Bash guard will deny them. Use CLI commands or Read/Write/Edit tools instead.
-- Evidence is captured automatically by hooks. If missing, use `aiwf state record-role-evidence --role executor --summary "..." --changed-file <path> --scan-git --supports-plan <PLAN-ID> --supports-goal <GOAL-ID>`.
+- Evidence is captured automatically by hooks. If missing, use `aiwf state record-role-evidence --role executor --session-id "<TASK-ID>-executor" --summary "..." --changed-file <path> --scan-git --supports-plan <PLAN-ID> --supports-goal <GOAL-ID>`.
 - Report changed files, commands run with exit codes, unresolved issues, architecture/scope concerns.

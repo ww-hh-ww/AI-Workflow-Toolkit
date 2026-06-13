@@ -183,6 +183,18 @@ class TestMilestoneStage2(unittest.TestCase):
             residual_risks=["follow-up validation remains"],
             next_recommendation="Proceed to next plan",
         )
+        from aiwf_core.core.state.milestone_ops import (
+            record_milestone_integration,
+            record_milestone_arch_review,
+        )
+        record_milestone_integration(
+            str(self.tmp), "MS-001", status="passed",
+            summary="Integration tests passed",
+        )
+        record_milestone_arch_review(
+            str(self.tmp), "MS-001", status="intact",
+            notes="Cross-goal interfaces are intact",
+        )
         closed = close_milestone(str(self.tmp), "MS-001")
 
         self.assertTrue(closed["closed"], closed["blockers"])
@@ -362,6 +374,18 @@ class TestMissionIntegration(unittest.TestCase):
         record_milestone_assessment(
             str(self.tmp), "MS-001",
             verdict="PASS", summary="Ready",
+        )
+        from aiwf_core.core.state.milestone_ops import (
+            record_milestone_integration,
+            record_milestone_arch_review,
+        )
+        record_milestone_integration(
+            str(self.tmp), "MS-001", status="passed",
+            summary="Integration tests passed",
+        )
+        record_milestone_arch_review(
+            str(self.tmp), "MS-001", status="intact",
+            notes="Cross-goal interfaces are intact",
         )
 
         result = close_milestone(str(self.tmp), "MS-001")

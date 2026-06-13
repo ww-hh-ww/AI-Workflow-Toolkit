@@ -130,11 +130,47 @@ def _cmd_milestone_close(args: argparse.Namespace) -> None:
         raise SystemExit(1)
 
 
+def _cmd_milestone_integration_test(args: argparse.Namespace) -> None:
+    from ..core.state.milestone_ops import record_milestone_integration
+    commands = []
+    if args.command:
+        for c in args.command:
+            cmd, _, out = c.partition(":::")
+            commands.append({"command": cmd.strip(), "output_summary": out.strip()})
+    result = record_milestone_integration(
+        str(Path.cwd()),
+        args.milestone_id,
+        status=args.status,
+        commands=commands or None,
+        summary=args.summary or "",
+        failed_points=args.failed_point or None,
+    )
+    print(f"Integration test recorded: {args.milestone_id} status={args.status}")
+
+def _cmd_milestone_arch_review(args: argparse.Namespace) -> None:
+    from ..core.state.milestone_ops import record_milestone_arch_review
+    iface = []
+    if args.interface:
+        for i in args.interface:
+            parts = i.split("→", 1)
+            from_g = parts[0].strip() if parts else ""
+            to_g = parts[1].strip() if len(parts) > 1 else ""
+            iface.append({"from_goal": from_g, "to_goal": to_g, "status": "intact"})
+    result = record_milestone_arch_review(
+        str(Path.cwd()),
+        args.milestone_id,
+        status=args.status,
+        interface_integrity=iface or None,
+        cross_goal_issues=args.issue or None,
+        notes=args.notes or "",
+    )
+    print(f"Architecture review recorded: {args.milestone_id} status={args.status}")
+
 def _cmd_milestone_help(args: argparse.Namespace) -> None:
     print("AIWF Milestone Optional Node")
     print()
-    print("Milestones are optional stage nodes for long or high-risk work.")
-    print("They do not replace Plans and do not burden ordinary L0/L1 tasks.")
+    print("Milestones are stable version checkpoints — cross-Goal integration")
+    print("verification + architecture integrity review + snapshot + git tag.")
     print()
     print("Available subcommands:")
     print("  aiwf milestone create MS-001 --goal-id GOAL-001 --title '...'")
@@ -142,4 +178,6 @@ def _cmd_milestone_help(args: argparse.Namespace) -> None:
     print("  aiwf milestone show MS-001")
     print("  aiwf milestone update MS-001 --status active")
     print("  aiwf milestone assess MS-001 --verdict PASS --summary '...'")
+    print("  aiwf milestone integration-test MS-001 --status passed --command '...'")
+    print("  aiwf milestone arch-review MS-001 --status intact --interface 'AUTH→BACKEND'")
     print("  aiwf milestone close MS-001")

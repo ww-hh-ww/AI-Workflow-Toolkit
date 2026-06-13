@@ -69,9 +69,9 @@ from .goal_tree_commands import (
     _cmd_relation_add, _cmd_relation_remove, _cmd_relation_show,
 )
 from .milestone_commands import (
-    _cmd_milestone_assess, _cmd_milestone_close, _cmd_milestone_create,
-    _cmd_milestone_help, _cmd_milestone_list, _cmd_milestone_show,
-    _cmd_milestone_update,
+    _cmd_milestone_arch_review, _cmd_milestone_assess, _cmd_milestone_close,
+    _cmd_milestone_create, _cmd_milestone_help, _cmd_milestone_integration_test,
+    _cmd_milestone_list, _cmd_milestone_show, _cmd_milestone_update,
 )
 from .mission_commands import (
     _cmd_mission_help, _cmd_mission_show, _cmd_mission_update,
@@ -453,6 +453,24 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
     p_msa.add_argument("--residual-risk", action="append", default=[], dest="residual_risks", help="repeatable residual risk")
     p_msa.add_argument("--next-recommendation", default="", help="recommended next stage/action")
     p_msa.set_defaults(func=_cmd_milestone_assess)
+    p_msi = p_ms_sub.add_parser("integration-test", help="record milestone integration test")
+    p_msi.add_argument("milestone_id", help="milestone ID")
+    p_msi.add_argument("--status", required=True, choices=["passed","failed"], help="integration test status")
+    p_msi.add_argument("--command", action="append", default=[], dest="command",
+                       help="repeatable: 'cmd ::: output_summary'")
+    p_msi.add_argument("--summary", default="", help="test summary")
+    p_msi.add_argument("--failed-point", action="append", default=[], dest="failed_point",
+                       help="repeatable failed integration point names")
+    p_msi.set_defaults(func=_cmd_milestone_integration_test)
+    p_msr = p_ms_sub.add_parser("arch-review", help="record milestone architecture review")
+    p_msr.add_argument("milestone_id", help="milestone ID")
+    p_msr.add_argument("--status", required=True, choices=["intact","issues_found"], help="arch review status")
+    p_msr.add_argument("--interface", action="append", default=[], dest="interface",
+                       help="repeatable: 'FROM_GOAL→TO_GOAL'")
+    p_msr.add_argument("--issue", action="append", default=[], dest="issue",
+                       help="repeatable cross-goal issues")
+    p_msr.add_argument("--notes", default="", help="review notes")
+    p_msr.set_defaults(func=_cmd_milestone_arch_review)
     p_msl = p_ms_sub.add_parser("close", help="close milestone after assessment")
     p_msl.add_argument("milestone_id", help="milestone ID")
     p_msl.set_defaults(func=_cmd_milestone_close)
