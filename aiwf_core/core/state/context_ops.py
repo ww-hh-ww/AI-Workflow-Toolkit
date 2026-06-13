@@ -4,9 +4,189 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from ._common import _execution_contract_frozen, _freeze_explanation, _read, _write
+
+
+def _resolve_tree_inheritance(
+    base_dir: str,
+    plan_id: str = "",
+    goal_id: str = "",
+) -> Tuple[Dict[str, Any], Dict[str, Any], List[str]]:
+    """Walk the Goal Tree to collect inherited boundaries.
+
+    Returns (inherited_defaults, parent_info, warnings).
+    - inherited_defaults: fields to use as defaults when Planner doesn't override
+    - parent_info: debug info about which parents were found
+    - warnings: potential conflicts (e.g. non_goals in allowed_write)
+    """
+    base = Path(base_dir)
+    inherited: Dict[str, Any] = {}
+    parent_info: Dict[str, Any] = {}
+    warnings: List[str] = []
+
+    # ── Resolve Plan ──
+    plan = None
+    if plan_id:
+        plans_data = _read(base / ".aiwf" / "state" / "plans.json", {"plans": []})
+        for p in plans_data.get("plans", []) or []:
+            if isinstance(p, dict) and p.get("id") == plan_id:
+                plan = p
+                break
+        if not plan:
+            # Also check active_plan_id in state
+            state = _read(base / ".aiwf" / "state" / "state.json", {})
+            active_plan = state.get("active_plan_id", "")
+            if active_plan:
+                for p in plans_data.get("plans", []) or []:
+                    if isinstance(p, dict) and p.get("id") == active_plan:
+                        plan = p
+                        break
+
+    # ── Resolve Goal ──
+    goal = None
+    if goal_id or (plan and plan.get("target_goal_id")):
+        gid = goal_id or plan.get("target_goal_id", "")
+        goals_data = _read(base / ".aiwf" / "state" / "goals.json", {"goals": []})
+        for g in goals_data.get("goals", []) or []:
+            if isinstance(g, dict) and g.get("id") == gid:
+                goal = g
+                break
+
+    # ── Also read goal.json quality_brief for Architecture Brief inheritance ──
+    goal_json = _read(base / ".aiwf" / "state" / "goal.json", {})
+    quality_brief = goal_json.get("quality_brief", {}) or {}
+    arch_brief = quality_brief.get("architecture_brief", {}) or {}
+
+    # ── Inherit from Goal ──
+    if goal:
+        parent_info["goal_id"] = goal.get("id", "")
+        parent_info["goal_title"] = goal.get("title", "")[:80]
+
+        # surface_types → default test_focus
+        goal_surfaces = goal.get("surface_types", []) or []
+        if goal_surfaces:
+            inherited.setdefault("test_focus", [])
+            for s in goal_surfaces:
+                if s not in inherited["test_focus"]:
+                    inherited["test_focus"].append(f"surface:{s}")
+
+        # architecture_invariants → default review_focus
+        goal_invariants = goal.get("architecture_invariants", []) or []
+        if goal_invariants:
+            inherited.setdefault("review_focus", [])
+            for inv in goal_invariants:
+                entry = f"invariant:{inv}" if isinstance(inv, str) else str(inv)
+                if entry not in inherited["review_focus"]:
+                    inherited["review_focus"].append(entry)
+
+        # non_goals from Goal
+        goal_non_goals = goal.get("non_goals", []) or []
+        if goal_non_goals:
+            inherited.setdefault("non_goals", [])
+            for ng in goal_non_goals:
+                if ng not in inherited["non_goals"]:
+                    inherited["non_goals"].append(ng)
+
+        # module_boundaries → hint for allowed_write
+        goal_modules = goal.get("module_boundaries", []) or []
+        if goal_modules:
+            inherited["_suggested_modules"] = list(goal_modules)
+
+        # Temporary Root → require isolation
+        if goal.get("type") == "temporary":
+            inherited.setdefault("non_goals", [])
+            isolation_msg = f"temporary_root:{goal.get('id', '?')} — isolate from stable structure"
+            if isolation_msg not in inherited["non_goals"]:
+                inherited["non_goals"].append(isolation_msg)
+            warnings.append(
+                f"Parent Goal '{goal.get('id')}' is a Temporary Root — "
+                "exploration must be isolated from stable structure"
+            )
+
+    # ── Inherit from Architecture Brief (goal.json) ──
+    if arch_brief:
+        parent_info["arch_brief"] = "present"
+
+        # protected_files → should appear in forbidden_write
+        arch_protected = arch_brief.get("protected_files", []) or []
+        if arch_protected:
+            inherited.setdefault("_suggested_forbidden", [])
+            for pf in arch_protected:
+                if pf not in inherited["_suggested_forbidden"]:
+                    inherited["_suggested_forbidden"].append(pf)
+
+        # forbidden_restructures → escalation triggers
+        arch_forbidden = arch_brief.get("forbidden_restructures", []) or []
+        if arch_forbidden:
+            inherited.setdefault("escalation_triggers", [])
+            for fr in arch_forbidden:
+                trigger = f"forbidden_restructure:{fr}"
+                if trigger not in inherited["escalation_triggers"]:
+                    inherited["escalation_triggers"].append(trigger)
+
+    # ── Inherit from Plan ──
+    if plan:
+        parent_info["plan_id"] = plan.get("id", "")
+        parent_info["plan_kind"] = plan.get("plan_kind", "")
+        parent_info["work_intent"] = plan.get("work_intent", "")
+
+        # Plan interfaces → interface_contract
+        plan_interfaces = plan.get("interfaces", []) or []
+        if plan_interfaces:
+            inherited.setdefault("interface_contract", "")
+            if not inherited["interface_contract"]:
+                inherited["interface_contract"] = "; ".join(str(i) for i in plan_interfaces)
+
+        # Plan constraints → context constraints
+        plan_constraints = plan.get("constraints", []) or []
+        if plan_constraints:
+            inherited.setdefault("_plan_constraints", [])
+            for c in plan_constraints:
+                if c not in inherited["_plan_constraints"]:
+                    inherited["_plan_constraints"].append(str(c))
+
+        # work_intent → derived forbidden_changes
+        intent = plan.get("work_intent", "")
+        if intent:
+            forbids = _intent_forbidden_changes(intent)
+            if forbids:
+                inherited.setdefault("_intent_forbidden", [])
+                for f in forbids:
+                    if f not in inherited["_intent_forbidden"]:
+                        inherited["_intent_forbidden"].append(f)
+
+    # ── Validate: non_goals should not overlap with allowed_write ──
+    inherited_non_goals = inherited.get("non_goals", []) or []
+    inherited_suggested = inherited.get("_suggested_modules", []) or []
+    for ng in inherited_non_goals:
+        for mod in inherited_suggested:
+            if ng.lower() in mod.lower() or mod.lower() in ng.lower():
+                warnings.append(
+                    f"Potential conflict: non_goal '{ng}' overlaps with suggested module '{mod}'"
+                )
+
+    return inherited, parent_info, warnings
+
+
+_INTENT_FORBIDDEN_MAP = {
+    "feature": [],
+    "bugfix": ["refactor_unrelated", "new_feature", "api_change"],
+    "refactor": ["new_feature", "api_change", "behavior_change"],
+    "cleanup": ["new_feature", "refactor", "semantic_change", "delete_machine_truth"],
+    "migration": ["delete_old_path", "break_compatibility"],
+    "verification": ["change_implementation", "new_feature"],
+    "exploration": ["commit_to_stable_structure", "modify_goal_tree"],
+    "documentation": ["change_machine_semantics", "change_behavior"],
+    "integration": ["change_interfaces", "new_feature"],
+    "release": ["change_behavior", "new_feature", "refactor"],
+}
+
+
+def _intent_forbidden_changes(intent: str) -> List[str]:
+    """Return derived forbidden_changes for a given work_intent."""
+    return _INTENT_FORBIDDEN_MAP.get(intent, [])
 
 def record_role_evidence(
     base_dir: str,
@@ -21,6 +201,8 @@ def record_role_evidence(
     status: str = "pending",
     exit_code: int = 0,
     scan_git: bool = False,
+    supports_plan: str = "",
+    supports_goal: str = "",
 ) -> Dict[str, Any]:
     """Append machine-recorded role evidence for subagent/hook coverage gaps."""
     role = role.strip().lower()
@@ -30,7 +212,7 @@ def record_role_evidence(
         raise ValueError(f"unknown role evidence status: {status}")
 
     base = Path(base_dir)
-    evidence_path = base / ".aiwf" / "evidence" / "records.json"
+    evidence_path = base / ".aiwf" / "artifacts" / "evidence" / "records.json"
     state = _read(base / ".aiwf" / "state" / "state.json")
     evidence = _read(evidence_path)
     records = evidence.get("records", [])
@@ -41,7 +223,28 @@ def record_role_evidence(
     from ..evidence_schema import next_ev_id
 
     active_context = context_id or state.get("active_context_id") or ""
-    synthetic_session = active_context or "aiwf"
+    active_task_id = str(state.get("active_task_id") or "")
+    inferred_plan = ""
+    inferred_goal = ""
+    if active_task_id:
+        try:
+            from ..task_ledger import load_ledger
+            ledger = load_ledger(base_dir)
+            for task in ledger.get("tasks", []) or []:
+                if isinstance(task, dict) and task.get("id") == active_task_id:
+                    inferred_plan = str(task.get("plan_id") or task.get("parent_plan") or "")
+                    inferred_goal = str(task.get("goal_id") or task.get("parent_goal") or "")
+                    break
+        except Exception:
+            pass
+    effective_plan = supports_plan or inferred_plan
+    effective_goal = supports_goal or inferred_goal
+    # Use explicit --session-id when available. Otherwise use the context
+    # as session marker. Role-based suffixes are NOT auto-generated here —
+    # that would let the main session fake independent sessions by running
+    # three CLI commands. Real session diversity comes from hook-captured
+    # evidence in subagent sessions (each has a distinct Claude session_id).
+    synthetic_session = session_id or active_context or "aiwf"
     scanned_files: List[str] = []
     scanned_source = "not_scanned"
     if scan_git:
@@ -73,7 +276,13 @@ def record_role_evidence(
         "agent_id": agent_id or role,
         "agent_type": agent_type or role,
         "tool_name": "AIWFRoleEvidence",
-        "tool_input": {"role": role, "summary": summary, "scan_git": bool(scan_git)},
+        "tool_input": {
+            "role": role,
+            "summary": summary,
+            "scan_git": bool(scan_git),
+            "supports_plan": effective_plan,
+            "supports_goal": effective_goal,
+        },
         "trust_level": trust_lvl,
         "command": command[:500] if command else "",
         "exit_code": exit_code,
@@ -87,6 +296,8 @@ def record_role_evidence(
         "stderr_summary": "",
         "status": status,
         "trust": "machine_observed",
+        "supports_plan": effective_plan,
+        "supports_goal": effective_goal,
     }
     records.append(record)
     evidence["records"] = records
@@ -139,9 +350,7 @@ def _ensure_critical_assets(base_dir: str) -> list:
 
     # 2. Capabilities registry
     cap_path = aiwf / "assets" / "capabilities.json"
-    cap_alt = aiwf / "capabilities.json"  # legacy pre-v2 flat path
-    cap_exists = cap_path.exists() or cap_alt.exists()
-    if not cap_exists:
+    if not cap_path.exists():
         try:
             from ..capabilities import discover_capabilities, write_capabilities_registry
             caps = discover_capabilities(base_dir)
@@ -151,7 +360,7 @@ def _ensure_critical_assets(base_dir: str) -> list:
             pass
 
     # 3. PROJECT-MAP
-    pm_path = aiwf / "reports" / "项目地图.md"
+    pm_path = aiwf / "artifacts" / "reports" / "项目地图.md"
     if not pm_path.exists():
         try:
             from ..project_map import ensure_project_map
@@ -161,7 +370,7 @@ def _ensure_critical_assets(base_dir: str) -> list:
             pass
 
     # 4. Idea inbox
-    ideas_path = aiwf / "reports" / "ideas.md"
+    ideas_path = aiwf / "artifacts" / "reports" / "ideas.md"
     if not ideas_path.exists():
         try:
             from ..ideas import ensure_ideas_file
@@ -171,7 +380,7 @@ def _ensure_critical_assets(base_dir: str) -> list:
             pass
 
     # 6. task-history baseline (if completely empty)
-    th_path = aiwf / "history" / "task-history.json"
+    th_path = aiwf / "runtime" / "history" / "task-history.json"
     if not th_path.exists():
         try:
             from ..workspace_drift import auto_update_baseline
@@ -252,6 +461,80 @@ def start_context(
         ("test_focus", test_focus, []), ("review_focus", review_focus, []),
         ("escalation_triggers", escalation_triggers, []),
     ]
+
+    # ── Tree-driven contract inheritance ──
+    # When creating a NEW context, pull defaults from parent Goal/Plan.
+    # Planner's explicit arguments override inherited values.
+    if not existing:
+        active_plan = state.get("active_plan_id", "")
+        plan_id_hint = active_plan
+        # Try to resolve plan from task ledger if we have an active task
+        if active_task_id:
+            try:
+                from ..task_ledger import load_ledger
+                ledger = load_ledger(base_dir)
+                for t in ledger.get("tasks", []) or []:
+                    if isinstance(t, dict) and t.get("id") == active_task_id:
+                        plan_id_hint = t.get("plan_id") or t.get("parent_plan") or plan_id_hint
+                        break
+            except Exception:
+                pass
+
+        if plan_id_hint:
+            try:
+                inherited, parent_info, tree_warnings = _resolve_tree_inheritance(
+                    base_dir, plan_id=plan_id_hint
+                )
+                # Apply inherited defaults — only when Planner didn't provide an explicit value
+                if inherited.get("test_focus") and test_focus is None:
+                    test_focus = inherited["test_focus"]
+                if inherited.get("review_focus") and review_focus is None:
+                    review_focus = inherited["review_focus"]
+                if inherited.get("non_goals") and non_goals is None:
+                    non_goals = inherited["non_goals"]
+                if inherited.get("interface_contract") and not interface_contract:
+                    interface_contract = inherited["interface_contract"]
+                if inherited.get("escalation_triggers") and escalation_triggers is None:
+                    escalation_triggers = inherited["escalation_triggers"]
+                # Suggested forbidden_write from Architecture Brief protected_files
+                if inherited.get("_suggested_forbidden") and forbidden_write is None:
+                    forbidden_write = inherited["_suggested_forbidden"]
+                # Work Intent derived forbidden changes → inject into context notes
+                intent_forbidden = inherited.get("_intent_forbidden", []) or []
+                # Suggested modules from Goal module_boundaries
+                if inherited.get("_suggested_modules") and allowed_write is None:
+                    allowed_write = inherited["_suggested_modules"]
+
+                # Inject parent info + warnings as context notes
+                if parent_info:
+                    tree_note = (
+                        f"[TREE] Inherited from "
+                        + (f"Goal:{parent_info.get('goal_id', '?')} " if parent_info.get("goal_id") else "")
+                        + (f"Plan:{parent_info.get('plan_id', '?')} " if parent_info.get("plan_id") else "")
+                        + (f"kind={parent_info.get('plan_kind', '')} " if parent_info.get("plan_kind") else "")
+                        + (f"intent={parent_info.get('work_intent', '')}" if parent_info.get("work_intent") else "")
+                    ).strip()
+                    if not note:
+                        note = tree_note
+                    else:
+                        note = tree_note + "\n" + note
+
+                if intent_forbidden:
+                    intent_note = f"[INTENT] Derived forbidden: {', '.join(intent_forbidden)}"
+                    if not note:
+                        note = intent_note
+                    else:
+                        note = intent_note + "\n" + note
+
+                if tree_warnings:
+                    for w in tree_warnings:
+                        warn_note = f"[WARN] {w}"
+                        if not note:
+                            note = warn_note
+                        else:
+                            note = warn_note + "\n" + note
+            except Exception:
+                pass
     if existing:
         ctx = existing
         old_boundary = {
@@ -365,6 +648,30 @@ def start_context(
     except Exception:
         pass
 
+    # ── Mission context (soft) — inject the project's "why" as a constant reference ──
+    # Mission does NOT block activation; it provides semantic anchoring. If present,
+    # Planner and all agents see it on every context start.
+    try:
+        mission_path = base / ".aiwf" / "state" / "mission.json"
+        if mission_path.exists():
+            import json as _json
+            mission = _json.loads(mission_path.read_text(encoding="utf-8"))
+            statement = str(mission.get("statement", "") or "").strip()
+            boundaries = mission.get("boundaries", []) or []
+            if statement or boundaries:
+                mission_lines = ["[MISSION]"]
+                if statement:
+                    mission_lines.append(f"  Why: {statement}")
+                if boundaries:
+                    mission_lines.append(f"  Boundaries: {', '.join(str(b) for b in boundaries)}")
+                mission_note = "\n".join(mission_lines)
+                if isinstance(ctx.get("notes"), list):
+                    ctx["notes"].append(mission_note)
+                else:
+                    ctx["notes"] = [mission_note]
+    except Exception:
+        pass
+
     # ── Ensure critical assets exist (mechanical, no Planner decision needed) ──
     # start_context is the universal entry point. If assets are missing, fill them now.
     # Planner cannot skip this — it happens automatically.
@@ -379,4 +686,3 @@ def start_context(
     _write(state_path, state)
 
     return contexts
-

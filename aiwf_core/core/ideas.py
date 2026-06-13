@@ -21,7 +21,7 @@ def _ts(): return _now().isoformat()
 
 
 def _ideas_path(project_root: str) -> Path:
-    return Path(project_root) / ".aiwf" / "reports" / "ideas.md"
+    return Path(project_root) / ".aiwf" / "artifacts" / "reports" / "ideas.md"
 
 
 def _ensure_exists(path: Path):

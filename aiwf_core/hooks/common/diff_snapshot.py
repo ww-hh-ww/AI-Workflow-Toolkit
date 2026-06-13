@@ -32,7 +32,7 @@ AIWF_INTERNAL_DIRS = [
     ".reasonix",
 ]
 
-BASELINE_FILE = ".aiwf/internal/baseline.json"
+BASELINE_FILE = ".aiwf/runtime/internal/baseline.json"
 
 
 def is_internal_path(file_path: str) -> bool:

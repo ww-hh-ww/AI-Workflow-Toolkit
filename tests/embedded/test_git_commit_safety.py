@@ -104,10 +104,10 @@ class TestGitCommitSafety(unittest.TestCase):
         self._allow_closure()
         (self.tmp/"README.md").write_text("changed_rpt\n")
         # Create report first
-        (self.tmp/".aiwf" / "reports" / "闭合报告.md").write_text("# Test Report\n")
+        (self.tmp/".aiwf" / "artifacts" / "reports" / "闭合报告.md").write_text("# Test Report\n")
         r = self._run("git", "commit", "--message", "test: report record", "--confirm")
         self.assertIn("Committed:", r.stdout)
-        rpt = (self.tmp/".aiwf" / "reports" / "闭合报告.md").read_text()
+        rpt = (self.tmp/".aiwf" / "artifacts" / "reports" / "闭合报告.md").read_text()
         self.assertIn("## Git Commit", rpt)
         self.assertIn("Push: not performed", rpt)
 

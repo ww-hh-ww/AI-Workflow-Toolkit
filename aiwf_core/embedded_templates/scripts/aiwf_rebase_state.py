@@ -7,10 +7,10 @@ _AH_PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(_AH_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_AH_PROJECT_ROOT))
 
-# === diagnostic log (persistent, check .aiwf/internal/hook-diag.log) ===
+# === diagnostic log (persistent, check .aiwf/runtime/internal/hook-diag.log) ===
 def _ah_diag(msg: str) -> None:
     try:
-        _dp = _AH_PROJECT_ROOT / ".aiwf" / "internal"
+        _dp = _AH_PROJECT_ROOT / ".aiwf" / "runtime" / "internal"
         _dp.mkdir(parents=True, exist_ok=True)
         with open(_dp / "hook-diag.log", "a") as _df:
             import datetime
@@ -28,7 +28,7 @@ try:
     _ah_diag("import aiwf_core ok")
 except ImportError as _e:
     _ah_diag(f"import aiwf_core failed: {_e}, trying toolkit-path.txt")
-    _TK_CFG = _AH_PROJECT_ROOT / ".aiwf" / "internal" / "toolkit-path.txt"
+    _TK_CFG = _AH_PROJECT_ROOT / ".aiwf" / "runtime" / "internal" / "toolkit-path.txt"
     if _TK_CFG.exists():
         _TK_ROOT = _TK_CFG.read_text().strip()
         _ah_diag(f"toolkit-path.txt found: {_TK_ROOT}, exists={Path(_TK_ROOT).exists()}")
@@ -37,7 +37,7 @@ except ImportError as _e:
             _ah_diag("added toolkit root to sys.path")
     else:
         _ah_diag("toolkit-path.txt not found")
-'''AIWF rebase state - generate .aiwf/reports/当前状态.md carry-forward summary.'''
+'''AIWF rebase state - generate .aiwf/artifacts/reports/当前状态.md carry-forward summary.'''
 import json, sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -77,7 +77,7 @@ def impact_quality_summary_requested(base, state):
     task_id = state.get("active_task_id") or state.get("active_plan_id") or ""
     if not task_id:
         return False
-    plan_path = base / ".aiwf" / "plans" / f"{task_id}.md"
+    plan_path = base / ".aiwf" / "artifacts" / "plans" / f"{task_id}.md"
     if not plan_path.exists():
         return False
     try:
@@ -134,7 +134,7 @@ def review_basis_summary(review):
 
 
 def upsert_history(base, state, goal, evidence, testing, review, contexts, fix_loop):
-    path = base / ".aiwf" / "history" / "task-history.json"
+    path = base / ".aiwf" / "runtime" / "history" / "task-history.json"
     history = rj(path, {"tasks": []})
     tasks = history.get("tasks", []) if isinstance(history.get("tasks"), list) else []
 
@@ -257,21 +257,21 @@ def main():
         sys.exit(2)
 
     goal = rj(base / ".aiwf" / "state" / "goal.json")
-    evidence = rj(base / ".aiwf" / "evidence" / "records.json", {"records": []})
-    testing = rj(base / ".aiwf" / "quality" / "testing.json")
-    review = rj(base / ".aiwf" / "quality" / "review.json")
+    evidence = rj(base / ".aiwf" / "artifacts" / "evidence" / "records.json", {"records": []})
+    testing = rj(base / ".aiwf" / "artifacts" / "quality" / "testing.json")
+    review = rj(base / ".aiwf" / "artifacts" / "quality" / "review.json")
     contexts = rj(base / ".aiwf" / "state" / "contexts.json")
     fix_loop = rj(base / ".aiwf" / "state" / "fix-loop.json")
-    report_exists = (base / ".aiwf" / "reports" / "闭合报告.md").exists()
+    report_exists = (base / ".aiwf" / "artifacts" / "reports" / "闭合报告.md").exists()
     history = upsert_history(base, state, goal, evidence, testing, review, contexts, fix_loop)
-    qd_path = base / ".aiwf" / "reports" / "质量摘要.md"
+    qd_path = base / ".aiwf" / "artifacts" / "reports" / "质量摘要.md"
     if impact_quality_summary_requested(base, state):
         qd_path.write_text("\n".join(quality_digest_lines(history, testing, review)) + "\n", encoding="utf-8")
 
     lines = []
     lines.append("# AIWF Current State")
     lines.append("")
-    lines.append("*Carry-forward summary for Planner. Raw audit: .aiwf/evidence/records.json, .aiwf/quality/review.json, .aiwf/reports/闭合报告.md.*")
+    lines.append("*Carry-forward summary for Planner. Raw audit: .aiwf/artifacts/evidence/records.json, .aiwf/artifacts/quality/review.json, .aiwf/artifacts/reports/闭合报告.md.*")
     lines.append("")
     accepted_count = len([r for r in evidence.get('records', []) or [] if r.get('status') == 'accepted'])
     blockers = []
@@ -343,7 +343,7 @@ def main():
 
     lines.append("## Quality digest")
     if qd_path.exists():
-        lines.append("- .aiwf/reports/质量摘要.md")
+        lines.append("- .aiwf/artifacts/reports/质量摘要.md")
     else:
         lines.append("- not generated (Impact.quality_summary is not yes)")
     lines.append("")
@@ -386,13 +386,13 @@ def main():
     lines.append("## Raw References")
     lines.append("")
     lines.append("## Raw audit references")
-    lines.append("- .aiwf/reports/闭合报告.md" if report_exists else "- .aiwf/reports/闭合报告.md (not generated)")
-    lines.append("- .aiwf/reports/质量摘要.md" if qd_path.exists() else "- .aiwf/reports/质量摘要.md (not generated)")
-    lines.append("- .aiwf/evidence/records.json")
-    lines.append("- .aiwf/quality/review.json")
+    lines.append("- .aiwf/artifacts/reports/闭合报告.md" if report_exists else "- .aiwf/artifacts/reports/闭合报告.md (not generated)")
+    lines.append("- .aiwf/artifacts/reports/质量摘要.md" if qd_path.exists() else "- .aiwf/artifacts/reports/质量摘要.md (not generated)")
+    lines.append("- .aiwf/artifacts/evidence/records.json")
+    lines.append("- .aiwf/artifacts/quality/review.json")
     lines.append("")
 
-    out = base / ".aiwf" / "reports" / "当前状态.md"
+    out = base / ".aiwf" / "artifacts" / "reports" / "当前状态.md"
     out.write_text("\n".join(lines) + "\n", encoding="utf-8")
     print(f"Current state written to {out}")
 

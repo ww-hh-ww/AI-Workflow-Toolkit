@@ -7,6 +7,31 @@ description: Architecture Brief, Evaluation Contract, Quality Policy — freeze 
 
 Freeze these before any L1+ implementation. L0: minimal. L1/L2: standard. L3: complete.
 
+## Tree-Driven Inheritance
+
+When you create a context under an existing Plan + Goal, defaults are auto-inherited from the tree.
+You only declare deltas — what's different from the parent.
+
+**Inheritance chain:**
+
+| Source | Inherited as | Override with |
+|--------|-------------|---------------|
+| Goal `surface_types` | default `test_focus` entries | `--test-focus` |
+| Goal `architecture_invariants` | default `review_focus` entries | `--review-focus` |
+| Goal `non_goals` | default `non_goals` | `--non-goal` |
+| Goal `module_boundaries` | suggested `allowed_write` | `--allowed-write` |
+| Architecture Brief `protected_files` | suggested `forbidden_write` | `--forbidden-write` |
+| Architecture Brief `forbidden_restructures` | `escalation_triggers` | `--escalation-trigger` |
+| Plan `interfaces` | default `interface_contract` | `--interface-contract` |
+| Plan `work_intent` | derived `forbidden_changes` (informational) | — |
+| Plan `constraints` | context constraints (informational) | — |
+| Temporary Root | auto `non_goals: isolate from stable structure` | — |
+
+**Validation:** if inherited `non_goals` overlap with `allowed_write`, a warning is injected into context notes.
+
+**Override rule:** Planner's explicit CLI arguments always win over inherited defaults.
+If you pass `--test-focus "custom"`, it replaces the inherited test_focus entirely.
+
 ## Architecture Brief (L1+ required, L2+ must include structural fields)
 
 Defines structural boundaries:

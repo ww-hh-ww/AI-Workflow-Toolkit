@@ -58,13 +58,13 @@ class TestSourceTrustFreshness(unittest.TestCase):
     # ═══════════════════════════════════════════════════════════════
 
     def test_project_map_missing_sections(self):
-        pm = self.tmp / ".aiwf" / "reports" / "项目地图.md"
+        pm = self.tmp / ".aiwf" / "artifacts" / "reports" / "项目地图.md"
         pm.write_text("# AIWF Project Map\n\n## Project Snapshot\n- OK\n\n## Active Direction\n- Unknown yet.\n")
         out = self._run("cleanup", "check").stdout
         self.assertIn("missing section", out.lower())
 
     def test_project_map_raw_ideas_pollution(self):
-        pm = self.tmp / ".aiwf" / "reports" / "项目地图.md"
+        pm = self.tmp / ".aiwf" / "artifacts" / "reports" / "项目地图.md"
         pm.write_text("# AIWF Project Map\n\n## Project Snapshot\n- OK\n\n# AIWF Ideas\n### IDEA-2026 | raw\n- leaked\n")
         out = self._run("cleanup", "check").stdout
         self.assertIn("raw ideas", out.lower())
@@ -74,9 +74,9 @@ class TestSourceTrustFreshness(unittest.TestCase):
     # ═══════════════════════════════════════════════════════════════
 
     def test_deferred_risks_missing_from_project_map(self):
-        rv = json.loads((self.tmp / ".aiwf" / "quality" / "review.json").read_text())
+        rv = json.loads((self.tmp / ".aiwf" / "artifacts" / "quality" / "review.json").read_text())
         rv["followups"] = ["Consider separate overflow policy task."]
-        (self.tmp / ".aiwf" / "quality" / "review.json").write_text(json.dumps(rv, indent=2))
+        (self.tmp / ".aiwf" / "artifacts" / "quality" / "review.json").write_text(json.dumps(rv, indent=2))
         self._run("project-map", "init")
         out = self._run("cleanup", "check").stdout
         self.assertIn("Deferred Risks still None yet", out)
@@ -97,15 +97,15 @@ class TestSourceTrustFreshness(unittest.TestCase):
 
     def test_cleanup_no_modify_ideas(self):
         self._run("idea", "capture", "--text", "test", "--expires-days", "0")
-        before = (self.tmp / ".aiwf" / "reports" / "ideas.md").read_text()
+        before = (self.tmp / ".aiwf" / "artifacts" / "reports" / "ideas.md").read_text()
         self._run("cleanup", "check")
-        self.assertEqual(before, (self.tmp / ".aiwf" / "reports" / "ideas.md").read_text())
+        self.assertEqual(before, (self.tmp / ".aiwf" / "artifacts" / "reports" / "ideas.md").read_text())
 
     def test_cleanup_no_modify_project_map(self):
         self._run("project-map", "init")
-        before = (self.tmp / ".aiwf" / "reports" / "项目地图.md").read_text()
+        before = (self.tmp / ".aiwf" / "artifacts" / "reports" / "项目地图.md").read_text()
         self._run("cleanup", "check")
-        self.assertEqual(before, (self.tmp / ".aiwf" / "reports" / "项目地图.md").read_text())
+        self.assertEqual(before, (self.tmp / ".aiwf" / "artifacts" / "reports" / "项目地图.md").read_text())
 
     def test_cleanup_no_modify_rules(self):
         self._run("rule", "add", "--text", "test rule")
@@ -121,7 +121,7 @@ class TestSourceTrustFreshness(unittest.TestCase):
         self._run("project-map", "init")
         self._run("idea", "capture", "--text", "stale", "--expires-days", "0")
         r = self._run_script("scripts/aiwf_export_report.py")
-        rpt = (self.tmp / ".aiwf" / "reports" / "闭合报告.md").read_text()
+        rpt = (self.tmp / ".aiwf" / "artifacts" / "reports" / "闭合报告.md").read_text()
         self.assertIn("source trust", rpt.lower())
 
     # ═══════════════════════════════════════════════════════════════

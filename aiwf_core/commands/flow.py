@@ -39,9 +39,9 @@ def cmd_status(args) -> None:
 
     state = _read_json(root / ".aiwf" / "state" / "state.json", {})
     goal = _read_json(root / ".aiwf" / "state" / "goal.json", {})
-    evidence = _read_json(root / ".aiwf" / "evidence" / "records.json", {"records": []})
-    testing = _read_json(root / ".aiwf" / "quality" / "testing.json", {"status": "missing"})
-    review = _read_json(root / ".aiwf" / "quality" / "review.json", {"result": "unknown", "closure_allowed": False, "blockers": []})
+    evidence = _read_json(root / ".aiwf" / "artifacts" / "evidence" / "records.json", {"records": []})
+    testing = _read_json(root / ".aiwf" / "artifacts" / "quality" / "testing.json", {"status": "missing"})
+    review = _read_json(root / ".aiwf" / "artifacts" / "quality" / "review.json", {"result": "unknown", "closure_allowed": False, "blockers": []})
     fix_loop = _read_json(root / ".aiwf" / "state" / "fix-loop.json", {"status": "none"})
 
     if debug_mode:
@@ -101,6 +101,11 @@ def _print_status_human(root, state, goal, evidence, testing, review, fix_loop):
     except Exception:
         pass
 
+    # Surfaces
+    brief = goal.get("quality_brief", {}) or {}
+    surface_types = brief.get("surface_types", []) or []
+    print(f"Surfaces: {', '.join(surface_types) if surface_types else 'none'}")
+
     # Evidence + quality
     print(f"Evidence: {ev_acc} accepted / {len(recs)} raw")
     verdict = review.get("verdict", "pending")
@@ -108,11 +113,6 @@ def _print_status_human(root, state, goal, evidence, testing, review, fix_loop):
     print(f"Testing:  {tstat}  Review: {rstat}{verdict_part}  Cleanup: {review.get('cleanup_status', '?')}")
     if state.get("active_task_id"):
         print(f"Task:     {state['active_task_id']}")
-
-    # Surfaces summary (one line only)
-    stypes = goal.get("quality_brief", {}).get("surface_types", [])
-    if stypes:
-        print(f"Surfaces: {', '.join(stypes)}")
 
     # Risk
     risks = []
@@ -141,6 +141,48 @@ def _print_status_prompt(root, state, goal, testing, review, fix_loop):
     plan_id = state.get("active_plan_id", "")
     ctx_id = state.get("active_context_id", "")
 
+    # Phase anchor with topology: tells AI what to do NOW, placed FIRST so it
+    # can't be missed. Repeated at the end as well.
+    #
+    # Per-topology subagent requirements:
+    #   single_agent: all inline
+    #   light_review: executor=subagent, tester+reviewer=inline (same agent)
+    #   standard_team: all subagent (executor, tester, reviewer)
+    #   fanout_merge: all subagent (parallel)
+    topo = state.get("execution_topology", "")
+    # Per-topology subagent requirements:
+    #   single_agent: all inline (L0)
+    #   light_review: executor=subagent, tester+reviewer=same subagent (L1)
+    #   standard_team: executor+tester+reviewer each subagent (L2)
+    #   fanout_merge: same as standard_team, adversarial depth (L3/security)
+    topo = state.get("execution_topology", "")
+    needs_exec_sub = topo in ("light_review", "standard_team", "fanout_merge")
+    needs_test_sub = topo in ("standard_team", "fanout_merge")
+    needs_review_sub = topo in ("standard_team", "fanout_merge")
+    is_light_review = topo == "light_review"
+    anchors = {
+        "discussing": ("/aiwf-planner — shape Goal Tree. No project code.", False),
+        "planned": ("/aiwf-planner-contracts — freeze contracts, then aiwf plan activate.", False),
+        "implementing": ("/aiwf-implement — "
+            + ("SPAWN aiwf-executor SUBAGENT. Do NOT inline." if needs_exec_sub
+               else "inline OK. Stay in allowed_write."), needs_exec_sub),
+        "testing": ("/aiwf-test — "
+            + ("SPAWN aiwf-tester SUBAGENT. Evidence first." if needs_test_sub
+               else "reviewer-light subagent does testing+review." if is_light_review
+               else "inline OK. record-testing --status adequate."), needs_test_sub or is_light_review),
+        "reviewing": ("/aiwf-review — "
+            + ("SPAWN aiwf-reviewer SUBAGENT. Cleanup first." if needs_review_sub
+               else "same reviewer-light subagent. record-review." if is_light_review
+               else "inline OK. record-review."), needs_review_sub or is_light_review),
+        "closing": ("/aiwf-close — prepare-close then task close. No JSON hand-edits.", False),
+        "closed": ("CLOSED. Run aiwf status.", False),
+    }
+    anchor, requires_subagent = anchors.get(phase, ("", False))
+    if requires_subagent:
+        print(f"DO: {anchor}")
+    else:
+        print(f"[ATTN] {anchor}")
+
     # One-line status with goal context
     parts = [f"Phase: {phase}", f"level={level}"]
     if task_id:
@@ -164,13 +206,32 @@ def _print_status_prompt(root, state, goal, testing, review, fix_loop):
             pass
     if parent_goal:
         parts.append(f"goal={parent_goal}")
+    # Active milestone from plans.json
+    active_milestone_id = state.get("active_milestone_id", "")
+    if not active_milestone_id:
+        try:
+            milestones_data = _read_json(root / ".aiwf" / "state" / "milestones.json", {})
+            active_milestone_id = milestones_data.get("active_milestone_id", "") or ""
+        except Exception:
+            pass
+    if active_milestone_id:
+        parts.append(f"milestone={active_milestone_id}")
     print("  ".join(parts))
+    topo_short = {
+        "single_agent": "1-agent",
+        "single_agent_with_machine_evidence": "1-agent+machine-evidence",
+        "light_review": "executor+light-review",
+        "standard_team": "executor→tester→reviewer",
+        "fanout_merge": "parallel-agents→merge",
+    }
+    topo_label = topo_short.get(topo, topo)
+    print(f"level={level} mode={state.get('request_mode', 'execution')} topo={topo_label}")
 
     # Health
     blockers = []
     if fix_loop.get("status") == "open":
         route = fix_loop.get("route", "?")
-        blockers.append(f"fix-loop open → {route}")
+        blockers.append(f"fix-loop open -> {route}")
     if state.get("scope_violation"):
         blockers.append("scope violation")
     rstat = review.get("result", "unknown")
@@ -184,34 +245,73 @@ def _print_status_prompt(root, state, goal, testing, review, fix_loop):
     else:
         print("Health: ok")
 
-    # PRIMARY action
+    # Downgrade check: when routing recommends higher level than current,
+    # Planner must explain to user and get confirmation. Cannot silently drop.
+    if task_id:
+        lvls = ["L0_direct","L1_review_light","L2_standard_team","L3_full_power"]
+        rec_level = state.get("recommended_minimum_level", "")
+        if rec_level and rec_level in lvls and level in lvls and lvls.index(rec_level) > lvls.index(level):
+            factors = state.get("routing_factors", []) or []
+            reasons = [f for f in factors if not f.startswith("downgrade:")]
+            print(f"DOWNGRADE: routing recommends {rec_level} (current {level}). "
+                  f"User must confirm. Reasons: {', '.join(reasons[:3])}")
+
+    # Technical debt summary: one compact line of what needs attention
+    debt_items = []
+    try:
+        from ..core.task_gravity import should_trigger_architecture_review
+        arch = should_trigger_architecture_review(str(root))
+        if arch.get("should_trigger"):
+            debt_items.append(f"architect review due ({arch.get('closed_task_count', '?')} tasks)")
+    except Exception:
+        pass
+    try:
+        # Hotspots from cross-task quality
+        history_path = root / ".aiwf" / "runtime" / "history" / "task-history.json"
+        if history_path.exists():
+            hist = _read_json(history_path, {"tasks": []})
+            file_counts = {}
+            for t in hist.get("tasks", [])[-10:]:
+                for p in t.get("changed_files", []) or []:
+                    file_counts[p] = file_counts.get(p, 0) + 1
+            hotspots = [p for p, c in file_counts.items() if c >= 3]
+            if hotspots:
+                debt_items.append(f"{len(hotspots)} hotspot{'s' if len(hotspots)>1 else ''}")
+    except Exception:
+        pass
+    # Pending adversarial observations
+    if review.get("adversarial_observations"):
+        pending_adv = [o for o in review.get("adversarial_observations", []) or []
+                       if isinstance(o, dict) and o.get("disposition") == "pending"]
+        if pending_adv:
+            debt_items.append(f"{len(pending_adv)} pending adversarial obs")
+    if debt_items:
+        print(f"Debt: {', '.join(debt_items)}")
+
+    # Load guidance once
+    guidance = None
     try:
         from ..core.process_contract import planner_process_guidance
         guidance = planner_process_guidance(str(root))
+    except Exception:
+        pass
+
+    # Recovery / PRIMARY (trimmed to fit prompt budget)
+    if guidance:
         rec = guidance.get("recovery") or {}
         if rec and rec.get("state") != "clear":
             primary = rec.get("primary", "")
             if primary:
-                print(f"PRIMARY: {primary[:200]}")
-        forbidden = rec.get("forbidden", []) or []
-        if forbidden:
-            print(f"Forbidden: {'; '.join(forbidden[:2])}")
-    except Exception:
-        pass
+                print(f"PRIMARY: {primary[:160]}")
+            for item in (rec.get("legal_options") or [])[:1]:
+                print(f"→ {item[:160]}")
+            forbidden = rec.get("forbidden", []) or []
+            if forbidden:
+                print(f"NO: {'; '.join(f[:80] for f in forbidden[:2])}")
 
-    # Phase anchor (A2: tells AI which skill to load)
-    anchors = {
-        "discussing": "[ATTN] DISCUSSION — load /aiwf-planner, do NOT write code.",
-        "planned": "[ATTN] PLANNED — load /aiwf-planner-contracts, present activation summary.",
-        "implementing": "[ATTN] EXECUTING — work within allowed_write scope; follow .aiwf/plans/<TASK>.md.",
-        "testing": "[ATTN] TESTING — run real commands, record evidence.",
-        "reviewing": "[ATTN] REVIEWING — load /aiwf-review chain.",
-        "closing": "[ATTN] CLOSING — load /aiwf-close, run prepare_close.",
-        "closed": "[ATTN] CLOSED.",
-    }
-    anchor = anchors.get(phase, "")
+    # Repeat the action directive — last thing the model sees before acting
     if anchor:
-        print(anchor)
+        print(f"Remember: {anchor}")
 
 
 def _print_status_debug(root, state, goal, evidence, testing, review, fix_loop,
@@ -238,13 +338,11 @@ def _print_status_debug(root, state, goal, evidence, testing, review, fix_loop,
     except Exception:
         gravity = {"history_weight": 0.0, "hard_constraints": [], "soft_warnings": []}
         architect_trigger = {"should_trigger": False, "reasons": []}
-    report_exists = (root / ".aiwf" / "reports" / "闭合报告.md").exists()
-    drift_path = root / ".aiwf" / "internal" / "workspace-drift.json"
-    drift_legacy = root / ".aiwf" / "workspace-drift.json"  # legacy pre-v2 flat path
-    drift_exists = drift_path.exists() or drift_legacy.exists()
+    report_exists = (root / ".aiwf" / "artifacts" / "reports" / "闭合报告.md").exists()
+    drift_path = root / ".aiwf" / "runtime" / "internal" / "workspace-drift.json"
+    drift_exists = drift_path.exists()
     cap_path = root / ".aiwf" / "assets" / "capabilities.json"
-    cap_legacy = root / ".aiwf" / "capabilities.json"  # legacy pre-v2 flat path
-    cap_exists = cap_path.exists() or cap_legacy.exists()
+    cap_exists = cap_path.exists()
 
     blockers = []
     if fix_loop.get("status") == "open":
@@ -256,23 +354,14 @@ def _print_status_debug(root, state, goal, evidence, testing, review, fix_loop,
 
     drift_pending = False
     if drift_exists:
-        _drift_src = drift_path if drift_path.exists() else drift_legacy
-        drift_pending = _read_json(_drift_src, {}).get("needs_planner_review", False)
+        drift_pending = _read_json(drift_path, {}).get("needs_planner_review", False)
     if drift_pending:
         blockers.append("drift pending")
 
     cap_high = False
     cap_count = 0
     if cap_exists:
-        _cap_src = cap_path if cap_path.exists() else cap_legacy
-        # if v2 path has no caps but legacy does (migration edge case), use legacy
-        if _cap_src == cap_path:
-            _caps = _read_json(_cap_src, {}).get("capabilities", [])
-            if not _caps and cap_legacy.exists():
-                _legacy_caps = _read_json(cap_legacy, {}).get("capabilities", [])
-                if _legacy_caps:
-                    _cap_src = cap_legacy
-        caps = _read_json(_cap_src, {}).get("capabilities", [])
+        caps = _read_json(cap_path, {}).get("capabilities", [])
         cap_count = len(caps)
         for cap in caps:
             if (
@@ -302,6 +391,21 @@ def _print_status_debug(root, state, goal, evidence, testing, review, fix_loop,
     print(f"  Health:   {health}")
     print(f"  Next:     {_next_action(state, review, fix_loop, drift_pending, cap_high)}")
     print()
+
+    # Milestone
+    active_milestone_id = state.get("active_milestone_id", "")
+    if not active_milestone_id:
+        try:
+            m_data = _read_json(root / ".aiwf" / "state" / "milestones.json", {})
+            active_milestone_id = m_data.get("active_milestone_id", "") or ""
+        except Exception:
+            pass
+    if active_milestone_id:
+        from ..core.state.milestone_ops import get_milestone
+        ms = get_milestone(str(root), active_milestone_id)
+        print(f"  Milestone: {active_milestone_id}  status={ms.get('status','?')}  title={ms.get('title','')[:60]}")
+    else:
+        print(f"  Milestone: none")
 
     print("── Quality & Closure ──")
     print(f"  Testing:  {testing.get('status', 'missing')}")
@@ -362,7 +466,7 @@ def _print_status_debug(root, state, goal, evidence, testing, review, fix_loop,
         print(f"  Current state:    stale{suffix}")
     else:
         print(f"  Current state:    {'available' if cs_status == 'fresh' else cs_status}")
-    print(f"  Project Map:      {'present' if (root / '.aiwf' / 'reports' / '项目地图.md').exists() else 'missing'}")
+    print(f"  Project Map:      {'present' if (root / '.aiwf' / 'artifacts' / 'reports' / '项目地图.md').exists() else 'missing'}")
     print(f"  Rules:            {_rules_status(root)}")
     print(f"  Ideas: {_ideas_status(root)}")
     print(f"  Report:           {'available' if report_exists else 'none'}")
@@ -370,7 +474,7 @@ def _print_status_debug(root, state, goal, evidence, testing, review, fix_loop,
     if signals:
         print(f"  Quality digest:   signals ({len(signals)})")
     else:
-        print(f"  Quality digest:   clear" if (root / ".aiwf" / "reports" / "质量摘要.md").exists() else "  Quality digest:   none")
+        print(f"  Quality digest:   clear" if (root / ".aiwf" / "artifacts" / "reports" / "质量摘要.md").exists() else "  Quality digest:   none")
     print()
 
     print("── Gravity ──")
@@ -395,15 +499,20 @@ def _print_status_debug(root, state, goal, evidence, testing, review, fix_loop,
     from ..core.process_contract import planner_process_guidance
     guidance = planner_process_guidance(str(root))
     print("── Planner Process Guidance ──")
+    topo = guidance.get("execution_topology", "")
+    verif = guidance.get("verification_need", "")
+    rev = guidance.get("review_need", "")
     print(
         f"  Routing: {guidance['workflow_level']} / complexity={guidance['complexity']} "
         f"/ score={guidance['routing_score']}"
     )
+    if topo or verif or rev:
+        print(f"  Topology: exec={topo}  verify={verif}  review={rev}")
     factors = guidance.get("routing_factors", [])
     background = guidance.get("routing_background_factors", [])
-    print(f"  Current: {', '.join(factors[:6]) if factors else 'no mechanical routing factors recorded yet'}")
+    print(f"  Factors: {', '.join(factors[:6]) if factors else 'no mechanical routing factors recorded yet'}")
     if background:
-        print(f"  Background pressure: {', '.join(background[:5])} (explain, but not direct score)")
+        print(f"  Background: {', '.join(background[:5])} (not direct score)")
     print(
         f"  Depth:   test={guidance.get('test_template') or 'not selected'}; "
         f"review={guidance.get('review_template') or 'not selected'}; "
@@ -435,12 +544,12 @@ def _print_status_debug(root, state, goal, evidence, testing, review, fix_loop,
     print()
 
     print("── Detail ──")
-    ckpt_dir = root / ".aiwf" / "checkpoints"
+    ckpt_dir = root / ".aiwf" / "runtime" / "checkpoints"
     ckpt_exists = ckpt_dir.exists() and any(ckpt_dir.iterdir())
     print(f"  Checkpoint: {'available' if ckpt_exists else 'none'}")
-    print("  .aiwf/reports/质量摘要.md      quality trends")
-    print("  .aiwf/reports/项目地图.md      architecture direction")
-    print("  .aiwf/state|quality|evidence   machine state")
+    print("  .aiwf/artifacts/reports/质量摘要.md      quality trends")
+    print("  .aiwf/artifacts/reports/项目地图.md      architecture direction")
+    print("  .aiwf/state + .aiwf/artifacts/quality|evidence   machine state")
     print()
     print("  CLI: aiwf doctor | aiwf workspace scan | aiwf capability scan")
 
@@ -507,7 +616,7 @@ def _rules_status(root: Path) -> str:
 
 
 def _ideas_status(root: Path) -> str:
-    ideas_path = root / ".aiwf" / "reports" / "ideas.md"
+    ideas_path = root / ".aiwf" / "artifacts" / "reports" / "ideas.md"
     if not ideas_path.exists():
         return "none"
     try:
@@ -564,9 +673,9 @@ def cmd_next(args) -> None:
     state = _read_json(state_path, {})
     goal = _read_json(root / ".aiwf" / "state" / "goal.json", {})
     contexts = _read_json(root / ".aiwf" / "state" / "contexts.json", {"contexts": []})
-    review = _read_json(root / ".aiwf" / "quality" / "review.json", {"result": "unknown"})
+    review = _read_json(root / ".aiwf" / "artifacts" / "quality" / "review.json", {"result": "unknown"})
     fix_loop = _read_json(root / ".aiwf" / "state" / "fix-loop.json", {"status": "none"})
-    testing = _read_json(root / ".aiwf" / "quality" / "testing.json", {"status": "missing"})
+    testing = _read_json(root / ".aiwf" / "artifacts" / "quality" / "testing.json", {"status": "missing"})
 
     phase = state.get("phase", "discussing")
     request_mode = state.get("request_mode", "execution")

@@ -103,7 +103,7 @@ class TestScopePathNormalization(unittest.TestCase):
             ".aiwf/state/goal.json",
             ".aiwf/state/contexts.json",
             ".aiwf/state/fix-loop.json",
-            ".aiwf/history/task-ledger.json",
+            ".aiwf/runtime/history/task-ledger.json",
         ]:
             _, out = _scope_check(self.tmp, "Edit", rel, allowed_write=["src/calculator.js"])
             self.assertEqual(out.get("hookSpecificOutput", {}).get("permissionDecision"), "deny")
@@ -154,8 +154,8 @@ class TestCoreScopePolicyNormalization(unittest.TestCase):
     def test_is_governance_file(self):
         from aiwf_core.core.scope_policy import _is_governance_file
         self.assertTrue(_is_governance_file(".aiwf/state/state.json"))
-        self.assertTrue(_is_governance_file(".aiwf/quality/review.json"))
-        self.assertTrue(_is_governance_file(".aiwf/internal/baseline.json"))
+        self.assertTrue(_is_governance_file(".aiwf/artifacts/quality/review.json"))
+        self.assertTrue(_is_governance_file(".aiwf/runtime/internal/baseline.json"))
         self.assertFalse(_is_governance_file("src/main.py"))
 
     def test_matches_exact(self):

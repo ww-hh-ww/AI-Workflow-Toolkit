@@ -60,7 +60,7 @@ class TestCoreGovernanceChain(unittest.TestCase):
 
     def _seed_accepted_review_with_pending_evidence(self):
         _write_json(
-            self.tmp / ".aiwf" / "evidence" / "records.json",
+            self.tmp / ".aiwf" / "artifacts" / "evidence" / "records.json",
             {
                 "records": [
                     {
@@ -73,7 +73,7 @@ class TestCoreGovernanceChain(unittest.TestCase):
             },
         )
         _write_json(
-            self.tmp / ".aiwf" / "quality" / "review.json",
+            self.tmp / ".aiwf" / "artifacts" / "quality" / "review.json",
             {
                 "result": "accepted",
                 "closure_allowed": True,

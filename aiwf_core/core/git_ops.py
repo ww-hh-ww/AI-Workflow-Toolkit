@@ -109,7 +109,7 @@ def commit_with_confirmation(
     commit_hash = hd.stdout.strip() if hd else "unknown"
 
     # Record commit in report.md if it exists
-    report_path = root / ".aiwf" / "reports" / "闭合报告.md"
+    report_path = root / ".aiwf" / "artifacts" / "reports" / "闭合报告.md"
     if report_path.exists():
         existing = report_path.read_text(encoding="utf-8")
         entry = (f"\n## Git Commit\n\n"

@@ -119,13 +119,13 @@ class TestHooks(unittest.TestCase):
         state["phase"] = "closing"
         state["close_attempt"] = True
         self._write_state("state/state.json", state)
-        self._write_state("evidence/records.json", {
+        self._write_state("artifacts/evidence/records.json", {
             "records": [{"id": "EV-001", "status": "accepted", "session_id": "s1"}],
         })
-        self._write_state("quality/testing.json", {
+        self._write_state("artifacts/quality/testing.json", {
             "status": "passed", "commands": ["pytest"],
         })
-        self._write_state("quality/review.json", {
+        self._write_state("artifacts/quality/review.json", {
             "result": "accepted",
             "closure_allowed": True,
             "cleanup_status": "fresh",
@@ -142,9 +142,9 @@ class TestHooks(unittest.TestCase):
         state["phase"] = "reviewing"
         state["close_attempt"] = False
         self._write_state("state/state.json", state)
-        self._write_state("evidence/records.json", {"records": []})
-        self._write_state("quality/testing.json", {"status": "missing"})
-        self._write_state("quality/review.json", {
+        self._write_state("artifacts/evidence/records.json", {"records": []})
+        self._write_state("artifacts/quality/testing.json", {"status": "missing"})
+        self._write_state("artifacts/quality/review.json", {
             "result": "unknown",
             "closure_allowed": False,
             "cleanup_status": "unknown",
@@ -162,7 +162,7 @@ class TestHooks(unittest.TestCase):
         state["active_task_id"] = None
         state["workflow_level"] = "L2_standard_team"
         state_path.write_text(json.dumps(state, indent=2))
-        review_path = self.tmp / ".aiwf" / "quality" / "review.json"
+        review_path = self.tmp / ".aiwf" / "artifacts" / "quality" / "review.json"
         review = json.loads(review_path.read_text())
         review["result"] = "accepted"
         review_path.write_text(json.dumps(review, indent=2))
@@ -194,7 +194,7 @@ class TestHooks(unittest.TestCase):
         state["workflow_level"] = "L2_standard_team"
         state["active_task_id"] = "TASK-001"
         (self.tmp / ".aiwf" / "state" / "state.json").write_text(json.dumps(state, indent=2))
-        r = self._scope("Write", ".aiwf/quality/review.json")
+        r = self._scope("Write", ".aiwf/artifacts/quality/review.json")
         self.assertIn("cleanup must be mechanically verified", r.stdout)
 
     def test_generated_hooks_run_without_pythonpath(self):
@@ -245,6 +245,29 @@ class TestHooks(unittest.TestCase):
     def test_pytest_allowed(self):
         r = self._bash("pytest -xvs tests/")
         self.assertNotIn("deny", r.stdout)
+
+    def test_bash_write_to_state_json_blocked(self):
+        r = self._bash("python3 -c \"open('.aiwf/state/state.json','w')\"")
+        self.assertIn("deny", r.stdout)
+        self.assertIn("mechanical truth", r.stdout)
+
+    def test_bash_write_to_fix_loop_blocked(self):
+        r = self._bash("echo '{}' > .aiwf/state/fix-loop.json")
+        self.assertIn("deny", r.stdout)
+        self.assertIn("mechanical truth", r.stdout)
+
+    def test_bash_read_of_state_json_also_blocked(self):
+        # Reads are also blocked — use Read tool instead.
+        r = self._bash("cat .aiwf/state/state.json")
+        self.assertIn("deny", r.stdout)
+
+    def test_bash_without_mechanical_truth_path_allowed(self):
+        r = self._bash("python3 -c 'print(1+1)'")
+        self.assertNotIn("deny", r.stdout)
+
+    def test_bash_modify_quality_review_blocked(self):
+        r = self._bash("jq '.verdict=\"PASS\"' .aiwf/artifacts/quality/review.json")
+        self.assertIn("deny", r.stdout)
 
 
 if __name__ == "__main__":

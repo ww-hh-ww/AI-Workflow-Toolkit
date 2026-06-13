@@ -73,10 +73,16 @@ class TestExternalCapabilities(unittest.TestCase):
         (self.tmp/".claude"/"commands"/f"{name}.md").write_text("# Check\nRun checks.\n")
 
     def _seed_plan(self, task_id):
-        plan_dir = self.tmp / ".aiwf" / "plans"
+        from aiwf_core.core.state.plan_ops import upsert_plan
+
+        plan_id = f"PLAN-{task_id}"
+        plan_dir = self.tmp / ".aiwf" / "artifacts" / "plans"
         plan_dir.mkdir(parents=True, exist_ok=True)
-        (plan_dir / f"{task_id}.md").write_text(
-            f"# {task_id}\n\n"
+        (plan_dir / f"{plan_id}.md").write_text(
+            f"# {plan_id}\n\n"
+            f"Plan ID: {plan_id}\n"
+            "Parent Goal: GOAL-001\n"
+            f"Task IDs: {task_id}\n\n"
             "## Goal\nTest task\n\n"
             "## Scope\n- Change: test files\n\n"
             "## Verification\n- Machine-verifiable: yes\n\n"
@@ -88,6 +94,22 @@ class TestExternalCapabilities(unittest.TestCase):
             "- quality_summary: no — test\n",
             encoding="utf-8",
         )
+        upsert_plan(str(self.tmp), plan_id, goal_id="GOAL-001", task_ids=[task_id],
+                    plan_kind="implementation", work_intent="feature")
+        ledger_path = self.tmp / ".aiwf" / "runtime" / "history" / "task-ledger.json"
+        if ledger_path.exists():
+            ledger = json.loads(ledger_path.read_text())
+            changed = False
+            for task in ledger.get("tasks", []):
+                if task.get("id") == task_id:
+                    task["plan_id"] = plan_id
+                    task["parent_plan"] = plan_id
+                    task["goal_id"] = task.get("goal_id") or "GOAL-001"
+                    task["parent_goal"] = task.get("parent_goal") or task["goal_id"]
+                    changed = True
+            if changed:
+                ledger_path.write_text(json.dumps(ledger, indent=2) + "\n")
+        return plan_id
 
     # ── clean install ──
     def test_clean_install_zero_external(self):
@@ -200,7 +222,7 @@ class TestExternalCapabilities(unittest.TestCase):
     def test_planned_lifecycle_capability_blocks_activation_until_decided(self):
         from aiwf_core.core.task_ledger import activate_task, upsert_task
 
-        (self.tmp / ".aiwf" / "reports" / "当前状态.md").unlink(missing_ok=True)
+        (self.tmp / ".aiwf" / "artifacts" / "reports" / "当前状态.md").unlink(missing_ok=True)
         self._add_skill("tdd", "# TDD\nWrite a failing test before implementation.\n")
         self._run_ok("capability", "scan")
         upsert_task(str(self.tmp), "TASK-001", "Use external TDD helper", status="ready")

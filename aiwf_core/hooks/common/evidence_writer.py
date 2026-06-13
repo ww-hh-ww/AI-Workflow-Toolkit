@@ -84,7 +84,7 @@ def record_post_tool_event(
         op_attribution: "strong" or "weak".
     """
     base = Path(cwd) if cwd else Path(event.cwd) if event.cwd else Path.cwd()
-    evidence_path = base / ".aiwf" / "evidence" / "records.json"
+    evidence_path = base / ".aiwf" / "artifacts" / "evidence" / "records.json"
     state_path = base / ".aiwf" / "state" / "state.json"
 
     evidence = _read_json(evidence_path, default_evidence())
@@ -168,6 +168,19 @@ def record_post_tool_event(
         "trust_level": trust_lvl,
     }
 
+    active_task_id = str(state.get("active_task_id") or "")
+    if active_task_id:
+        try:
+            ledger_path = base / ".aiwf" / "runtime" / "history" / "task-ledger.json"
+            ledger = _read_json(ledger_path, {"tasks": []}) if ledger_path.exists() else {"tasks": []}
+            for task in ledger.get("tasks", []) or []:
+                if isinstance(task, dict) and task.get("id") == active_task_id:
+                    record_dict["supports_plan"] = str(task.get("plan_id") or task.get("parent_plan") or "")
+                    record_dict["supports_goal"] = str(task.get("goal_id") or task.get("parent_goal") or "")
+                    break
+        except Exception:
+            pass
+
     records = evidence.get("records", [])
     if not isinstance(records, list):
         records = []
@@ -177,7 +190,7 @@ def record_post_tool_event(
     _write_json(evidence_path, evidence)
 
     role_text = f"{event.agent_type} {event.agent_id}".lower()
-    if "reviewer" in role_text and ".aiwf/quality/review.json" in gov_files:
+    if "reviewer" in role_text and ".aiwf/artifacts/quality/review.json" in gov_files:
         state["phase"] = "reviewing"
         _write_json(state_path, state)
 
@@ -216,7 +229,7 @@ def check_and_record_scope_violations(
         state["scope_violation"] = True
         _write_json(state_path, state)
 
-        review_path = base / ".aiwf" / "quality" / "review.json"
+        review_path = base / ".aiwf" / "artifacts" / "quality" / "review.json"
         from ...core.state_schema import default_review
         review = _read_json(review_path, default_review())
         for vf in violations:
@@ -266,7 +279,7 @@ def check_and_record_missing_active_task(changed_files: list, base: Path) -> lis
         return []
     state["scope_violation"] = True
     _write_json(state_path, state)
-    review_path = base / ".aiwf" / "quality" / "review.json"
+    review_path = base / ".aiwf" / "artifacts" / "quality" / "review.json"
     from ...core.state_schema import default_review
     review = _read_json(review_path, default_review())
     blockers = review.setdefault("blockers", [])

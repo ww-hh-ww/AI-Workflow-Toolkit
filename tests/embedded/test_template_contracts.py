@@ -85,8 +85,8 @@ class TestTemplateContracts(unittest.TestCase):
     def test_planner_execute_locks_plan_drift_update_before_continuing(self):
         content = (self.tmp / ".claude" / "skills" / "aiwf-planner-execute" / "SKILL.md").read_text()
         self.assertIn("Plan Drift During Execution", content)
-        self.assertIn("aiwf plan update --task-id <TASK-ID>", content)
-        self.assertIn("Plan is the pre-work contract; prepare-close is the post-work gate", content)
+        self.assertIn("aiwf plan update --task-id <ID>", content)
+        self.assertIn("Do not let Executor, Tester, or Reviewer silently normalize drift", content)
 
     def test_close_skill_requires_prepare_close_before_task_close(self):
         content = (self.tmp / ".claude" / "skills" / "aiwf-close" / "SKILL.md").read_text()
@@ -111,7 +111,7 @@ class TestTemplateContracts(unittest.TestCase):
         content = (self.tmp / ".claude" / "skills" / "aiwf-review-output" / "SKILL.md").read_text()
         self.assertIn("Review Basis Recording", content)
         self.assertIn("Every V2 verdict must record all six review basis items", content)
-        self.assertIn("active `.aiwf/plans/<TASK>.md`", content)
+        self.assertIn("active `.aiwf/artifacts/plans/<PLAN-ID>.md`", content)
         self.assertIn("changed-file risk", content)
         self.assertIn("Use `gap` when that source contradicts closure", content)
         self.assertIn("Impact-Aware Docs Check", content)
@@ -157,6 +157,105 @@ class TestTemplateContracts(unittest.TestCase):
         for k, v in s.items():
             if isinstance(v, str) and len(v) > 100:
                 self.fail(f"state.{k} is {len(v)} chars; should be a short key")
+
+    # ── Stage 4.6: Entry Protocol & Role Skill Alignment ──
+
+    @classmethod
+    def _read_skill(cls, name):
+        return (PROJECT_ROOT / "aiwf_core" / "embedded_templates" / "skills" / name / "SKILL.md").read_text()
+
+    def test_planner_skill_has_entry_protocol_three_paths(self):
+        c = self._read_skill("aiwf-planner")
+        self.assertIn("Entry Protocol", c)
+        self.assertIn("Day-1 Foundation Tree", c)
+        self.assertIn("Semantic Admission", c)
+        self.assertIn("Lightweight", c)
+        self.assertIn("action_granularity", c)
+
+    def test_planner_skill_never_use_change_admit_as_authoritative(self):
+        c = self._read_skill("aiwf-planner")
+        self.assertIn("Never use `aiwf change admit` as the authoritative entry", c)
+        self.assertIn("heuristic fallback", c.lower())
+
+    def test_planner_skill_no_default_plan_create_task_id(self):
+        c = self._read_skill("aiwf-planner")
+        self.assertNotIn("plan create --task-id", c)
+
+    def test_planner_skill_do_not_create_new_plan_for_trivial(self):
+        c = self._read_skill("aiwf-planner")
+        self.assertIn("Do NOT create a new Plan", c)
+
+    def test_planner_execute_delegates_entry_to_planner(self):
+        """Entry Protocol belongs to /aiwf-planner, not /aiwf-planner-execute."""
+        c = self._read_skill("aiwf-planner-execute")
+        # planner-execute should reference planner, not duplicate entry protocol
+        self.assertIn("/aiwf-planner", c)
+
+    def test_planner_execute_no_change_admit_as_authority(self):
+        """This check is now in /aiwf-planner's Entry Protocol."""
+        c = self._read_skill("aiwf-planner")
+        self.assertIn("Never use `aiwf change admit` as the authoritative entry", c)
+        self.assertIn("heuristic fallback", c.lower())
+
+    def test_planner_execute_prepare_does_not_mutate(self):
+        """validate-decision + change prepare belong to structure decision layer."""
+        c = self._read_skill("aiwf-planner")
+        self.assertIn("validate-decision", c)
+        self.assertIn("change prepare", c)
+
+    def test_reviewer_skill_has_admission_structure_review(self):
+        c = self._read_skill("aiwf-review")
+        self.assertIn("Admission & Structure Review", c)
+        self.assertIn("orphan patch", c.lower())
+        self.assertIn("structural_risk", c.lower())
+        self.assertIn("evidence_rollup", c.lower())
+
+    def test_reviewer_skill_checks_target_goal_id_and_plan_id(self):
+        c = self._read_skill("aiwf-review")
+        self.assertIn("target_goal_id", c)
+        self.assertIn("plan_id", c)
+
+    def test_reviewer_skill_checks_graft_interface(self):
+        c = self._read_skill("aiwf-review")
+        self.assertIn("interface_consumed", c)
+        self.assertIn("capability_provided", c)
+
+    def test_reviewer_skill_rejects_orphan_patch_as_blocker(self):
+        c = self._read_skill("aiwf-review")
+        self.assertIn("blocker", c.lower())
+
+    def test_executor_skill_no_modify_goal_tree(self):
+        c = self._read_skill("aiwf-implement")
+        self.assertIn("Do NOT modify the Goal Tree", c)
+        self.assertIn("no graft", c.lower())
+        self.assertIn("prune", c.lower())
+
+    def test_executor_skill_respects_plan_kind(self):
+        c = self._read_skill("aiwf-implement")
+        self.assertIn("plan_kind", c)
+        self.assertIn("active_phase", c)
+        self.assertIn("structural", c)
+        self.assertIn("implementation", c)
+        self.assertIn("exploration", c)
+
+    def test_executor_skill_report_scope_insufficient(self):
+        c = self._read_skill("aiwf-implement")
+        self.assertIn("scope or interface is insufficient", c.lower())
+        self.assertIn("stop and report", c.lower())
+
+    def test_tester_skill_has_plan_type_based_testing(self):
+        c = self._read_skill("aiwf-test")
+        self.assertIn("Plan-Type-Based Testing", c)
+        self.assertIn("`implementation` plan", c)
+        self.assertIn("`structural` plan", c)
+        self.assertIn("`migration` plan", c)
+        self.assertIn("`verification` plan", c)
+
+    def test_tester_skill_evidence_rollup_to_plan_goal(self):
+        c = self._read_skill("aiwf-test")
+        self.assertIn("supports-plan", c)
+        self.assertIn("supports-goal", c)
+        self.assertIn("Evidence without a Plan/Goal target does not roll up", c)
 
 
 if __name__ == "__main__":

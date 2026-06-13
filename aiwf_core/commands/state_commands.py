@@ -78,19 +78,30 @@ def _cmd_start_context(args: argparse.Namespace) -> None:
     """aiwf state start-context — create/update context with dispatch fields."""
     from ..core.state_ops import start_context
     try:
+        # Split comma-separated values: --allowed-write "a,b,c" → ["a","b","c"]
+        def _split_csv(vals):
+            if not vals: return None
+            out = []
+            for v in vals:
+                for part in str(v).split(","):
+                    part = part.strip()
+                    if part:
+                        out.append(part)
+            return out or None
+
         ctxs = start_context(
             str(Path.cwd()), args.context_id, args.label or "",
-            allowed_write=args.allowed_write or None,
-            forbidden_write=args.forbidden_write or None,
+            allowed_write=_split_csv(args.allowed_write),
+            forbidden_write=_split_csv(args.forbidden_write),
             note=args.note or "",
             purpose=args.purpose or "",
-            read_hints=args.read_hints or None,
-            non_goals=args.non_goals or None,
-            dependencies=args.dependencies or None,
+            read_hints=_split_csv(args.read_hints),
+            non_goals=_split_csv(args.non_goals),
+            dependencies=_split_csv(args.dependencies),
             interface_contract=args.interface_contract or "",
-            test_focus=args.test_focus or None,
-            review_focus=args.review_focus or None,
-            escalation_triggers=args.escalation_triggers or None)
+            test_focus=_split_csv(args.test_focus),
+            review_focus=_split_csv(args.review_focus),
+            escalation_triggers=_split_csv(args.escalation_triggers))
     except ValueError as e:
         print(f"Context update blocked: {e}", file=sys.stderr)
         raise SystemExit(1)
@@ -116,7 +127,7 @@ def _cmd_record_testing(args: argparse.Namespace) -> None:
         state = _json.loads(state_path.read_text(encoding="utf-8"))
         level = state.get("workflow_level", "")
         if level in ("L2_standard_team", "L3_full_power"):
-            evidence_path = cwd / ".aiwf" / "evidence" / "records.json"
+            evidence_path = cwd / ".aiwf" / "artifacts" / "evidence" / "records.json"
             evidence = _json.loads(evidence_path.read_text(encoding="utf-8")) if evidence_path.exists() else {"records": []}
             records = evidence.get("records", []) or []
 
@@ -132,19 +143,35 @@ def _cmd_record_testing(args: argparse.Namespace) -> None:
                 if "tester" in role and sid:
                     tester_session.add(sid)
 
-            executor_only = executor_session - tester_session
-
-            if executor_only and not args.force:
-                print(
-                    f"Testing blocked: workflow level is {level}, which requires an independent Tester session.\n"
-                    f"  Evidence shows executor work from session(s): {sorted(executor_only)}\n"
-                    f"  No independent tester session found.\n"
-                    f"  Actions:\n"
-                    f"    - Dispatch the aiwf-tester subagent from a new session and run record-testing there, or\n"
-                    f"    - If this is a legitimate Planner inline execution (L0 task), use --force to override.",
-                    file=sys.stderr,
-                )
-                raise SystemExit(1)
+            # Tester is independent when they have evidence from a session
+            # the executor did NOT work in. If all tester sessions are also
+            # executor sessions (or tester has no evidence), block.
+            if tester_session.issubset(executor_session):
+                # L2/L3: always block, --force is NOT honored. Must spawn subagent.
+                if level in ("L2_standard_team", "L3_full_power"):
+                    detail = ""
+                    if tester_session:
+                        detail = (
+                            f"  Tester evidence ONLY from executor session(s): {sorted(tester_session)}.\n"
+                            "  The Tester must run in a DIFFERENT session from the Executor.\n"
+                        )
+                    print(
+                        f"Testing blocked: workflow level is {level}, which requires an independent Tester session.\n"
+                        f"{detail}"
+                        f"  Fix: Use Agent tool to spawn aiwf-tester subagent. Run tests\n"
+                        f"  in the subagent session, then call aiwf state record-testing.\n"
+                        f"  --force is NOT honored at L2/L3 — spawn the subagent.",
+                        file=sys.stderr,
+                    )
+                    raise SystemExit(1)
+                elif not args.force:
+                    print(
+                        f"Testing blocked: workflow level is {level}, which requires an independent Tester session.\n"
+                        f"  Fix: Use Agent tool (subagent_type=aiwf-tester) to spawn tester.\n"
+                        f"  Or use --force if L0 inline execution.",
+                        file=sys.stderr,
+                    )
+                    raise SystemExit(1)
 
     testing = record_testing(str(Path.cwd()), args.context_id, args.status,
                    commands=args.commands or None,
@@ -171,7 +198,9 @@ def _cmd_record_testing(args: argparse.Namespace) -> None:
                    adversarial_mode=bool(getattr(args, 'adversarial_mode', False)),
                    delta_verification=getattr(args, 'delta_verification', '') or '',
                    reused_evidence_ids=getattr(args, 'reused_evidence_ids', None) or None,
-                   invalidated_evidence_ids=getattr(args, 'invalidated_evidence_ids', None) or None)
+                   invalidated_evidence_ids=getattr(args, 'invalidated_evidence_ids', None) or None,
+                   supports_plan=getattr(args, 'supports_plan', '') or '',
+                   supports_goal=getattr(args, 'supports_goal', '') or '')
     print(f"Testing recorded: status={args.status}")
     if testing.get("evidence_id"): print(f"  Evidence: {testing['evidence_id']} (tester)")
     if args.commands: print(f"  Commands: {len(args.commands)}")
@@ -183,6 +212,8 @@ def _cmd_record_testing(args: argparse.Namespace) -> None:
     if args.validation_layers: print(f"  Validation layers: {', '.join(args.validation_layers)}")
     if args.full_suite_status: print(f"  Full suite: {args.full_suite_status}")
     if args.real_usage_status: print(f"  Real usage: {args.real_usage_status}")
+    if getattr(args, 'supports_plan', ''): print(f"  Supports plan: {args.supports_plan}")
+    if getattr(args, 'supports_goal', ''): print(f"  Supports goal: {args.supports_goal}")
     if args.inferred_surfaces: print(f"  Inferred surfaces: {', '.join(args.inferred_surfaces)}")
     if args.cross_task_risks: print(f"  Cross-task risks: {len(args.cross_task_risks)}")
     if args.testing_debt: print(f"  Testing debt: {len(args.testing_debt)}")
@@ -202,11 +233,12 @@ def _cmd_record_review(args: argparse.Namespace) -> None:
     # Guard: L2/L3 must use independent reviewer session unless forced
     cwd = Path.cwd()
     state_path = cwd / ".aiwf" / "state" / "state.json"
+    level = "L1_review_light"
     if state_path.exists():
         state = _json.loads(state_path.read_text(encoding="utf-8"))
-        level = state.get("workflow_level", "")
+        level = state.get("workflow_level", level)
         if level in ("L2_standard_team", "L3_full_power"):
-            evidence_path = cwd / ".aiwf" / "evidence" / "records.json"
+            evidence_path = cwd / ".aiwf" / "artifacts" / "evidence" / "records.json"
             evidence = _json.loads(evidence_path.read_text(encoding="utf-8")) if evidence_path.exists() else {"records": []}
             records = evidence.get("records", []) or []
 
@@ -222,41 +254,64 @@ def _cmd_record_review(args: argparse.Namespace) -> None:
                 if "reviewer" in role and sid:
                     reviewer_session.add(sid)
 
-            executor_only = executor_session - reviewer_session
-
-            if executor_only and not args.force:
-                print(
-                    f"Review blocked: workflow level is {level}, which requires an independent Reviewer session.\n"
-                    f"  Evidence shows executor work from session(s): {sorted(executor_only)}\n"
-                    f"  No independent reviewer session found.\n"
-                    f"  Actions:\n"
-                    f"    - Dispatch the aiwf-reviewer subagent from a new session and run record-review there, or\n"
-                    f"    - If this is a legitimate Planner inline execution (L0 task), use --force to override.",
-                    file=sys.stderr,
-                )
-                raise SystemExit(1)
+            if reviewer_session.issubset(executor_session):
+                # L2/L3: always block, --force is NOT honored. Must spawn subagent.
+                if level in ("L2_standard_team", "L3_full_power"):
+                    detail = ""
+                    if reviewer_session:
+                        detail = (
+                            f"  Reviewer evidence ONLY from executor session(s): {sorted(reviewer_session)}.\n"
+                            "  The Reviewer must run in a DIFFERENT session from the Executor.\n"
+                        )
+                    print(
+                        f"Review blocked: workflow level is {level}, which requires an independent Reviewer session.\n"
+                        f"{detail}"
+                        f"  Fix: Use Agent tool to spawn aiwf-reviewer subagent. Run review\n"
+                        f"  in the subagent session, then call aiwf state record-review.\n"
+                        f"  Do NOT run record-review from the executor's session.",
+                        file=sys.stderr,
+                    )
+                    raise SystemExit(1)
+                elif not args.force:
+                    print(
+                        f"Review blocked: workflow level is {level}, which requires an independent Reviewer session.\n"
+                        f"  Reviewer must produce evidence from a session different from the Executor.\n"
+                        f"  Actions:\n"
+                        f"    - Dispatch the aiwf-reviewer subagent from a new session and run record-review there, or\n"
+                        f"    - If this is a legitimate Planner inline execution (L0 task), use --force to override.",
+                        file=sys.stderr,
+                    )
+                    raise SystemExit(1)
 
     verdict = getattr(args, "verdict", "") or ""
     effective_accepted = (args.result == "accepted") or verdict in ("PASS", "PASS_WITH_RISK")
 
-    # Guard: accepted review must confirm cleanup, docs, and root-cause checks
-    if effective_accepted and not args.force:
-        quality_blockers = []
-        if getattr(args, "cleanup_code", "") == "needs_work":
-            quality_blockers.append("code cleanup needed (--cleanup-code needs_work)")
-        if getattr(args, "docs_checked", "") == "no":
-            quality_blockers.append("docs not updated for changed subsystems (--docs-checked no)")
-        if getattr(args, "root_cause", "") == "symptom_only":
-            quality_blockers.append("symptom patch, not root cause fix (--root-cause symptom_only)")
-        if quality_blockers:
+    # Guard: accepted review must confirm cleanup, docs, and root-cause checks.
+    # L2/L3: --force is NOT honored — must fix the issues, not bypass them.
+    quality_blockers = []
+    if getattr(args, "cleanup_code", "") == "needs_work":
+        quality_blockers.append("code cleanup needed (--cleanup-code needs_work)")
+    if getattr(args, "docs_checked", "") == "no":
+        quality_blockers.append("docs not updated for changed subsystems (--docs-checked no)")
+    if getattr(args, "root_cause", "") == "symptom_only":
+        quality_blockers.append("symptom patch, not root cause fix (--root-cause symptom_only)")
+    if quality_blockers:
+        if level in ("L2_standard_team", "L3_full_power"):
             print(
                 "Review blocked: accepted/PASS verdict requires all quality checks to pass.\n"
                 + "\n".join(f"  - {b}" for b in quality_blockers) + "\n"
-                + "  Actions:\n"
-                + "    - Fix the issues and re-run record-review with clean flags, or\n"
-                + "    - Use --force to override if these issues are intentional or pre-existing.",
+                + "  Fix the issues and re-run record-review. --force is NOT honored at L2/L3.",
                 file=sys.stderr,
             )
+            raise SystemExit(1)
+        elif not args.force:
+            print(
+                "Review blocked: accepted/PASS verdict requires all quality checks to pass.\n"
+                + "\n".join(f"  - {b}" for b in quality_blockers) + "\n"
+                + "  Fix the issues and re-run record-review, or use --force to override.",
+                file=sys.stderr,
+            )
+            raise SystemExit(1)
             raise SystemExit(1)
 
     observations = []
@@ -489,6 +544,8 @@ def _cmd_record_role_evidence(args: argparse.Namespace) -> None:
             status=args.status,
             exit_code=args.exit_code,
             scan_git=bool(getattr(args, "scan_git", False)),
+            supports_plan=getattr(args, "supports_plan", "") or "",
+            supports_goal=getattr(args, "supports_goal", "") or "",
         )
     except ValueError as e:
         print(f"Role evidence blocked: {e}", file=sys.stderr)
@@ -553,7 +610,14 @@ def _cmd_prepare_close(args: argparse.Namespace) -> None:
         for b in result['blockers'][:5]: print(f"    - {b}")
         print("  Resolve blockers before preparing closure")
         print("  prepare-close is authoritative; close attempt was not prepared.")
+        raise SystemExit(1)
     else:
+        # Post-hoc warnings: displayed even on pass — the model should review them
+        post_hoc = result.get("post_hoc_warnings", []) or []
+        if post_hoc:
+            print(f"  Post-hoc warnings ({len(post_hoc)}):")
+            for w in post_hoc[:5]:
+                print(f"    ! {w}")
         summary = result.get("summary", "")
         if summary:
             print(summary)
@@ -574,17 +638,31 @@ def _cmd_set_goal_confirmed(args: argparse.Namespace) -> None:
 
 
 def _cmd_set_planner_inline(args: argparse.Namespace) -> None:
-    """aiwf state set-planner-inline — record Planner inline execution decision."""
+    """aiwf state set-planner-inline — record Planner inline execution decision.
+
+    Only valid for L0_direct and L1_review_light. L2+ requires independent
+    subagents — planner_inline_session does NOT waive session diversity.
+    """
     import json
     from datetime import datetime, timezone
     state_path = Path.cwd() / ".aiwf" / "state" / "state.json"
     state = json.loads(state_path.read_text()) if state_path.exists() else {}
+    level = state.get("workflow_level", "")
+    if level in ("L2_standard_team", "L3_full_power"):
+        print(
+            f"Error: planner_inline_session is not valid for {level}.\n"
+            "  L2/L3 requires independent subagents (executor, tester, reviewer)\n"
+            "  dispatched via Agent tool. Inline execution is not allowed.\n"
+            "  Use aiwf state set-workflow-mode to downgrade if appropriate.",
+            file=sys.stderr,
+        )
+        raise SystemExit(1)
     state["planner_inline_session"] = True
     state["planner_inline_reason"] = args.reason
     state["planner_inline_recorded_at"] = datetime.now(timezone.utc).isoformat()
     state_path.write_text(json.dumps(state, ensure_ascii=False, indent=2) + "\n")
     print(f"Planner inline session recorded: {args.reason[:120]}")
-    print("Session diversity gate waived for prepare-close.")
+    print(f"Valid at {level}: session diversity gate is not required at this level.")
 
 
 def _cmd_disposition_adversarial(args: argparse.Namespace) -> None:

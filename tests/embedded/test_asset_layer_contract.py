@@ -69,9 +69,9 @@ class TestAssetLayerCLI(unittest.TestCase):
             "state/state.json": "state",
             "state/goal.json": "state",
             "state/contexts.json": "state",
-            "evidence/records.json": "evidence",
-            "quality/testing.json": "quality",
-            "quality/review.json": "quality",
+            "artifacts/evidence/records.json": "evidence",
+            "artifacts/quality/testing.json": "quality",
+            "artifacts/quality/review.json": "quality",
             "state/fix-loop.json": "state",
         }
         for fn, dfn in MVP_STATE_FILES.items():

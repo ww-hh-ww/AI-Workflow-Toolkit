@@ -145,7 +145,7 @@ def _cmd_fix_loop_revalidate(args: argparse.Namespace) -> None:
     fl = _read(fl_path)
 
     required_fixes = fl.get("required_fixes", []) or []
-    review_path = base / ".aiwf" / "quality" / "review.json"
+    review_path = base / ".aiwf" / "artifacts" / "quality" / "review.json"
     review = _read(review_path)
     scope_events = review.get("scope_violation_events", []) or []
     force = bool(getattr(args, 'force', False))
@@ -238,7 +238,7 @@ def _cmd_arch_change_help(args: argparse.Namespace) -> None:
 def _cmd_git_summary(args: argparse.Namespace) -> None:
     from ..core.git_ops import get_git_summary
     s = get_git_summary(str(Path.cwd()))
-    ckpt_exists = (Path.cwd()/".aiwf"/"checkpoints").exists() and any((Path.cwd()/".aiwf"/"checkpoints").iterdir())
+    ckpt_exists = (Path.cwd()/".aiwf"/"runtime"/"checkpoints").exists() and any((Path.cwd()/".aiwf"/"runtime"/"checkpoints").iterdir())
     state = {}
     try: state = __import__('json').loads((Path.cwd()/".aiwf" / "state" / "state.json").read_text())
     except: pass
@@ -294,7 +294,7 @@ def _cmd_checkpoint_show(args: argparse.Namespace) -> None:
 
 def _cmd_checkpoint_restore_plan(args: argparse.Namespace) -> None:
     root = Path.cwd()
-    plan = root/".aiwf"/"checkpoints"/args.id/"restore-plan.md"
+    plan = root/".aiwf"/"runtime"/"checkpoints"/args.id/"restore-plan.md"
     if plan.exists(): print(plan.read_text())
     else: print(f"No restore plan for {args.id}")
 

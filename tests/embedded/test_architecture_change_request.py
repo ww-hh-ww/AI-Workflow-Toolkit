@@ -199,14 +199,14 @@ class TestArchitectureChangeRequest(unittest.TestCase):
                   "--reason", "Need shared module",
                   "--proposed-change", "Add src/shared/validation.js")
         r = self._run_script("scripts/aiwf_export_report.py")
-        rpt = (self.tmp / ".aiwf" / "reports" / "闭合报告.md").read_text()
+        rpt = (self.tmp / ".aiwf" / "artifacts" / "reports" / "闭合报告.md").read_text()
         self.assertIn("## Architecture Change Requests", rpt)
         self.assertIn("ACR-001", rpt)
         self.assertIn("proposed", rpt)
 
     def test_report_shows_none_when_no_acrs(self):
         r = self._run_script("scripts/aiwf_export_report.py")
-        rpt = (self.tmp / ".aiwf" / "reports" / "闭合报告.md").read_text()
+        rpt = (self.tmp / ".aiwf" / "artifacts" / "reports" / "闭合报告.md").read_text()
         self.assertIn("Architecture change requests: none", rpt)
 
     # ═══════════════════════════════════════════════════════════════

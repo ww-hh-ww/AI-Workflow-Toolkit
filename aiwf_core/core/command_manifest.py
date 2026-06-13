@@ -58,6 +58,42 @@ COMMAND_MANIFEST: Dict[str, Dict] = {
         "in_status_prompt": True,
         "keep": "Active Plan workbench — create/update/show task plans",
     },
+    "mission": {
+        "tier": ADVANCED, "core": "goal_progress",
+        "caller": "planner", "trigger": "on-project-start",
+        "visible": False, "tested": "partial", "in_status_prompt": False,
+        "keep": "project-level why and boundaries — semantic container above the Goal Tree",
+    },
+    "milestone": {
+        "tier": ADVANCED, "core": "goal_progress",
+        "caller": "planner", "trigger": "on-long-task-or-L3",
+        "visible": False, "tested": "yes", "in_status_prompt": False,
+        "keep": "optional stage node — long-task phase synthesis without burdening L0/L1",
+    },
+    "goal-tree": {
+        "tier": ADVANCED, "core": "goal_progress",
+        "caller": "planner", "trigger": "on-architecture-or-decomposition",
+        "visible": False, "tested": "yes", "in_status_prompt": False,
+        "keep": "recursive Goal Tree registry — structural skeleton, no activation/close impact",
+    },
+    "relation": {
+        "tier": ADVANCED, "core": "goal_progress",
+        "caller": "planner", "trigger": "on-architecture-or-review",
+        "visible": False, "tested": "yes", "in_status_prompt": False,
+        "keep": "sibling relations between goals — advisory, not gate-driving",
+    },
+    "change": {
+        "tier": ADVANCED, "core": "goal_progress",
+        "caller": "planner", "trigger": "on-new-work",
+        "visible": False, "tested": "partial", "in_status_prompt": False,
+        "keep": "change admission — entry judgment: attach_plan / graft_goal / temporary_root",
+    },
+    "frontier": {
+        "tier": ADVANCED, "core": "goal_progress",
+        "caller": "planner", "trigger": "on-dispatch",
+        "visible": False, "tested": "partial", "in_status_prompt": False,
+        "keep": "execution frontier — semantic dispatch + Work Packet: Planner decides, AIWF validates, agents consume",
+    },
     "task": {
         "tier": PRIMARY, "core": "goal_progress",
         "caller": "planner", "trigger": "on-activation",

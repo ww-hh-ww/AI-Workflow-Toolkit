@@ -59,9 +59,9 @@ class TestLessonAdmission(unittest.TestCase):
         from aiwf_core.core.state_schema import MVP_STATE_FILES
         for fn, dfn in MVP_STATE_FILES.items():
             p = self.tmp / ".aiwf" / fn; p.parent.mkdir(parents=True, exist_ok=True); p.write_text(json.dumps(dfn(), indent=2) + "\n")
-        r = json.loads((self.tmp / ".aiwf" / "quality" / "review.json").read_text())
+        r = json.loads((self.tmp / ".aiwf" / "artifacts" / "quality" / "review.json").read_text())
         r["lessons"] = ["secret lesson abc", "another secret xyz"]
-        (self.tmp / ".aiwf" / "quality" / "review.json").write_text(json.dumps(r, indent=2))
+        (self.tmp / ".aiwf" / "artifacts" / "quality" / "review.json").write_text(json.dumps(r, indent=2))
         inp = json.dumps({"session_id":"t","cwd":str(self.tmp),"hook_event_name":"UserPromptSubmit"})
         env = os.environ.copy(); env["PYTHONPATH"] = str(PROJECT_ROOT)
         r2 = subprocess.run([sys.executable, str(self.tmp/"scripts"/"aiwf_status.py")],

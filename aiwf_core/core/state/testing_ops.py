@@ -38,10 +38,12 @@ def record_testing(
     delta_verification: str = "",
     reused_evidence_ids: Optional[List[str]] = None,
     invalidated_evidence_ids: Optional[List[str]] = None,
+    supports_plan: str = "",
+    supports_goal: str = "",
 ) -> Dict[str, Any]:
     """Write testing.json consistently. Returns testing dict."""
     base = Path(base_dir)
-    testing_path = base / ".aiwf" / "quality" / "testing.json"
+    testing_path = base / ".aiwf" / "artifacts" / "quality" / "testing.json"
 
     testing = _read(testing_path)
     testing["status"] = status
@@ -71,8 +73,26 @@ def record_testing(
     if delta_verification: testing["delta_verification"] = delta_verification
     if reused_evidence_ids is not None: testing["reused_evidence_ids"] = reused_evidence_ids
     if invalidated_evidence_ids is not None: testing["invalidated_evidence_ids"] = invalidated_evidence_ids
+    if supports_plan: testing["supports_plan"] = supports_plan
+    if supports_goal: testing["supports_goal"] = supports_goal
 
     _write(testing_path, testing)
+
+    # Phase-gate: before recording adequate/passed, check evidence exists
+    if status in ("adequate", "passed"):
+        try:
+            from ..phase_gates import implementing_to_testing_gates
+            gate_blockers = implementing_to_testing_gates(base_dir)
+            if gate_blockers:
+                raise ValueError(
+                    "Phase gate (implementing→testing) not met:\n" +
+                    "\n".join(f"  - {b}" for b in gate_blockers)
+                )
+        except ValueError:
+            raise
+        except Exception:
+            pass
+
     state_path = base / ".aiwf" / "state" / "state.json"
     state = _read(state_path)
     if state.get("phase") not in ("closing", "closed"):
@@ -88,8 +108,9 @@ def record_testing(
         context_id=context_id or state.get("active_context_id") or "",
         status="pending",
         exit_code=0 if status in ("adequate", "passed") else 1 if status == "failed" else 0,
+        supports_plan=supports_plan,
+        supports_goal=supports_goal,
     )
     testing["evidence_id"] = ev["id"]
     _write(testing_path, testing)
     return testing
-

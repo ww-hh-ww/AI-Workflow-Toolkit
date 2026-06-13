@@ -25,14 +25,20 @@ class TestProcessEnforcement(unittest.TestCase):
         self._seed_planning_contracts()
 
     def _seed_plan(self, task_id):
-        """Create a minimal .aiwf/plans/<task_id>.md so L1+ activation won't block."""
-        plan_dir = self.tmp / ".aiwf" / "plans"
+        """Create a registry-backed plan artifact so L1+ activation can pass."""
+        from aiwf_core.core.state.plan_ops import upsert_plan
+
+        plan_id = f"PLAN-{task_id}"
+        plan_dir = self.tmp / ".aiwf" / "artifacts" / "plans"
         plan_dir.mkdir(parents=True, exist_ok=True)
-        plan_path = plan_dir / f"{task_id}.md"
+        plan_path = plan_dir / f"{plan_id}.md"
         if not plan_path.exists():
             plan_path.write_text(
-                f"# {task_id}\n\n"
+                f"# {plan_id}\n\n"
                 "> AI working plan.\n\n"
+                f"Plan ID: {plan_id}\n"
+                "Parent Goal: GOAL-001\n"
+                f"Task IDs: {task_id}\n\n"
                 "## Goal\nTest task\n\n"
                 "## Route\n- How: direct fix\n\n"
                 "## Scope\n- Change: test files\n\n"
@@ -44,6 +50,21 @@ class TestProcessEnforcement(unittest.TestCase):
                 "## Next Steps\n1. done\n",
                 encoding="utf-8",
             )
+        upsert_plan(str(self.tmp), plan_id, goal_id="GOAL-001", task_ids=[task_id], plan_kind="implementation", work_intent="feature")
+        ledger_path = self.tmp / ".aiwf" / "runtime" / "history" / "task-ledger.json"
+        if ledger_path.exists():
+            ledger = json.loads(ledger_path.read_text())
+            changed = False
+            for task in ledger.get("tasks", []):
+                if task.get("id") == task_id:
+                    task["plan_id"] = plan_id
+                    task["parent_plan"] = plan_id
+                    task["goal_id"] = task.get("goal_id") or "GOAL-001"
+                    task["parent_goal"] = task.get("parent_goal") or task["goal_id"]
+                    changed = True
+            if changed:
+                _write(ledger_path, ledger)
+        return plan_id
 
     def _plan_and_activate(self, task_id):
         """Seed a plan then activate — L1+ requires a plan before activation."""
@@ -71,6 +92,7 @@ class TestProcessEnforcement(unittest.TestCase):
             "review_obligations": ["review scope and correctness"],
         })
         brief["architecture_brief"]["target_structure"] = "Preserve declared module boundaries"
+        brief["non_goals"] = ["test"]
         _write(goal_path, goal)
 
     def _seed_architecture_migration_contract(self):
@@ -85,15 +107,44 @@ class TestProcessEnforcement(unittest.TestCase):
         ab["validators"] = ["scripts/validate.sh"]
         _write(goal_path, goal)
 
+    def _inject_hook_evidence(self, *session_specs):
+        """Inject hook-validated evidence records for session diversity.
+
+        Each spec: (session_id, agent_type, tool_name).
+        Hook evidence has tool_name != 'AIWFRoleEvidence' and is captured
+        by hooks with the authentic Claude session_id — unspoofable.
+        Returns list of injected record IDs.
+        """
+        evidence_path = self.tmp / ".aiwf" / "artifacts" / "evidence" / "records.json"
+        existing = json.loads(evidence_path.read_text()) if evidence_path.exists() else {"records": []}
+        records = existing.get("records", []) or []
+        import uuid
+        ids = []
+        for sid, atype, tname in session_specs:
+            rid = str(uuid.uuid4())[:8]
+            ids.append(rid)
+            records.append({
+                "id": rid,
+                "trust": "machine_observed",
+                "attribution": "strong",
+                "tool_name": tname,
+                "session_id": sid,
+                "agent_type": atype,
+                "agent_id": atype,
+                "status": "accepted",
+            })
+        _write(evidence_path, {"records": records})
+        return ids
+
     def _seed_complete_quality_chain(self):
-        _write(self.tmp / ".aiwf" / "quality" / "testing.json", {
+        _write(self.tmp / ".aiwf" / "artifacts" / "quality" / "testing.json", {
             "status": "adequate", "commands": ["pytest"],
             "validation_layers": ["targeted", "full_regression", "real_usage"],
             "full_suite_status": "passed",
             "real_usage_status": "passed",
             "real_usage_reason": "project CLI smoke passed",
         })
-        _write(self.tmp / ".aiwf" / "quality" / "review.json", {
+        _write(self.tmp / ".aiwf" / "artifacts" / "quality" / "review.json", {
             "result": "accepted",
             "closure_allowed": True,
             "accepted_evidence_ids": ["EV-1", "EV-2", "EV-3"],
@@ -105,10 +156,10 @@ class TestProcessEnforcement(unittest.TestCase):
             "structure_blockers": [],
             "adversarial_observations": [],
         })
-        _write(self.tmp / ".aiwf" / "evidence" / "records.json", {"records": [
-            {"id": "EV-1", "trust": "machine_observed", "session_id": "executor-session", "agent_id": "executor", "timestamp": "2026-01-01T00:00:01+00:00"},
-            {"id": "EV-2", "trust": "machine_observed", "session_id": "tester-session", "agent_id": "tester", "timestamp": "2026-01-01T00:00:02+00:00"},
-            {"id": "EV-3", "trust": "machine_observed", "session_id": "reviewer-session", "agent_id": "reviewer", "timestamp": "2026-01-01T00:00:03+00:00"},
+        _write(self.tmp / ".aiwf" / "artifacts" / "evidence" / "records.json", {"records": [
+            {"id": "EV-1", "trust": "machine_observed", "attribution": "strong", "tool_name": "Write", "session_id": "executor-session", "agent_id": "aiwf-executor", "agent_type": "aiwf-executor"},
+            {"id": "EV-2", "trust": "machine_observed", "attribution": "strong", "tool_name": "Bash", "session_id": "tester-session", "agent_id": "aiwf-tester", "agent_type": "aiwf-tester"},
+            {"id": "EV-3", "trust": "machine_observed", "attribution": "strong", "tool_name": "Bash", "session_id": "reviewer-session", "agent_id": "aiwf-reviewer", "agent_type": "aiwf-reviewer", "timestamp": "2026-01-02T00:00:00+00:00"},
         ]})
         goal_path = self.tmp / ".aiwf" / "state" / "goal.json"
         goal = json.loads(goal_path.read_text())
@@ -145,7 +196,7 @@ class TestProcessEnforcement(unittest.TestCase):
 
     def test_periodic_architecture_review_blocks_ordinary_activation(self):
         from aiwf_core.core.task_ledger import activate_task, upsert_task
-        _write(self.tmp / ".aiwf" / "history" / "task-history.json", {
+        _write(self.tmp / ".aiwf" / "runtime" / "history" / "task-history.json", {
             "tasks": [{"id": f"TASK-{i}", "title": "Done"} for i in range(10)]
         })
         upsert_task(str(self.tmp), "TASK-NEXT", "Next feature", status="ready")
@@ -158,7 +209,7 @@ class TestProcessEnforcement(unittest.TestCase):
 
     def test_architecture_review_task_can_activate_when_review_is_due(self):
         from aiwf_core.core.task_ledger import activate_task, upsert_task
-        _write(self.tmp / ".aiwf" / "history" / "task-history.json", {
+        _write(self.tmp / ".aiwf" / "runtime" / "history" / "task-history.json", {
             "tasks": [{"id": f"TASK-{i}", "title": "Done"} for i in range(10)]
         })
         upsert_task(str(self.tmp), "ARCH-010", "[Architect] milestone review", status="ready")
@@ -171,6 +222,13 @@ class TestProcessEnforcement(unittest.TestCase):
     def test_activation_mechanically_routes_cross_module_semantic_task_to_l2(self):
         from aiwf_core.core.task_ledger import activate_task, upsert_task
         self._seed_planning_contracts()
+        # Pre-set L2 — routing respects current level when downgrade is allowed.
+        # Auto-upgrade is reserved for hard constraints (security/destructive).
+        state_path = self.tmp / ".aiwf" / "state" / "state.json"
+        state = json.loads(state_path.read_text())
+        state["workflow_level"] = "L2_standard_team"
+        state_path.write_text(json.dumps(state, indent=2))
+
         upsert_task(
             str(self.tmp), "TASK-ROUTE", "Cross module change", status="ready",
             allowed_write=["api/handler.py", "core/service.py"],
@@ -266,7 +324,7 @@ class TestProcessEnforcement(unittest.TestCase):
         from aiwf_core.core.process_contract import planner_process_guidance
         from aiwf_core.core.task_ledger import activate_task, upsert_task
         self._set_l2()
-        _write(self.tmp / ".aiwf" / "quality" / "testing.json", {
+        _write(self.tmp / ".aiwf" / "artifacts" / "quality" / "testing.json", {
             "status": "adequate",
             "commands": ["pytest"],
             "full_suite_status": "passed",
@@ -288,7 +346,7 @@ class TestProcessEnforcement(unittest.TestCase):
         from aiwf_core.core.task_ledger import activate_task, upsert_task
         self._set_l2()
         self._seed_complete_quality_chain()
-        review_path = self.tmp / ".aiwf" / "quality" / "review.json"
+        review_path = self.tmp / ".aiwf" / "artifacts" / "quality" / "review.json"
         review = json.loads(review_path.read_text())
         review["adversarial_observations"] = [{"id": "ADV-1", "disposition": "pending"}]
         _write(review_path, review)
@@ -317,9 +375,15 @@ class TestProcessEnforcement(unittest.TestCase):
         self._seed_plan("TASK-ROLE")
         self.assertTrue(activate_task(str(self.tmp), "TASK-ROLE")["activated"])
 
+        hook_ids = self._inject_hook_evidence(
+            ("sub-exec", "aiwf-executor", "Write"),
+            ("sub-test", "aiwf-tester", "Bash"),
+            ("sub-review", "aiwf-reviewer", "Bash"),
+        )
         exec_ev = record_role_evidence(
             str(self.tmp), "executor", summary="implemented scoped change",
             changed_files=["src/a.py"],
+            session_id="sub-exec", agent_id="aiwf-executor",
         )
         testing = record_testing(
             str(self.tmp),
@@ -335,7 +399,7 @@ class TestProcessEnforcement(unittest.TestCase):
             str(self.tmp),
             result="accepted",
             closure_allowed=True,
-            accepted_evidence_ids=[exec_ev["id"], testing["evidence_id"]],
+            accepted_evidence_ids=[exec_ev["id"], testing["evidence_id"]] + hook_ids,
             cleanup_status="fresh",
             structure_status="accepted",
             summary="reviewed role delivery evidence",
@@ -352,7 +416,7 @@ class TestProcessEnforcement(unittest.TestCase):
         self._set_l2()
         self._seed_architecture_migration_contract()
         self._seed_complete_quality_chain()
-        evidence_path = self.tmp / ".aiwf" / "evidence" / "records.json"
+        evidence_path = self.tmp / ".aiwf" / "artifacts" / "evidence" / "records.json"
         evidence = json.loads(evidence_path.read_text())
         evidence["records"].extend([
             {
@@ -372,7 +436,7 @@ class TestProcessEnforcement(unittest.TestCase):
             },
         ])
         _write(evidence_path, evidence)
-        review_path = self.tmp / ".aiwf" / "quality" / "review.json"
+        review_path = self.tmp / ".aiwf" / "artifacts" / "quality" / "review.json"
         review = json.loads(review_path.read_text())
         review["accepted_evidence_ids"].extend(["EV-4", "EV-5", "EV-6"])
         _write(review_path, review)
@@ -405,7 +469,7 @@ class TestProcessEnforcement(unittest.TestCase):
         state = json.loads(state_path.read_text())
         state["scope_violation"] = True
         _write(state_path, state)
-        review_path = self.tmp / ".aiwf" / "quality" / "review.json"
+        review_path = self.tmp / ".aiwf" / "artifacts" / "quality" / "review.json"
         review = json.loads(review_path.read_text())
         review["scope_violation_events"] = [{"path": "outside.py", "status": "recorded"}]
         _write(review_path, review)

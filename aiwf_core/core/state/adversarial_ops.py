@@ -22,7 +22,7 @@ def disposition_adversarial_observation(
     if not reason or not reason.strip():
         raise ValueError("disposition reason is required")
     base = Path(base_dir)
-    review_path = base / ".aiwf" / "quality" / "review.json"
+    review_path = base / ".aiwf" / "artifacts" / "quality" / "review.json"
     review = _read(review_path)
     obs_list = review.get("adversarial_observations", [])
     if not isinstance(obs_list, list):

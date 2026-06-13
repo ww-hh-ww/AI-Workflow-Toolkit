@@ -44,7 +44,7 @@ class TestCheckpointMvp(unittest.TestCase):
         return r
 
     def _checkpoint_id_for_label(self, label):
-        for d in (self.tmp/".aiwf"/"checkpoints").iterdir():
+        for d in (self.tmp/".aiwf"/"runtime"/"checkpoints").iterdir():
             ck = json.loads((d/"CHECKPOINT.json").read_text())
             if ck.get("label") == label:
                 return d.name
@@ -54,21 +54,21 @@ class TestCheckpointMvp(unittest.TestCase):
     def test_create_makes_checkpoint_dir(self):
         (self.tmp/"README.md").write_text("modified\n")
         self._run_ok("checkpoint", "create")
-        ckpts = list((self.tmp/".aiwf"/"checkpoints").iterdir())
+        ckpts = list((self.tmp/".aiwf"/"runtime"/"checkpoints").iterdir())
         self.assertGreater(len(ckpts), 0)
 
     def test_checkpoint_json_exists(self):
         (self.tmp/"README.md").write_text("modified\n")
         r = self._run_ok("checkpoint", "create")
         # Find checkpoint dir
-        for d in (self.tmp/".aiwf"/"checkpoints").iterdir():
+        for d in (self.tmp/".aiwf"/"runtime"/"checkpoints").iterdir():
             self.assertTrue((d/"CHECKPOINT.json").exists())
             break
 
     def test_tracked_patch_exists(self):
         (self.tmp/"README.md").write_text("modified v2\n")
         self._run_ok("checkpoint", "create")
-        for d in (self.tmp/".aiwf"/"checkpoints").iterdir():
+        for d in (self.tmp/".aiwf"/"runtime"/"checkpoints").iterdir():
             patch = d / "tracked.patch"
             if patch.exists():
                 self.assertGreater(patch.stat().st_size, 0)
@@ -78,7 +78,7 @@ class TestCheckpointMvp(unittest.TestCase):
         (self.tmp/"src").mkdir(exist_ok=True)
         (self.tmp/"src"/"new.js").write_text("new\n")
         self._run_ok("checkpoint", "create")
-        for d in (self.tmp/".aiwf"/"checkpoints").iterdir():
+        for d in (self.tmp/".aiwf"/"runtime"/"checkpoints").iterdir():
             untracked = d / "untracked" / "src" / "new.js"
             if untracked.exists():
                 self.assertEqual(untracked.read_text(), "new\n")
@@ -95,7 +95,7 @@ class TestCheckpointMvp(unittest.TestCase):
         (self.tmp/"README.md").write_text("mod\n")
         self._run_ok("checkpoint", "create")
         ck_id = None
-        for d in (self.tmp/".aiwf"/"checkpoints").iterdir():
+        for d in (self.tmp/".aiwf"/"runtime"/"checkpoints").iterdir():
             ck_id = d.name; break
         r = self._run_ok("checkpoint", "show", ck_id)
         self.assertIn("git_head", r.stdout)
@@ -103,7 +103,7 @@ class TestCheckpointMvp(unittest.TestCase):
     # ── restore-plan ──
     def test_restore_plan_exists(self):
         self._run_ok("checkpoint", "create")
-        for d in (self.tmp/".aiwf"/"checkpoints").iterdir():
+        for d in (self.tmp/".aiwf"/"runtime"/"checkpoints").iterdir():
             self.assertTrue((d/"restore-plan.md").exists())
             break
 
@@ -112,7 +112,7 @@ class TestCheckpointMvp(unittest.TestCase):
         (self.tmp/"README.md").write_text("mod\n")
         self._run_ok("checkpoint", "create")
         ck_id = None
-        for d in (self.tmp/".aiwf"/"checkpoints").iterdir(): ck_id = d.name; break
+        for d in (self.tmp/".aiwf"/"runtime"/"checkpoints").iterdir(): ck_id = d.name; break
         r = self._run("checkpoint", "restore", ck_id)
         self.assertTrue("dry_run" in r.stdout.lower() or "confirm" in r.stdout.lower(), f"Expected dry_run or confirm, got: {r.stdout[:200]}")
 
@@ -164,15 +164,15 @@ class TestCheckpointMvp(unittest.TestCase):
     def test_label_works(self):
         self._run_ok("checkpoint", "create", "--label", "before risky")
         ck_id = None
-        for d in (self.tmp/".aiwf"/"checkpoints").iterdir(): ck_id = d.name; break
-        ck = json.loads((self.tmp/".aiwf"/"checkpoints"/ck_id/"CHECKPOINT.json").read_text())
+        for d in (self.tmp/".aiwf"/"runtime"/"checkpoints").iterdir(): ck_id = d.name; break
+        ck = json.loads((self.tmp/".aiwf"/"runtime"/"checkpoints"/ck_id/"CHECKPOINT.json").read_text())
         self.assertEqual(ck.get("label"), "before risky")
 
     def test_untracked_only_sets_dirty_true(self):
         (self.tmp/"src").mkdir(exist_ok=True)
         (self.tmp/"src"/"new.js").write_text("new\n")
         self._run_ok("checkpoint", "create", "--label", "untracked")
-        for d in (self.tmp/".aiwf"/"checkpoints").iterdir():
+        for d in (self.tmp/".aiwf"/"runtime"/"checkpoints").iterdir():
             ck = json.loads((d/"CHECKPOINT.json").read_text())
             self.assertTrue(ck["dirty"], f"Untracked-only should be dirty, got dirty={ck['dirty']}")
             break
@@ -183,7 +183,7 @@ class TestCheckpointMvp(unittest.TestCase):
         self._run_ok("checkpoint", "create", "--label", "second")
         # Verify old checkpoint files NOT in new checkpoint untracked
         import glob
-        found = list((self.tmp/".aiwf"/"checkpoints").rglob("untracked/.aiwf/checkpoints/*"))
+        found = list((self.tmp/".aiwf"/"runtime"/"checkpoints").rglob("untracked/.aiwf/runtime/checkpoints/*"))
         self.assertEqual(len(found), 0, f"Recursive copy found: {found}")
 
     def test_planner_skill_mentions_checkpoint(self):
@@ -208,7 +208,7 @@ class TestCheckpointMvp(unittest.TestCase):
     def test_new_checkpoint_has_provider_patch(self):
         (self.tmp/"README.md").write_text("mod\n")
         self._run_ok("checkpoint", "create", "--label", "provider test")
-        for d in (self.tmp/".aiwf"/"checkpoints").iterdir():
+        for d in (self.tmp/".aiwf"/"runtime"/"checkpoints").iterdir():
             ck = json.loads((d/"CHECKPOINT.json").read_text())
             self.assertEqual(ck.get("provider"), "patch")
             self.assertEqual(ck.get("mode"), "patch")
@@ -223,13 +223,13 @@ class TestCheckpointMvp(unittest.TestCase):
         (self.tmp/"README.md").write_text("mod2\n")
         self._run_ok("checkpoint", "create", "--label", "show test")
         ck_id = None
-        for d in (self.tmp/".aiwf"/"checkpoints").iterdir(): ck_id = d.name; break
+        for d in (self.tmp/".aiwf"/"runtime"/"checkpoints").iterdir(): ck_id = d.name; break
         r = self._run_ok("checkpoint", "show", ck_id)
         self.assertIn("patch", r.stdout)
 
     def test_restore_plan_mentions_patch(self):
         self._run_ok("checkpoint", "create", "--label", "plan test")
-        for d in (self.tmp/".aiwf"/"checkpoints").iterdir():
+        for d in (self.tmp/".aiwf"/"runtime"/"checkpoints").iterdir():
             plan = (d/"restore-plan.md").read_text()
             self.assertIn("Patch Checkpoint", plan)
             break
@@ -238,11 +238,11 @@ class TestCheckpointMvp(unittest.TestCase):
         (self.tmp/"README.md").write_text("old\n")
         self._run_ok("checkpoint", "create", "--label", "old")
         ck_id = None
-        for d in (self.tmp/".aiwf"/"checkpoints").iterdir(): ck_id = d.name; break
+        for d in (self.tmp/".aiwf"/"runtime"/"checkpoints").iterdir(): ck_id = d.name; break
         # Remove provider to simulate old checkpoint
-        ck = json.loads((self.tmp/".aiwf"/"checkpoints"/ck_id/"CHECKPOINT.json").read_text())
+        ck = json.loads((self.tmp/".aiwf"/"runtime"/"checkpoints"/ck_id/"CHECKPOINT.json").read_text())
         del ck["provider"]; del ck["mode"]
-        (self.tmp/".aiwf"/"checkpoints"/ck_id/"CHECKPOINT.json").write_text(json.dumps(ck, indent=2))
+        (self.tmp/".aiwf"/"runtime"/"checkpoints"/ck_id/"CHECKPOINT.json").write_text(json.dumps(ck, indent=2))
         # Show still works
         r = self._run_ok("checkpoint", "show", ck_id)
         self.assertIn("git_head", r.stdout)
@@ -260,7 +260,7 @@ class TestCheckpointMvp(unittest.TestCase):
     def test_stash_mode_has_git_stash_provider(self):
         (self.tmp/"README.md").write_text("stash2\n")
         self._run_ok("checkpoint", "create", "--mode", "stash", "--label", "stash-provider")
-        for d in (self.tmp/".aiwf"/"checkpoints").iterdir():
+        for d in (self.tmp/".aiwf"/"runtime"/"checkpoints").iterdir():
             ck = json.loads((d/"CHECKPOINT.json").read_text())
             if ck.get("mode") == "stash":
                 self.assertEqual(ck["provider"], "git_stash")
@@ -301,7 +301,7 @@ class TestCheckpointMvp(unittest.TestCase):
         (self.tmp/"README.md").write_text("stash-list\n")
         self._run_ok("checkpoint", "create", "--mode", "stash", "--label", "list-stash")
         # Just verify a stash checkpoint exists with mode=stash
-        for d in (self.tmp/".aiwf"/"checkpoints").iterdir():
+        for d in (self.tmp/".aiwf"/"runtime"/"checkpoints").iterdir():
             ck = json.loads((d/"CHECKPOINT.json").read_text())
             if ck.get("mode") == "stash": break
         else: self.fail("No stash checkpoint found")
@@ -309,7 +309,7 @@ class TestCheckpointMvp(unittest.TestCase):
     def test_stash_restore_plan_mentions_stash(self):
         (self.tmp/"README.md").write_text("stash-plan\n")
         self._run_ok("checkpoint", "create", "--mode", "stash", "--label", "plan-stash")
-        for d in (self.tmp/".aiwf"/"checkpoints").iterdir():
+        for d in (self.tmp/".aiwf"/"runtime"/"checkpoints").iterdir():
             if (d/"CHECKPOINT.json").exists() and json.loads((d/"CHECKPOINT.json").read_text()).get("mode") == "stash":
                 plan = (d/"restore-plan.md").read_text()
                 # Plan should mention git stash or restore steps
@@ -319,7 +319,7 @@ class TestCheckpointMvp(unittest.TestCase):
     def test_default_mode_is_patch(self):
         (self.tmp/"README.md").write_text("default-mode\n")
         self._run_ok("checkpoint", "create", "--label", "default")
-        for d in (self.tmp/".aiwf"/"checkpoints").iterdir():
+        for d in (self.tmp/".aiwf"/"runtime"/"checkpoints").iterdir():
             ck = json.loads((d/"CHECKPOINT.json").read_text())
             if ck.get("label") == "default":
                 self.assertEqual(ck.get("mode","patch"), "patch")
@@ -333,7 +333,7 @@ class TestCheckpointMvp(unittest.TestCase):
     def test_stash_restore_plan_is_stash_specific(self):
         (self.tmp/"README.md").write_text("stash-rp\n")
         self._run_ok("checkpoint", "create", "--mode", "stash", "--label", "rp-stash")
-        for d in (self.tmp/".aiwf"/"checkpoints").iterdir():
+        for d in (self.tmp/".aiwf"/"runtime"/"checkpoints").iterdir():
             ck = json.loads((d/"CHECKPOINT.json").read_text())
             if ck.get("mode") == "stash":
                 plan = (d/"restore-plan.md").read_text()
@@ -345,7 +345,7 @@ class TestCheckpointMvp(unittest.TestCase):
     def test_stash_restore_plan_no_patch_steps(self):
         (self.tmp/"README.md").write_text("stash-no-patch\n")
         self._run_ok("checkpoint", "create", "--mode", "stash", "--label", "no-patch")
-        for d in (self.tmp/".aiwf"/"checkpoints").iterdir():
+        for d in (self.tmp/".aiwf"/"runtime"/"checkpoints").iterdir():
             if json.loads((d/"CHECKPOINT.json").read_text()).get("mode") == "stash":
                 plan = (d/"restore-plan.md").read_text()
                 self.assertNotIn("git apply tracked.patch", plan)
@@ -355,7 +355,7 @@ class TestCheckpointMvp(unittest.TestCase):
     def test_patch_restore_plan_has_patch_steps(self):
         (self.tmp/"README.md").write_text("patch-rp\n")
         self._run_ok("checkpoint", "create", "--mode", "patch", "--label", "rp-patch")
-        for d in (self.tmp/".aiwf"/"checkpoints").iterdir():
+        for d in (self.tmp/".aiwf"/"runtime"/"checkpoints").iterdir():
             ck = json.loads((d/"CHECKPOINT.json").read_text())
             if ck.get("mode","patch") == "patch" and ck.get("label") == "rp-patch":
                 plan = (d/"restore-plan.md").read_text()

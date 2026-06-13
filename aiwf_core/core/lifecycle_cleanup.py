@@ -36,7 +36,7 @@ def _read_active_plan_impact(root):
     task_id = state.get("active_task_id", "") or ""
     if not task_id:
         return {}
-    plan_path = root / ".aiwf" / "plans" / f"{task_id}.md"
+    plan_path = root / ".aiwf" / "artifacts" / "plans" / f"{task_id}.md"
     if not plan_path.exists():
         return {}
     try:
@@ -158,7 +158,7 @@ def check_lifecycle_cleanup(project_root: str) -> Dict[str, Any]:
 
     # ── PROJECT-MAP ──
     impact = _read_active_plan_impact(root)
-    pm_path = root / ".aiwf" / "reports" / "项目地图.md"
+    pm_path = root / ".aiwf" / "artifacts" / "reports" / "项目地图.md"
     if not pm_path.exists():
         if impact.get("project_map") == "yes":
             result["warnings"].append("Impact.project_map=yes but PROJECT-MAP.md missing; run aiwf project-map init")
@@ -208,7 +208,7 @@ def check_lifecycle_cleanup(project_root: str) -> Dict[str, Any]:
             result["warnings"].append("PROJECT-MAP.md is very large, may contain raw dumps")
 
     # ── Ideas ──
-    ideas_path = root / ".aiwf" / "reports" / "ideas.md"
+    ideas_path = root / ".aiwf" / "artifacts" / "reports" / "ideas.md"
     if ideas_path.exists():
         from aiwf_core.core.ideas import _parse_ideas, is_idea_active
         ideas = _parse_ideas(ideas_path.read_text(encoding="utf-8"))
@@ -288,14 +288,14 @@ def check_lifecycle_cleanup(project_root: str) -> Dict[str, Any]:
         if len(rtxt) > 30000:
             result["warnings"].append("project-rules.md is large, may be becoming a history dump")
         # Check if PROJECT-MAP duplicates rules
-        pm_path2 = root / ".aiwf" / "reports" / "项目地图.md"
+        pm_path2 = root / ".aiwf" / "artifacts" / "reports" / "项目地图.md"
         if pm_path2.exists():
             pm_text2 = pm_path2.read_text(encoding="utf-8")
             if "project-rules.md" in pm_text2 or "## Active Rules" in pm_text2:
                 result["warnings"].append("PROJECT-MAP appears to duplicate project-rules.md content")
 
     # ── Deferred risks ──
-    review = _rj(root / ".aiwf" / "quality" / "review.json", {})
+    review = _rj(root / ".aiwf" / "artifacts" / "quality" / "review.json", {})
     if review.get("lessons") and len(review["lessons"]) > 30:
         result["warnings"].append("review.json lessons are large; consider curator cleanup")
     if review.get("followups") and len(review["followups"]) > 20:
@@ -306,12 +306,12 @@ def check_lifecycle_cleanup(project_root: str) -> Dict[str, Any]:
             if "## Deferred Risks\n- None yet." in pm_text or "## Deferred Risks\n\n- None yet" in pm_text:
                 result["warnings"].append("review has lessons/followups but PROJECT-MAP Deferred Risks still None yet")
                 result["deferred_risk_issues"].append("PROJECT-MAP Deferred Risks not updated from review")
-    testing = _rj(root / ".aiwf" / "quality" / "testing.json", {"status": "missing"})
+    testing = _rj(root / ".aiwf" / "artifacts" / "quality" / "testing.json", {"status": "missing"})
     if testing.get("status") == "failed" and fl.get("status") != "open":
         result["warnings"].append("testing failed but no fix-loop open")
 
     # ── Freshness: PROJECT-MAP vs report ──
-    report_path = root / ".aiwf" / "reports" / "闭合报告.md"
+    report_path = root / ".aiwf" / "artifacts" / "reports" / "闭合报告.md"
     if pm_path.exists() and report_path.exists():
         try:
             pm_mtime = pm_path.stat().st_mtime
@@ -374,7 +374,7 @@ def auto_cleanup(base_dir: str) -> Dict[str, Any]:
     summary: Dict[str, Any] = {"archived": [], "trimmed": [], "expired": [], "errors": []}
 
     # ── 1. Evidence archiving ──
-    evidence_path = aiwf / "evidence" / "records.json"
+    evidence_path = aiwf / "artifacts" / "evidence" / "records.json"
     if evidence_path.exists():
         try:
             evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
@@ -434,7 +434,7 @@ def auto_cleanup(base_dir: str) -> Dict[str, Any]:
             summary["errors"].append(f"digest trim: {e}")
 
     # ── 4. Task-history progressive compression ──
-    history_path = aiwf / "history" / "task-history.json"
+    history_path = aiwf / "runtime" / "history" / "task-history.json"
     if history_path.exists():
         try:
             history = json.loads(history_path.read_text(encoding="utf-8"))

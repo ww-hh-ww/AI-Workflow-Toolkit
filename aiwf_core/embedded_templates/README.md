@@ -1,36 +1,27 @@
-# AIWF 项目档案
+# AIWF Workspace
 
-这是 AIWF（AI Workflow Toolkit）为本项目生成的治理档案目录。
+This directory is AIWF's governance workspace. Humans do not normally read raw `.aiwf` files.
+Ask the agent, run `aiwf status`, or read generated reports when you need a human explanation.
 
-## 目录结构
+## Zones
 
-### 机器状态（JSON）— 自动化流程读写
-- `state/` — 当前阶段、活跃上下文、工作流层级
-- `evidence/` — 操作级证据链（git diff 记录）
-- `quality/` — 测试结果与审查记录
-- `history/` — 任务历史与账本
+- `state/` — machine truth: registries, canonical state, gate inputs. JSON only.
+- `artifacts/` — human projections: plans, reports, reviews, evidence summaries.
+- `runtime/` — execution traces: history, checkpoints, internal files, caches.
+- `assets/` — input assets referenced by AIWF, such as environment/capability data.
+- `archive/` — deprecated, migrated, or superseded material.
 
-### 人类可读（中文 Markdown）— 你关心的都在这里
-- `reports/当前状态.md` — 接力摘要，新会话从这里开始
-- `reports/闭合报告.md` — 最近一次任务闭合依据
-- `reports/质量摘要.md` — 跨任务质量趋势
-- `reports/项目地图.md` — 架构方向、决策、递延风险
+## Human Entry Points
 
-### 其他
-- `assets/` — 环境配置、能力扫描结果
-- `checkpoints/` — 回滚快照
-- `internal/` — 系统内部文件
+- `aiwf status` — default control panel.
+- `.aiwf/artifacts/reports/当前状态.md` — carry-forward summary, when generated.
+- `.aiwf/artifacts/reports/闭合报告.md` — closure basis, when generated.
+- `.aiwf/artifacts/reports/质量摘要.md` — cross-task quality signals, when requested.
+- `.aiwf/artifacts/plans/*.md` — compact plan artifacts, not machine truth.
 
-## 审计方式
+## Rules
 
-```
-机器审计: 读 JSON 文件（evidence > testing > review > task-history）
-人类审计: 读 reports/*.md（闭合报告 > 质量摘要 > 项目地图）
-快速检查: 终端运行 aiwf status
-完整报告: 终端运行 aiwf export-report
-```
-
-## 注意
-
-不要手动编辑此目录中的 JSON 文件。
-所有状态变更通过 `aiwf state` CLI 命令完成。
+- Do not hand-edit JSON machine truth.
+- State changes go through `aiwf` commands and hooks.
+- Markdown under `artifacts/` is readable projection, not source of truth.
+- `runtime/` can be inspected for debugging but should not drive planning by itself.

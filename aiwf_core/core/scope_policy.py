@@ -139,10 +139,50 @@ DANGEROUS_BASH_PATTERNS: List[Dict] = [
 
 
 def check_bash_command(command: str) -> Dict:
-    """Check a Bash command for dangerous patterns.
+    """Check a Bash command for dangerous patterns and mechanical truth bypasses.
 
     Returns dict with keys: allowed (bool), decision (str), matched_pattern (str), reason (str).
     """
+    # ── P0: mechanical truth path guard ──
+    # Paths whose files must change through aiwf CLI commands, never through
+    # arbitrary Bash. Mirrors the Write Guard's protected_truth set.
+    # Using directory prefixes catches naive bypasses; it is not a security
+    # boundary — the real boundary is constitutional compliance.
+    _MECHANICAL_TRUTH_DIRS = [
+        ".aiwf/state/",
+        ".aiwf/artifacts/quality/",
+    ]
+    _MECHANICAL_TRUTH_FILES = [
+        ".aiwf/runtime/history/task-ledger.json",
+    ]
+    for prefix in _MECHANICAL_TRUTH_DIRS:
+        if prefix in command:
+            return {
+                "allowed": False,
+                "decision": "deny",
+                "command": command[:200],
+                "matched_pattern": prefix,
+                "reason": (
+                    f"Bash command references '{prefix}' — files under this path are "
+                    "mechanical truth and must be changed through aiwf CLI commands. "
+                    "Use Read tool to inspect them; use the matching aiwf state/task/goal-tree/plan "
+                    "command to modify them."
+                ),
+            }
+    for path in _MECHANICAL_TRUTH_FILES:
+        if path in command:
+            return {
+                "allowed": False,
+                "decision": "deny",
+                "command": command[:200],
+                "matched_pattern": path,
+                "reason": (
+                    f"Bash command references '{path}' — this file is mechanical truth "
+                    "and must be changed through aiwf CLI commands. "
+                    "Use aiwf task ... or aiwf state ... to modify it."
+                ),
+            }
+
     cmd_lower = command.lower()
     for entry in DANGEROUS_BASH_PATTERNS:
         if entry["pattern"].lower() in cmd_lower:
@@ -193,16 +233,16 @@ GOVERNANCE_ALLOWED_PREFIXES = [
     ".aiwf/state/state.json",
     ".aiwf/state/goal.json",
     ".aiwf/state/contexts.json",
-    ".aiwf/evidence/records.json",
-    ".aiwf/quality/testing.json",
-    ".aiwf/quality/review.json",
+    ".aiwf/artifacts/evidence/records.json",
+    ".aiwf/artifacts/quality/testing.json",
+    ".aiwf/artifacts/quality/review.json",
     ".aiwf/state/fix-loop.json",
-    ".aiwf/plans/",
-    ".aiwf/reports/",
-    ".aiwf/internal/baseline.json",
+    ".aiwf/artifacts/plans/",
+    ".aiwf/artifacts/reports/",
+    ".aiwf/runtime/internal/baseline.json",
     ".aiwf/assets/",
     ".aiwf/experiment-artifacts/",
-    ".aiwf/internal/",
+    ".aiwf/runtime/internal/",
 ]
 
 GOVERNANCE_UNKNOWN_POLICY = "deny"  # deny unknown .aiwf paths

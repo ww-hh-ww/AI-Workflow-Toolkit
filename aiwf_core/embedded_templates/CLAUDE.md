@@ -1,46 +1,49 @@
-# AIWF Constitution
+# AIWF
 
-## Product Boundary
+AIWF is the governance layer for this project. It tracks phase, scope, evidence, and quality gates. `.aiwf/*.json` is mechanical truth.
 
-Coding agents own engineering intelligence: inspect, reason, design, edit, run, test, debug.
-AIWF owns governance: machine-readable state, scope, evidence, quality gates, closure.
-`.aiwf/*.json` is mechanical truth. Model memory and prose are advisory.
+## First action
 
-## Runtime Discipline
+Run `aiwf status`. Obey `PRIMARY` and `REQUIRED NEXT`. If blocked, each blocker includes the exact `fix:` command — run it.
 
-1. Every turn: read the `[AIWF]` status block. Obey `PRIMARY` and `REQUIRED NEXT`.
-2. Do not act from memory. At each phase transition, re-load the skill named by `[ATTN]`.
-3. If your intended action conflicts with status, stop and explain the conflict.
-4. Mechanical truth files (`.aiwf/state/*.json`, `.aiwf/quality/*.json`) must change through `aiwf` CLI commands, never direct Write/Edit.
+First time? Load `/aiwf-init` for the full decision tree and CLI reference.
 
-## Non-Negotiable Boundaries
+## Mechanical truth
 
-- Never silently downgrade scope, depth, or quality. State the decision explicitly.
+These files must change through `aiwf` CLI commands, never direct Write/Edit/Bash:
+
+`.aiwf/state/state.json` `.aiwf/state/goal.json` `.aiwf/state/contexts.json` `.aiwf/state/fix-loop.json`
+`.aiwf/state/goals.json` `.aiwf/state/plans.json` `.aiwf/state/milestones.json`
+`.aiwf/artifacts/quality/testing.json` `.aiwf/artifacts/quality/review.json`
+`.aiwf/runtime/history/task-ledger.json`
+
+The Write Guard and Bash Guard enforce this mechanically.
+
+## Non-negotiable
+
 - No project writes without an active task and context (L0 exempted).
 - No closure from prose — `prepare-close` is the authoritative gate.
 - No roleplaying independent Tester or Reviewer when workflow level requires independence.
 - Fix-loop resolution requires mechanical verification; prose is not proof.
 - Scope violations clear only after Git confirms reverting files were reverted.
+- Never silently downgrade scope, depth, or quality.
 
-## Skill Index
+## Signal priority
+
+1. **Mechanical gate** (hook denial, scope guard, bash guard) — cannot override
+2. **User explicit decision** — can change scope, risk, depth
+3. **AIWF PRIMARY / REQUIRED NEXT** — the state machine's current directive
+4. **Current phase skill** — role-specific instructions
+5. **This constitution** — stable boundaries
+
+## Skill index
 
 | Phase | Load |
 |-------|------|
-| discussing / planned | `/aiwf-planner` → `/aiwf-planner-contracts` to freeze contracts |
+| first time / orientation | `/aiwf-init` |
+| discussing / planned | `/aiwf-planner` → `/aiwf-planner-contracts` |
 | implementing | `/aiwf-planner-execute` + `/aiwf-implement` |
 | testing | `/aiwf-test` |
 | reviewing | `/aiwf-review` → `/aiwf-review-trace` → `/aiwf-review-verify` → `/aiwf-review-output` |
 | closing | `/aiwf-close` + `/aiwf-planner-docs` |
 | architecture review | `/aiwf-architect` (periodic, never blocks current task close) |
-
-Detailed workflow steps, request modes, state file schemas, and rules live in the skills
-loaded at each phase. This constitution defines stable boundaries; skills define how to act.
-
-## Signal Priority
-
-When signals conflict, obey in this order:
-1. **Mechanical gate** (hook denial, scope guard, bash guard) — cannot override
-2. **User explicit decision** — the user can change scope, risk, or depth
-3. **AIWF PRIMARY / REQUIRED NEXT** — the state machine's current directive
-4. **Current phase skill** — role-specific instructions for this phase
-5. **This constitution** — stable boundaries that never change mid-cycle

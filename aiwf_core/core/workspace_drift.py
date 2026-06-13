@@ -39,7 +39,7 @@ def _scan_non_git(root: Path, result: Dict[str, Any]) -> Dict[str, Any]:
     result["mode"] = "mtime_snapshot"
     result["is_git_repo"] = False
 
-    snapshot_path = root / ".aiwf" / "internal" / "file-snapshot.json"
+    snapshot_path = root / ".aiwf" / "runtime" / "internal" / "file-snapshot.json"
     exclude = {".git", ".aiwf", ".claude", ".reasonix", "__pycache__", "node_modules", ".venv", "venv",
                ".pytest_cache", ".mypy_cache", ".ruff_cache", "dist", "build", ".DS_Store",
                "htmlcov", "*.egg-info"}
@@ -188,14 +188,14 @@ def scan_workspace_drift(project_root: str) -> Dict[str, Any]:
 
 def write_workspace_drift(project_root: str, drift: Dict) -> Path:
     root = Path(project_root)
-    path = root / ".aiwf" / "internal" / "workspace-drift.json"
+    path = root / ".aiwf" / "runtime" / "internal" / "workspace-drift.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(drift, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return path
 
 
 def load_workspace_drift(project_root: str) -> Dict:
-    path = Path(project_root) / ".aiwf" / "internal" / "workspace-drift.json"
+    path = Path(project_root) / ".aiwf" / "runtime" / "internal" / "workspace-drift.json"
     if not path.exists(): return {"scanned_at": "", "needs_planner_review": False, "dirty": False}
     try: return json.loads(path.read_text(encoding="utf-8"))
     except: return {"scanned_at": "", "needs_planner_review": False, "dirty": False}
@@ -240,7 +240,7 @@ def auto_update_baseline(project_root: str) -> Dict[str, Any]:
         return result
 
     # ── 2. Load existing baseline from task-history ──
-    history_path = root / ".aiwf" / "history" / "task-history.json"
+    history_path = root / ".aiwf" / "runtime" / "history" / "task-history.json"
     history: Dict[str, Any] = {"tasks": [], "archived_hotspots": {}}
     if history_path.exists():
         try:

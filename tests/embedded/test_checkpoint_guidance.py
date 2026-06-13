@@ -61,7 +61,7 @@ class TestCheckpointGuidance(unittest.TestCase):
         r = subprocess.run([sys.executable, "-m", "aiwf_core.cli", "checkpoint", "create", "--label", "default-test"],
                           capture_output=True, text=True, cwd=str(self.tmp), env=env, timeout=TIMEOUT)
         self.assertEqual(r.returncode, 0)
-        for d in (self.tmp/".aiwf"/"checkpoints").iterdir():
+        for d in (self.tmp/".aiwf"/"runtime"/"checkpoints").iterdir():
             ck = json.loads((d/"CHECKPOINT.json").read_text())
             if ck.get("label") == "default-test":
                 self.assertEqual(ck.get("provider", "patch"), "patch")

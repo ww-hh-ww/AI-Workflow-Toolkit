@@ -37,8 +37,8 @@ class TestHumanSurface(unittest.TestCase):
     def test_doc_mentions_three_entries(self):
         doc = (PROJECT_ROOT/"docs"/"AIWF-HUMAN-SURFACE.md").read_text()
         self.assertIn("aiwf status", doc)
-        self.assertIn(".aiwf/reports/当前状态.md", doc)
-        self.assertIn(".aiwf/reports/闭合报告.md", doc)
+        self.assertIn(".aiwf/artifacts/reports/当前状态.md", doc)
+        self.assertIn(".aiwf/artifacts/reports/闭合报告.md", doc)
 
     # ── status tiers ──
     def test_status_has_control_panel(self):
@@ -55,7 +55,7 @@ class TestHumanSurface(unittest.TestCase):
 
     def test_status_shows_quality_verdict_when_present(self):
         self._reset_state()
-        review_path = self.tmp / ".aiwf" / "quality" / "review.json"
+        review_path = self.tmp / ".aiwf" / "artifacts" / "quality" / "review.json"
         review = json.loads(review_path.read_text())
         review["result"] = "accepted"
         review["verdict"] = "PASS_WITH_RISK"
@@ -116,25 +116,25 @@ class TestHumanSurface(unittest.TestCase):
 
     # ── capabilities accuracy ──
     def test_capabilities_empty_shows_none(self):
-        (self.tmp/".aiwf"/"capabilities.json").write_text(
+        (self.tmp/".aiwf"/"assets"/"capabilities.json").write_text(
             '{"schema_version":1,"capabilities":[]}')
         s = self._status()
         self.assertIn("Ext capabilities: none", s)
 
     def test_normal_capability_shows_available(self):
-        (self.tmp/".aiwf"/"capabilities.json").write_text(
+        (self.tmp/".aiwf"/"assets"/"capabilities.json").write_text(
             '{"schema_version":1,"capabilities":[{"id":"skill:k","risk":"method_advisory","use_policy":"advisory"}]}')
         s = self._status()
         self.assertIn("Ext capabilities: available", s)
 
     def test_unknown_capability_shows_high_risk(self):
-        (self.tmp/".aiwf"/"capabilities.json").write_text(
+        (self.tmp/".aiwf"/"assets"/"capabilities.json").write_text(
             '{"schema_version":1,"capabilities":[{"id":"skill:d","risk":"unknown","use_policy":"ask_before_use"}]}')
         s = self._status()
         self.assertIn("Ext capabilities: high-risk", s)
 
     def test_destructive_capability_shows_high_risk(self):
-        (self.tmp/".aiwf"/"capabilities.json").write_text(
+        (self.tmp/".aiwf"/"assets"/"capabilities.json").write_text(
             '{"schema_version":1,"capabilities":[{"id":"skill:x","risk":"destructive_or_deploy","use_policy":"requires_user_decision"}]}')
         s = self._status()
         self.assertIn("Ext capabilities: high-risk", s)
@@ -144,7 +144,7 @@ class TestHumanSurface(unittest.TestCase):
         env = os.environ.copy(); env["PYTHONPATH"] = str(PROJECT_ROOT)
         subprocess.run([sys.executable, str(self.tmp/"scripts"/"aiwf_export_report.py")],
                        capture_output=True, text=True, cwd=str(self.tmp), env=env, timeout=TIMEOUT)
-        rpt = (self.tmp/".aiwf" / "reports" / "闭合报告.md").read_text()
+        rpt = (self.tmp/".aiwf" / "artifacts" / "reports" / "闭合报告.md").read_text()
         self.assertIn("Human-readable closure basis", rpt)
 
     def test_current_state_has_reading_note(self):
@@ -155,7 +155,7 @@ class TestHumanSurface(unittest.TestCase):
         env = os.environ.copy(); env["PYTHONPATH"] = str(PROJECT_ROOT)
         subprocess.run([sys.executable, str(self.tmp/"scripts"/"aiwf_rebase_state.py")],
                        capture_output=True, text=True, cwd=str(self.tmp), env=env, timeout=TIMEOUT)
-        cs = (self.tmp/".aiwf"/"reports"/"当前状态.md").read_text()
+        cs = (self.tmp/".aiwf"/"artifacts"/"reports"/"当前状态.md").read_text()
         self.assertIn("Carry-forward summary for Planner", cs)
 
     # ── planner skill ──

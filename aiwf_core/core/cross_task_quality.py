@@ -19,6 +19,20 @@ def _write(path: Path, data: Dict[str, Any]) -> None:
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
+def _classify_post_hoc_warning(warning: str) -> str:
+    """Classify a post-hoc warning into a kind for cross-task pattern detection."""
+    w = warning.lower()
+    if "no commands" in w or "no evidence_ids" in w:
+        return "testing_no_commands"
+    if "not traceable" in w:
+        return "testing_untraceable"
+    if "all 8 quality dimensions scored pass" in w:
+        return "review_no_adversarial"
+    if "does not match any evidence" in w:
+        return "evidence_id_mismatch"
+    return "other"
+
+
 def _accepted_changed_files(evidence: Dict[str, Any]) -> List[str]:
     changed = set()
     for record in evidence.get("records", []) or []:
@@ -47,14 +61,14 @@ def _archive_trimmed_tasks(history: Dict[str, Any], tasks: List[Dict[str, Any]])
 def append_task_history_from_state(base_dir: str, task_id: str = "", title: str = "") -> Dict[str, Any]:
     """Append/update a closed-task history record from current AIWF state."""
     root = Path(base_dir)
-    history_path = root / ".aiwf" / "history" / "task-history.json"
+    history_path = root / ".aiwf" / "runtime" / "history" / "task-history.json"
     history = _read(history_path, {"tasks": []})
     tasks = history.get("tasks", []) if isinstance(history.get("tasks"), list) else []
     state = _read(root / ".aiwf" / "state" / "state.json", {})
     goal = _read(root / ".aiwf" / "state" / "goal.json", {})
-    evidence = _read(root / ".aiwf" / "evidence" / "records.json", {"records": []})
-    testing = _read(root / ".aiwf" / "quality" / "testing.json", {})
-    review = _read(root / ".aiwf" / "quality" / "review.json", {})
+    evidence = _read(root / ".aiwf" / "artifacts" / "evidence" / "records.json", {"records": []})
+    testing = _read(root / ".aiwf" / "artifacts" / "quality" / "testing.json", {})
+    review = _read(root / ".aiwf" / "artifacts" / "quality" / "review.json", {})
     fix_loop = _read(root / ".aiwf" / "state" / "fix-loop.json", {})
     contexts = _read(root / ".aiwf" / "state" / "contexts.json", {"contexts": []})
 
@@ -87,6 +101,13 @@ def append_task_history_from_state(base_dir: str, task_id: str = "", title: str 
         record["adversarial_kinds"] = list(set(
             o.get("kind", "") for o in adv_obs if isinstance(o, dict) and o.get("kind")
         ))
+    # Post-hoc warning summary — for cross-task pattern detection
+    ph_warnings = review.get("post_hoc_warnings", []) or []
+    if ph_warnings:
+        record["post_hoc_warning_count"] = len(ph_warnings)
+        record["post_hoc_warning_kinds"] = list(set(
+            _classify_post_hoc_warning(w) for w in ph_warnings
+        ))
     tasks = [t for t in tasks if t.get("id") != record_id]
     tasks.append(record)
     history = _archive_trimmed_tasks(history, tasks)
@@ -97,9 +118,9 @@ def append_task_history_from_state(base_dir: str, task_id: str = "", title: str 
 def evaluate_cross_task_quality(base_dir: str, recent_limit: int = 5) -> Dict[str, Any]:
     """Summarize cross-task quality signals without making semantic judgments."""
     root = Path(base_dir)
-    history = _read(root / ".aiwf" / "history" / "task-history.json", {"tasks": []})
-    testing = _read(root / ".aiwf" / "quality" / "testing.json", {})
-    review = _read(root / ".aiwf" / "quality" / "review.json", {})
+    history = _read(root / ".aiwf" / "runtime" / "history" / "task-history.json", {"tasks": []})
+    testing = _read(root / ".aiwf" / "artifacts" / "quality" / "testing.json", {})
+    review = _read(root / ".aiwf" / "artifacts" / "quality" / "review.json", {})
     tasks = history.get("tasks", []) if isinstance(history.get("tasks"), list) else []
     recent = tasks[-recent_limit:]
 
@@ -157,6 +178,28 @@ def evaluate_cross_task_quality(base_dir: str, recent_limit: int = 5) -> Dict[st
             "kind": "reviewer_testing_debt",
             "message": f"{len(review.get('testing_debt', []))} reviewer testing debt observation(s)",
         })
+
+    # Post-hoc warning pattern detection: same warning kind across 2+ recent tasks
+    warning_kind_counts: Dict[str, int] = {}
+    for t in recent:
+        for kind in (t.get("post_hoc_warning_kinds", []) or []):
+            warning_kind_counts[kind] = warning_kind_counts.get(kind, 0) + 1
+    for kind, count in warning_kind_counts.items():
+        if count >= 3:
+            signals.append({
+                "severity": "escalate",
+                "kind": f"post_hoc_{kind}_trend",
+                "message": (
+                    f"Post-hoc warning '{kind}' appeared in {count} recent tasks — "
+                    "systematic quality gap. Next activation requires explicit Planner disposition."
+                ),
+            })
+        elif count >= 2:
+            signals.append({
+                "severity": "warn",
+                "kind": f"post_hoc_{kind}_repeat",
+                "message": f"Post-hoc warning '{kind}' repeated in {count} recent tasks.",
+            })
 
     return {
         "recent_task_count": len(recent),
@@ -225,8 +268,8 @@ def render_quality_digest(base_dir: str) -> str:
 
 
 def write_quality_digest(base_dir: str) -> Path:
-    """Write .aiwf/reports/质量摘要.md and return the path."""
-    path = Path(base_dir) / ".aiwf" / "reports" / "质量摘要.md"
+    """Write .aiwf/artifacts/reports/质量摘要.md and return the path."""
+    path = Path(base_dir) / ".aiwf" / "artifacts" / "reports" / "质量摘要.md"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(render_quality_digest(base_dir), encoding="utf-8")
     sync_quality_escalation_state(base_dir)

@@ -7,10 +7,10 @@ _AH_PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(_AH_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_AH_PROJECT_ROOT))
 
-# === diagnostic log (persistent, check .aiwf/internal/hook-diag.log) ===
+# === diagnostic log (persistent, check .aiwf/runtime/internal/hook-diag.log) ===
 def _ah_diag(msg: str) -> None:
     try:
-        _dp = _AH_PROJECT_ROOT / ".aiwf" / "internal"
+        _dp = _AH_PROJECT_ROOT / ".aiwf" / "runtime" / "internal"
         _dp.mkdir(parents=True, exist_ok=True)
         with open(_dp / "hook-diag.log", "a") as _df:
             import datetime
@@ -28,7 +28,7 @@ try:
     _ah_diag("import aiwf_core ok")
 except ImportError as _e:
     _ah_diag(f"import aiwf_core failed: {_e}, trying toolkit-path.txt")
-    _TK_CFG = _AH_PROJECT_ROOT / ".aiwf" / "internal" / "toolkit-path.txt"
+    _TK_CFG = _AH_PROJECT_ROOT / ".aiwf" / "runtime" / "internal" / "toolkit-path.txt"
     if _TK_CFG.exists():
         _TK_ROOT = _TK_CFG.read_text().strip()
         _ah_diag(f"toolkit-path.txt found: {_TK_ROOT}, exists={Path(_TK_ROOT).exists()}")
@@ -97,7 +97,7 @@ def git_summary(base):
     except: return None
 
 def task_history_summary(base):
-    history = rj(base / ".aiwf" / "history" / "task-history.json", {"tasks": []})
+    history = rj(base / ".aiwf" / "runtime" / "history" / "task-history.json", {"tasks": []})
     tasks = history.get("tasks", []) if isinstance(history.get("tasks"), list) else []
     recent = tasks[-5:]
     file_counts = {}
@@ -117,7 +117,7 @@ def impact_report(base, state, changed, gov_changed):
     task_id = state.get("active_task_id") or state.get("active_plan_id") or ""
     if not task_id:
         return {"applicable": False, "complete": True, "consistent": True, "blockers": []}
-    plan_path = base / ".aiwf" / "plans" / f"{task_id}.md"
+    plan_path = base / ".aiwf" / "artifacts" / "plans" / f"{task_id}.md"
     if not plan_path.exists():
         return {"applicable": True, "complete": False, "consistent": False, "blockers": [f"active plan missing: {task_id}"]}
     try:
@@ -270,13 +270,13 @@ def quality_verdict_blockers(review):
 
 def main():
     base = Path.cwd()
-    out_path = base / ".aiwf" / "reports" / "闭合报告.md"
+    out_path = base / ".aiwf" / "artifacts" / "reports" / "闭合报告.md"
 
     state = rj(base / ".aiwf" / "state" / "state.json")
     goal = rj(base / ".aiwf" / "state" / "goal.json")
-    evidence = rj(base / ".aiwf" / "evidence" / "records.json", {"records": []})
-    testing = rj(base / ".aiwf" / "quality" / "testing.json", {"status": "missing"})
-    review = rj(base / ".aiwf" / "quality" / "review.json", {"result": "unknown", "closure_allowed": False})
+    evidence = rj(base / ".aiwf" / "artifacts" / "evidence" / "records.json", {"records": []})
+    testing = rj(base / ".aiwf" / "artifacts" / "quality" / "testing.json", {"status": "missing"})
+    review = rj(base / ".aiwf" / "artifacts" / "quality" / "review.json", {"result": "unknown", "closure_allowed": False})
     fix_loop = rj(base / ".aiwf" / "state" / "fix-loop.json", {"status": "none"})
     contexts = rj(base / ".aiwf" / "state" / "contexts.json", {"contexts": []})
 
@@ -291,7 +291,7 @@ def main():
     lines = []
     lines.append("# AIWF Closure Report")
     lines.append("")
-    lines.append("*Human-readable closure basis. Machine state: .aiwf/state|quality|evidence|history JSON. Carry-forward: .aiwf/reports/当前状态.md.*")
+    lines.append("*Human-readable closure basis. Machine state: .aiwf/state|quality|evidence|history JSON. Carry-forward: .aiwf/artifacts/reports/当前状态.md.*")
     lines.append(f"Generated: {datetime.now(timezone.utc).isoformat()}")
     lines.append("")
     lines.append("## Goal")
@@ -416,7 +416,7 @@ def main():
 
     # ── Cross-task Quality ──
     lines.append("## Cross-task Quality")
-    qd_path = base / ".aiwf" / "reports" / "质量摘要.md"
+    qd_path = base / ".aiwf" / "artifacts" / "reports" / "质量摘要.md"
     if qd_path.exists():
         qd = qd_path.read_text(encoding="utf-8", errors="ignore")
         signal_lines = [line for line in qd.splitlines() if line.startswith("- ")][:10]

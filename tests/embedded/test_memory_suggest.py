@@ -30,10 +30,10 @@ class TestMemorySuggest(unittest.TestCase):
                               capture_output=True, text=True, cwd=str(self.tmp), env=env, timeout=TIMEOUT)
 
     def _set_review(self, data):
-        (self.tmp / ".aiwf" / "quality" / "review.json").write_text(json.dumps(data, indent=2))
+        (self.tmp / ".aiwf" / "artifacts" / "quality" / "review.json").write_text(json.dumps(data, indent=2))
 
     def _set_cs(self, text):
-        path = self.tmp / ".aiwf" / "reports" / "当前状态.md"
+        path = self.tmp / ".aiwf" / "artifacts" / "reports" / "当前状态.md"
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(text)
 
@@ -50,14 +50,14 @@ class TestMemorySuggest(unittest.TestCase):
         self.assertIn("Division", out)
 
     def test_reads_negative_patterns(self):
-        r = json.loads((self.tmp / ".aiwf" / "quality" / "review.json").read_text())
+        r = json.loads((self.tmp / ".aiwf" / "artifacts" / "quality" / "review.json").read_text())
         r["negative_patterns"] = ["Do not redesign shared validation."]
         self._set_review(r)
         out = self._run("memory", "suggest", "--goal", "validation refactor").stdout
         self.assertIn("redesign", out.lower())
 
     def test_reads_followups(self):
-        r = json.loads((self.tmp / ".aiwf" / "quality" / "review.json").read_text())
+        r = json.loads((self.tmp / ".aiwf" / "artifacts" / "quality" / "review.json").read_text())
         r["followups"] = ["Consider overflow policy task."]
         self._set_review(r)
         out = self._run("memory", "suggest", "--goal", "overflow policy").stdout
@@ -113,15 +113,15 @@ class TestMemorySuggest(unittest.TestCase):
         self.assertEqual(before, (self.tmp / ".aiwf" / "state" / "goal.json").read_text())
 
     def test_no_modify_review_json(self):
-        before = (self.tmp / ".aiwf" / "quality" / "review.json").read_text()
+        before = (self.tmp / ".aiwf" / "artifacts" / "quality" / "review.json").read_text()
         self._run("memory", "suggest", "--goal", "test")
-        self.assertEqual(before, (self.tmp / ".aiwf" / "quality" / "review.json").read_text())
+        self.assertEqual(before, (self.tmp / ".aiwf" / "artifacts" / "quality" / "review.json").read_text())
 
     def test_no_modify_current_state(self):
         self._set_cs("## Carry-forward lessons\n- test\n")
-        before = (self.tmp / ".aiwf" / "reports" / "当前状态.md").read_text()
+        before = (self.tmp / ".aiwf" / "artifacts" / "reports" / "当前状态.md").read_text()
         self._run("memory", "suggest", "--goal", "test")
-        self.assertEqual(before, (self.tmp / ".aiwf" / "reports" / "当前状态.md").read_text())
+        self.assertEqual(before, (self.tmp / ".aiwf" / "artifacts" / "reports" / "当前状态.md").read_text())
 
     # output
     def test_output_advisory_footer(self):

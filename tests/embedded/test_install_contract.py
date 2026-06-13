@@ -32,12 +32,15 @@ class TestInstall(unittest.TestCase):
     def test_v2_state_files_created_without_flat_runtime_state(self):
         expected = [
             ".aiwf/state/contexts.json",
-            ".aiwf/evidence/records.json",
+            ".aiwf/artifacts/evidence/records.json",
             ".aiwf/state/fix-loop.json",
             ".aiwf/state/goal.json",
-            ".aiwf/quality/review.json",
+            ".aiwf/state/mission.json",
+            ".aiwf/state/milestones.json",
+            ".aiwf/state/plans.json",
+            ".aiwf/artifacts/quality/review.json",
             ".aiwf/state/state.json",
-            ".aiwf/quality/testing.json",
+            ".aiwf/artifacts/quality/testing.json",
         ]
         for rel in expected:
             self.assertTrue((self.tmp / rel).exists(), f"Missing: {rel}")
@@ -46,6 +49,11 @@ class TestInstall(unittest.TestCase):
             self.assertFalse((self.tmp / ".aiwf" / old).exists(), f"Flat runtime file should not exist: {old}")
         self.assertFalse((self.tmp / ".aiwf" / "lessons.md").exists())
         self.assertFalse((self.tmp / ".aiwf" / "negative-memory.md").exists())
+        # Stage 4.7.3: v2 layout — 5-zone structure present alongside compat dirs
+        self.assertTrue((self.tmp / ".aiwf" / "README.md").exists())
+        self.assertTrue((self.tmp / ".aiwf" / "artifacts").is_dir())
+        self.assertTrue((self.tmp / ".aiwf" / "runtime").is_dir())
+        self.assertTrue((self.tmp / ".aiwf" / "archive").is_dir())
 
     def test_settings_json_has_nested_hooks(self):
         s = self._j(".claude/settings.json")
@@ -94,7 +102,7 @@ class TestInstall(unittest.TestCase):
         reviewer = (self.tmp / ".claude" / "skills" / "aiwf-review" / "SKILL.md").read_text()
         executor = (self.tmp / ".claude" / "agents" / "aiwf-executor.md").read_text()
         self.assertIn("ask before switching to", planner.lower())
-        self.assertIn("do not infer consent from a plan file", planner.lower())
+        self.assertIn("project architect", planner.lower())
         self.assertIn("do NOT hand-edit", planner)
         self.assertIn("AIWFRoleEvidence", reviewer)
         self.assertIn("--scan-git", reviewer)
@@ -131,14 +139,15 @@ class TestInstall(unittest.TestCase):
         self.assertIn("AIWF MANAGED BLOCK END", content)
 
     def test_claude_md_has_runtime_protocol(self):
-        """Generated CLAUDE.md tells planner-main how to resume from mechanical state."""
+        """Generated CLAUDE.md is a slim constitution — references aiwf-init for details."""
         content = (self.tmp / "CLAUDE.md").read_text()
-        self.assertIn("## Runtime Discipline", content)
-        self.assertIn("Every turn: read the `[AIWF]` status block", content)
-        self.assertIn("PRIMARY", content)
-        self.assertIn("No roleplaying independent Tester or Reviewer", content)
+        self.assertIn("aiwf status", content)
         self.assertIn("PRIMARY", content)
         self.assertIn("REQUIRED NEXT", content)
+        self.assertIn("aiwf-init", content)
+        self.assertIn("Mechanical truth", content)
+        self.assertIn("Skill index", content)
+        self.assertIn("prepare-close` is the authoritative gate", content)
 
     def test_claude_md_managed_block_idempotent(self):
         """Second install does not duplicate managed block."""
@@ -270,18 +279,16 @@ class TestReasonixInstall(unittest.TestCase):
         for phrase in [
             "Mandatory State Machine",
             "Orient",
-            "Freeze the contract",
-            "Route and dispatch",
             "Cleanup before review",
             "Fix loop when needed",
-            "Planner meta-critique",
-            "Task completion",
-            "Closure",
+            "Meta-critique",
+            "Closure gate",
+            "Task close",
             "Carry forward",
         ]:
             self.assertIn(phrase, execute)
         machine = execute.split("## Mandatory State Machine", 1)[1].split("## How to Run a Task", 1)[0]
-        self.assertLess(machine.index("Cleanup before review"), machine.index("**Review**"))
+        self.assertLess(machine.index("Cleanup before review"), machine.index("Review"))
 
         # REASONIX.md carries the constitution — platform-neutral hard boundaries.
         reasonix_md = (self.tmp / "REASONIX.md").read_text()
@@ -292,9 +299,10 @@ class TestReasonixInstall(unittest.TestCase):
         planner = (self.tmp / ".reasonix" / "skills" / "aiwf-planner" / "SKILL.md").read_text()
         self.assertIn("run `aiwf status`", planner)
 
-        # REASONIX.md carries the hard boundary facts including closure semantics.
-        self.assertIn("never blocks current task close", reasonix_md)
-        self.assertIn("prepare-close` is the authoritative gate", reasonix_md)
+        # aiwf-init skill exists and contains the decision tree.
+        init_skill = (self.tmp / ".reasonix" / "skills" / "aiwf-init" / "SKILL.md").read_text()
+        self.assertIn("Decision tree", init_skill)
+        self.assertIn("aiwf status", init_skill)
 
     def test_connection_recovery_source_is_shared_partial(self):
         shared = PROJECT_ROOT / "aiwf_core" / "embedded_templates" / "shared"

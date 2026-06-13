@@ -18,7 +18,7 @@ def _make_state_dir(tmpdir, state=None, testing=None, review=None,
                     evidence=None, fix_loop=None):
     """Create a minimal .aiwf state tree and return the base path."""
     base = Path(tmpdir)
-    for d in [".aiwf/state", ".aiwf/quality", ".aiwf/evidence"]:
+    for d in [".aiwf/state", ".aiwf/artifacts/quality", ".aiwf/artifacts/evidence"]:
         (base / d).mkdir(parents=True, exist_ok=True)
 
     (base / ".aiwf/state/state.json").write_text(json.dumps(state or {
@@ -27,21 +27,42 @@ def _make_state_dir(tmpdir, state=None, testing=None, review=None,
         "close_attempt": False, "closure_allowed": False,
         "scope_violation": False,
     }))
-    (base / ".aiwf/quality/testing.json").write_text(json.dumps(testing or {
+    (base / ".aiwf/artifacts/quality/testing.json").write_text(json.dumps(testing or {
         "status": "passed", "commands": ["pytest"],
     }))
-    (base / ".aiwf/quality/review.json").write_text(json.dumps(review or {
-        "result": "accepted", "closure_allowed": True,
-        "cleanup_status": "fresh", "blockers": [], "stale_items": [],
+    (base / ".aiwf/artifacts/quality/review.json").write_text(json.dumps(review or {
+        "verdict": "PASS",
+        "result": "accepted",
+        "closure_allowed": True,
+        "cleanup_status": "fresh",
+        "blockers": [],
+        "stale_items": [],
+        "quality_dimensions": _full_quality_dimensions(),
+        "review_basis": _full_review_basis(),
     }))
-    (base / ".aiwf/evidence/records.json").write_text(json.dumps(evidence or {
-        "records": [{
-            "id": "EV-001", "status": "accepted",
-            "trust_level": "command_observed", "session_id": "s1",
-        }],
+    (base / ".aiwf/artifacts/evidence/records.json").write_text(json.dumps(evidence or {
+        "records": [
+            {"id": "EV-001", "status": "accepted", "trust": "machine_observed",
+             "attribution": "strong", "tool_name": "Write",
+             "trust_level": "command_observed",
+             "session_id": "exec-session", "agent_type": "aiwf-executor"},
+            {"id": "EV-002", "status": "accepted", "trust": "machine_observed",
+             "attribution": "strong", "tool_name": "Bash",
+             "trust_level": "command_observed",
+             "session_id": "test-session", "agent_type": "aiwf-tester"},
+            {"id": "EV-003", "status": "accepted", "trust": "machine_observed",
+             "attribution": "strong", "tool_name": "Bash",
+             "trust_level": "command_observed",
+             "session_id": "review-session", "agent_type": "aiwf-reviewer",
+             "timestamp": "2026-01-02T00:00:00+00:00"},
+        ],
     }))
     (base / ".aiwf/state/fix-loop.json").write_text(json.dumps(fix_loop or {
         "status": "none",
+    }))
+    (base / ".aiwf/state/goal.json").write_text(json.dumps({
+        "meta_critique": {"status": "recorded", "summary": "test"},
+        "quality_brief": {"non_goals": ["test"]},
     }))
     return str(base)
 
@@ -383,12 +404,15 @@ class TestEvidenceTrustLevel(unittest.TestCase):
                    "close_attempt": False, "closure_allowed": False,
                    "scope_violation": False},
             evidence={"records": [
-                {"id": "EV-001", "status": "accepted", "trust_level": "command_observed",
-                 "session_id": "s1"},
-                {"id": "EV-002", "status": "accepted", "trust_level": "command_observed",
-                 "session_id": "s2"},
-                {"id": "EV-003", "status": "accepted", "trust_level": "command_observed",
-                 "session_id": "s3"},
+                {"id": "EV-001", "status": "accepted", "trust": "machine_observed",
+                 "tool_name": "Write", "trust_level": "command_observed",
+                 "session_id": "s1", "agent_type": "aiwf-executor"},
+                {"id": "EV-002", "status": "accepted", "trust": "machine_observed",
+                 "tool_name": "Bash", "trust_level": "command_observed",
+                 "session_id": "s2", "agent_type": "aiwf-tester"},
+                {"id": "EV-003", "status": "accepted", "trust": "machine_observed",
+                 "tool_name": "Bash", "trust_level": "command_observed",
+                 "session_id": "s3", "agent_type": "aiwf-reviewer"},
             ]},
         )
         result = prepare_close(base)
@@ -446,15 +470,17 @@ class TestImpactCloseGates(unittest.TestCase):
         import tempfile, json
         self.tmp = tempfile.mkdtemp()
         self.base = Path(self.tmp)
-        for d in [".aiwf/state", ".aiwf/quality", ".aiwf/evidence", ".aiwf/plans",
-                   ".aiwf/history", ".aiwf/reports"]:
+        for d in [".aiwf/state", ".aiwf/artifacts/quality", ".aiwf/artifacts/evidence", ".aiwf/artifacts/plans",
+                   ".aiwf/runtime/history", ".aiwf/artifacts/reports"]:
             (self.base / d).mkdir(parents=True, exist_ok=True)
         # Default clean state
         self._write_state({"phase": "reviewing", "workflow_level": "L1_review_light",
                            "active_task_id": "TASK-001", "close_attempt": False})
         self._write_testing({"status": "passed"})
-        self._write_review({"result": "accepted", "closure_allowed": True,
-                           "cleanup_status": "fresh", "stale_items": []})
+        self._write_review({"verdict": "PASS", "result": "accepted", "closure_allowed": True,
+                           "cleanup_status": "fresh", "stale_items": [],
+                           "quality_dimensions": _full_quality_dimensions(),
+                           "review_basis": _full_review_basis()})
         self._write_fixloop({"status": "none"})
         self._write_evidence({"records": [
             {"id": "EV-001", "status": "accepted", "trust_level": "role_recorded",
@@ -470,24 +496,27 @@ class TestImpactCloseGates(unittest.TestCase):
         self._write_goal()
 
     def _write_state(self, d): (self.base / ".aiwf/state/state.json").write_text(json.dumps(d))
-    def _write_testing(self, d): (self.base / ".aiwf/quality/testing.json").write_text(json.dumps(d))
-    def _write_review(self, d): (self.base / ".aiwf/quality/review.json").write_text(json.dumps(d))
+    def _write_testing(self, d): (self.base / ".aiwf/artifacts/quality/testing.json").write_text(json.dumps(d))
+    def _write_review(self, d): (self.base / ".aiwf/artifacts/quality/review.json").write_text(json.dumps(d))
     def _write_fixloop(self, d): (self.base / ".aiwf/state/fix-loop.json").write_text(json.dumps(d))
-    def _write_evidence(self, d): (self.base / ".aiwf/evidence/records.json").write_text(json.dumps(d))
+    def _write_evidence(self, d): (self.base / ".aiwf/artifacts/evidence/records.json").write_text(json.dumps(d))
     def _write_ledger(self):
-        (self.base / ".aiwf/history/task-ledger.json").write_text(
+        (self.base / ".aiwf/runtime/history/task-ledger.json").write_text(
             json.dumps({"tasks": [], "execution_window": {"active_task_ids": []}}))
-        (self.base / ".aiwf/history/task-history.json").write_text(json.dumps({"tasks": []}))
+        (self.base / ".aiwf/runtime/history/task-history.json").write_text(json.dumps({"tasks": []}))
     def _write_active_ledger_task(self):
-        (self.base / ".aiwf/history/task-ledger.json").write_text(
+        (self.base / ".aiwf/runtime/history/task-ledger.json").write_text(
             json.dumps({
                 "tasks": [{"id": "TASK-001", "title": "Impact task", "status": "active"}],
                 "execution_window": {"active_task_ids": ["TASK-001"]},
             }))
     def _write_goal(self):
-        (self.base / ".aiwf/state/goal.json").write_text(json.dumps({"quality_brief": {}}))
+        (self.base / ".aiwf/state/goal.json").write_text(json.dumps({
+            "quality_brief": {"non_goals": ["test"]},
+            "meta_critique": {"status": "recorded", "summary": "test"}
+        }))
     def _write_plan(self, task_id, impact_body):
-        (self.base / ".aiwf/plans" / f"{task_id}.md").write_text(
+        (self.base / ".aiwf/artifacts/plans" / f"{task_id}.md").write_text(
             f"# {task_id}\n\n## Impact\n{impact_body}\n")
 
     def test_prepare_close_blocks_impact_docs_no_but_docs_changed(self):
@@ -518,12 +547,43 @@ class TestImpactCloseGates(unittest.TestCase):
         self.assertTrue(any("Impact.docs=no" in b for b in result["blockers"]),
             f"Impact blocker must remain after blocked task close, got: {result['blockers']}")
 
+    def test_prepare_close_uses_task_plan_id_for_decoupled_plan_impact(self):
+        """Plan registry decoupling means Impact belongs to task.plan_id, not TASK-ID."""
+        (self.base / ".aiwf/artifacts/plans/TASK-001.md").unlink(missing_ok=True)
+        self._write_plan("PLAN-001",
+            "- docs: no — no doc changes\n"
+            "- project_map: no — no structure change\n"
+            "- environment: no — same env\n"
+            "- capabilities: no — no new deps\n"
+            "- quality_summary: no — no quality impact\n")
+        self._write_evidence({"records": [
+            {"id": "EV-001", "status": "accepted", "trust_level": "role_recorded",
+             "session_id": "s1", "changed_files": ["src/a.py"]}
+        ]})
+        (self.base / ".aiwf/runtime/history/task-ledger.json").write_text(
+            json.dumps({
+                "tasks": [{
+                    "id": "TASK-001",
+                    "title": "Decoupled plan task",
+                    "status": "active",
+                    "plan_id": "PLAN-001",
+                    "goal_id": "GOAL-001",
+                }],
+                "execution_window": {"active_task_ids": ["TASK-001"]},
+            }))
+        from aiwf_core.core.state.closure_ops import prepare_close
+
+        result = prepare_close(str(self.base))
+
+        self.assertTrue(result["passed"], result["blockers"])
+        self.assertEqual(result["state"]["close_prepared_task_id"], "TASK-001")
+
     def test_prepare_close_blocks_impact_project_map_no_but_changed(self):
         """Impact.project_map=no but project-map file changed — must block."""
         import json
         self._write_evidence({"records": [
             {"id": "EV-001", "status": "accepted", "trust_level": "role_recorded",
-             "session_id": "s1", "changed_files": [".aiwf/reports/PROJECT-MAP.md"]}
+             "session_id": "s1", "changed_files": [".aiwf/artifacts/reports/PROJECT-MAP.md"]}
         ]})
         from aiwf_core.core.state.closure_ops import prepare_close
         result = prepare_close(str(self.base))
@@ -536,7 +596,7 @@ class TestImpactCloseGates(unittest.TestCase):
         import json
         self._write_evidence({"records": [
             {"id": "EV-001", "status": "accepted", "trust_level": "role_recorded",
-             "session_id": "s1", "changed_files": [".aiwf/reports/质量摘要.md"]}
+             "session_id": "s1", "changed_files": [".aiwf/artifacts/reports/质量摘要.md"]}
         ]})
         from aiwf_core.core.state.closure_ops import prepare_close
         result = prepare_close(str(self.base))

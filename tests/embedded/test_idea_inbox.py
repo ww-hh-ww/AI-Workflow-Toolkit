@@ -25,7 +25,7 @@ class TestIdeaInbox(unittest.TestCase):
         for fn, dfn in MVP_STATE_FILES.items():
             p = self.tmp / ".aiwf" / fn; p.parent.mkdir(parents=True, exist_ok=True); p.write_text(json.dumps(dfn(), indent=2) + "\n")
         # Clean ideas
-        ip = self.tmp / ".aiwf" / "reports" / "ideas.md"
+        ip = self.tmp / ".aiwf" / "artifacts" / "reports" / "ideas.md"
         if ip.exists(): ip.unlink()
 
     def _run(self, *args):
@@ -34,7 +34,7 @@ class TestIdeaInbox(unittest.TestCase):
                               capture_output=True, text=True, cwd=str(self.tmp), env=env, timeout=TIMEOUT)
 
     def _ideas_text(self):
-        ip = self.tmp / ".aiwf" / "reports" / "ideas.md"
+        ip = self.tmp / ".aiwf" / "artifacts" / "reports" / "ideas.md"
         return ip.read_text() if ip.exists() else ""
 
     def _goal(self):
@@ -56,18 +56,18 @@ class TestIdeaInbox(unittest.TestCase):
             r = subprocess.run([sys.executable, "-m", "aiwf_core.cli", "install", "claude", "--force"],
                                capture_output=True, text=True, cwd=str(fresh), env=env, timeout=20)
             self.assertEqual(r.returncode, 0, r.stderr)
-            self.assertTrue((fresh / ".aiwf" / "reports").exists())  # reports dir exists
+            self.assertTrue((fresh / ".aiwf" / "artifacts" / "reports").exists())  # reports dir exists
         finally:
             shutil.rmtree(fresh, ignore_errors=True)
 
     def test_start_context_creates_ideas_file(self):
         from aiwf_core.core.state_ops import start_context
         start_context(str(self.tmp), "CTX-IDEA", allowed_write=["src/"])
-        self.assertTrue((self.tmp / ".aiwf" / "reports" / "ideas.md").exists())
+        self.assertTrue((self.tmp / ".aiwf" / "artifacts" / "reports" / "ideas.md").exists())
 
     def test_capture_creates_ideas_file(self):
         self._run("idea", "capture", "--text", "Maybe add inspiration pack")
-        self.assertTrue((self.tmp / ".aiwf" / "reports" / "ideas.md").exists())
+        self.assertTrue((self.tmp / ".aiwf" / "artifacts" / "reports" / "ideas.md").exists())
 
     def test_captured_idea_has_id_status_text(self):
         self._run("idea", "capture", "--text", "Add inspiration pack", "--tag", "planner")
@@ -235,7 +235,7 @@ class TestIdeaInbox(unittest.TestCase):
 
     def test_old_format_id_still_parseable(self):
         # Write an old-format idea manually to verify parser compat
-        ip = self.tmp / ".aiwf" / "reports" / "ideas.md"
+        ip = self.tmp / ".aiwf" / "artifacts" / "reports" / "ideas.md"
         ip.parent.mkdir(parents=True, exist_ok=True)
         ip.write_text("""# AIWF Ideas
 
@@ -290,7 +290,7 @@ Ideas are volatile, low-trust planning inputs.
     def test_report_no_raw_idea_text(self):
         self._run("idea", "capture", "--text", "secret-raw-idea-should-not-be-in-report", "--expires-days", "0")
         r = self._run_script("scripts/aiwf_export_report.py")
-        rpt = (self.tmp / ".aiwf" / "reports" / "闭合报告.md").read_text()
+        rpt = (self.tmp / ".aiwf" / "artifacts" / "reports" / "闭合报告.md").read_text()
         self.assertNotIn("secret-raw-idea", rpt)
         self.assertIn("expired idea:", rpt)
         self.assertIn("text=omitted", rpt)

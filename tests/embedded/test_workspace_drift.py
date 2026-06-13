@@ -20,7 +20,7 @@ class TestWorkspaceDrift(unittest.TestCase):
         env = os.environ.copy(); env["PYTHONPATH"] = str(PROJECT_ROOT)
         subprocess.run([sys.executable, "-m", "aiwf_core.cli", "install", "claude", "--force"],
                        capture_output=True, text=True, cwd=str(cls._tmpl), env=env, timeout=30)
-        drift = cls._tmpl / ".aiwf" / "internal" / "workspace-drift.json"
+        drift = cls._tmpl / ".aiwf" / "runtime" / "internal" / "workspace-drift.json"
         if drift.exists():
             drift.unlink()
         subprocess.run(["git", "add", "-A"], cwd=str(cls._tmpl), capture_output=True, timeout=10)
@@ -54,7 +54,7 @@ class TestWorkspaceDrift(unittest.TestCase):
         return r.stdout
 
     def _drift(self):
-        return json.loads((self.tmp/".aiwf"/"internal"/"workspace-drift.json").read_text())
+        return json.loads((self.tmp/".aiwf"/"runtime"/"internal"/"workspace-drift.json").read_text())
 
     # ── clean repo ──
     def test_clean_repo_dirty_false(self):
@@ -92,7 +92,7 @@ class TestWorkspaceDrift(unittest.TestCase):
     # ── writes file ──
     def test_scan_writes_drift_json(self):
         self._run_ok("workspace", "scan")
-        self.assertTrue((self.tmp/".aiwf"/"internal"/"workspace-drift.json").exists())
+        self.assertTrue((self.tmp/".aiwf"/"runtime"/"internal"/"workspace-drift.json").exists())
 
     # ── output short ──
     def test_output_is_short_no_json_dump(self):

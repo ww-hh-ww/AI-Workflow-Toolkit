@@ -72,7 +72,7 @@ class TestEvaluationContract(unittest.TestCase):
         env = os.environ.copy(); env["PYTHONPATH"] = str(PROJECT_ROOT)
         subprocess.run([sys.executable, str(self.tmp / "scripts" / "aiwf_export_report.py")],
                        capture_output=True, text=True, cwd=str(self.tmp), env=env, timeout=TIMEOUT)
-        rpt = (self.tmp / ".aiwf" / "reports" / "闭合报告.md").read_text()
+        rpt = (self.tmp / ".aiwf" / "artifacts" / "reports" / "闭合报告.md").read_text()
         self.assertIn("Evaluation Contract", rpt)
         self.assertIn("divide works", rpt)
 
@@ -80,7 +80,7 @@ class TestEvaluationContract(unittest.TestCase):
         env = os.environ.copy(); env["PYTHONPATH"] = str(PROJECT_ROOT)
         subprocess.run([sys.executable, str(self.tmp / "scripts" / "aiwf_export_report.py")],
                        capture_output=True, text=True, cwd=str(self.tmp), env=env, timeout=TIMEOUT)
-        rpt = (self.tmp / ".aiwf" / "reports" / "闭合报告.md").read_text()
+        rpt = (self.tmp / ".aiwf" / "artifacts" / "reports" / "闭合报告.md").read_text()
         self.assertIn("missing", rpt.lower())
 
     # ── CLI: non_goals and known_risks ──
@@ -102,7 +102,7 @@ class TestEvaluationContract(unittest.TestCase):
         env = os.environ.copy(); env["PYTHONPATH"] = str(PROJECT_ROOT)
         subprocess.run([sys.executable, str(self.tmp / "scripts" / "aiwf_export_report.py")],
                        capture_output=True, text=True, cwd=str(self.tmp), env=env, timeout=TIMEOUT)
-        rpt = (self.tmp / ".aiwf" / "reports" / "闭合报告.md").read_text()
+        rpt = (self.tmp / ".aiwf" / "artifacts" / "reports" / "闭合报告.md").read_text()
         self.assertIn("Non-goals:", rpt)
         self.assertIn("Do not redesign overflow policy", rpt)
 
@@ -113,7 +113,7 @@ class TestEvaluationContract(unittest.TestCase):
         env = os.environ.copy(); env["PYTHONPATH"] = str(PROJECT_ROOT)
         subprocess.run([sys.executable, str(self.tmp / "scripts" / "aiwf_export_report.py")],
                        capture_output=True, text=True, cwd=str(self.tmp), env=env, timeout=TIMEOUT)
-        rpt = (self.tmp / ".aiwf" / "reports" / "闭合报告.md").read_text()
+        rpt = (self.tmp / ".aiwf" / "artifacts" / "reports" / "闭合报告.md").read_text()
         self.assertIn("Known risks:", rpt)
         self.assertIn("Shared validation changes can broaden scope", rpt)
 
@@ -124,7 +124,7 @@ class TestEvaluationContract(unittest.TestCase):
         env = os.environ.copy(); env["PYTHONPATH"] = str(PROJECT_ROOT)
         subprocess.run([sys.executable, str(self.tmp / "scripts" / "aiwf_export_report.py")],
                        capture_output=True, text=True, cwd=str(self.tmp), env=env, timeout=TIMEOUT)
-        rpt = (self.tmp / ".aiwf" / "reports" / "闭合报告.md").read_text()
+        rpt = (self.tmp / ".aiwf" / "artifacts" / "reports" / "闭合报告.md").read_text()
         self.assertIn("Closure question:", rpt)
         self.assertIn("Does divide satisfy requested behavior?", rpt)
 
@@ -142,42 +142,42 @@ class TestEvaluationContract(unittest.TestCase):
     # ── report: structured lessons dict ──
     def test_report_handles_structured_lessons_dict(self):
         # Write structured dict lessons to review.json
-        rv = json.loads((self.tmp / ".aiwf" / "quality" / "review.json").read_text())
+        rv = json.loads((self.tmp / ".aiwf" / "artifacts" / "quality" / "review.json").read_text())
         rv["lessons"] = [
             {"lesson": "Division tasks must test +0 and -0.", "applies_to": ["numeric_semantics"], "affects": ["test_focus"], "source": "previous blocker", "status": "active"}
         ]
-        (self.tmp / ".aiwf" / "quality" / "review.json").write_text(json.dumps(rv, indent=2))
+        (self.tmp / ".aiwf" / "artifacts" / "quality" / "review.json").write_text(json.dumps(rv, indent=2))
         # Must not crash
         env = os.environ.copy(); env["PYTHONPATH"] = str(PROJECT_ROOT)
         r = subprocess.run([sys.executable, str(self.tmp / "scripts" / "aiwf_export_report.py")],
                            capture_output=True, text=True, cwd=str(self.tmp), env=env, timeout=TIMEOUT)
         self.assertEqual(r.returncode, 0, f"export_report crashed on dict lessons: {r.stderr}")
-        rpt = (self.tmp / ".aiwf" / "reports" / "闭合报告.md").read_text()
+        rpt = (self.tmp / ".aiwf" / "artifacts" / "reports" / "闭合报告.md").read_text()
         self.assertIn("Division tasks must test +0 and -0", rpt)
         self.assertIn("applies_to: numeric_semantics", rpt)
         self.assertIn("affects: test_focus", rpt)
 
     def test_report_does_not_dump_raw_lesson_dict_json(self):
-        rv = json.loads((self.tmp / ".aiwf" / "quality" / "review.json").read_text())
+        rv = json.loads((self.tmp / ".aiwf" / "artifacts" / "quality" / "review.json").read_text())
         rv["lessons"] = [
             {"lesson": "Test lesson", "applies_to": ["x"], "affects": ["test_focus"], "source": "src", "status": "active"}
         ]
-        (self.tmp / ".aiwf" / "quality" / "review.json").write_text(json.dumps(rv, indent=2))
+        (self.tmp / ".aiwf" / "artifacts" / "quality" / "review.json").write_text(json.dumps(rv, indent=2))
         env = os.environ.copy(); env["PYTHONPATH"] = str(PROJECT_ROOT)
         subprocess.run([sys.executable, str(self.tmp / "scripts" / "aiwf_export_report.py")],
                        capture_output=True, text=True, cwd=str(self.tmp), env=env, timeout=TIMEOUT)
-        rpt = (self.tmp / ".aiwf" / "reports" / "闭合报告.md").read_text()
+        rpt = (self.tmp / ".aiwf" / "artifacts" / "reports" / "闭合报告.md").read_text()
         self.assertNotIn('"lesson"', rpt, "Report must not dump raw lesson dict JSON")
         self.assertNotIn('"applies_to"', rpt, "Report must not dump raw dict JSON keys")
         self.assertNotIn('"source"', rpt)
 
     def test_report_handles_string_and_dict_lessons(self):
-        rv = json.loads((self.tmp / ".aiwf" / "quality" / "review.json").read_text())
+        rv = json.loads((self.tmp / ".aiwf" / "artifacts" / "quality" / "review.json").read_text())
         rv["lessons"] = [
             "Simple string lesson",
             {"lesson": "Dict lesson with applies_to", "applies_to": ["refactor"]}
         ]
-        (self.tmp / ".aiwf" / "quality" / "review.json").write_text(json.dumps(rv, indent=2))
+        (self.tmp / ".aiwf" / "artifacts" / "quality" / "review.json").write_text(json.dumps(rv, indent=2))
         env = os.environ.copy(); env["PYTHONPATH"] = str(PROJECT_ROOT)
         r = subprocess.run([sys.executable, str(self.tmp / "scripts" / "aiwf_export_report.py")],
                            capture_output=True, text=True, cwd=str(self.tmp), env=env, timeout=TIMEOUT)
@@ -185,18 +185,18 @@ class TestEvaluationContract(unittest.TestCase):
 
     # ── report: negative_patterns / followups dict compat ──
     def test_report_handles_dict_negative_patterns(self):
-        rv = json.loads((self.tmp / ".aiwf" / "quality" / "review.json").read_text())
+        rv = json.loads((self.tmp / ".aiwf" / "artifacts" / "quality" / "review.json").read_text())
         rv["negative_patterns"] = [{"pattern": "Do not silently redesign shared validation."}]
-        (self.tmp / ".aiwf" / "quality" / "review.json").write_text(json.dumps(rv, indent=2))
+        (self.tmp / ".aiwf" / "artifacts" / "quality" / "review.json").write_text(json.dumps(rv, indent=2))
         env = os.environ.copy(); env["PYTHONPATH"] = str(PROJECT_ROOT)
         r = subprocess.run([sys.executable, str(self.tmp / "scripts" / "aiwf_export_report.py")],
                            capture_output=True, text=True, cwd=str(self.tmp), env=env, timeout=TIMEOUT)
         self.assertEqual(r.returncode, 0, f"export_report crashed on dict negative_patterns: {r.stderr}")
 
     def test_report_handles_dict_followups(self):
-        rv = json.loads((self.tmp / ".aiwf" / "quality" / "review.json").read_text())
+        rv = json.loads((self.tmp / ".aiwf" / "artifacts" / "quality" / "review.json").read_text())
         rv["followups"] = [{"followup": "Consider separate overflow policy task."}]
-        (self.tmp / ".aiwf" / "quality" / "review.json").write_text(json.dumps(rv, indent=2))
+        (self.tmp / ".aiwf" / "artifacts" / "quality" / "review.json").write_text(json.dumps(rv, indent=2))
         env = os.environ.copy(); env["PYTHONPATH"] = str(PROJECT_ROOT)
         r = subprocess.run([sys.executable, str(self.tmp / "scripts" / "aiwf_export_report.py")],
                            capture_output=True, text=True, cwd=str(self.tmp), env=env, timeout=TIMEOUT)
@@ -210,7 +210,7 @@ class TestEvaluationContract(unittest.TestCase):
         env = os.environ.copy(); env["PYTHONPATH"] = str(PROJECT_ROOT)
         subprocess.run([sys.executable, str(self.tmp / "scripts" / "aiwf_export_report.py")],
                        capture_output=True, text=True, cwd=str(self.tmp), env=env, timeout=TIMEOUT)
-        rpt = (self.tmp / ".aiwf" / "reports" / "闭合报告.md").read_text()
+        rpt = (self.tmp / ".aiwf" / "artifacts" / "reports" / "闭合报告.md").read_text()
         self.assertIn("Evaluation Coverage", rpt)
         self.assertIn("Acceptance coverage", rpt)
         self.assertIn("System coverage", rpt)

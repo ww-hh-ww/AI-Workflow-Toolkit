@@ -97,9 +97,9 @@ class TestProjectRules(unittest.TestCase):
 
     def test_add_does_not_modify_project_map(self):
         self._run("project-map", "init")
-        before = (self.tmp / ".aiwf" / "reports" / "项目地图.md").read_text()
+        before = (self.tmp / ".aiwf" / "artifacts" / "reports" / "项目地图.md").read_text()
         self._run("rule", "add", "--text", "Test rule")
-        after = (self.tmp / ".aiwf" / "reports" / "项目地图.md").read_text()
+        after = (self.tmp / ".aiwf" / "artifacts" / "reports" / "项目地图.md").read_text()
         self.assertEqual(before, after)
 
     def test_add_does_not_modify_goal(self):
@@ -202,7 +202,7 @@ class TestProjectRules(unittest.TestCase):
         self._run("rule", "add", "--text", "test rule")
         self._run("rule", "add-negative", "--text", "negative rule")
         r = self._run_script("scripts/aiwf_export_report.py")
-        rpt = (self.tmp / ".aiwf" / "reports" / "闭合报告.md").read_text()
+        rpt = (self.tmp / ".aiwf" / "artifacts" / "reports" / "闭合报告.md").read_text()
         self.assertIn("Project Rules", rpt)
         self.assertIn("Active rules: 1", rpt)
         self.assertIn("Negative rules: 1", rpt)

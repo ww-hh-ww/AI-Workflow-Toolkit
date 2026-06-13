@@ -73,10 +73,10 @@ Every V2 verdict must record all six review basis items:
 
 Use `covered` only after evaluating the actual source:
 - `goal`: `.aiwf/state/goal.json`, Evaluation Contract, and current user intent.
-- `plan`: active `.aiwf/plans/<TASK>.md`, especially Goal Progress, Scope, Done Means, and Verification.
+- `plan`: active `.aiwf/artifacts/plans/<PLAN-ID>.md`, especially Goal Progress, Scope, Done Means, and Verification.
 - `scope`: context allowed_write / forbidden_write, changed files, and scope violations.
 - `evidence`: accepted and rejected evidence IDs, changed files, and trust levels.
-- `testing`: `.aiwf/quality/testing.json`, commands, coverage, untested risks, and changed-file risk.
+- `testing`: `.aiwf/artifacts/quality/testing.json`, commands, coverage, untested risks, and changed-file risk.
 - `impact`: active plan's Impact section against actual project/governance/support changes.
 
 Use `gap` when that source contradicts closure or is insufficient. `gap` and `not_applicable` require a `--basis-note name_note=...`.
@@ -113,6 +113,6 @@ Score each dimension from evidence, not intuition:
 
 ## Evidence-First Testing Boundary
 
-Audit testing evidence before running commands. Default: inspect `.aiwf/quality/testing.json`, accepted evidence, command list, coverage mappings. Run small spot-checks only when evidence is ambiguous, stale, or contradictory. Request Tester rerun when full regression or system integration evidence is missing.
+Audit testing evidence before running commands. Default: inspect `.aiwf/artifacts/quality/testing.json`, accepted evidence, command list, coverage mappings. Run small spot-checks only when evidence is ambiguous, stale, or contradictory. Request Tester rerun when full regression or system integration evidence is missing.
 
 Only rerun broad tests yourself when there is a concrete reason: missing evidence, stale implementation, contradictory results, suspected fabricated evidence, or high-risk regression surface that Tester did not cover.

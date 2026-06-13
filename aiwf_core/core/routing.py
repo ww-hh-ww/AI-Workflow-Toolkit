@@ -132,7 +132,11 @@ HARD_UPGRADES_V2.update({
     "semantic_core_gate": "L2_standard_team",
 })
 
-# Factors that FORBID downgrade entirely
+# Factors that FORBID downgrade entirely.
+# Only ACTIVE fix-loops and same-TASK recurrence forbid downgrade.
+# prior_fix_loop_same_file is a warning signal (same file had issues in a
+# prior task that was already resolved), not a hard constraint — Planner
+# may accept the residual risk and proceed at current level.
 DOWNGRADE_FORBIDDEN_FACTORS = {
     "security_or_data_risk",
     "destructive_command",
@@ -140,7 +144,6 @@ DOWNGRADE_FORBIDDEN_FACTORS = {
     "data_migration",
     "prior_fix_loop_active",
     "prior_fix_loop_same_task",
-    "prior_fix_loop_same_file",
     "semantic_core_gate",
 }
 

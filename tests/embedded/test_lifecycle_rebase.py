@@ -23,9 +23,9 @@ class TestLifecycleRebase(unittest.TestCase):
         (self.tmp/".aiwf").mkdir(parents=True, exist_ok=True)
         for fn, dfn in MVP_STATE_FILES.items():
             p = self.tmp / ".aiwf" / fn; p.parent.mkdir(parents=True, exist_ok=True); p.write_text(json.dumps(dfn(), indent=2)+"\n")
-        cs = self.tmp / ".aiwf" / "reports" / "当前状态.md"
+        cs = self.tmp / ".aiwf" / "artifacts" / "reports" / "当前状态.md"
         if cs.exists(): cs.unlink()
-        hist = self.tmp / ".aiwf" / "history" / "task-history.json"
+        hist = self.tmp / ".aiwf" / "runtime" / "history" / "task-history.json"
         if hist.exists(): hist.unlink()
 
     def _rebase(self):
@@ -46,11 +46,11 @@ class TestLifecycleRebase(unittest.TestCase):
         (self.tmp/".aiwf" / "state" / "state.json").write_text(json.dumps(s,indent=2))
         (self.tmp/".aiwf" / "state" / "goal.json").write_text(json.dumps(
             {"active_goal":"add subtract","confirmed":True},indent=2))
-        (self.tmp/".aiwf" / "evidence" / "records.json").write_text(json.dumps(
+        (self.tmp/".aiwf" / "artifacts" / "evidence" / "records.json").write_text(json.dumps(
             {"records":[{"id":"EV-001","status":"accepted","changed_files":["src/calc.js","test/calc.test.js"]}]},indent=2))
-        (self.tmp/".aiwf" / "quality" / "testing.json").write_text(json.dumps(
+        (self.tmp/".aiwf" / "artifacts" / "quality" / "testing.json").write_text(json.dumps(
             {"status":"adequate","commands":["pytest"],"untested_risks":["overflow"]},indent=2))
-        (self.tmp/".aiwf" / "quality" / "review.json").write_text(json.dumps({
+        (self.tmp/".aiwf" / "artifacts" / "quality" / "review.json").write_text(json.dumps({
             "result":"accepted","verdict":"PASS_WITH_RISK",
             "quality_dimensions": dimensions,
             "review_basis": basis,
@@ -69,13 +69,13 @@ class TestLifecycleRebase(unittest.TestCase):
         self._seed_closed_state()
         r = self._rebase()
         self.assertEqual(r.returncode, 0)
-        cs = (self.tmp/".aiwf"/"reports"/"当前状态.md")
+        cs = (self.tmp/".aiwf"/"artifacts"/"reports"/"当前状态.md")
         self.assertTrue(cs.exists())
 
     def test_current_state_has_last_closed_task(self):
         self._seed_closed_state()
         self._rebase()
-        content = (self.tmp/".aiwf"/"reports"/"当前状态.md").read_text()
+        content = (self.tmp/".aiwf"/"artifacts"/"reports"/"当前状态.md").read_text()
         self.assertIn("add subtract", content)
         self.assertIn("L1_review_light", content)
         self.assertIn("small_function", content)
@@ -83,7 +83,7 @@ class TestLifecycleRebase(unittest.TestCase):
     def test_current_state_starts_with_executive_summary(self):
         self._seed_closed_state()
         self._rebase()
-        content = (self.tmp/".aiwf"/"reports"/"当前状态.md").read_text()
+        content = (self.tmp/".aiwf"/"artifacts"/"reports"/"当前状态.md").read_text()
         self.assertIn("## Executive Summary", content)
         self.assertIn("Now: phase=closed", content)
         self.assertIn("Quality: testing=adequate", content)
@@ -93,7 +93,7 @@ class TestLifecycleRebase(unittest.TestCase):
     def test_current_state_carries_quality_verdict_dimensions(self):
         self._seed_closed_state()
         self._rebase()
-        content = (self.tmp/".aiwf"/"reports"/"当前状态.md").read_text()
+        content = (self.tmp/".aiwf"/"artifacts"/"reports"/"当前状态.md").read_text()
         self.assertIn("- Verdict: PASS_WITH_RISK", content)
         self.assertIn("- Quality dimensions: PASS=7 RISK=1 FAIL=0", content)
         self.assertIn("- Review basis: covered=6 gap=0 not_applicable=0 missing=0", content)
@@ -102,7 +102,7 @@ class TestLifecycleRebase(unittest.TestCase):
     def test_current_state_has_changed_files_not_raw_json(self):
         self._seed_closed_state()
         self._rebase()
-        content = (self.tmp/".aiwf"/"reports"/"当前状态.md").read_text()
+        content = (self.tmp/".aiwf"/"artifacts"/"reports"/"当前状态.md").read_text()
         self.assertIn("src/calc.js", content)
         self.assertNotIn('"records"', content)
         self.assertNotIn('"state"', content)
@@ -110,17 +110,17 @@ class TestLifecycleRebase(unittest.TestCase):
     def test_current_state_has_lessons_max_5(self):
         self._seed_closed_state()
         self._rebase()
-        content = (self.tmp/".aiwf"/"reports"/"当前状态.md").read_text()
+        content = (self.tmp/".aiwf"/"artifacts"/"reports"/"当前状态.md").read_text()
         self.assertIn("Path normalization", content)
         self.assertIn("Carry-forward lessons", content)
 
     def test_current_state_has_raw_audit_refs(self):
         self._seed_closed_state()
         self._rebase()
-        content = (self.tmp/".aiwf"/"reports"/"当前状态.md").read_text()
+        content = (self.tmp/".aiwf"/"artifacts"/"reports"/"当前状态.md").read_text()
         self.assertIn("Raw audit references", content)
-        self.assertIn(".aiwf/evidence/records.json", content)
-        self.assertIn(".aiwf/quality/review.json", content)
+        self.assertIn(".aiwf/artifacts/evidence/records.json", content)
+        self.assertIn(".aiwf/artifacts/quality/review.json", content)
 
 
     # ── safety guards ──
@@ -133,17 +133,17 @@ class TestLifecycleRebase(unittest.TestCase):
         (self.tmp/".aiwf" / "state" / "state.json").write_text(json.dumps(s, indent=2))
         r = self._rebase()
         self.assertNotEqual(r.returncode, 0)  # skipped
-        self.assertFalse((self.tmp/".aiwf"/"reports"/"当前状态.md").exists(),
+        self.assertFalse((self.tmp/".aiwf"/"artifacts"/"reports"/"当前状态.md").exists(),
                         "Should NOT create current-state when not closed")
 
     def test_rebase_preserves_existing_current_state_when_not_closed(self):
         """Existing current-state.md must NOT be overwritten when phase is not closed."""
-        (self.tmp/".aiwf"/"reports"/"当前状态.md").write_text("# previous clean summary\n")
+        (self.tmp/".aiwf"/"artifacts"/"reports"/"当前状态.md").write_text("# previous clean summary\n")
         s = json.loads((self.tmp/".aiwf" / "state" / "state.json").read_text())
         s["phase"] = "reviewing"; s["closure_allowed"] = False
         (self.tmp/".aiwf" / "state" / "state.json").write_text(json.dumps(s, indent=2))
         self._rebase()
-        content = (self.tmp/".aiwf"/"reports"/"当前状态.md").read_text()
+        content = (self.tmp/".aiwf"/"artifacts"/"reports"/"当前状态.md").read_text()
         self.assertIn("previous clean summary", content)
 
     def test_rebase_succeeds_when_closed_and_allowed(self):
@@ -154,14 +154,14 @@ class TestLifecycleRebase(unittest.TestCase):
     def test_current_state_has_contexts_involved_not_superseded(self):
         self._seed_closed_state()
         self._rebase()
-        content = (self.tmp/".aiwf"/"reports"/"当前状态.md").read_text()
+        content = (self.tmp/".aiwf"/"artifacts"/"reports"/"当前状态.md").read_text()
         self.assertNotIn("Superseded / closed contexts", content)
         self.assertIn("Contexts involved", content)
 
     def test_rebase_records_task_history(self):
         self._seed_closed_state()
         self._rebase()
-        history = json.loads((self.tmp/".aiwf" / "history" / "task-history.json").read_text())
+        history = json.loads((self.tmp/".aiwf" / "runtime" / "history" / "task-history.json").read_text())
         self.assertEqual(len(history["tasks"]), 1)
         task = history["tasks"][0]
         self.assertEqual(task["testing_status"], "adequate")
@@ -173,7 +173,7 @@ class TestLifecycleRebase(unittest.TestCase):
     def test_current_state_has_task_history_trend(self):
         self._seed_closed_state()
         self._rebase()
-        content = (self.tmp/".aiwf"/"reports"/"当前状态.md").read_text()
+        content = (self.tmp/".aiwf"/"artifacts"/"reports"/"当前状态.md").read_text()
         self.assertIn("Task history trend", content)
         self.assertIn("Recent closed tasks: 1", content)
 

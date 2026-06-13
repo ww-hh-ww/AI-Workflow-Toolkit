@@ -232,7 +232,7 @@ class TestFixLoopLimits(unittest.TestCase):
         self._run("fixloop", "open", "--route", "executor",
                   "--reason", "implementation bug")
         r = self._run_script("scripts/aiwf_export_report.py")
-        rpt = (self.tmp / ".aiwf" / "reports" / "闭合报告.md").read_text()
+        rpt = (self.tmp / ".aiwf" / "artifacts" / "reports" / "闭合报告.md").read_text()
         self.assertIn("Attempt:", rpt)
         self.assertIn("1 /", rpt)
 
@@ -245,14 +245,14 @@ class TestFixLoopLimits(unittest.TestCase):
         self._run("fixloop", "open", "--route", "executor",
                   "--reason", "exceeds L0 max=1")
         r = self._run_script("scripts/aiwf_export_report.py")
-        rpt = (self.tmp / ".aiwf" / "reports" / "闭合报告.md").read_text()
+        rpt = (self.tmp / ".aiwf" / "artifacts" / "reports" / "闭合报告.md").read_text()
         self.assertIn("Escalation required", rpt)
 
     def test_closure_blocked_when_fixloop_open(self):
         self._run("fixloop", "open", "--route", "executor",
                   "--reason", "bug")
         r = self._run_script("scripts/aiwf_export_report.py")
-        rpt = (self.tmp / ".aiwf" / "reports" / "闭合报告.md").read_text()
+        rpt = (self.tmp / ".aiwf" / "artifacts" / "reports" / "闭合报告.md").read_text()
         self.assertIn("BLOCKED", rpt)
 
     # ═══════════════════════════════════════════════════════════════

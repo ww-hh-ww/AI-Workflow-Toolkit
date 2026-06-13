@@ -22,10 +22,21 @@ from .project_memory_commands import (
     _cmd_rule_add_negative, _cmd_rule_global_candidate, _cmd_rule_help,
     _cmd_rule_list, _cmd_rule_retire,
 )
+from .admission_commands import (
+    _cmd_change_admit, _cmd_change_help, _cmd_change_prepare, _cmd_change_validate_decision,
+)
+from .foundation_commands import (
+    _cmd_foundation_validate,
+)
+from .frontier_commands import (
+    _cmd_frontier_help, _cmd_frontier_prepare, _cmd_frontier_validate,
+)
 from .plan_commands import (
-    _cmd_plan_create, _cmd_plan_help, _cmd_plan_list, _cmd_plan_show,
+    _cmd_plan_activate, _cmd_plan_attach, _cmd_plan_create, _cmd_plan_deactivate,
+    _cmd_plan_detach, _cmd_plan_help, _cmd_plan_list, _cmd_plan_show,
     _cmd_plan_summarize, _cmd_plan_update,
 )
+from .layout_commands import _cmd_workspace_migrate_layout
 from .quality_commands import (
     _cmd_capability_decide, _cmd_capability_list, _cmd_capability_plan_use,
     _cmd_capability_scan, _cmd_capability_show,
@@ -49,6 +60,21 @@ from .state_commands import (
 )
 from .claims_commands import (
     _cmd_claim_help, _cmd_claim_list, _cmd_claim_record, _cmd_claim_verify,
+)
+from .goal_tree_commands import (
+    _cmd_goal_tree_add, _cmd_goal_tree_graft, _cmd_goal_tree_help,
+    _cmd_goal_tree_impact, _cmd_goal_tree_init_root, _cmd_goal_tree_list,
+    _cmd_goal_tree_list_temporary, _cmd_goal_tree_prune, _cmd_goal_tree_show,
+    _cmd_goal_tree_validate,
+    _cmd_relation_add, _cmd_relation_remove, _cmd_relation_show,
+)
+from .milestone_commands import (
+    _cmd_milestone_assess, _cmd_milestone_close, _cmd_milestone_create,
+    _cmd_milestone_help, _cmd_milestone_list, _cmd_milestone_show,
+    _cmd_milestone_update,
+)
+from .mission_commands import (
+    _cmd_mission_help, _cmd_mission_show, _cmd_mission_update,
 )
 from .route_commands import (
     _cmd_route_downgrade, _cmd_route_explain, _cmd_route_help,
@@ -167,6 +193,8 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
     p_rt.add_argument("--delta-verification", default="", help="delta verification narrative — what was re-verified vs reused")
     p_rt.add_argument("--reused-evidence-id", action="append", default=[], dest="reused_evidence_ids", help="repeatable evidence IDs reused from prior testing")
     p_rt.add_argument("--invalidated-evidence-id", action="append", default=[], dest="invalidated_evidence_ids", help="repeatable evidence IDs invalidated by this fix")
+    p_rt.add_argument("--supports-plan", default="", dest="supports_plan", help="PLAN-ID this testing evidence supports")
+    p_rt.add_argument("--supports-goal", default="", dest="supports_goal", help="GOAL-ID this testing evidence supports")
     p_rt.add_argument("--force", action="store_true", help="allow same-session testing on L2+ (Planner inline execution only)")
     p_rt.set_defaults(func=_cmd_record_testing)
     p_rrv = p_state_sub.add_parser("record-review", help="record review results and reviewer evidence (V2: use --verdict for quality outcome)")
@@ -202,6 +230,8 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
     p_re.add_argument("--status", default="pending", choices=["pending","accepted","rejected"], help="initial evidence status")
     p_re.add_argument("--exit-code", default=0, type=int, help="command exit code")
     p_re.add_argument("--scan-git", action="store_true", help="attach current git working-tree changed files as corroborating evidence")
+    p_re.add_argument("--supports-plan", default="", dest="supports_plan", help="PLAN-ID this role evidence supports")
+    p_re.add_argument("--supports-goal", default="", dest="supports_goal", help="GOAL-ID this role evidence supports")
     p_re.set_defaults(func=_cmd_record_role_evidence)
     p_mcf = p_state_sub.add_parser("mark-cleanup-fresh", help="mark cleanup as fresh, clear stale items")
     p_mcf.add_argument("--note", action="append", default=[], dest="notes", help="repeatable resolved notes")
@@ -280,11 +310,65 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
     p_cll.add_argument("--task-id", default="", help="filter by task")
     p_cll.set_defaults(func=_cmd_claim_list)
     p_claim.set_defaults(func=_cmd_claim_help)
+    # ── change admission ──
+    p_change = sub.add_parser("change", help="change admission — entry judgment for new work (Stage 4)")
+    p_change_sub = p_change.add_subparsers(dest="change_cmd")
+    p_ca = p_change_sub.add_parser("admit", help="recommend admission path for a new change")
+    p_ca.add_argument("--summary", required=True, help="one-line description of the proposed change")
+    p_ca.add_argument("--target-goal", default="", dest="target_goal",
+                      help="hint: preferred target goal ID (optional)")
+    p_ca.add_argument("--debug", action="store_true", default=False,
+                      help="show detected signals and scoring")
+    p_ca.set_defaults(func=_cmd_change_admit)
+    p_cv = p_change_sub.add_parser("validate-decision", help="validate an Admission Decision JSON (Stage 4.2)")
+    p_cv.add_argument("--file", default="", help="path to admission decision JSON file (reads from stdin if omitted)")
+    p_cv.set_defaults(func=_cmd_change_validate_decision)
+    p_cn = p_change_sub.add_parser("prepare", help="prepare a reviewable Action Plan from an Admission Decision (Stage 4.3)")
+    p_cn.add_argument("--file", default="", help="path to admission decision JSON file (reads from stdin if omitted)")
+    p_cn.add_argument("--json", action="store_true", default=False, dest="json_output",
+                      help="output full JSON (human_action_plan + operation_plan)")
+    p_cn.set_defaults(func=_cmd_change_prepare)
+    p_change.set_defaults(func=_cmd_change_help)
+    # ── execution frontier (Stage 4.7) ──
+    p_frontier = sub.add_parser("frontier", help="execution frontier — semantic dispatch + Work Packet (Stage 4.7)")
+    p_frontier_sub = p_frontier.add_subparsers(dest="frontier_cmd")
+    p_fv = p_frontier_sub.add_parser("validate", help="validate a Frontier Decision JSON")
+    p_fv.add_argument("--file", default="", help="path to frontier decision JSON file (reads from stdin if omitted)")
+    p_fv.set_defaults(func=_cmd_frontier_validate)
+    p_fp = p_frontier_sub.add_parser("prepare", help="prepare a Work Packet from a Frontier Decision")
+    p_fp.add_argument("--file", default="", help="path to frontier decision JSON file (reads from stdin if omitted)")
+    p_fp.add_argument("--json", action="store_true", default=False, dest="json_output",
+                      help="output Agent Work Packet as JSON")
+    p_fp.set_defaults(func=_cmd_frontier_prepare)
+    p_frontier.set_defaults(func=_cmd_frontier_help)
     # ── task plan artifacts ──
     p_plan = sub.add_parser("plan", help="task plan artifacts (create, update, show, summarize, list)")
     p_plan_sub = p_plan.add_subparsers(dest="plan_cmd")
-    p_plc = p_plan_sub.add_parser("create", help="create .aiwf/plans/TASK.md")
-    p_plc.add_argument("--task-id", required=True, help="task ID")
+    p_plc = p_plan_sub.add_parser("create", help="create .aiwf/artifacts/plans/PLAN.md (or legacy TASK.md)")
+    p_plc.add_argument("plan_id_pos", nargs="?", help="plan ID")
+    p_plc.add_argument("--plan-id", default="", help="plan ID")
+    p_plc.add_argument("--task-id", default="", help="legacy task ID / optional task to attach")
+    p_plc.add_argument("--task", action="append", default=[], dest="task_ids", help="repeatable task ID to attach")
+    p_plc.add_argument("--goal-id", default="", help="goal ID (default GOAL-001)")
+    p_plc.add_argument("--target-goal", default="", dest="target_goal_id",
+                       help="target Goal this Plan attaches to (future authority; defaults to --goal-id)")
+    p_plc.add_argument("--kind", default="", dest="plan_kind",
+                       choices=["", "structural", "implementation", "verification", "migration", "exploration"],
+                       help="plan kind (default implementation)")
+    p_plc.add_argument("--active-phase", default="", dest="active_phase",
+                       choices=["", "framing", "implementation", "integration", "seal"],
+                       help="plan active phase (default implementation)")
+    p_plc.add_argument("--work-intent", default="", dest="work_intent",
+                       choices=["", "feature", "bugfix", "refactor", "cleanup", "migration",
+                                "verification", "exploration", "documentation", "integration", "release"],
+                       help="work intent (behavioral discipline)")
+    p_plc.add_argument("--interface", action="append", default=[], dest="interfaces",
+                       help="repeatable plan interface description")
+    p_plc.add_argument("--constraint", action="append", default=[], dest="constraints",
+                       help="repeatable plan constraint")
+    p_plc.add_argument("--child-goal-policy", default="", dest="child_goal_policy",
+                       help="policy for child goals under this plan")
+    p_plc.add_argument("--milestone-id", default="", help="optional milestone ID")
     p_plc.add_argument("--context-id", default="", help="context ID")
     p_plc.add_argument("--title", default="", help="plan title")
     p_plc.set_defaults(func=_cmd_plan_create)
@@ -299,8 +383,151 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
     p_plsum = p_plan_sub.add_parser("summarize", help="summarize one task plan")
     p_plsum.add_argument("task_id", help="task ID")
     p_plsum.set_defaults(func=_cmd_plan_summarize)
+    p_pla = p_plan_sub.add_parser("attach", help="attach a task to a plan registry entry")
+    p_pla.add_argument("plan_id", help="plan ID")
+    p_pla.add_argument("task_id", help="task ID")
+    p_pla.set_defaults(func=_cmd_plan_attach)
+    p_pld = p_plan_sub.add_parser("detach", help="detach a task from a plan registry entry")
+    p_pld.add_argument("plan_id", help="plan ID")
+    p_pld.add_argument("task_id", help="task ID")
+    p_pld.set_defaults(func=_cmd_plan_detach)
     p_plan_sub.add_parser("list", help="list task plans").set_defaults(func=_cmd_plan_list)
+    p_pla_act = p_plan_sub.add_parser("activate", help="activate a plan — set as active_plan_id")
+    p_pla_act.add_argument("plan_id", help="plan ID to activate")
+    p_pla_act.set_defaults(func=_cmd_plan_activate)
+    p_pla_de = p_plan_sub.add_parser("deactivate", help="deactivate the active plan")
+    p_pla_de.set_defaults(func=_cmd_plan_deactivate)
     p_plan.set_defaults(func=_cmd_plan_help)
+    # ── mission ──
+    p_mis = sub.add_parser("mission", help="project-level mission — semantic container above the Goal Tree")
+    p_mis_sub = p_mis.add_subparsers(dest="mission_cmd")
+    p_mis_sub.add_parser("show", help="show current mission").set_defaults(func=_cmd_mission_show)
+    p_misu = p_mis_sub.add_parser("update", help="update mission statement or boundaries")
+    p_misu.add_argument("--statement", default=None, help="mission statement — why this project exists")
+    p_misu.add_argument("--boundary", action="append", default=None, dest="boundary",
+                       help="repeatable: project boundary — what we do NOT do")
+    p_misu.add_argument("--status", default="", help="mission status (draft/active/complete/archived)")
+    p_misu.add_argument("--add-milestone", default="", dest="add_milestone", help="attach a milestone ID")
+    p_misu.add_argument("--add-goal-root", default="", dest="add_goal_root", help="attach a goal tree root ID")
+    p_misu.set_defaults(func=_cmd_mission_update)
+    p_mis.set_defaults(func=_cmd_mission_help)
+    # ── optional milestone nodes ──
+    p_ms = sub.add_parser("milestone", help="optional milestone nodes for long tasks")
+    p_ms_sub = p_ms.add_subparsers(dest="milestone_cmd")
+    p_msc = p_ms_sub.add_parser("create", help="create a milestone node")
+    p_msc.add_argument("milestone_id", help="milestone ID, e.g. MS-001")
+    p_msc.add_argument("--goal-id", default="", help="goal ID (default GOAL-001)")
+    p_msc.add_argument("--title", default="", help="milestone title")
+    p_msc.add_argument("--status", default="pending", choices=["pending","active","complete_candidate","completed","archived"], help="milestone status")
+    p_msc.add_argument("--intent", default="", help="stage outcome intent")
+    p_msc.add_argument("--plan", action="append", default=[], dest="plan_ids", help="repeatable plan ID")
+    p_msc.add_argument("--task", action="append", default=[], dest="task_ids", help="repeatable task ID")
+    p_msc.add_argument("--advance-policy", default="", choices=["","auto","checkpoint","manual"], help="advance policy")
+    p_msc.add_argument("--checkpoint-level", default="", choices=["","task","plan","milestone","goal"], help="checkpoint level")
+    p_msc.add_argument("--mission-id", default="", help="owning mission ID")
+    p_msc.add_argument("--covered-goal", action="append", default=[], dest="covered_goal_ids",
+                       help="repeatable goal ID covered by this milestone")
+    p_msc.set_defaults(func=_cmd_milestone_create)
+    p_ms_sub.add_parser("list", help="list milestones").set_defaults(func=_cmd_milestone_list)
+    p_mss = p_ms_sub.add_parser("show", help="show one milestone")
+    p_mss.add_argument("milestone_id", help="milestone ID")
+    p_mss.set_defaults(func=_cmd_milestone_show)
+    p_msu = p_ms_sub.add_parser("update", help="update a milestone node")
+    p_msu.add_argument("milestone_id", help="milestone ID")
+    p_msu.add_argument("--goal-id", default="", help="goal ID")
+    p_msu.add_argument("--title", default="", help="milestone title")
+    p_msu.add_argument("--status", default="", choices=["","pending","active","complete_candidate","completed","archived"], help="milestone status")
+    p_msu.add_argument("--intent", default="", help="stage outcome intent")
+    p_msu.add_argument("--plan", action="append", default=[], dest="plan_ids", help="repeatable plan ID")
+    p_msu.add_argument("--task", action="append", default=[], dest="task_ids", help="repeatable task ID")
+    p_msu.add_argument("--advance-policy", default="", choices=["","auto","checkpoint","manual"], help="advance policy")
+    p_msu.add_argument("--checkpoint-level", default="", choices=["","task","plan","milestone","goal"], help="checkpoint level")
+    p_msu.set_defaults(func=_cmd_milestone_update)
+    p_msa = p_ms_sub.add_parser("assess", help="record milestone stage synthesis")
+    p_msa.add_argument("milestone_id", help="milestone ID")
+    p_msa.add_argument("--verdict", required=True, choices=["PASS","PASS_WITH_RISK","REVISE","REJECT"], help="stage synthesis verdict")
+    p_msa.add_argument("--summary", required=True, help="stage synthesis summary")
+    p_msa.add_argument("--evidence-id", action="append", default=[], dest="evidence_ids", help="repeatable evidence ID")
+    p_msa.add_argument("--coherence-check", default="", help="stage coherence judgment")
+    p_msa.add_argument("--open-gap", action="append", default=[], dest="open_gaps", help="repeatable open gap")
+    p_msa.add_argument("--residual-risk", action="append", default=[], dest="residual_risks", help="repeatable residual risk")
+    p_msa.add_argument("--next-recommendation", default="", help="recommended next stage/action")
+    p_msa.set_defaults(func=_cmd_milestone_assess)
+    p_msl = p_ms_sub.add_parser("close", help="close milestone after assessment")
+    p_msl.add_argument("milestone_id", help="milestone ID")
+    p_msl.set_defaults(func=_cmd_milestone_close)
+    p_ms.set_defaults(func=_cmd_milestone_help)
+    # ── goal tree registry ──
+    p_gt = sub.add_parser("goal-tree", help="recursive Goal Tree registry (Stage 3.2+)")
+    p_gt_sub = p_gt.add_subparsers(dest="goal_tree_cmd")
+    p_gti = p_gt_sub.add_parser("init-root", help="create a root Goal")
+    p_gti.add_argument("goal_id", help="goal ID, e.g. GOAL-001")
+    p_gti.add_argument("--type", default="main", choices=["main", "temporary", "branch"],
+                       help="root type (default main)")
+    p_gti.add_argument("--title", default="", help="goal title")
+    p_gti.add_argument("--intent", default="", help="goal intent")
+    p_gti.set_defaults(func=_cmd_goal_tree_init_root)
+    p_gta = p_gt_sub.add_parser("add", help="add a child Goal")
+    p_gta.add_argument("goal_id", help="child goal ID")
+    p_gta.add_argument("--parent", required=True, dest="parent_id", help="parent goal ID")
+    p_gta.add_argument("--title", default="", help="goal title")
+    p_gta.add_argument("--intent", default="", help="goal intent")
+    p_gta.set_defaults(func=_cmd_goal_tree_add)
+    p_gts = p_gt_sub.add_parser("show", help="show goal tree or single goal")
+    p_gts.add_argument("goal_id", nargs="?", default="", help="goal ID (omit for tree view)")
+    p_gts.set_defaults(func=_cmd_goal_tree_show)
+    p_gt_sub.add_parser("list", help="list all goals").set_defaults(func=_cmd_goal_tree_list)
+    p_gt_sub.add_parser("list-temporary", help="list temporary root goals").set_defaults(func=_cmd_goal_tree_list_temporary)
+    p_gt_sub.add_parser("validate", help="validate goal tree integrity").set_defaults(func=_cmd_goal_tree_validate)
+    p_gtg = p_gt_sub.add_parser("graft", help="graft a branch into the main tree")
+    p_gtg.add_argument("source_id", help="source goal/branch ID")
+    p_gtg.add_argument("--target", required=True, dest="target_parent_id", help="target parent goal ID")
+    p_gtg.add_argument("--reason", default="", help="reason for grafting")
+    p_gtg.add_argument("--interface", default="", dest="interface_consumed",
+                       help="which parent interface is consumed by this graft")
+    p_gtg.add_argument("--provides", default="", dest="capability_provided",
+                       help="what capability the grafted branch provides")
+    p_gtg.add_argument("--relation-to-parent", default="", dest="relation_to_parent",
+                       help="how the source relates to parent (e.g. extends, implements, replaces)")
+    p_gtg.add_argument("--affected-plan", action="append", default=[], dest="affected_plans",
+                       help="repeatable plan ID affected by this graft")
+    p_gtg.add_argument("--parent-meaning-changes", action="store_true", dest="parent_meaning_changes",
+                       help="this graft changes the parent's meaning")
+    p_gtg.set_defaults(func=_cmd_goal_tree_graft)
+    p_gtp = p_gt_sub.add_parser("prune", help="archive a branch")
+    p_gtp.add_argument("branch_id", help="branch goal ID to prune")
+    p_gtp.add_argument("--reason", default="", help="reason for pruning")
+    p_gtp.set_defaults(func=_cmd_goal_tree_prune)
+    p_gti_impact = p_gt_sub.add_parser("impact", help="show Impact Cone for a goal")
+    p_gti_impact.add_argument("goal_id", help="goal ID")
+    p_gti_impact.set_defaults(func=_cmd_goal_tree_impact)
+    # Stage 4.5: Day-1 Foundation Tree validation
+    p_gtf = p_gt_sub.add_parser("validate-foundation", help="validate a Day-1 Foundation Tree proposal (Stage 4.5)")
+    p_gtf.add_argument("--file", default="", help="path to foundation tree JSON file (reads from stdin if omitted)")
+    p_gtf.add_argument("--json", action="store_true", default=False, dest="json_output",
+                       help="output as JSON")
+    p_gtf.set_defaults(func=_cmd_foundation_validate)
+    p_gt.set_defaults(func=_cmd_goal_tree_help)
+    # ── sibling relations ──
+    p_rel = sub.add_parser("relation", help="sibling relations between goals")
+    p_rel_sub = p_rel.add_subparsers(dest="relation_cmd")
+    p_ra = p_rel_sub.add_parser("add", help="add a sibling relation")
+    p_ra.add_argument("source_id", help="source goal ID")
+    p_ra.add_argument("target_id", help="target goal ID")
+    p_ra.add_argument("rel_type", choices=["depends_on", "blocks", "conflicts_with", "invalidates", "supports"],
+                      help="relation type")
+    p_ra.add_argument("--reason", default="", help="reason for relation")
+    p_ra.add_argument("--cross", action="store_true", default=False,
+                      help="allow cross-parent relation (default: same parent required)")
+    p_ra.set_defaults(func=_cmd_relation_add)
+    p_rr = p_rel_sub.add_parser("remove", help="remove a sibling relation")
+    p_rr.add_argument("source_id", help="source goal ID")
+    p_rr.add_argument("target_id", help="target goal ID")
+    p_rr.set_defaults(func=_cmd_relation_remove)
+    p_rs = p_rel_sub.add_parser("show", help="show relations for a node")
+    p_rs.add_argument("node_id", help="goal ID")
+    p_rs.set_defaults(func=_cmd_relation_show)
+    p_rel.set_defaults(func=_cmd_relation_show)
     p_task = sub.add_parser("task", help="flexible task ledger and execution-window gate")
     p_task_sub = p_task.add_subparsers(dest="task_cmd")
     p_tp = p_task_sub.add_parser("plan", help="create/update a ledger task without activating execution")
@@ -314,7 +541,10 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
     p_tp.add_argument("--note", action="append", default=[], dest="notes", help="repeatable task note")
     p_tp.add_argument("--parent-goal", default="", dest="parent_goal", help="GOAL-ID this task serves")
     p_tp.add_argument("--parent-plan", default="", dest="parent_plan", help="PLAN-ID this task belongs to")
-    p_tp.add_argument("--milestone", default="", help="milestone this task advances")
+    p_tp.add_argument("--goal", default="", dest="goal_id", help="GOAL-ID this task serves")
+    p_tp.add_argument("--plan", default="", dest="plan_id", help="PLAN-ID this task belongs to")
+    p_tp.add_argument("--milestone", default="", help="legacy milestone label")
+    p_tp.add_argument("--milestone-id", default="", help="optional milestone ID")
     p_tp.set_defaults(func=_cmd_task_plan)
     p_ta = p_task_sub.add_parser("activate", help="activate a task if execution-window gates pass")
     p_ta.add_argument("task_id", help="task ID")
@@ -564,6 +794,11 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
     p_ws_scan = p_ws_sub.add_parser("scan", help="scan workspace for untracked/modified files")
     p_ws_scan.add_argument("--fix", action="store_true", help="auto-update baseline after detecting changes")
     p_ws_scan.set_defaults(func=_cmd_workspace_scan)
+    p_ws_migrate = p_ws_sub.add_parser("migrate-layout", help="migrate workspace to v2 5-zone layout (Stage 4.7.3)")
+    p_ws_migrate.add_argument("--dry-run", action="store_true", default=False, dest="dry_run",
+                               help="show what would be moved without making changes")
+    p_ws_migrate.set_defaults(func=_cmd_workspace_migrate_layout)
+    p_ws.set_defaults(func=_cmd_workspace_scan)
     p_asset = sub.add_parser("asset", help="context asset layer commands (init, refresh)")
     p_asset_sub = p_asset.add_subparsers(dest="asset_cmd")
     p_asset_sub.add_parser("init", help="initialize .aiwf/assets/ with project-map, test-map, conventions").set_defaults(func=_cmd_asset_init)

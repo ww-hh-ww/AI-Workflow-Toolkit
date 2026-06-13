@@ -75,7 +75,7 @@ class TestPlannerAuthorityBoundaries(unittest.TestCase):
         context = {"id": "CTX-1", "allowed_write": ["src/a.py"], "forbidden_write": ["secrets/"]}
         violations = check_and_record_scope_violations(["reports/out.md"], context, self.tmp)
         self.assertEqual(violations, ["reports/out.md"])
-        event = self._read("quality/review.json")["scope_violation_events"][0]
+        event = self._read("artifacts/quality/review.json")["scope_violation_events"][0]
         self.assertEqual(event["path"], "reports/out.md")
         self.assertEqual(event["allowed_write_snapshot"], ["src/a.py"])
         self.assertEqual(event["forbidden_write_snapshot"], ["secrets/"])
@@ -97,9 +97,9 @@ class TestPlannerAuthorityBoundaries(unittest.TestCase):
         state["workflow_level"] = "L2_standard_team"
         state["active_task_id"] = None
         self._write("state/state.json", state)
-        testing = self._read("quality/testing.json")
+        testing = self._read("artifacts/quality/testing.json")
         testing["status"] = "failed"
-        self._write("quality/testing.json", testing)
+        self._write("artifacts/quality/testing.json", testing)
 
         with self.assertRaisesRegex(ValueError, "cannot lower workflow level"):
             record_quality_policy(str(self.tmp), "small_function", "L0_direct")
@@ -137,9 +137,9 @@ class TestPlannerAuthorityBoundaries(unittest.TestCase):
         state = self._read("state/state.json")
         state["active_task_id"] = None
         self._write("state/state.json", state)
-        review = self._read("quality/review.json")
+        review = self._read("artifacts/quality/review.json")
         review["result"] = "needs_fix"
-        self._write("quality/review.json", review)
+        self._write("artifacts/quality/review.json", review)
 
         with self.assertRaisesRegex(ValueError, "freezes allowed_write"):
             start_context(str(self.tmp), "CTX-1", allowed_write=["src/a.py", "reports/"])
@@ -175,9 +175,9 @@ class TestPlannerAuthorityBoundaries(unittest.TestCase):
         state = self._read("state/state.json")
         state["scope_violation"] = True
         self._write("state/state.json", state)
-        review = self._read("quality/review.json")
+        review = self._read("artifacts/quality/review.json")
         review["scope_violation_events"] = [{"path": "outside.py", "status": "recorded"}]
-        self._write("quality/review.json", review)
+        self._write("artifacts/quality/review.json", review)
 
         with patch(
             "aiwf_core.hooks.common.diff_snapshot.detect_changed_files",
@@ -194,10 +194,10 @@ class TestPlannerAuthorityBoundaries(unittest.TestCase):
         state = self._read("state/state.json")
         state["scope_violation"] = True
         self._write("state/state.json", state)
-        review = self._read("quality/review.json")
+        review = self._read("artifacts/quality/review.json")
         review["scope_violation_events"] = [{"path": "outside.py", "status": "recorded"}]
         review["blockers"] = ["scope_violation: 'outside.py' modified outside CTX-1 scope"]
-        self._write("quality/review.json", review)
+        self._write("artifacts/quality/review.json", review)
 
         with patch(
             "aiwf_core.hooks.common.diff_snapshot.detect_changed_files",
@@ -206,7 +206,7 @@ class TestPlannerAuthorityBoundaries(unittest.TestCase):
             result = resolve_fix_loop(str(self.tmp), "reverted outside.py")
         self.assertEqual(result["status"], "resolved")
         self.assertFalse(self._read("state/state.json")["scope_violation"])
-        event = self._read("quality/review.json")["scope_violation_events"][0]
+        event = self._read("artifacts/quality/review.json")["scope_violation_events"][0]
         self.assertEqual(event["status"], "resolved_reverted")
 
     def test_fix_loop_escalation_cannot_be_self_resolved(self):
@@ -232,7 +232,7 @@ class TestPlannerAuthorityBoundaries(unittest.TestCase):
 
     def test_review_acceptance_cannot_erase_scope_violation_event(self):
         from aiwf_core.core.review_contract import set_review_accepted
-        review = self._read("quality/review.json")
+        review = self._read("artifacts/quality/review.json")
         review["scope_violation_events"] = [{"path": "outside.py", "status": "recorded"}]
         review["blockers"] = ["scope_violation: 'outside.py' modified outside CTX-1 scope"]
         accepted = set_review_accepted(review, [], [])

@@ -184,6 +184,78 @@ GOAL_KEYS = {
 }
 
 
+# ── plans.json ────────────────────────────────────────────────────────
+
+LEGACY_GOAL_ID = "GOAL-001"
+
+
+def default_plans() -> Dict[str, Any]:
+    return {
+        "schema_version": 1,
+        "legacy_goal_id": LEGACY_GOAL_ID,
+        "active_plan_id": None,
+        "plans": [],
+    }
+
+PLANS_KEYS = {"schema_version", "legacy_goal_id", "active_plan_id", "plans"}
+
+VALID_PLAN_KINDS = {"structural", "implementation", "verification", "migration", "exploration"}
+DEFAULT_PLAN_KIND = "implementation"
+
+# Plan phase loading — a structural Plan is loaded differently across the
+# lifecycle of its parent Goal. Framing defines structure/interfaces/boundaries;
+# integration reconciles lower-level outputs and prepares sealing.
+VALID_PLAN_PHASES = {"framing", "implementation", "integration", "seal"}
+DEFAULT_PLAN_PHASE = "implementation"
+
+VALID_RELATION_TYPES = {"depends_on", "blocks", "conflicts_with", "invalidates", "supports"}
+
+
+# ── goals.json ─────────────────────────────────────────────────────────
+
+VALID_ROOT_TYPES = {"main", "temporary", "branch"}
+
+VALID_GOAL_STATUSES = {"discussion", "active", "stable", "superseded", "archived"}
+
+
+def default_goals() -> Dict[str, Any]:
+    return {
+        "schema_version": 1,
+        "active_goal_id": None,
+        "roots": [],
+        "goals": [],
+        "relations": [],
+    }
+
+GOALS_KEYS = {"schema_version", "active_goal_id", "roots", "goals", "relations"}
+
+
+# ── milestones.json ───────────────────────────────────────────────────
+
+def default_milestones() -> Dict[str, Any]:
+    return {
+        "schema_version": 1,
+        "active_milestone_id": None,
+        "mission_id": "",
+        "milestones": [],
+    }
+
+MILESTONES_KEYS = {"schema_version", "active_milestone_id", "mission_id", "milestones"}
+
+VALID_MILESTONE_STATUSES = {
+    "pending", "active", "complete_candidate", "completed", "archived",
+}
+VALID_MILESTONE_VERDICTS = {"pending", "PASS", "PASS_WITH_RISK", "REVISE", "REJECT"}
+VALID_MILESTONE_SCOPE_TYPES = {"goal_subtree", "plan_set", "task_set", "mixed"}
+VALID_MILESTONE_STABILITY_CLAIMS = {"draft", "usable", "stable", "risky"}
+
+# Stage 4.7.4: Work Intent Discipline
+VALID_WORK_INTENTS = {
+    "feature", "bugfix", "refactor", "cleanup", "migration",
+    "verification", "exploration", "documentation", "integration", "release",
+}
+
+
 # ── contexts.json ─────────────────────────────────────────────────────
 
 def default_contexts() -> Dict[str, Any]:
@@ -234,6 +306,8 @@ def default_testing() -> Dict[str, Any]:
         "repeated_change_hotspots": [],
         "adversarial_mode": False,
         "evidence_id": "",
+        "supports_plan": "",
+        "supports_goal": "",
     }
 
 TESTING_KEYS = {"status", "commands", "untested_risks",
@@ -245,6 +319,7 @@ TESTING_KEYS = {"status", "commands", "untested_risks",
                 "inferred_surfaces", "missing_surface_notes"}
 TESTING_KEYS.update({"cross_task_risks", "testing_debt", "repeated_change_hotspots", "adversarial_mode"})
 TESTING_KEYS.add("evidence_id")
+TESTING_KEYS.update({"supports_plan", "supports_goal"})
 
 VALID_TESTING_STATUSES = {"missing", "partial", "adequate", "passed", "failed"}
 VALID_LAYER_STATUSES = {"not_run", "passed", "failed", "not_available", "not_feasible"}
@@ -412,14 +487,42 @@ LEVEL_MAX_ATTEMPTS = {"L0_direct": 1, "L1_review_light": 1,
                        "L2_standard_team": 2, "L3_full_power": 3}
 
 
+def default_mission() -> Dict[str, Any]:
+    return {
+        "schema_version": 1,
+        "id": "MISSION-001",
+        "type": "mission",
+        "status": "draft",
+        "version": 1,
+        "statement": "",
+        "boundaries": [],
+        "milestone_ids": [],
+        "goal_tree_root_ids": [],
+        "created_at": "",
+        "updated_at": "",
+    }
+
+MISSION_KEYS = {
+    "schema_version", "id", "type", "status", "version",
+    "statement", "boundaries", "milestone_ids", "goal_tree_root_ids",
+    "created_at", "updated_at",
+}
+
+VALID_MISSION_STATUSES = {"draft", "active", "complete", "archived"}
+
+
 # ── all mvp files ─────────────────────────────────────────────────────
 
 MVP_STATE_FILES = {
     "state/state.json": default_state,
     "state/goal.json": default_goal,
+    "state/mission.json": default_mission,
+    "state/goals.json": default_goals,
+    "state/plans.json": default_plans,
+    "state/milestones.json": default_milestones,
     "state/contexts.json": default_contexts,
-    "evidence/records.json": default_evidence,
-    "quality/testing.json": default_testing,
-    "quality/review.json": default_review,
+    "artifacts/evidence/records.json": default_evidence,
+    "artifacts/quality/testing.json": default_testing,
+    "artifacts/quality/review.json": default_review,
     "state/fix-loop.json": default_fix_loop,
 }

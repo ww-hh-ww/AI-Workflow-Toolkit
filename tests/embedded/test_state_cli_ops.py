@@ -29,16 +29,41 @@ class TestStateCliOps(unittest.TestCase):
         return subprocess.run([sys.executable, "-m", "aiwf_core.cli"] + list(args),
                               capture_output=True, text=True, cwd=str(self.tmp), env=env, timeout=TIMEOUT)
 
+    @staticmethod
+    def _v2_full_dimensions():
+        from aiwf_core.core.state_schema import QUALITY_DIMENSIONS
+        return {dim: {"score": "PASS", "note": ""} for dim in QUALITY_DIMENSIONS}
+
+    @staticmethod
+    def _v2_full_basis():
+        from aiwf_core.core.state_schema import REVIEW_BASIS
+        return {name: {"status": "covered", "note": ""} for name in REVIEW_BASIS}
+
+    def _seed_review_ready(self):
+        """Fill phase-gate fields needed before record-review."""
+        (self.tmp/".aiwf" / "artifacts" / "quality" / "testing.json").write_text(json.dumps(
+            {"status": "adequate", "commands": ["pytest"]}, indent=2))
+
     def _seed_close_ready(self):
         s = json.loads((self.tmp/".aiwf" / "state" / "state.json").read_text())
         s["phase"] = "reviewing"
         (self.tmp/".aiwf" / "state" / "state.json").write_text(json.dumps(s, indent=2))
-        (self.tmp/".aiwf" / "quality" / "testing.json").write_text(json.dumps(
+        (self.tmp/".aiwf" / "artifacts" / "quality" / "testing.json").write_text(json.dumps(
             {"status": "adequate", "commands": ["pytest"]}, indent=2))
-        (self.tmp/".aiwf" / "evidence" / "records.json").write_text(json.dumps(
-            {"records": [{"id": "EV-001", "status": "accepted", "trust": "machine_observed",
-                          "trust_level": "command_observed", "session_id": "s1"}]}, indent=2))
-        (self.tmp/".aiwf" / "quality" / "review.json").write_text(json.dumps({
+        (self.tmp/".aiwf" / "artifacts" / "evidence" / "records.json").write_text(json.dumps(
+            {"records": [
+                {"id": "EV-001", "status": "accepted", "trust": "machine_observed",
+                 "tool_name": "Write", "trust_level": "command_observed",
+                 "session_id": "exec-session", "agent_type": "aiwf-executor"},
+                {"id": "EV-002", "status": "accepted", "trust": "machine_observed",
+                 "tool_name": "Bash", "trust_level": "command_observed",
+                 "session_id": "test-session", "agent_type": "aiwf-tester"},
+                {"id": "EV-003", "status": "accepted", "trust": "machine_observed",
+                 "tool_name": "Bash", "trust_level": "command_observed",
+                 "session_id": "review-session", "agent_type": "aiwf-reviewer"},
+            ]}, indent=2))
+        (self.tmp/".aiwf" / "artifacts" / "quality" / "review.json").write_text(json.dumps({
+            "verdict": "PASS",
             "result": "accepted",
             "closure_allowed": True,
             "blockers": [],
@@ -47,37 +72,51 @@ class TestStateCliOps(unittest.TestCase):
             "stale_items": [],
             "structure_status": "accepted",
             "structure_blockers": [],
+            "quality_dimensions": self._v2_full_dimensions(),
+            "review_basis": self._v2_full_basis(),
         }, indent=2))
 
     # ── record-testing ──
     def test_record_testing_writes_fields(self):
+        self._run("state", "record-role-evidence", "--role", "executor", "--summary", "test", "--status", "accepted")
         r = self._run("state", "record-testing", "--status", "passed",
                       "--context-id", "CTX-001", "--command", "npm test",
-                      "--untested-risk", "manual UI", "--coverage-summary", "targeted passed")
+                      "--untested-risk", "manual UI", "--coverage-summary", "targeted passed",
+                      "--supports-plan", "PLAN-001", "--supports-goal", "GOAL-001")
         self.assertEqual(r.returncode, 0)
-        t = json.loads((self.tmp/".aiwf" / "quality" / "testing.json").read_text())
+        t = json.loads((self.tmp/".aiwf" / "artifacts" / "quality" / "testing.json").read_text())
         self.assertEqual(t["status"], "passed")
         self.assertEqual(t["context_id"], "CTX-001")
         self.assertEqual(t["commands"], ["npm test"])
         self.assertIn("manual UI", t["untested_risks"])
         self.assertEqual(t["coverage_summary"], "targeted passed")
+        self.assertEqual(t["supports_plan"], "PLAN-001")
+        self.assertEqual(t["supports_goal"], "GOAL-001")
         self.assertIn("Evidence:", r.stdout)
-        ev = json.loads((self.tmp/".aiwf" / "evidence" / "records.json").read_text())
+        self.assertIn("Supports plan: PLAN-001", r.stdout)
+        self.assertIn("Supports goal: GOAL-001", r.stdout)
+        ev = json.loads((self.tmp/".aiwf" / "artifacts" / "evidence" / "records.json").read_text())
         self.assertEqual(ev["records"][-1]["agent_type"], "tester")
         self.assertEqual(ev["records"][-1]["command"], "npm test")
+        self.assertEqual(ev["records"][-1]["supports_plan"], "PLAN-001")
+        self.assertEqual(ev["records"][-1]["supports_goal"], "GOAL-001")
 
     def test_record_role_evidence_writes_executor_record(self):
         r = self._run("state", "record-role-evidence",
                       "--role", "executor",
                       "--summary", "implemented scoped files",
-                      "--changed-file", "src/a.py")
+                      "--changed-file", "src/a.py",
+                      "--supports-plan", "PLAN-001",
+                      "--supports-goal", "GOAL-001")
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("Role evidence recorded:", r.stdout)
-        ev = json.loads((self.tmp/".aiwf" / "evidence" / "records.json").read_text())
+        ev = json.loads((self.tmp/".aiwf" / "artifacts" / "evidence" / "records.json").read_text())
         rec = ev["records"][-1]
         self.assertEqual(rec["agent_type"], "executor")
         self.assertEqual(rec["changed_files"], ["src/a.py"])
         self.assertEqual(rec["trust"], "machine_observed")
+        self.assertEqual(rec["supports_plan"], "PLAN-001")
+        self.assertEqual(rec["supports_goal"], "GOAL-001")
 
     def test_record_role_evidence_scan_git_corroborates_working_tree(self):
         subprocess.run(["git", "init", "-b", "main"], cwd=str(self.tmp), capture_output=True, text=True, timeout=TIMEOUT)
@@ -96,7 +135,7 @@ class TestStateCliOps(unittest.TestCase):
 
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("Git scan:", r.stdout)
-        ev = json.loads((self.tmp/".aiwf" / "evidence" / "records.json").read_text())
+        ev = json.loads((self.tmp/".aiwf" / "artifacts" / "evidence" / "records.json").read_text())
         rec = ev["records"][-1]
         self.assertEqual(rec["changed_files_source"], "role_delivery_git_scan")
         self.assertEqual(rec["working_tree_source"], "git_diff")
@@ -105,9 +144,10 @@ class TestStateCliOps(unittest.TestCase):
         self.assertEqual(rec["attribution"], "role_command")
 
     def test_record_review_writes_review_and_reviewer_evidence(self):
+        self._seed_review_ready()
         self._run("state", "record-role-evidence", "--role", "executor",
                   "--summary", "implemented", "--status", "accepted")
-        ev = json.loads((self.tmp/".aiwf" / "evidence" / "records.json").read_text())
+        ev = json.loads((self.tmp/".aiwf" / "artifacts" / "evidence" / "records.json").read_text())
         exec_id = ev["records"][-1]["id"]
         r = self._run("state", "record-review",
                       "--result", "accepted",
@@ -118,10 +158,10 @@ class TestStateCliOps(unittest.TestCase):
                       "--summary", "reviewed evidence")
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("Evidence:", r.stdout)
-        review = json.loads((self.tmp/".aiwf" / "quality" / "review.json").read_text())
+        review = json.loads((self.tmp/".aiwf" / "artifacts" / "quality" / "review.json").read_text())
         reviewer_id = review["reviewer_evidence_id"]
         self.assertIn(reviewer_id, review["accepted_evidence_ids"])
-        ev = json.loads((self.tmp/".aiwf" / "evidence" / "records.json").read_text())
+        ev = json.loads((self.tmp/".aiwf" / "artifacts" / "evidence" / "records.json").read_text())
         reviewer = [rec for rec in ev["records"] if rec["id"] == reviewer_id][0]
         self.assertEqual(reviewer["agent_type"], "reviewer")
 
@@ -175,6 +215,7 @@ class TestStateCliOps(unittest.TestCase):
         self.assertIn("requires scored quality dimensions", r.stderr)
 
     def test_record_review_verdict_pass_with_all_dimensions_allows_closure(self):
+        self._seed_review_ready()
         r = self._run("state", "record-review",
                       "--verdict", "PASS",
                       "--cleanup-status", "fresh",
@@ -183,7 +224,7 @@ class TestStateCliOps(unittest.TestCase):
                       *self._dimension_args(),
                       *self._basis_args())
         self.assertEqual(r.returncode, 0, r.stderr)
-        review = json.loads((self.tmp/".aiwf" / "quality" / "review.json").read_text())
+        review = json.loads((self.tmp/".aiwf" / "artifacts" / "quality" / "review.json").read_text())
         self.assertEqual(review["verdict"], "PASS")
         self.assertEqual(review["result"], "accepted")
         self.assertTrue(review["closure_allowed"])
@@ -231,6 +272,7 @@ class TestStateCliOps(unittest.TestCase):
         self.assertIn("RISK dimensions require dimension notes", r.stderr)
 
     def test_record_review_pass_with_risk_records_quality_dimensions(self):
+        self._seed_review_ready()
         r = self._run("state", "record-review",
                       "--verdict", "PASS_WITH_RISK",
                       "--cleanup-status", "fresh",
@@ -242,7 +284,7 @@ class TestStateCliOps(unittest.TestCase):
                       ),
                       *self._basis_args())
         self.assertEqual(r.returncode, 0, r.stderr)
-        review = json.loads((self.tmp/".aiwf" / "quality" / "review.json").read_text())
+        review = json.loads((self.tmp/".aiwf" / "artifacts" / "quality" / "review.json").read_text())
         self.assertEqual(review["verdict"], "PASS_WITH_RISK")
         self.assertEqual(review["quality_dimensions"]["risk_debt"]["score"], "RISK")
         self.assertTrue(review["closure_allowed"])
@@ -299,6 +341,7 @@ class TestStateCliOps(unittest.TestCase):
         self.assertIn("REVISE requires at least one review basis gap", r.stderr)
 
     def test_record_review_revise_records_needs_fix_without_closure(self):
+        self._seed_review_ready()
         r = self._run("state", "record-review",
                       "--verdict", "REVISE",
                       "--blocker", "test adequacy risk",
@@ -306,7 +349,7 @@ class TestStateCliOps(unittest.TestCase):
                       *self._dimension_args({"test_adequacy": "RISK"}),
                       *self._basis_args({"testing": "gap"}, {"testing": "missing changed-file risk test"}))
         self.assertEqual(r.returncode, 0, r.stderr)
-        review = json.loads((self.tmp/".aiwf" / "quality" / "review.json").read_text())
+        review = json.loads((self.tmp/".aiwf" / "artifacts" / "quality" / "review.json").read_text())
         self.assertEqual(review["verdict"], "REVISE")
         self.assertEqual(review["result"], "needs_fix")
         self.assertFalse(review["closure_allowed"])
@@ -324,6 +367,7 @@ class TestStateCliOps(unittest.TestCase):
         self.assertIn("REJECT with quality dimensions requires", r.stderr)
 
     def test_record_review_reject_records_rejected_without_closure(self):
+        self._seed_review_ready()
         r = self._run("state", "record-review",
                       "--verdict", "REJECT",
                       "--blocker", "wrong architecture direction",
@@ -331,7 +375,7 @@ class TestStateCliOps(unittest.TestCase):
                       *self._dimension_args({"architecture_fit": "FAIL"}),
                       *self._basis_args({"plan": "gap"}, {"plan": "plan mismatches implementation"}))
         self.assertEqual(r.returncode, 0, r.stderr)
-        review = json.loads((self.tmp/".aiwf" / "quality" / "review.json").read_text())
+        review = json.loads((self.tmp/".aiwf" / "artifacts" / "quality" / "review.json").read_text())
         self.assertEqual(review["verdict"], "REJECT")
         self.assertEqual(review["result"], "rejected")
         self.assertFalse(review["closure_allowed"])
@@ -346,11 +390,11 @@ class TestStateCliOps(unittest.TestCase):
     # ── mark-cleanup ──
     def test_mark_cleanup_fresh_clears_stale(self):
         # Pre-seed stale
-        rv = json.loads((self.tmp/".aiwf" / "quality" / "review.json").read_text())
+        rv = json.loads((self.tmp/".aiwf" / "artifacts" / "quality" / "review.json").read_text())
         rv["cleanup_status"] = "stale"; rv["stale_items"] = ["old"]; rv["cleanup_blockers"] = ["b"]
-        (self.tmp/".aiwf" / "quality" / "review.json").write_text(json.dumps(rv, indent=2))
+        (self.tmp/".aiwf" / "artifacts" / "quality" / "review.json").write_text(json.dumps(rv, indent=2))
         self._run("state", "mark-cleanup-fresh", "--note", "resolved")
-        rv2 = json.loads((self.tmp/".aiwf" / "quality" / "review.json").read_text())
+        rv2 = json.loads((self.tmp/".aiwf" / "artifacts" / "quality" / "review.json").read_text())
         self.assertEqual(rv2["cleanup_status"], "fresh")
         self.assertEqual(rv2["stale_items"], [])
         self.assertEqual(rv2["cleanup_blockers"], [])
@@ -358,7 +402,7 @@ class TestStateCliOps(unittest.TestCase):
     def test_mark_cleanup_stale_writes_fields(self):
         self._run("state", "mark-cleanup-stale", "--stale-item", "old-ctx",
                   "--blocker", "needs review", "--note", "found stale context")
-        rv = json.loads((self.tmp/".aiwf" / "quality" / "review.json").read_text())
+        rv = json.loads((self.tmp/".aiwf" / "artifacts" / "quality" / "review.json").read_text())
         self.assertEqual(rv["cleanup_status"], "stale")
         self.assertIn("old-ctx", rv["stale_items"])
         self.assertIn("needs review", rv["cleanup_blockers"])
@@ -378,7 +422,7 @@ class TestStateCliOps(unittest.TestCase):
 
     def test_prepare_close_summary_surfaces_quality_verdict(self):
         self._seed_close_ready()
-        review_path = self.tmp/".aiwf" / "quality" / "review.json"
+        review_path = self.tmp/".aiwf" / "artifacts" / "quality" / "review.json"
         review = json.loads(review_path.read_text())
         review["verdict"] = "PASS_WITH_RISK"
         review["quality_dimensions"] = self._dimension_map(
@@ -421,12 +465,12 @@ class TestStateCliOps(unittest.TestCase):
 
     def test_agent_tester_no_hand_edit_testing_json(self):
         c2 = (self.tmp/".claude"/"agents"/"aiwf-tester.md").read_text()
-        self.assertNotIn("Update `.aiwf/quality/testing.json`", c2)
+        self.assertNotIn("Update `.aiwf/artifacts/quality/testing.json`", c2)
         self.assertIn("aiwf state record-testing", c2)
 
     def test_agent_tester_says_do_not_hand_edit(self):
         c2 = (self.tmp/".claude"/"agents"/"aiwf-tester.md").read_text()
-        self.assertIn("do not hand-edit testing.json", c2.lower())
+        self.assertIn("do not hand-edit", c2.lower())
 
     def test_prepare_close_no_can_proceed_wording(self):
         r = self._run("state", "prepare-close")

@@ -21,18 +21,19 @@ SOURCE_FILES = [
     "state/goal.json",
     "state/contexts.json",
     "state/fix-loop.json",
-    "evidence/records.json",
-    "quality/testing.json",
-    "quality/review.json",
-    "history/task-history.json",
-    "history/task-ledger.json",
-    "reports/质量摘要.md",
+    "state/plans.json",
+    "state/milestones.json",
+    "artifacts/evidence/records.json",
+    "artifacts/quality/testing.json",
+    "artifacts/quality/review.json",
+    "runtime/history/task-history.json",
+    "runtime/history/task-ledger.json",
 ]
 
 def gravity_summary_lines(cwd):
     """Gravity: historical pressure — hotspots, fix-loop trend, drift, pending ADV."""
-    history = rj(cwd / ".aiwf" / "history" / "task-history.json", {"tasks": []})
-    review = rj(cwd / ".aiwf" / "quality" / "review.json", {})
+    history = rj(cwd / ".aiwf" / "runtime" / "history" / "task-history.json", {"tasks": []})
+    review = rj(cwd / ".aiwf" / "artifacts" / "quality" / "review.json", {})
     state = rj(cwd / ".aiwf" / "state" / "state.json", {})
     tasks = history.get("tasks", []) if isinstance(history.get("tasks"), list) else []
     recent = tasks[-5:]
@@ -73,8 +74,8 @@ def gravity_summary_lines(cwd):
 
 def active_task_quality_warning_lines(cwd):
     """Warn when the current active task is already touching a severe hotspot."""
-    history = rj(cwd / ".aiwf" / "history" / "task-history.json", {"tasks": []})
-    ledger = rj(cwd / ".aiwf" / "history" / "task-ledger.json", {"tasks": []})
+    history = rj(cwd / ".aiwf" / "runtime" / "history" / "task-history.json", {"tasks": []})
+    ledger = rj(cwd / ".aiwf" / "runtime" / "history" / "task-ledger.json", {"tasks": []})
     history_tasks = history.get("tasks", []) if isinstance(history.get("tasks"), list) else []
     ledger_tasks = ledger.get("tasks", []) if isinstance(ledger.get("tasks"), list) else []
     file_counts = {}
@@ -104,7 +105,7 @@ def active_task_quality_warning_lines(cwd):
 
 def quality_signal_lines(cwd):
     """Quality: current tester/reviewer observations — cross-task risks, testing debt."""
-    testing = rj(cwd / ".aiwf" / "quality" / "testing.json", {})
+    testing = rj(cwd / ".aiwf" / "artifacts" / "quality" / "testing.json", {})
     lines = []
     if testing.get("cross_task_risks"):
         lines.append(f"Quality: tester cross-task risks ({len(testing.get('cross_task_risks', []))})")
@@ -115,14 +116,14 @@ def quality_signal_lines(cwd):
 
 def architect_hint(cwd):
     """Lightweight architecture review trigger check. JSON reads only."""
-    history = rj(cwd / ".aiwf" / "history" / "task-history.json", {"tasks": []})
+    history = rj(cwd / ".aiwf" / "runtime" / "history" / "task-history.json", {"tasks": []})
     tasks = history.get("tasks", []) if isinstance(history.get("tasks"), list) else []
     closed = len(tasks)
     cadence = 10
     hints = []
     if closed > 0 and closed % cadence == 0:
         hints.append(f"{closed} closed tasks — architecture review recommended")
-    pm_path = cwd / ".aiwf" / "reports" / "项目地图.md"
+    pm_path = cwd / ".aiwf" / "artifacts" / "reports" / "项目地图.md"
     if pm_path.exists():
         try:
             from datetime import datetime, timezone
@@ -172,7 +173,7 @@ def planner_process_lines(cwd, state, goal, review, fix_loop):
         missing = [k for k in ("user_visible_outcome", "acceptance_criteria", "test_obligations", "review_obligations") if not evaluation.get(k)]
         if missing:
             lines.append("REQUIRED NEXT: complete Evaluation Contract: " + ", ".join(missing))
-        elif rj(cwd / ".aiwf" / "quality" / "testing.json", {}).get("status") not in ("adequate", "passed"):
+        elif rj(cwd / ".aiwf" / "artifacts" / "quality" / "testing.json", {}).get("status") not in ("adequate", "passed"):
             lines.append(f"REQUIRED NEXT: dispatch independent Tester ({state.get('test_template') or 'selected depth'})")
         elif not review.get("cleanup_verified_at"):
             lines.append("REQUIRED NEXT: verify cleanup before Reviewer")
@@ -184,7 +185,7 @@ def planner_process_lines(cwd, state, goal, review, fix_loop):
 
 
 def _research_unresolved(cwd):
-    data = rj(cwd / ".aiwf" / "research" / "external.json", {"records": [], "skip": {}})
+    data = rj(cwd / ".aiwf" / "artifacts" / "research" / "external.json", {"records": [], "skip": {}})
     if any(r.get("status") == "promoted" for r in data.get("records", []) if isinstance(r, dict)):
         return False
     skip = data.get("skip", {}) if isinstance(data.get("skip"), dict) else {}
@@ -197,7 +198,6 @@ def recovery_lines(cwd, state, goal, review, fix_loop):
     active_task = state.get("active_task_id")
     out = []
     def blocked(category, owner, primary, legal, user=False):
-        primary = primary.replace("plan and activate one scoped task", "activate task")
         lines = [f"Recovery:{category} {owner}", f"PRIMARY: {primary}", "REQUIRED NEXT: see PRIMARY"]
         if user:
             lines.append("USER DECISION REQUIRED")
@@ -252,7 +252,7 @@ def recovery_lines(cwd, state, goal, review, fix_loop):
             return blocked("missing_contract", "planner", "complete Evaluation Contract",
                            "record missing fields or ask the user for acceptance criteria",
                            user=True)
-        testing = rj(cwd / ".aiwf" / "quality" / "testing.json", {})
+        testing = rj(cwd / ".aiwf" / "artifacts" / "quality" / "testing.json", {})
         if testing.get("status") not in ("adequate", "passed"):
             return blocked("missing_step", "tester", "dispatch independent Tester",
                            "use aiwf-tester; do not roleplay Tester or dispatch Reviewer first")
@@ -273,35 +273,59 @@ def recovery_lines(cwd, state, goal, review, fix_loop):
     return out
 
 
+def _active_task(cwd, task_id):
+    if not task_id:
+        return {}
+    ledger = rj(cwd / ".aiwf" / "runtime" / "history" / "task-ledger.json", {"tasks": []})
+    for task in ledger.get("tasks", []) or []:
+        if isinstance(task, dict) and task.get("id") == task_id:
+            return task
+    return {}
+
+
+def _node_ids(cwd, state):
+    task_id = state.get("active_task_id") or ""
+    task = _active_task(cwd, task_id)
+    plan_id = state.get("active_plan_id") or task.get("plan_id") or ""
+    goal_id = state.get("active_task_parent_goal") or task.get("goal_id") or task.get("parent_goal") or ""
+    milestone_id = state.get("active_milestone_id") or task.get("milestone_id") or ""
+    if not milestone_id:
+        milestones = rj(cwd / ".aiwf" / "state" / "milestones.json", {})
+        milestone_id = milestones.get("active_milestone_id") or ""
+    return task_id, plan_id, goal_id, milestone_id
+
+
 def _build_short_context(cwd, state, goal, review, fix_loop):
     """Per-turn injection: only what the model needs to decide its next action.
-    ~8-12 lines. No Gravity, no capabilities, no env, no project-map, no templates.
+    No Mission, no full tree, no reports, no assets, no raw artifact content.
     """
     phase = state.get("phase", "discussing")
     level = state.get("workflow_level", "L1_review_light")
     mode = state.get("request_mode", "execution")
     pattern = state.get("workflow_pattern", "linear")
+    task_id, plan_id, goal_id, milestone_id = _node_ids(cwd, state)
+    ctx_id = state.get("active_context_id", "")
 
     lines = ["[AIWF]"]
-    # 1. Phase + mode (1 line)
-    mode_str = f" mode={mode}/{pattern}" if mode != "execution" or pattern != "linear" else ""
-    lines.append(f"Phase: {phase} level={level}{mode_str}")
+    parts = [f"Phase: {phase}", f"level={level}"]
+    if task_id:
+        parts.append(f"task={task_id}")
+    if plan_id:
+        parts.append(f"plan={plan_id}")
+    if goal_id:
+        parts.append(f"goal={goal_id}")
+    if milestone_id:
+        parts.append(f"milestone={milestone_id}")
+    if ctx_id:
+        parts.append(f"ctx={ctx_id}")
+    lines.append(" ".join(parts))
     lines.append(f"Process: level={level} mode={mode} route={pattern}")
 
-    # 2. Active task + context (1 line)
-    ctx_id = state.get("active_context_id", "")
-    task_id = state.get("active_task_id", "")
-    if task_id:
-        lines.append(f"Task: {task_id} ctx={ctx_id}" if ctx_id else f"Task: {task_id}")
-    elif ctx_id:
-        lines.append(f"Context: {ctx_id}")
-
-    # 3. Health: blockers only (scope violation, fix-loop, review blocking)
     health_parts = []
     if state.get("scope_violation"):
         health_parts.append("scope violation")
     if fix_loop.get("status") == "open":
-        health_parts.append(f"fix-loop open → {fix_loop.get('route', '?')}")
+        health_parts.append(f"fix-loop open -> {fix_loop.get('route', '?')}")
     rev = review.get("result", "unknown")
     if rev in ("rejected", "needs_fix", "needs_more_testing", "scope_violation"):
         health_parts.append(f"review={rev}")
@@ -330,19 +354,20 @@ def _build_short_context(cwd, state, goal, review, fix_loop):
 
     # 6. Phase anchor [ATTN] — always last for recency weight
     phase_anchors = {
-        "discussing": "DISCUSSION phase. Load /aiwf-planner. Do NOT write code or create execution state.",
-        "planned": "PLANNED phase. Load /aiwf-planner, then /aiwf-planner-contracts to freeze contracts. Present activation summary, get confirmation, activate task.",
-        "implementing": "EXECUTING phase. Load /aiwf-planner-execute then /aiwf-implement. Work within allowed_write scope.",
-        "testing": "TESTING phase. Load /aiwf-test. Tests must be tool invocations with evidence, not prose claims.",
-        "reviewing": "REVIEWING phase. Load /aiwf-review, then /aiwf-review-trace, /aiwf-review-verify, /aiwf-review-output.",
-        "closing": "CLOSING phase. Load /aiwf-close, then /aiwf-planner-docs. Run prepare_close, present output to user.",
-        "closed": ("Task CLOSED. Start next task or run periodic Architect review if due."
+        "discussing": "DISCUSSION - /aiwf-planner; no code.",
+        "planned": "PLANNED - freeze contracts, then activate task.",
+        "implementing": "EXECUTING - /aiwf-implement; stay in allowed_write.",
+        "testing": "TESTING - /aiwf-test; run commands, record evidence.",
+        "reviewing": "REVIEWING - /aiwf-review chain.",
+        "closing": "CLOSING - /aiwf-close; prepare_close before task close.",
+        "closed": ("CLOSED - start next task or periodic Architect review."
                     if not state.get("active_task_id")
                     else f"Closure gate passed. Next: run aiwf task close {state['active_task_id']}."),
     }
     anchor = phase_anchors.get(phase, "")
     if anchor:
-        lines.append(f"\n[ATTN] {anchor}")
+        lines.append(f"[ATTN] {anchor}")
+    lines.append("If lost: run `aiwf status --debug`, then load the [ATTN] skill.")
 
     return "\n".join(lines)
 
@@ -351,19 +376,19 @@ def _build_full_context(cwd, state, goal, review, fix_loop):
     """Full context: all state details for debugging. The original verbose output."""
     lines = ["[AIWF]"]
     lines.append(f"Phase: {state.get('phase', 'unknown')}")
-    ledger = rj(cwd / ".aiwf" / "history" / "task-ledger.json", {"tasks": []})
+    ledger = rj(cwd / ".aiwf" / "runtime" / "history" / "task-ledger.json", {"tasks": []})
     tasks = ledger.get("tasks", []) if isinstance(ledger.get("tasks"), list) else []
     active_tasks = [t.get("id") for t in tasks if t.get("status") == "active" and t.get("id")]
     if tasks:
         lines.append(f"Task ledger: {len(active_tasks)} active / {len(tasks)} tasks")
-    if (cwd / ".aiwf" / "reports" / "质量摘要.md").exists():
+    if (cwd / ".aiwf" / "artifacts" / "reports" / "质量摘要.md").exists():
         lines.append("Quality digest: available")
     lines.extend(gravity_summary_lines(cwd))
     lines.extend(active_task_quality_warning_lines(cwd))
     lines.extend(quality_signal_lines(cwd))
     lines.extend(architect_hint(cwd))
     lines.extend(planner_process_lines(cwd, state, goal, review, fix_loop))
-    drift_path = cwd / ".aiwf" / "internal" / "workspace-drift.json"
+    drift_path = cwd / ".aiwf" / "runtime" / "internal" / "workspace-drift.json"
     if drift_path.exists():
         try:
             drift_json = json.loads(drift_path.read_text(encoding="utf-8"))
@@ -373,9 +398,6 @@ def _build_full_context(cwd, state, goal, review, fix_loop):
         except Exception: lines.append("Workspace drift: not scanned")
     else: lines.append("Workspace drift: not scanned")
     cap_path = cwd / ".aiwf" / "assets" / "capabilities.json"
-    cap_legacy = cwd / ".aiwf" / "capabilities.json"
-    if not cap_path.exists() and cap_legacy.exists():
-        cap_path = cap_legacy
     if cap_path.exists():
         try:
             cap_reg = json.loads(cap_path.read_text(encoding="utf-8"))
@@ -406,7 +428,7 @@ def _build_full_context(cwd, state, goal, review, fix_loop):
             lines.append("Environment: available")
     else:
         lines.append("Environment: missing")
-    pm_path = cwd / ".aiwf" / "reports" / "项目地图.md"
+    pm_path = cwd / ".aiwf" / "artifacts" / "reports" / "项目地图.md"
     if pm_path.exists(): lines.append("Project Map: present")
     else: lines.append("Project Map: missing")
     stypes = goal.get("quality_brief", {}).get("surface_types", [])
@@ -495,7 +517,7 @@ def main():
 
     state = rj(state_path)
     goal = rj(cwd / ".aiwf" / "state" / "goal.json")
-    review = rj(cwd / ".aiwf" / "quality" / "review.json")
+    review = rj(cwd / ".aiwf" / "artifacts" / "quality" / "review.json")
     fix_loop = rj(cwd / ".aiwf" / "state" / "fix-loop.json")
 
     # --short: per-turn injection (~8-12 lines). Default for UserPromptSubmit hook.
@@ -508,13 +530,13 @@ def main():
         # Append [ATTN] anchor to debug mode too
         phase = state.get("phase", "discussing")
         phase_anchors = {
-            "discussing": "DISCUSSION phase. Load /aiwf-planner. Do NOT write code or create execution state.",
-            "planned": "PLANNED phase. Load /aiwf-planner, then /aiwf-planner-contracts to freeze contracts.",
-            "implementing": "EXECUTING phase. Load /aiwf-planner-execute then /aiwf-implement.",
-            "testing": "TESTING phase. Load /aiwf-test.",
-            "reviewing": "REVIEWING phase. Load /aiwf-review chain.",
-            "closing": "CLOSING phase. Load /aiwf-close, then /aiwf-planner-docs.",
-            "closed": "Task CLOSED.",
+            "discussing": "DISCUSSION - /aiwf-planner; no code.",
+            "planned": "PLANNED - freeze contracts, then activate task.",
+            "implementing": "EXECUTING - /aiwf-implement; stay in allowed_write.",
+            "testing": "TESTING - /aiwf-test; run commands, record evidence.",
+            "reviewing": "REVIEWING - /aiwf-review chain.",
+            "closing": "CLOSING - /aiwf-close; prepare_close before task close.",
+            "closed": "CLOSED.",
         }
         anchor = phase_anchors.get(phase, "")
         if anchor:

@@ -15,7 +15,7 @@ from typing import Any, Dict, List, Optional
 
 from .diff_snapshot import is_internal_path, AIWF_INTERNAL_DIRS, AIWF_INTERNAL_PATTERNS
 
-SNAPSHOT_PATH = ".aiwf/internal/pre-tool-snapshot.json"
+SNAPSHOT_PATH = ".aiwf/runtime/internal/pre-tool-snapshot.json"
 
 # Directories to exclude from snapshot scanning entirely
 SNAPSHOT_EXCLUDE_DIRS = {
@@ -121,7 +121,7 @@ def _scan_project_files(root: Path) -> Dict[str, Dict[str, Any]]:
 
 
 def take_snapshot(cwd: Path, tool_name: str = "", tool_input: Optional[Dict] = None) -> Dict[str, Any]:
-    """Take a pre-tool snapshot of project files. Stores to .aiwf/internal/.
+    """Take a pre-tool snapshot of project files. Stores to .aiwf/runtime/internal/.
 
     Returns the snapshot dict.
     """

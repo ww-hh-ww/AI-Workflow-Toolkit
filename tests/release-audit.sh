@@ -27,7 +27,8 @@ git -C "$ROOT" ls-files | grep -E '^\.aiwf/|^\.claude/|^\.reasonix/' && {
 
 fi
 grep -R -I -E "V45[.]3|v45[.]3|V45[.]4|v45[.]4|V45[.]5|v45[.]5|V45[.]6|v45[.]6" "$ROOT" \
-  --exclude-dir=.git --exclude-dir=__pycache__ --exclude-dir=__MACOSX \
+  --exclude-dir=.git --exclude-dir=.aiwf --exclude-dir=.claude --exclude-dir=.reasonix \
+  --exclude-dir=__pycache__ --exclude-dir=__MACOSX \
   --exclude='*.pyc' --exclude='._*' --exclude='*.zip' --exclude=release-audit.sh && {
   echo "stale previous-version reference found" >&2
   exit 1
@@ -50,7 +51,8 @@ find "$ROOT" \( -path "$ROOT/.git" -o -path "$ROOT/.git/*" \) -prune -o -name '.
 
 LOCAL_OR_CREDENTIAL_RE='/(Users/wzx|var/folders/)|BE(GIN) (RSA|OPENSSH|PRIVATE)'
 grep -R -I -E "$LOCAL_OR_CREDENTIAL_RE" "$ROOT" \
-  --exclude-dir=.git --exclude-dir=__pycache__ --exclude-dir=__MACOSX \
+  --exclude-dir=.git --exclude-dir=.aiwf --exclude-dir=.claude --exclude-dir=.reasonix \
+  --exclude-dir=__pycache__ --exclude-dir=__MACOSX \
   --exclude='*.pyc' --exclude='._*' --exclude='*.zip' && {
   echo "local path or secret-like content found" >&2
   exit 1
@@ -81,9 +83,9 @@ TMP="$(mktemp -d "${TMPDIR:-/tmp}/aiwf-embedded-release-audit-XXXXXX")"
   test -f .aiwf/state/state.json
   test -f .aiwf/state/goal.json
   test -f .aiwf/state/contexts.json
-  test -f .aiwf/evidence/records.json
-  test -f .aiwf/quality/testing.json
-  test -f .aiwf/quality/review.json
+  test -f .aiwf/artifacts/evidence/records.json
+  test -f .aiwf/artifacts/quality/testing.json
+  test -f .aiwf/artifacts/quality/review.json
   test -f .aiwf/state/fix-loop.json
   test ! -f .aiwf/state.json
   test ! -f .aiwf/review.json

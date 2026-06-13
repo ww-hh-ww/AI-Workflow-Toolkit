@@ -58,7 +58,7 @@ class TestClosureReportBasis(unittest.TestCase):
     def _report(self):
         r = self._run_script("scripts/aiwf_export_report.py")
         self.assertEqual(r.returncode, 0, f"export_report failed: {r.stderr}")
-        return (self.tmp / ".aiwf" / "reports" / "闭合报告.md").read_text()
+        return (self.tmp / ".aiwf" / "artifacts" / "reports" / "闭合报告.md").read_text()
 
     def _seed_quality(self):
         self._run("state", "record-quality-policy", "--task-type", "small_function",
@@ -80,16 +80,16 @@ class TestClosureReportBasis(unittest.TestCase):
 
     def _seed_full_accept(self):
         """Set all gate fields to accepted/passing values."""
-        (self.tmp / ".aiwf" / "evidence" / "records.json").write_text(json.dumps({
+        (self.tmp / ".aiwf" / "artifacts" / "evidence" / "records.json").write_text(json.dumps({
             "records": [{
                 "id": "EV-001", "status": "accepted", "trust": "machine_observed",
                 "changed_files": ["src/calc.js"],
-                "governance_changed_files": [".aiwf/state/state.json", ".aiwf/reports/闭合报告.md"]
+                "governance_changed_files": [".aiwf/state/state.json", ".aiwf/artifacts/reports/闭合报告.md"]
             }]
         }, indent=2))
-        (self.tmp / ".aiwf" / "quality" / "testing.json").write_text(json.dumps(
+        (self.tmp / ".aiwf" / "artifacts" / "quality" / "testing.json").write_text(json.dumps(
             {"status": "adequate", "commands": ["pytest"], "untested_risks": []}, indent=2))
-        (self.tmp / ".aiwf" / "quality" / "review.json").write_text(json.dumps({
+        (self.tmp / ".aiwf" / "artifacts" / "quality" / "review.json").write_text(json.dumps({
             "result": "accepted", "verdict": "PASS_WITH_RISK", "closure_allowed": True, "cleanup_status": "fresh",
             "structure_status": "accepted", "stale_items": [], "cleanup_blockers": [],
             "blockers": [], "accepted_evidence_ids": ["EV-001"], "rejected_evidence_ids": [],
@@ -109,7 +109,7 @@ class TestClosureReportBasis(unittest.TestCase):
             "capabilities": "no",
             "quality_summary": "no",
         }
-        plan_dir = self.tmp / ".aiwf" / "plans"
+        plan_dir = self.tmp / ".aiwf" / "artifacts" / "plans"
         plan_dir.mkdir(parents=True, exist_ok=True)
         body = "\n".join(f"- {k}: {v} — test" for k, v in impact.items())
         (plan_dir / f"{task_id}.md").write_text(f"# {task_id}\n\n## Impact\n{body}\n")
@@ -144,7 +144,7 @@ class TestClosureReportBasis(unittest.TestCase):
         self.assertIn("## Git Summary", r)
 
     def test_report_has_task_history_trend_section(self):
-        (self.tmp / ".aiwf" / "history" / "task-history.json").write_text(json.dumps({
+        (self.tmp / ".aiwf" / "runtime" / "history" / "task-history.json").write_text(json.dumps({
             "tasks": [
                 {"id": "t1", "fix_loop_attempt_count": 1, "untested_risk_count": 0,
                  "changed_files": ["src/calc.js"]},
@@ -187,7 +187,7 @@ class TestClosureReportBasis(unittest.TestCase):
         self.assertIn("Changed governance/support files:", r)
         self.assertIn("src/calc.js", r)
         self.assertIn(".aiwf/state/state.json", r)
-        self.assertIn(".aiwf/reports/闭合报告.md", r)
+        self.assertIn(".aiwf/artifacts/reports/闭合报告.md", r)
 
     def test_report_surfaces_quality_verdict_and_dimensions(self):
         self._seed_full_accept()
@@ -235,7 +235,7 @@ class TestClosureReportBasis(unittest.TestCase):
 
     def test_report_closure_gate_blocks_impact_mismatch(self):
         self._seed_full_accept()
-        (self.tmp / ".aiwf" / "evidence" / "records.json").write_text(json.dumps({
+        (self.tmp / ".aiwf" / "artifacts" / "evidence" / "records.json").write_text(json.dumps({
             "records": [{
                 "id": "EV-001", "status": "accepted", "trust": "machine_observed",
                 "changed_files": ["README.md"],
@@ -256,7 +256,7 @@ class TestClosureReportBasis(unittest.TestCase):
 
     def test_closure_gate_blocks_quality_verdict_contradiction(self):
         self._seed_full_accept()
-        review_path = self.tmp / ".aiwf" / "quality" / "review.json"
+        review_path = self.tmp / ".aiwf" / "artifacts" / "quality" / "review.json"
         review = json.loads(review_path.read_text())
         review["verdict"] = "PASS"
         review_path.write_text(json.dumps(review, indent=2))

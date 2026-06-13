@@ -122,21 +122,21 @@ class TestArchitectureBrief(unittest.TestCase):
                   "--allowed-file", "src/calc.js",
                   "--integration-point", "calculator public export")
         r = self._run_script("scripts/aiwf_export_report.py")
-        rpt = (self.tmp / ".aiwf" / "reports" / "闭合报告.md").read_text()
+        rpt = (self.tmp / ".aiwf" / "artifacts" / "reports" / "闭合报告.md").read_text()
         self.assertIn("## Architecture Brief", rpt)
         self.assertIn("Add divide as peer calculator operation", rpt)
         self.assertIn("src/calc.js", rpt)
 
     def test_report_shows_none_when_no_brief(self):
         r = self._run_script("scripts/aiwf_export_report.py")
-        rpt = (self.tmp / ".aiwf" / "reports" / "闭合报告.md").read_text()
+        rpt = (self.tmp / ".aiwf" / "artifacts" / "reports" / "闭合报告.md").read_text()
         self.assertIn("Architecture brief: none", rpt)
 
     def test_report_no_raw_json_dump(self):
         self._run("state", "record-quality-brief",
                   "--target-structure", "test structure")
         r = self._run_script("scripts/aiwf_export_report.py")
-        rpt = (self.tmp / ".aiwf" / "reports" / "闭合报告.md").read_text()
+        rpt = (self.tmp / ".aiwf" / "artifacts" / "reports" / "闭合报告.md").read_text()
         self.assertNotIn('"target_structure"', rpt)
 
     # ═══════════════════════════════════════════════════════════════

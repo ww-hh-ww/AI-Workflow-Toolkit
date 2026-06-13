@@ -35,7 +35,7 @@ class TestSystemIntegrationCoverage(unittest.TestCase):
         return json.loads((self.tmp / ".aiwf" / "state" / "goal.json").read_text())
 
     def _testing(self):
-        return json.loads((self.tmp / ".aiwf" / "quality" / "testing.json").read_text())
+        return json.loads((self.tmp / ".aiwf" / "artifacts" / "quality" / "testing.json").read_text())
 
     def _run_script(self, script_rel):
         env = os.environ.copy(); env["PYTHONPATH"] = str(PROJECT_ROOT)
@@ -89,7 +89,7 @@ class TestSystemIntegrationCoverage(unittest.TestCase):
                   "--system-integration-obligation",
                   "Verify divide exported through public API")
         r = self._run_script("scripts/aiwf_export_report.py")
-        rpt = (self.tmp / ".aiwf" / "reports" / "闭合报告.md").read_text()
+        rpt = (self.tmp / ".aiwf" / "artifacts" / "reports" / "闭合报告.md").read_text()
         self.assertIn("System integration obligations", rpt)
         self.assertIn("Verify divide exported through public API", rpt)
 
@@ -99,7 +99,7 @@ class TestSystemIntegrationCoverage(unittest.TestCase):
         self._run("state", "record-testing", "--status", "adequate",
                   "--acceptance-coverage", "AC1 covered by calc.test.js")
         r = self._run_script("scripts/aiwf_export_report.py")
-        rpt = (self.tmp / ".aiwf" / "reports" / "闭合报告.md").read_text()
+        rpt = (self.tmp / ".aiwf" / "artifacts" / "reports" / "闭合报告.md").read_text()
         self.assertIn("AC1 covered by calc.test.js", rpt)
 
     def test_report_includes_system_coverage_from_testing(self):
@@ -108,7 +108,7 @@ class TestSystemIntegrationCoverage(unittest.TestCase):
         self._run("state", "record-testing", "--status", "adequate",
                   "--system-coverage", "Public API export path covered by integration test")
         r = self._run_script("scripts/aiwf_export_report.py")
-        rpt = (self.tmp / ".aiwf" / "reports" / "闭合报告.md").read_text()
+        rpt = (self.tmp / ".aiwf" / "artifacts" / "reports" / "闭合报告.md").read_text()
         self.assertIn("Public API export path covered by integration test", rpt)
 
     def test_report_includes_failed_obligations_from_testing(self):
@@ -118,7 +118,7 @@ class TestSystemIntegrationCoverage(unittest.TestCase):
                   "--failure-summary", "divide by -0 did not throw",
                   "--failed-obligation", "Cover +0/-0 divisor")
         r = self._run_script("scripts/aiwf_export_report.py")
-        rpt = (self.tmp / ".aiwf" / "reports" / "闭合报告.md").read_text()
+        rpt = (self.tmp / ".aiwf" / "artifacts" / "reports" / "闭合报告.md").read_text()
         self.assertIn("Failed obligations", rpt)
         self.assertIn("Cover +0/-0 divisor", rpt)
 
@@ -130,7 +130,7 @@ class TestSystemIntegrationCoverage(unittest.TestCase):
                   "--acceptance-coverage", "AC1: covered",
                   "--system-coverage", "Sys1: covered")
         r = self._run_script("scripts/aiwf_export_report.py")
-        rpt = (self.tmp / ".aiwf" / "reports" / "闭合报告.md").read_text()
+        rpt = (self.tmp / ".aiwf" / "artifacts" / "reports" / "闭合报告.md").read_text()
         self.assertIn("AC1: covered", rpt)
         self.assertIn("Sys1: covered", rpt)
 
@@ -138,7 +138,7 @@ class TestSystemIntegrationCoverage(unittest.TestCase):
         self._run("state", "record-quality-brief",
                   "--user-visible-outcome", "divide works")
         r = self._run_script("scripts/aiwf_export_report.py")
-        rpt = (self.tmp / ".aiwf" / "reports" / "闭合报告.md").read_text()
+        rpt = (self.tmp / ".aiwf" / "artifacts" / "reports" / "闭合报告.md").read_text()
         self.assertIn("none / not recorded", rpt.lower())
 
     # ═══════════════════════════════════════════════════════════════
@@ -151,12 +151,12 @@ class TestSystemIntegrationCoverage(unittest.TestCase):
                       "Planner-contracts should mention system integration")
 
     def test_planner_l0_l1_no_full_system_test_by_default(self):
-        c = (self.tmp / ".claude" / "skills" / "aiwf-planner" / "SKILL.md").read_text()
+        c = (self.tmp / ".claude" / "skills" / "aiwf-planner-execute" / "SKILL.md").read_text()
         self.assertIn("L0", c)
         self.assertIn("L1", c)
 
     def test_planner_l2_l3_requires_system_path(self):
-        c = (self.tmp / ".claude" / "skills" / "aiwf-planner" / "SKILL.md").read_text()
+        c = (self.tmp / ".claude" / "skills" / "aiwf-planner-execute" / "SKILL.md").read_text()
         self.assertIn("L3", c)
         self.assertIn("L1", c)
 

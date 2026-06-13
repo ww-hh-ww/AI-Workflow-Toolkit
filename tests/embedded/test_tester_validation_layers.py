@@ -46,9 +46,9 @@ class TestTesterValidationLayers(unittest.TestCase):
         state = json.loads((self.tmp / ".aiwf" / "state" / "state.json").read_text())
         state["workflow_level"] = "L2_standard_team"
         _write(self.tmp / ".aiwf" / "state" / "state.json", state)
-        testing = json.loads((self.tmp / ".aiwf" / "quality" / "testing.json").read_text())
+        testing = json.loads((self.tmp / ".aiwf" / "artifacts" / "quality" / "testing.json").read_text())
         testing.update({"status": "adequate", "commands": ["pytest tests/unit/test_one.py"]})
-        _write(self.tmp / ".aiwf" / "quality" / "testing.json", testing)
+        _write(self.tmp / ".aiwf" / "artifacts" / "quality" / "testing.json", testing)
 
         blockers = _l2_l3_completion_blockers(str(self.tmp), {"id": "TASK-1", "status": "active"})
         text = " ".join(blockers)
@@ -61,7 +61,7 @@ class TestTesterValidationLayers(unittest.TestCase):
         state = json.loads((self.tmp / ".aiwf" / "state" / "state.json").read_text())
         state["workflow_level"] = "L2_standard_team"
         _write(self.tmp / ".aiwf" / "state" / "state.json", state)
-        testing = json.loads((self.tmp / ".aiwf" / "quality" / "testing.json").read_text())
+        testing = json.loads((self.tmp / ".aiwf" / "artifacts" / "quality" / "testing.json").read_text())
         testing.update({
             "status": "adequate",
             "commands": ["pytest tests/unit/test_one.py"],
@@ -72,7 +72,7 @@ class TestTesterValidationLayers(unittest.TestCase):
             "real_usage_reason": "staging credentials unavailable",
             "untested_risks": ["GPU and staging paths remain unverified"],
         })
-        _write(self.tmp / ".aiwf" / "quality" / "testing.json", testing)
+        _write(self.tmp / ".aiwf" / "artifacts" / "quality" / "testing.json", testing)
 
         blockers = _l2_l3_completion_blockers(str(self.tmp), {"id": "TASK-1", "status": "active"})
         text = " ".join(blockers)

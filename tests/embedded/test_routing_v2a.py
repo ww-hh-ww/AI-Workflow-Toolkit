@@ -402,16 +402,23 @@ class TestRoutingV2MechanicalRouting(unittest.TestCase):
             "review_obligations": ["review scope"],
         })
         brief["architecture_brief"]["target_structure"] = "Preserve modules"
+        brief["non_goals"] = ["test"]
         _write(goal_path, goal)
 
     def _seed_plan(self, task_id):
-        plan_dir = self.tmp / ".aiwf" / "plans"
+        from aiwf_core.core.state.plan_ops import upsert_plan
+
+        plan_id = f"PLAN-{task_id}"
+        plan_dir = self.tmp / ".aiwf" / "artifacts" / "plans"
         plan_dir.mkdir(parents=True, exist_ok=True)
-        plan_path = plan_dir / f"{task_id}.md"
+        plan_path = plan_dir / f"{plan_id}.md"
         if not plan_path.exists():
             plan_path.write_text(
-                f"# {task_id}\n\n"
+                f"# {plan_id}\n\n"
                 "> AI working plan.\n\n"
+                f"Plan ID: {plan_id}\n"
+                "Parent Goal: GOAL-001\n"
+                f"Task IDs: {task_id}\n\n"
                 "## Goal\nTest\n\n## Route\n- How: fix\n\n"
                 "## Scope\n- Change: test\n\n## Risks\n- none\n\n"
                 "## Verification\n- Machine-verifiable: yes\n\n"
@@ -421,6 +428,21 @@ class TestRoutingV2MechanicalRouting(unittest.TestCase):
                 "## Next Steps\n1. done\n",
                 encoding="utf-8",
             )
+        upsert_plan(str(self.tmp), plan_id, goal_id="GOAL-001", task_ids=[task_id])
+        ledger_path = self.tmp / ".aiwf" / "runtime" / "history" / "task-ledger.json"
+        if ledger_path.exists():
+            ledger = json.loads(ledger_path.read_text())
+            changed = False
+            for task in ledger.get("tasks", []):
+                if task.get("id") == task_id:
+                    task["plan_id"] = plan_id
+                    task["parent_plan"] = plan_id
+                    task["goal_id"] = task.get("goal_id") or "GOAL-001"
+                    task["parent_goal"] = task.get("parent_goal") or task["goal_id"]
+                    changed = True
+            if changed:
+                _write(ledger_path, ledger)
+        return plan_id
 
     def test_mechanical_task_routes_with_topology_dimensions(self):
         """A mechanical validator change should get V2-A topology fields in state."""
@@ -499,7 +521,11 @@ class TestRoutingV2MechanicalRouting(unittest.TestCase):
         self.assertFalse(result["downgrade_allowed"])
 
     def test_same_file_prior_fix_loop_hard_L2(self):
-        """Prior fix-loop on same file should produce hard L2 routing."""
+        """Prior fix-loop on same file recommends L2 but allows downgrade.
+
+        Resolved same-file fix-loops are warnings, not hard constraints.
+        Only active fix-loops and same-task recurrence forbid downgrade.
+        """
         from aiwf_core.core.routing import compute_routing_score
         factors = {
             "prior_fix_loop_same_file": True,
@@ -513,7 +539,7 @@ class TestRoutingV2MechanicalRouting(unittest.TestCase):
             lvls.index(result["workflow_level"]),
             lvls.index("L2_standard_team"),
         )
-        self.assertFalse(result["downgrade_allowed"])
+        self.assertTrue(result["downgrade_allowed"])
 
     def test_same_module_fix_loop_advisory_only(self):
         """Same-module prior fix-loop gives +1, not hard L2."""

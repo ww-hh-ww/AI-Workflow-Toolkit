@@ -207,8 +207,8 @@ def _recovery_guidance(
                 [
                     "record quality policy and Architecture/Evaluation Brief for the plan",
                     "start a scoped context with allowed_write and forbidden_write",
-                    f"run aiwf task plan {active_plan} --title '...' --allowed-write '...'",
-                    f"run aiwf task activate {active_plan}",
+                    f"run aiwf task plan <TASK-ID> --plan {active_plan} --title '...' --allowed-write '...'",
+                    "run aiwf task activate <TASK-ID>",
                     "or switch request_mode to discussion/research/spike if execution is not confirmed",
                 ],
                 [
@@ -434,15 +434,103 @@ def build_activation_summary(base_dir: str) -> str:
     return "\n".join(lines)
 
 
+def _topology_dispatch_guidance(
+    topology: str,
+    verif_need: str,
+    rev_need: str,
+    level: str,
+    active_task: str,
+) -> List[str]:
+    """Generate topology-specific dispatch guidance from V2-A dimensions.
+
+    These are ADVISORY — the model judges how to execute. Mechanical gates
+    (session diversity in record-testing/record-review) verify after the fact.
+    """
+    guidance: List[str] = []
+    if not active_task:
+        return guidance
+
+    # ── execution_topology → agent dispatch shape ──
+    topo_hints = {
+        "single_agent": "Topology single_agent: one agent handles everything. No subagent dispatch needed.",
+        "single_agent_with_machine_evidence": (
+            "Topology single_agent_with_machine_evidence: one agent + machine-verifiable output. "
+            "Run deterministic validation commands (grep/diff/test suite) that a machine can verify."
+        ),
+        "light_review": (
+            "Topology light_review: executor + reviewer-light (same agent may do light review). "
+            "Testing is targeted; review checks scope + evidence + goal match."
+        ),
+        "standard_team": (
+            "Topology standard_team: executor → tester → reviewer as separate subagents. "
+            "Use Agent tool with subagent_type=aiwf-executor, aiwf-tester, aiwf-reviewer. "
+            "Each must run in its own session — session diversity is mechanically enforced at record time."
+        ),
+        "fanout_merge": (
+            "Topology fanout_merge: parallel agents + merge. "
+            "Spawn multiple agents for independent workstreams, then merge results. "
+            "Each agent runs in its own session. Reviewer synthesizes across all evidence streams."
+        ),
+    }
+    if topology in topo_hints:
+        guidance.append(topo_hints[topology])
+
+    # ── verification_need → testing approach ──
+    verif_hints = {
+        "deterministic": (
+            "Verification deterministic: changes are machine-verifiable. "
+            "Run neg/pos validation, diff check, and targeted tests. Full regression not required."
+        ),
+        "standard": (
+            "Verification standard: normal testing — targeted + regression. "
+            "Cover changed behavior and nearby code. Boundary testing recommended."
+        ),
+        "broad": (
+            "Verification broad: full regression + boundary + adverse input/error paths. "
+            "Run the complete project suite. Exercise real user-facing entrypoints."
+        ),
+        "adversarial": (
+            "Verification adversarial: full risk matrix + integration + adversarial testing. "
+            "Every surface must be tested. Security, data, and destructive paths require explicit validation. "
+            "Record all deferred risks with concrete reasons."
+        ),
+    }
+    if verif_need in verif_hints:
+        guidance.append(verif_hints[verif_need])
+
+    # ── review_need → review approach ──
+    review_hints = {
+        "none": "Review none: self-review is acceptable for this change.",
+        "optional_light_review": (
+            "Review optional_light_review: light review if useful. "
+            "Check scope, goal match, and basic evidence. Do not expand to full review."
+        ),
+        "required_review": (
+            "Review required_review: independent review required. "
+            "Dispatch aiwf-reviewer as a separate subagent. Review must cover correctness, "
+            "test adequacy, evidence, simplicity, and structure impact."
+        ),
+        "adversarial_review": (
+            "Review adversarial_review: adversarial multi-lens review required. "
+            "Dispatch aiwf-reviewer with full adversarial depth. Score all 8 quality dimensions. "
+            "Record adversarial observations for Planner meta-critique."
+        ),
+    }
+    if rev_need in review_hints:
+        guidance.append(review_hints[rev_need])
+
+    return guidance
+
+
 def planner_process_guidance(base_dir: str) -> Dict[str, Any]:
     """Explain current gates, why they apply, and what Planner should do next."""
     root = Path(base_dir)
     state = _read(root / ".aiwf" / "state" / "state.json", {})
     goal = _read(root / ".aiwf" / "state" / "goal.json", {})
-    testing = _read(root / ".aiwf" /"quality" / "testing.json", {})
-    review = _read(root / ".aiwf" /"quality" / "review.json", {})
+    testing = _read(root / ".aiwf" / "artifacts" / "quality" / "testing.json", {})
+    review = _read(root / ".aiwf" / "artifacts" / "quality" / "review.json", {})
     fix_loop = _read(root / ".aiwf" / "state" / "fix-loop.json", {})
-    ledger = _read(root / ".aiwf" /"history" / "task-ledger.json", {"tasks": []})
+    ledger = _read(root / ".aiwf" / "runtime" / "history" / "task-ledger.json", {"tasks": []})
     level = state.get("workflow_level", "L1_review_light")
     request_mode = state.get("request_mode", "execution")
     workflow_pattern = state.get("workflow_pattern", "linear")
@@ -503,7 +591,7 @@ def planner_process_guidance(base_dir: str) -> Dict[str, Any]:
             required.append(
                 f"Plan-only drift: active plan {active_plan} exists without an active task; "
                 "freeze quality/architecture/context contracts, then run "
-                f"aiwf task plan {active_plan} ... and aiwf task activate {active_plan}"
+                f"aiwf task plan <TASK-ID> --plan {active_plan} ... and aiwf task activate <TASK-ID>"
             )
         else:
             required.append("Plan and activate one task before project writes: aiwf task plan ...; aiwf task activate <TASK-ID>")
@@ -556,7 +644,7 @@ def planner_process_guidance(base_dir: str) -> Dict[str, Any]:
             + (f" ({'; '.join(detail)})" if detail else "")
         )
     if level == "L3_full_power":
-        ckpt = root / ".aiwf" / "checkpoints"
+        ckpt = root / ".aiwf" / "runtime" / "checkpoints"
         if not (ckpt.exists() and any(ckpt.iterdir())):
             conditional.append("L3 requires checkpoint before task completion, unless Planner records an explicit skip decision")
 
@@ -572,6 +660,14 @@ def planner_process_guidance(base_dir: str) -> Dict[str, Any]:
             conditional.append("Periodic Architect is due before the next ordinary task: " + "; ".join(arch.get("reasons", [])[:2]))
     except Exception:
         pass
+
+    # Topology guidance: surface V2-A dimensions so the model knows HOW to execute,
+    # not just WHAT level. These are advisory — the model judges, the gates verify.
+    topology = state.get("execution_topology", "light_review")
+    verif_need = state.get("verification_need", "standard")
+    rev_need = state.get("review_need", "optional_light_review")
+    _topo_guidance = _topology_dispatch_guidance(topology, verif_need, rev_need, level, active_task)
+    required.extend(_topo_guidance)
 
     # E-class: asset staleness, missing env/cap, and generic tool advice are
     # silenced from default guidance. They remain available via --debug.
@@ -592,6 +688,9 @@ def planner_process_guidance(base_dir: str) -> Dict[str, Any]:
         "test_template": state.get("test_template", ""),
         "review_template": state.get("review_template", ""),
         "exploration_budget": state.get("exploration_budget", ""),
+        "execution_topology": topology,
+        "verification_need": verif_need,
+        "review_need": rev_need,
         "required_now": required,
         "recovery": recovery,
         "conditional": conditional,

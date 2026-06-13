@@ -33,7 +33,7 @@ class TestFailureFixLoop(unittest.TestCase):
                               capture_output=True, text=True, cwd=str(self.tmp), env=env, timeout=TIMEOUT)
 
     def _testing(self):
-        return json.loads((self.tmp / ".aiwf" / "quality" / "testing.json").read_text())
+        return json.loads((self.tmp / ".aiwf" / "artifacts" / "quality" / "testing.json").read_text())
 
     def _fix_loop(self):
         return json.loads((self.tmp / ".aiwf" / "state" / "fix-loop.json").read_text())
@@ -173,7 +173,7 @@ class TestFailureFixLoop(unittest.TestCase):
                   "--reason", "Implementation bug in divide")
         r = self._run_script("scripts/aiwf_export_report.py")
         self.assertEqual(r.returncode, 0, f"export_report failed: {r.stderr}")
-        rpt = (self.tmp / ".aiwf" / "reports" / "闭合报告.md").read_text()
+        rpt = (self.tmp / ".aiwf" / "artifacts" / "reports" / "闭合报告.md").read_text()
         self.assertIn("## Fix-loop", rpt)
         self.assertIn("executor", rpt)
 
@@ -182,7 +182,7 @@ class TestFailureFixLoop(unittest.TestCase):
                   "--reason", "bug")
         self._run("fixloop", "resolve", "--resolution", "Fixed in commit abc123")
         r = self._run_script("scripts/aiwf_export_report.py")
-        rpt = (self.tmp / ".aiwf" / "reports" / "闭合报告.md").read_text()
+        rpt = (self.tmp / ".aiwf" / "artifacts" / "reports" / "闭合报告.md").read_text()
         self.assertIn("resolved", rpt.lower())
 
     def test_report_warns_if_testing_failed_but_fix_loop_missing(self):
@@ -190,7 +190,7 @@ class TestFailureFixLoop(unittest.TestCase):
         self._run("state", "record-testing", "--status", "failed",
                   "--failure-summary", "test crashed")
         r = self._run_script("scripts/aiwf_export_report.py")
-        rpt = (self.tmp / ".aiwf" / "reports" / "闭合报告.md").read_text()
+        rpt = (self.tmp / ".aiwf" / "artifacts" / "reports" / "闭合报告.md").read_text()
         self.assertIn("missing for failed testing", rpt)
 
     # ═══════════════════════════════════════════════════════════════
@@ -201,7 +201,7 @@ class TestFailureFixLoop(unittest.TestCase):
         self._run("state", "record-testing", "--status", "failed",
                   "--failure-summary", "test crashed")
         r = self._run_script("scripts/aiwf_export_report.py")
-        rpt = (self.tmp / ".aiwf" / "reports" / "闭合报告.md").read_text()
+        rpt = (self.tmp / ".aiwf" / "artifacts" / "reports" / "闭合报告.md").read_text()
         self.assertIn("BLOCKED", rpt)
 
     # ═══════════════════════════════════════════════════════════════

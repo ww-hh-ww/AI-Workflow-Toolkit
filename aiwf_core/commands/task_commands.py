@@ -8,6 +8,17 @@ import sys
 
 def _cmd_task_plan(args: argparse.Namespace) -> None:
     from ..core.task_ledger import upsert_task
+
+    def _split_csv(vals):
+        if not vals: return None
+        out = []
+        for v in vals:
+            for part in str(v).split(","):
+                part = part.strip()
+                if part:
+                    out.append(part)
+        return out or None
+
     task_id = args.task_id or getattr(args, "task_id_pos", "") or ""
     if not task_id:
         print("Task update blocked: task id required (use positional TASK-001 or --task-id TASK-001)", file=sys.stderr)
@@ -18,13 +29,16 @@ def _cmd_task_plan(args: argparse.Namespace) -> None:
         task_id=task_id,
         title=args.title or "",
         status=args.status,
-        dependencies=args.dependencies or None,
-        allowed_write=args.allowed_write or None,
+        dependencies=_split_csv(args.dependencies),
+        allowed_write=_split_csv(args.allowed_write),
         parallel_safe=args.parallel_safe,
         notes=args.notes or None,
         parent_goal=args.parent_goal or "",
         parent_plan=args.parent_plan or "",
+        goal_id=args.goal_id or "",
+        plan_id=args.plan_id or "",
         milestone=args.milestone or "",
+        milestone_id=getattr(args, "milestone_id", "") or "",
         )
     except ValueError as e:
         print(f"Task update blocked: {e}", file=sys.stderr)
@@ -40,8 +54,12 @@ def _cmd_task_plan(args: argparse.Namespace) -> None:
         print(f"  Parent goal: (none — tasks are execution units; link to a goal with --parent-goal)")
     if task.get("parent_plan"):
         print(f"  Parent plan: {task['parent_plan']}")
+    if task.get("plan_id"):
+        print(f"  Plan id: {task['plan_id']}")
     if task.get("milestone"):
         print(f"  Milestone: {task['milestone']}")
+    if task.get("milestone_id"):
+        print(f"  Milestone id: {task['milestone_id']}")
     # Granularity: warn if task smells like an action step
     for w in result.get("granularity_warnings", []) or []:
         print(f"  ! {w}")
@@ -55,6 +73,7 @@ def _cmd_task_activate(args: argparse.Namespace) -> None:
         print(f"  Blockers ({len(result['blockers'])}):")
         for blocker in result["blockers"][:8]:
             print(f"    - {blocker}")
+        raise SystemExit(1)
     else:
         print("  Execution window updated.")
 
@@ -66,7 +85,7 @@ def _cmd_task_close(args: argparse.Namespace) -> None:
     if result["blockers"]:
         for blocker in result["blockers"][:5]:
             print(f"  - {blocker}")
-        return
+        raise SystemExit(1)
 
     # Goal progress: a task is an execution unit, not a goal unit.
     # Every close must show where we are in the larger goal.
@@ -85,6 +104,19 @@ def _cmd_task_close(args: argparse.Namespace) -> None:
         print(f"  Goal complete: unknown (no parent goal set on this task)")
         print(f"  Hint: use --parent-goal GOAL-xxx when planning tasks")
 
+    pp = result.get("plan_progress", {}) or {}
+    if pp.get("reconciled"):
+        plan = pp.get("plan", {}) or {}
+        print(f"  Plan ({plan.get('plan_id', '')}) progress: {pp.get('closed_count', 0)}/{pp.get('total_count', 0)} tasks closed")
+        remaining = pp.get("remaining_task_ids", []) or []
+        if remaining:
+            print(f"  Plan remaining: {' '.join(remaining[:3])}")
+        mp = pp.get("milestone_progress", {}) or {}
+        if mp.get("reconciled"):
+            milestone = mp.get("milestone", {}) or {}
+            rollup = milestone.get("evidence_rollup", {}) or {}
+            print(f"  Milestone ({milestone.get('milestone_id', '')}) progress: {rollup.get('summary', '')}")
+
     # Granularity warnings
     for w in result.get("granularity_warnings", []) or []:
         print(f"  ! {w}")
@@ -97,6 +129,7 @@ def _cmd_task_suspend(args: argparse.Namespace) -> None:
     if result["blockers"]:
         for blocker in result["blockers"][:5]:
             print(f"  - {blocker}")
+        raise SystemExit(1)
 
 
 def _cmd_task_status(args: argparse.Namespace) -> None:

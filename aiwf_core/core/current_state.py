@@ -8,13 +8,13 @@ from typing import Dict, List
 SOURCE_FILES = [
     "state/state.json",
     "state/goal.json",
-    "evidence/records.json",
-    "quality/testing.json",
-    "quality/review.json",
+    "artifacts/evidence/records.json",
+    "artifacts/quality/testing.json",
+    "artifacts/quality/review.json",
     "state/fix-loop.json",
     "state/contexts.json",
-    "history/task-history.json",
-    "history/task-ledger.json",
+    "runtime/history/task-history.json",
+    "runtime/history/task-ledger.json",
 ]
 
 def current_state_freshness(base_dir: str) -> Dict[str, object]:
@@ -40,6 +40,5 @@ def current_state_freshness(base_dir: str) -> Dict[str, object]:
         "stale_sources": stale_sources,
         "exists": True,
     }
-
 
 

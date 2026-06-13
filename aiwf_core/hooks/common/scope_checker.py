@@ -44,7 +44,7 @@ def check_file_write(event: NormalizedEvent) -> ScopeResult:
         ".aiwf/state/goal.json",
         ".aiwf/state/contexts.json",
         ".aiwf/state/fix-loop.json",
-        ".aiwf/history/task-ledger.json",
+        ".aiwf/runtime/history/task-ledger.json",
     }
     if normalized in protected_truth:
         return ScopeResult(
@@ -57,10 +57,10 @@ def check_file_write(event: NormalizedEvent) -> ScopeResult:
                 "Use the matching command: aiwf state ..., aiwf goal ..., aiwf task ..., or aiwf fix-loop ..."
             ),
         )
-    if normalized == ".aiwf/quality/review.json":
+    if normalized == ".aiwf/artifacts/quality/review.json":
         level = state.get("workflow_level", "L1_review_light")
         if level in ("L2_standard_team", "L3_full_power"):
-            review = _read_json(cwd / ".aiwf" / "quality" / "review.json", {})
+            review = _read_json(cwd / ".aiwf" / "artifacts" / "quality" / "review.json", {})
             if not review.get("cleanup_verified_at"):
                 return ScopeResult(
                     file_path=normalized,
@@ -77,6 +77,7 @@ def check_file_write(event: NormalizedEvent) -> ScopeResult:
                 active_context_id=state.get("active_context_id") or "(none)",
                 reason=f"no active task — run 'aiwf task activate <TASK-ID>' before writing to '{normalized}'",
             )
+
     active_ctx_id = state.get("active_context_id")
     if not active_ctx_id:
         # Block project file writes without an active context.
@@ -95,13 +96,17 @@ def check_file_write(event: NormalizedEvent) -> ScopeResult:
             active_ctx = ctx
             break
 
-    # Plan-only drift: plan exists but no task activated
+    # Plan-only drift: plan exists but no task activated.
+    # Allow governance files — editing the plan artifact, context, or quality
+    # brief is the way to RESOLVE the drift. Blocking them creates a deadlock:
+    # need task to edit plan → need to edit plan to get task.
     if state.get("active_plan_id") and state.get("request_mode") == "execution" and not state.get("active_task_id"):
-        return ScopeResult(
-            file_path=file_path, allowed=False,
-            active_context_id=state.get("active_context_id") or "(none)",
-            reason="plan_only_drift: a plan exists but no task is activated. Activate the planned task before writing project files."
-        )
+        if not _is_governance_file(normalized):
+            return ScopeResult(
+                file_path=file_path, allowed=False,
+                active_context_id=state.get("active_context_id") or "(none)",
+                reason="plan_only_drift: a plan exists but no task is activated. Activate the planned task before writing project files."
+            )
 
     # Architecture brief constraints: protected_files and forbidden_restructures
     goal = _read_json(cwd / ".aiwf" / "state" / "goal.json", {})
@@ -166,6 +171,17 @@ def check_file_write(event: NormalizedEvent) -> ScopeResult:
                         file_path=file_path, allowed=True,
                         reason=f"fix-loop repair window: '{normalized}' is a required_fix target"
                     )
+
+    # Protocol precondition checks (P0): run AFTER repair window so fix targets aren't blocked.
+    # These check phase prerequisites — not quality (contracts, testing, review).
+    from .protocol_checker import check_protocol_preconditions
+    blocked, reason, fix_cmd = check_protocol_preconditions(cwd)
+    if blocked:
+        return ScopeResult(
+            file_path=normalized, allowed=False,
+            active_context_id=state.get("active_context_id") or "(none)",
+            reason=f"Protocol gate: {reason}\nFix: {fix_cmd}",
+        )
 
     return check_scope(file_path, active_ctx, state, project_root=str(cwd))
 

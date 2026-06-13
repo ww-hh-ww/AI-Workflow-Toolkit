@@ -1,14 +1,14 @@
 """Task plan artifacts — AI working memory, not long-form documentation.
 
-.aiwf/plans/<TASK-ID>.md is the AI's current-task workbench:
-compact, actionable, under 80 lines. It guides execution but does not
-replace .aiwf JSON gates for closure.
+.aiwf/state/plans.json is the Plan machine authority.
+.aiwf/artifacts/plans/<PLAN-ID>.md is the compact human artifact. Task-named
+plan markdown is retired and never activation truth.
 """
 from __future__ import annotations
 
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Optional
 import json
 
 VALID_PLAN_SECTIONS = {
@@ -20,13 +20,13 @@ VALID_PLAN_SECTIONS = {
     "decision": "Current Decision",
     "verification": "Verification",
     "impact": "Impact",
-    "docs-assets": "Impact",  # backward-compat: old name → Impact
+    "docs-assets": "Impact",  # retired alias accepted only when editing old artifacts
     "done-means": "Done Means",
     "goal-progress": "Goal Progress",
     "next-steps": "Next Steps",
 }
 
-# Backward-compat: old V1 section names → new V2 section names
+# Retired V1 section aliases accepted only when editing old artifacts.
 SECTION_COMPAT = {
     "open-questions": "goal",
     "decisions": "decision",
@@ -43,7 +43,7 @@ def _now() -> str:
 
 
 def _plans_dir(base_dir: str) -> Path:
-    return Path(base_dir) / ".aiwf" / "plans"
+    return Path(base_dir) / ".aiwf" / "artifacts" / "plans"
 
 
 def _safe_task_id(task_id: str) -> str:
@@ -57,13 +57,59 @@ def plan_path(base_dir: str, task_id: str) -> Path:
     return _plans_dir(base_dir) / f"{_safe_task_id(task_id)}.md"
 
 
-def _default_plan(task_id: str, context_id: str = "", title: str = "") -> str:
+def _resolve_plan_artifact_id(base_dir: str, plan_or_task_id: str) -> str:
+    """Resolve the requested Plan artifact id.
+
+    The runtime contract is PLAN-ID first. The PLAN-<TASK-ID> branch exists only
+    for artifacts created by the current registry-backed --task-id command.
+    """
+    requested = _safe_task_id(plan_or_task_id)
+    legacy_mapped = f"PLAN-{requested}"
+    if plan_path(base_dir, legacy_mapped).exists():
+        return legacy_mapped
+    if plan_path(base_dir, requested).exists():
+        return requested
+    return requested
+
+
+def _default_plan(task_id: str, context_id: str = "", title: str = "",
+                  goal_id: str = "", task_ids: Optional[List[str]] = None,
+                  target_goal_id: str = "", plan_kind: str = "",
+                  active_phase: str = "",
+                  interfaces: Optional[List[str]] = None,
+                  constraints: Optional[List[str]] = None,
+                  child_goal_policy: str = "",
+                  work_intent: str = "") -> str:
     title = title or task_id
-    return "\n".join([
+    task_ids = task_ids or ([task_id] if task_id.startswith("TASK-") else [])
+    tg = target_goal_id or goal_id or "GOAL-001"
+    kind = plan_kind or "implementation"
+    phase = active_phase or "implementation"
+
+    header_lines = [
         f"# {task_id}",
         "",
         "> AI working plan. Compact task-local execution memory.",
         "> Closure gates: .aiwf JSON (testing, review, evidence, cleanup, meta-critique).",
+        "",
+        f"Plan ID: {task_id}",
+        f"Target Goal: {tg}",
+        f"Plan Kind: {kind}",
+        f"Active Phase: {phase}",
+    ]
+    if work_intent:
+        header_lines.append(f"Work Intent: {work_intent}")
+    if interfaces:
+        header_lines.append(f"Interfaces: {', '.join(interfaces)}")
+    if constraints:
+        header_lines.append(f"Constraints: {', '.join(constraints)}")
+    if child_goal_policy:
+        header_lines.append(f"Child Goal Policy: {child_goal_policy}")
+    header_lines += [
+        f"Task IDs: {', '.join(task_ids) if task_ids else '(attach tasks later)'}",
+    ]
+
+    return "\n".join(header_lines + [
         "",
         "## Goal",
         f"{title}",
@@ -115,26 +161,83 @@ def _default_plan(task_id: str, context_id: str = "", title: str = "") -> str:
     ]) + "\n"
 
 
-def create_task_plan(base_dir: str, task_id: str, context_id: str = "", title: str = "") -> Dict[str, object]:
-    task_id = _safe_task_id(task_id)
-    path = plan_path(base_dir, task_id)
+def create_task_plan(
+    base_dir: str,
+    task_id: str = "",
+    context_id: str = "",
+    title: str = "",
+    plan_id: str = "",
+    goal_id: str = "",
+    milestone_id: str = "",
+    task_ids: Optional[List[str]] = None,
+    target_goal_id: str = "",
+    plan_kind: str = "",
+    active_phase: str = "",
+    interfaces: Optional[List[str]] = None,
+    constraints: Optional[List[str]] = None,
+    child_goal_policy: str = "",
+    work_intent: str = "",
+) -> Dict[str, object]:
+    legacy_task_id = _safe_task_id(task_id) if task_id else ""
+    if plan_id:
+        effective_plan_id = _safe_task_id(plan_id)
+    elif legacy_task_id:
+        effective_plan_id = _safe_task_id(f"PLAN-{legacy_task_id}")
+    else:
+        raise ValueError("plan_id or task_id is required")
+    attached_tasks = list(dict.fromkeys(task_ids or ([legacy_task_id] if legacy_task_id else [])))
+    tg = target_goal_id or goal_id or "GOAL-001"
+    kind = plan_kind or "implementation"
+    phase = active_phase or "implementation"
+    iface_list = list(dict.fromkeys(interfaces or []))
+    constraint_list = list(dict.fromkeys(constraints or []))
+    cgp = child_goal_policy or ""
+
+    path = plan_path(base_dir, effective_plan_id)
     path.parent.mkdir(parents=True, exist_ok=True)
     created = not path.exists()
     if created:
-        path.write_text(_default_plan(task_id, context_id=context_id, title=title), encoding="utf-8")
-    state_path = Path(base_dir) / ".aiwf" / "state" / "state.json"
-    if state_path.exists():
-        try:
-            state = json.loads(state_path.read_text(encoding="utf-8"))
-        except Exception:
-            state = {}
-        state["active_plan_id"] = task_id
-        state_path.write_text(json.dumps(state, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    return {"path": str(path), "created": created, "task_id": task_id}
+        path.write_text(
+            _default_plan(effective_plan_id, context_id=context_id, title=title,
+                          goal_id=goal_id, task_ids=attached_tasks,
+                          target_goal_id=tg, plan_kind=kind, active_phase=phase,
+                          interfaces=iface_list, constraints=constraint_list,
+                          child_goal_policy=cgp, work_intent=work_intent),
+            encoding="utf-8",
+        )
+    try:
+        from .state.plan_ops import upsert_plan
+        upsert_plan(base_dir, effective_plan_id, goal_id=goal_id, task_ids=attached_tasks,
+                    status="ready", title=title or effective_plan_id,
+                    milestone_id=milestone_id,
+                    target_goal_id=tg,
+                    plan_kind=kind,
+                    active_phase=phase,
+                    interfaces=iface_list,
+                    constraints=constraint_list,
+                    child_goal_policy=cgp,
+                    work_intent=work_intent)
+    except ValueError:
+        raise
+    except Exception:
+        pass
+    # Plan is created; activation (setting active_plan_id) is a separate,
+    # explicit decision made by the planner-executor via aiwf plan activate.
+    # Creating a plan does NOT auto-activate it — otherwise creating N plans
+    # means the last one silently wins, causing plan_only_drift deadlocks.
+    return {"path": str(path), "created": created, "task_id": legacy_task_id or effective_plan_id,
+            "plan_id": effective_plan_id, "task_ids": attached_tasks, "milestone_id": milestone_id,
+            "target_goal_id": tg,
+            "plan_kind": kind,
+            "active_phase": phase,
+            "interfaces": iface_list,
+            "constraints": constraint_list,
+            "child_goal_policy": cgp,
+            "work_intent": work_intent or None}
 
 
 def load_task_plan(base_dir: str, task_id: str) -> str:
-    path = plan_path(base_dir, task_id)
+    path = plan_path(base_dir, _resolve_plan_artifact_id(base_dir, task_id))
     if not path.exists():
         return ""
     return path.read_text(encoding="utf-8")
@@ -160,9 +263,12 @@ def update_task_plan_section(base_dir: str, task_id: str, section: str, content:
     effective = SECTION_COMPAT.get(section, section)
     if effective not in VALID_PLAN_SECTIONS:
         raise ValueError(f"unknown plan section: {section}")
-    path = plan_path(base_dir, task_id)
+    artifact_id = _resolve_plan_artifact_id(base_dir, task_id)
+    path = plan_path(base_dir, artifact_id)
     if not path.exists():
-        create_task_plan(base_dir, task_id)
+        create_task_plan(base_dir, task_id=task_id)
+        artifact_id = _resolve_plan_artifact_id(base_dir, task_id)
+        path = plan_path(base_dir, artifact_id)
     text = path.read_text(encoding="utf-8")
     text = _replace_section(text, VALID_PLAN_SECTIONS[effective], content)
     path.write_text(text, encoding="utf-8")
@@ -178,7 +284,7 @@ def summarize_task_plan(base_dir: str, task_id: str) -> Dict[str, object]:
     return {
         "exists": True,
         "task_id": task_id,
-        "path": str(plan_path(base_dir, task_id)),
+        "path": str(plan_path(base_dir, _resolve_plan_artifact_id(base_dir, task_id))),
         "line_count": len(text.splitlines()),
         "checklist_total": len(checklist),
         "checklist_checked": len(checked),
@@ -190,8 +296,17 @@ def list_task_plans(base_dir: str) -> List[Dict[str, object]]:
     if not root.exists():
         return []
     plans = []
+    registry = {}
+    try:
+        from .state.plan_ops import load_plans
+        registry = {p.get("plan_id"): p for p in load_plans(base_dir).get("plans", []) if isinstance(p, dict)}
+    except Exception:
+        registry = {}
     for path in sorted(root.glob("*.md")):
-        plans.append({"task_id": path.stem, "path": str(path)})
+        plan_id = path.stem
+        entry = registry.get(plan_id, {})
+        plans.append({"task_id": plan_id, "plan_id": plan_id, "path": str(path),
+                      "registry": bool(entry), "task_ids": entry.get("task_ids", []) if entry else []})
     return plans
 
 
@@ -229,7 +344,7 @@ def parse_plan_impact(base_dir: str, task_id: str) -> Dict[str, str]:
     impact = {}
     body = m.group(1)
     for cat in IMPACT_CATEGORIES:
-        pattern = rf'-\s+{cat}:\s*(yes|no)'
+        pattern = rf'(?:^|\n)\s*-?\s*{cat}\s*(?::|=)\s*(yes|no)\b'
         match = re.search(pattern, body)
         if match:
             impact[cat] = match.group(1)
@@ -261,7 +376,7 @@ def validate_plan_impact(base_dir: str, task_id: str) -> List[str]:
 
     for cat in IMPACT_CATEGORIES:
         # Extract the full value text after the category label
-        pattern = rf'-\s+{cat}:\s*(.+)'
+        pattern = rf'(?:^|\n)\s*-?\s*{cat}\s*(?::|=)\s*(.+)'
         match = re.search(pattern, body)
         if not match:
             issues.append(f"Impact.{cat}: missing — all 5 categories must be yes/no with a reason")

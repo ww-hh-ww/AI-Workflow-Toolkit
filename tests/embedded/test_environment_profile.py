@@ -286,7 +286,7 @@ class TestEnvironmentProfile(unittest.TestCase):
             json.dumps({"scripts": {"test": "vitest run"}}))
         self._run("env", "scan")
         r = self._run_script("scripts/aiwf_export_report.py")
-        rpt = (self.tmp / ".aiwf" / "reports" / "闭合报告.md").read_text()
+        rpt = (self.tmp / ".aiwf" / "artifacts" / "reports" / "闭合报告.md").read_text()
         self.assertIn("## Environment", rpt)
 
     # ═══════════════════════════════════════════════════════════════

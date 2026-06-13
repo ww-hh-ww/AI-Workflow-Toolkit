@@ -112,10 +112,10 @@ scripts/
 - 旧 `guides/` 与历史结构审计文档已删除，避免旧 pilot / `.ai-workflow` 说明继续误导。
 - `aiwf state prepare-close` 现在是前置门，不再在 evidence/testing/review 未满足时推进到 `closing` 或设置 `close_attempt`。
 - 新增 `aiwf_core/core/current_state.py`，`aiwf status` 和 UserPromptSubmit 能区分 `current-state.md` 的 missing / available / stale / incomplete。
-- `aiwf_rebase_state.py` 和 `aiwf task close` 会生成/更新 `.aiwf/history/task-history.json`，记录轻量任务历史，用于暴露最近 fix-loop 次数、未测风险和重复改动文件。
+- `aiwf_rebase_state.py` 和 `aiwf task close` 会生成/更新 `.aiwf/runtime/history/task-history.json`，记录轻量任务历史，用于暴露最近 fix-loop 次数、未测风险和重复改动文件。
 - `aiwf_export_report.py` 新增 Task History Trend 区块，把跨任务质量趋势放进 human-readable closure report。
 - 新增 `.aiwf/task-ledger.json` 和 `aiwf task ...` 命令：Planner 可以保留多个 candidate/ready 任务，但 activation 是受机械检查的执行发布窗口。
-- 新增 `.aiwf/reports/质量摘要.md`：rebase 时生成短摘要，给 Planner/Tester/Reviewer 读取跨任务质量信号，而不是回读完整历史。
+- 新增 `.aiwf/artifacts/reports/质量摘要.md`：rebase 时生成短摘要，给 Planner/Tester/Reviewer 读取跨任务质量信号，而不是回读完整历史。
 - `testing.json` 和 `review.json` 增加跨任务观察字段：`cross_task_risks`、`testing_debt`、`repeated_change_hotspots`，review 侧额外有 `architecture_drift`。
 - `state.json` 增加 `cross_task_quality_escalation_required` / `cross_task_quality_escalation_reason`，由 quality digest 刷新链路自动写入。
 
@@ -134,7 +134,7 @@ prepare-close preflight
   scope clean
       ↓
 Stop hook closure gate
-  重新机械验证 `.aiwf/state/`、`.aiwf/quality/`、`.aiwf/evidence/` 中的机器状态
+  重新机械验证 `.aiwf/state/`、`.aiwf/artifacts/quality/`、`.aiwf/artifacts/evidence/` 中的机器状态
       ↓
 closed + report/current-state/task-history
 ```
@@ -143,7 +143,7 @@ closed + report/current-state/task-history
 
 ### 长期任务债雷达
 
-`.aiwf/history/task-history.json` 是可选生成文件，不属于安装时 7 个 MVP state files，因此不会扩大初始状态面。它在任务关闭 rebase 或 `aiwf task close` 时写入：
+`.aiwf/runtime/history/task-history.json` 是可选生成文件，不属于安装时 7 个 MVP state files，因此不会扩大初始状态面。它在任务关闭 rebase 或 `aiwf task close` 时写入：
 
 - goal version 和任务类型
 - workflow level
@@ -188,16 +188,16 @@ closed/rejected    完成或放弃
 
 跨任务质量检查是 Tester 和 Reviewer 的职责，不是机械状态可有可无的附加项。AIWF 的职责是把信号压缩并递给它们：
 
-- Tester 从 `.aiwf/reports/质量摘要.md` 观察重复改动、未测风险、测试债；如果超出 test_template，记录风险并请求 Planner 升级。
-- Reviewer 从 `.aiwf/reports/质量摘要.md` 判断是否存在架构漂移、任务拆分问题、测试债或需要升级 workflow level。
+- Tester 从 `.aiwf/artifacts/reports/质量摘要.md` 观察重复改动、未测风险、测试债；如果超出 test_template，记录风险并请求 Planner 升级。
+- Reviewer 从 `.aiwf/artifacts/reports/质量摘要.md` 判断是否存在架构漂移、任务拆分问题、测试债或需要升级 workflow level。
 - AIWF 不自动判定“设计错了”，只记录信号、阻止明显危险的发布窗口，并要求观察进入 testing/review/report/current-state。
 
 自动链路：
 
 ```text
 aiwf task close
-  -> append/update .aiwf/history/task-history.json
-  -> refresh .aiwf/reports/质量摘要.md
+  -> append/update .aiwf/runtime/history/task-history.json
+  -> refresh .aiwf/artifacts/reports/质量摘要.md
 
 aiwf task activate
   -> dependency/window/freshness checks

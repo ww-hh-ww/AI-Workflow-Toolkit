@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 GOV_PREFIXES = [".aiwf/", ".claude/", ".reasonix/", "scripts/aiwf_", "CLAUDE.md", "REASONIX.md", "AGENTS.md"]
-CHECKPOINT_SELF = ".aiwf/checkpoints/"
+CHECKPOINT_SELF = ".aiwf/runtime/checkpoints/"
 MAX_FILE_SIZE = 5 * 1024 * 1024  # 5MB
 
 def _now(): return datetime.now(timezone.utc).isoformat()
@@ -52,7 +52,7 @@ def _remove_untracked_before_restore(root: Path) -> None:
 
 def create_checkpoint(project_root: str, label: str = "", include_governance: bool = True, mode: str = "patch") -> Dict:
     root = Path(project_root)
-    ckpt_dir = root / ".aiwf" / "checkpoints"
+    ckpt_dir = root / ".aiwf" / "runtime" / "checkpoints"
     
     # Get git info
     head_r = _run(["git", "rev-parse", "HEAD"], root)
@@ -124,7 +124,7 @@ def create_checkpoint(project_root: str, label: str = "", include_governance: bo
     
     if include_governance:
         gov_patch = chk_path / "governance.patch"
-        gov_paths = [f for f in gov_files + [x for x in untracked_files if _is_gov(x)] if not f.startswith(".aiwf/checkpoints/")]
+        gov_paths = [f for f in gov_files + [x for x in untracked_files if _is_gov(x)] if not f.startswith(".aiwf/runtime/checkpoints/")]
         if gov_paths:
             diff_args = ["git", "diff", "--binary", "--"] + gov_paths
             gr = _run(diff_args, root)
@@ -189,7 +189,7 @@ def create_checkpoint(project_root: str, label: str = "", include_governance: bo
 
 def list_checkpoints(project_root: str) -> List[Dict]:
     root = Path(project_root)
-    ckpt_dir = root / ".aiwf" / "checkpoints"
+    ckpt_dir = root / ".aiwf" / "runtime" / "checkpoints"
     if not ckpt_dir.exists(): return []
     result = []
     for d in sorted(ckpt_dir.iterdir(), reverse=True):
@@ -202,18 +202,18 @@ def list_checkpoints(project_root: str) -> List[Dict]:
 
 def show_checkpoint(project_root: str, checkpoint_id: str) -> Optional[Dict]:
     root = Path(project_root)
-    jf = root / ".aiwf" / "checkpoints" / checkpoint_id / "CHECKPOINT.json"
+    jf = root / ".aiwf" / "runtime" / "checkpoints" / checkpoint_id / "CHECKPOINT.json"
     return json.loads(jf.read_text()) if jf.exists() else None
 
 
 def restore_checkpoint(project_root: str, checkpoint_id: str, confirm: bool = False) -> Dict:
     """Restore with pre-backup + HEAD guard. Requires --confirm."""
     root = Path(project_root)
-    jf = root / ".aiwf" / "checkpoints" / checkpoint_id / "CHECKPOINT.json"
+    jf = root / ".aiwf" / "runtime" / "checkpoints" / checkpoint_id / "CHECKPOINT.json"
     if not jf.exists(): return {"error": f"checkpoint not found: {checkpoint_id}"}
     ckpt = json.loads(jf.read_text())
     
-    if not confirm: return {"status": "dry_run", "message": "use --confirm to execute restore", "plan": str(root/".aiwf"/"checkpoints"/checkpoint_id/"restore-plan.md")}
+    if not confirm: return {"status": "dry_run", "message": "use --confirm to execute restore", "plan": str(root/".aiwf"/"runtime"/"checkpoints"/checkpoint_id/"restore-plan.md")}
     
     # HEAD guard
     head_r = _run(["git", "rev-parse", "HEAD"], root)
@@ -241,20 +241,20 @@ def restore_checkpoint(project_root: str, checkpoint_id: str, confirm: bool = Fa
     # Patch mode: restore staged state first, then apply unstaged changes.
     # Applying staged.patch to both the working tree and index avoids an
     # index-only restore that leaves newly staged files missing on disk.
-    staged = root / ".aiwf" / "checkpoints" / checkpoint_id / "staged.patch"
+    staged = root / ".aiwf" / "runtime" / "checkpoints" / checkpoint_id / "staged.patch"
     if staged.exists() and staged.stat().st_size > 0:
         sw = _run(["git", "apply", str(staged)], root)
         if not sw: return {"error": "git apply staged.patch to working tree failed", "status": "failed"}
         sr = _run(["git", "apply", "--cached", str(staged)], root)
         if not sr: return {"error": "git apply staged.patch failed", "status": "failed"}
 
-    tracked = root / ".aiwf" / "checkpoints" / checkpoint_id / "tracked.patch"
+    tracked = root / ".aiwf" / "runtime" / "checkpoints" / checkpoint_id / "tracked.patch"
     if tracked.exists() and tracked.stat().st_size > 0:
         tr = _run(["git", "apply", str(tracked)], root)
         if not tr: return {"error": "git apply tracked.patch failed", "status": "failed"}
     
     # Restore untracked
-    untracked_dir = root / ".aiwf" / "checkpoints" / checkpoint_id / "untracked"
+    untracked_dir = root / ".aiwf" / "runtime" / "checkpoints" / checkpoint_id / "untracked"
     if untracked_dir.exists():
         try:
             for f in untracked_dir.rglob("*"):

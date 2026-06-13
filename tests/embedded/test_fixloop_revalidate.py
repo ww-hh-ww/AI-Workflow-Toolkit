@@ -16,7 +16,7 @@ from pathlib import Path
 def _make_state_dir(tmpdir, state=None, fix_loop=None, review=None):
     """Create a minimal .aiwf state tree."""
     base = Path(tmpdir)
-    for d in [".aiwf/state", ".aiwf/quality", ".aiwf/evidence"]:
+    for d in [".aiwf/state", ".aiwf/artifacts/quality", ".aiwf/artifacts/evidence"]:
         (base / d).mkdir(parents=True, exist_ok=True)
 
     (base / ".aiwf/state/state.json").write_text(json.dumps(state or {
@@ -34,7 +34,7 @@ def _make_state_dir(tmpdir, state=None, fix_loop=None, review=None):
         "required_verification": [],
         "attempt_count": 1, "max_attempts": 3,
     }))
-    (base / ".aiwf/quality/review.json").write_text(json.dumps(review or {
+    (base / ".aiwf/artifacts/quality/review.json").write_text(json.dumps(review or {
         "result": "scope_violation", "closure_allowed": False,
         "cleanup_status": "fresh", "blockers": [],
         "scope_violation_events": [
@@ -42,10 +42,10 @@ def _make_state_dir(tmpdir, state=None, fix_loop=None, review=None):
              "status": "recorded", "context_id": "ctx-1"},
         ],
     }))
-    (base / ".aiwf/quality/testing.json").write_text(json.dumps({
+    (base / ".aiwf/artifacts/quality/testing.json").write_text(json.dumps({
         "status": "passed", "commands": ["pytest"],
     }))
-    (base / ".aiwf/evidence/records.json").write_text(json.dumps({
+    (base / ".aiwf/artifacts/evidence/records.json").write_text(json.dumps({
         "records": [{"id": "EV-001", "status": "accepted",
                       "trust_level": "command_observed", "session_id": "s1"}],
     }))
@@ -188,7 +188,7 @@ class TestScopeGuardRepairWindow(unittest.TestCase):
         import tempfile, os
         base = tempfile.mkdtemp()
         # Set up state with open fix-loop and scope violation
-        for d in [".aiwf/state", ".aiwf/quality"]:
+        for d in [".aiwf/state", ".aiwf/artifacts/quality"]:
             (Path(base) / d).mkdir(parents=True, exist_ok=True)
         (Path(base) / ".aiwf/state/state.json").write_text(json.dumps({
             "phase": "reviewing", "workflow_level": "L1_review_light",
@@ -223,7 +223,7 @@ class TestScopeGuardRepairWindow(unittest.TestCase):
         from aiwf_core.core.event_model import NormalizedEvent
         import tempfile
         base = tempfile.mkdtemp()
-        for d in [".aiwf/state", ".aiwf/quality"]:
+        for d in [".aiwf/state", ".aiwf/artifacts/quality"]:
             (Path(base) / d).mkdir(parents=True, exist_ok=True)
         (Path(base) / ".aiwf/state/state.json").write_text(json.dumps({
             "phase": "reviewing", "workflow_level": "L1_review_light",
@@ -259,7 +259,7 @@ class TestInvalidatedScope(unittest.TestCase):
     def test_open_records_invalidated_scope(self):
         from aiwf_core.core.state.fixloop_ops import open_fix_loop
         base = tempfile.mkdtemp()
-        for d in [".aiwf/state", ".aiwf/quality"]:
+        for d in [".aiwf/state", ".aiwf/artifacts/quality"]:
             (Path(base) / d).mkdir(parents=True, exist_ok=True)
         (Path(base) / ".aiwf/state/state.json").write_text(json.dumps({
             "phase": "reviewing", "workflow_level": "L1_review_light",
@@ -285,7 +285,7 @@ class TestInvalidatedScope(unittest.TestCase):
     def test_open_without_invalidated_scope_still_works(self):
         from aiwf_core.core.state.fixloop_ops import open_fix_loop
         base = tempfile.mkdtemp()
-        for d in [".aiwf/state", ".aiwf/quality"]:
+        for d in [".aiwf/state", ".aiwf/artifacts/quality"]:
             (Path(base) / d).mkdir(parents=True, exist_ok=True)
         (Path(base) / ".aiwf/state/state.json").write_text(json.dumps({
             "phase": "reviewing", "workflow_level": "L1_review_light",
@@ -306,7 +306,7 @@ class TestDeltaVerification(unittest.TestCase):
     def test_records_delta_verification(self):
         from aiwf_core.core.state.testing_ops import record_testing
         base = tempfile.mkdtemp()
-        for d in [".aiwf/state", ".aiwf/quality", ".aiwf/evidence"]:
+        for d in [".aiwf/state", ".aiwf/artifacts/quality", ".aiwf/artifacts/evidence"]:
             (Path(base) / d).mkdir(parents=True, exist_ok=True)
         (Path(base) / ".aiwf/state/state.json").write_text(json.dumps({
             "phase": "implementing", "workflow_level": "L1_review_light",
@@ -328,7 +328,7 @@ class TestDeltaVerification(unittest.TestCase):
     def test_delta_fields_not_written_when_empty(self):
         from aiwf_core.core.state.testing_ops import record_testing
         base = tempfile.mkdtemp()
-        for d in [".aiwf/state", ".aiwf/quality", ".aiwf/evidence"]:
+        for d in [".aiwf/state", ".aiwf/artifacts/quality", ".aiwf/artifacts/evidence"]:
             (Path(base) / d).mkdir(parents=True, exist_ok=True)
         (Path(base) / ".aiwf/state/state.json").write_text(json.dumps({
             "phase": "implementing", "workflow_level": "L1_review_light",
@@ -346,15 +346,15 @@ class TestDeltaReviewInvalidation(unittest.TestCase):
     def test_resolve_with_executor_route_invalidates_review(self):
         from aiwf_core.core.state.fixloop_ops import open_fix_loop, resolve_fix_loop
         base = tempfile.mkdtemp()
-        for d in [".aiwf/state", ".aiwf/quality", ".aiwf/evidence"]:
+        for d in [".aiwf/state", ".aiwf/artifacts/quality", ".aiwf/artifacts/evidence"]:
             (Path(base) / d).mkdir(parents=True, exist_ok=True)
         (Path(base) / ".aiwf/state/state.json").write_text(json.dumps({
             "phase": "reviewing", "workflow_level": "L1_review_light",
         }))
-        (Path(base) / ".aiwf/quality/testing.json").write_text(json.dumps({
+        (Path(base) / ".aiwf/artifacts/quality/testing.json").write_text(json.dumps({
             "status": "passed", "commands": ["pytest"],
         }))
-        (Path(base) / ".aiwf/quality/review.json").write_text(json.dumps({
+        (Path(base) / ".aiwf/artifacts/quality/review.json").write_text(json.dumps({
             "result": "accepted", "closure_allowed": True,
             "cleanup_status": "fresh",
         }))
@@ -367,7 +367,7 @@ class TestDeltaReviewInvalidation(unittest.TestCase):
         result = resolve_fix_loop(base, resolution="fixed calc.js", source="executor", force=True)
 
         self.assertEqual(result["status"], "resolved")
-        review = json.loads((Path(base) / ".aiwf/quality/review.json").read_text())
+        review = json.loads((Path(base) / ".aiwf/artifacts/quality/review.json").read_text())
         self.assertEqual(review["result"], "unknown")
         self.assertFalse(review["closure_allowed"])
         self.assertEqual(review["cleanup_status"], "stale")
@@ -376,15 +376,15 @@ class TestDeltaReviewInvalidation(unittest.TestCase):
     def test_resolve_with_planner_route_does_not_invalidate(self):
         from aiwf_core.core.state.fixloop_ops import open_fix_loop, resolve_fix_loop
         base = tempfile.mkdtemp()
-        for d in [".aiwf/state", ".aiwf/quality", ".aiwf/evidence"]:
+        for d in [".aiwf/state", ".aiwf/artifacts/quality", ".aiwf/artifacts/evidence"]:
             (Path(base) / d).mkdir(parents=True, exist_ok=True)
         (Path(base) / ".aiwf/state/state.json").write_text(json.dumps({
             "phase": "reviewing", "workflow_level": "L1_review_light",
         }))
-        (Path(base) / ".aiwf/quality/testing.json").write_text(json.dumps({
+        (Path(base) / ".aiwf/artifacts/quality/testing.json").write_text(json.dumps({
             "status": "passed", "commands": ["pytest"],
         }))
-        (Path(base) / ".aiwf/quality/review.json").write_text(json.dumps({
+        (Path(base) / ".aiwf/artifacts/quality/review.json").write_text(json.dumps({
             "result": "accepted", "closure_allowed": True,
             "cleanup_status": "fresh",
         }))
@@ -397,23 +397,23 @@ class TestDeltaReviewInvalidation(unittest.TestCase):
         result = resolve_fix_loop(base, resolution="discussed", source="planner", force=True)
 
         self.assertEqual(result["status"], "resolved")
-        review = json.loads((Path(base) / ".aiwf/quality/review.json").read_text())
+        review = json.loads((Path(base) / ".aiwf/artifacts/quality/review.json").read_text())
         self.assertEqual(review["result"], "accepted")  # unchanged
 
     def test_verification_coverage_blocks_when_uncovered(self):
         from aiwf_core.core.state.fixloop_ops import open_fix_loop, resolve_fix_loop
         base = tempfile.mkdtemp()
-        for d in [".aiwf/state", ".aiwf/quality", ".aiwf/evidence"]:
+        for d in [".aiwf/state", ".aiwf/artifacts/quality", ".aiwf/artifacts/evidence"]:
             (Path(base) / d).mkdir(parents=True, exist_ok=True)
         (Path(base) / ".aiwf/state/state.json").write_text(json.dumps({
             "phase": "reviewing", "workflow_level": "L1_review_light",
         }))
-        (Path(base) / ".aiwf/quality/testing.json").write_text(json.dumps({
+        (Path(base) / ".aiwf/artifacts/quality/testing.json").write_text(json.dumps({
             "status": "passed", "commands": ["pytest"],
             "acceptance_coverage": ["some test covered"],
             "delta_verification": "",
         }))
-        (Path(base) / ".aiwf/quality/review.json").write_text(json.dumps({
+        (Path(base) / ".aiwf/artifacts/quality/review.json").write_text(json.dumps({
             "result": "accepted", "closure_allowed": True,
         }))
 
@@ -428,16 +428,16 @@ class TestDeltaReviewInvalidation(unittest.TestCase):
     def test_verification_coverage_passes_when_covered(self):
         from aiwf_core.core.state.fixloop_ops import open_fix_loop, resolve_fix_loop
         base = tempfile.mkdtemp()
-        for d in [".aiwf/state", ".aiwf/quality", ".aiwf/evidence"]:
+        for d in [".aiwf/state", ".aiwf/artifacts/quality", ".aiwf/artifacts/evidence"]:
             (Path(base) / d).mkdir(parents=True, exist_ok=True)
         (Path(base) / ".aiwf/state/state.json").write_text(json.dumps({
             "phase": "reviewing", "workflow_level": "L1_review_light",
         }))
-        (Path(base) / ".aiwf/quality/testing.json").write_text(json.dumps({
+        (Path(base) / ".aiwf/artifacts/quality/testing.json").write_text(json.dumps({
             "status": "passed", "commands": ["npm test divide"],
             "acceptance_coverage": ["divide(-0) throws RangeError: covered"],
         }))
-        (Path(base) / ".aiwf/quality/review.json").write_text(json.dumps({
+        (Path(base) / ".aiwf/artifacts/quality/review.json").write_text(json.dumps({
             "result": "accepted", "closure_allowed": True,
         }))
 

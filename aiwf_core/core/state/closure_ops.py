@@ -18,7 +18,7 @@ def mark_cleanup_fresh(
     Replaces stale cleanup_notes with resolved notes.
     """
     base = Path(base_dir)
-    review_path = base / ".aiwf" / "quality" / "review.json"
+    review_path = base / ".aiwf" / "artifacts" / "quality" / "review.json"
     review = _read(review_path)
 
     review["cleanup_status"] = "fresh"
@@ -50,7 +50,7 @@ def mark_cleanup_stale(
 ) -> Dict[str, Any]:
     """Set cleanup_status=stale with specific items and blockers."""
     base = Path(base_dir)
-    review_path = base / ".aiwf" / "quality" / "review.json"
+    review_path = base / ".aiwf" / "artifacts" / "quality" / "review.json"
     review = _read(review_path)
 
     review["cleanup_status"] = "stale"
@@ -71,9 +71,9 @@ def prepare_close(base_dir: str) -> Dict[str, Any]:
     """
     base = Path(base_dir)
     state_path = base / ".aiwf" / "state" / "state.json"
-    review_path = base / ".aiwf" / "quality" / "review.json"
-    evidence_path = base / ".aiwf" / "evidence" / "records.json"
-    testing_path = base / ".aiwf" / "quality" / "testing.json"
+    review_path = base / ".aiwf" / "artifacts" / "quality" / "review.json"
+    evidence_path = base / ".aiwf" / "artifacts" / "evidence" / "records.json"
+    testing_path = base / ".aiwf" / "artifacts" / "quality" / "testing.json"
 
     state = _read(state_path)
     review = _read(review_path)
@@ -85,6 +85,13 @@ def prepare_close(base_dir: str) -> Dict[str, Any]:
     _write(evidence_path, evidence)
 
     blockers = []
+
+    # 0. Phase-gate field checks: review verdict, meta-critique, adversarial disposition
+    try:
+        from ..phase_gates import reviewing_to_closing_gates
+        blockers.extend(reviewing_to_closing_gates(base_dir))
+    except Exception:
+        pass
 
     # 1. Phase sequence — has the workflow progressed to a closeable state?
     phase = state.get("phase", "discussing")
@@ -174,9 +181,16 @@ def prepare_close(base_dir: str) -> Dict[str, Any]:
     if active_task_id:
         try:
             from ..task_plan import validate_plan_impact, impact_review_check
+            from ..task_ledger import load_ledger
+
+            impact_plan_id = active_task_id
+            for task in load_ledger(base_dir).get("tasks", []) or []:
+                if isinstance(task, dict) and task.get("id") == active_task_id:
+                    impact_plan_id = task.get("plan_id") or task.get("parent_plan") or active_task_id
+                    break
 
             # 6a. Re-validate Impact completeness at close time
-            impact_issues = validate_plan_impact(base_dir, active_task_id)
+            impact_issues = validate_plan_impact(base_dir, impact_plan_id)
             if impact_issues:
                 blockers.append(
                     f"Active plan Impact incomplete at close: {'; '.join(impact_issues[:3])}"
@@ -187,12 +201,91 @@ def prepare_close(base_dir: str) -> Dict[str, Any]:
             for r in accepted:
                 changed_files.extend(r.get("changed_files", []) or [])
             if changed_files:
-                impact = impact_review_check(base_dir, active_task_id, changed_files)
+                impact = impact_review_check(base_dir, impact_plan_id, changed_files)
                 if impact.get("blockers"):
                     blockers.extend(impact["blockers"])
                 # warnings are informational — surfaced in summary, not blocking
         except Exception as e:
             blockers.append(f"Impact consistency check failed: {e}")
+
+    # 7. Post-hoc evidence cross-validation — did the work actually happen?
+    # These are AFTER the pre-action gates. They verify that recorded claims
+    # are traceable to actual machine evidence, not just filled-in fields.
+    post_hoc_warnings: List[str] = []
+    all_records = evidence.get("records", []) or []
+    record_by_id = {str(r.get("id", "")): r for r in all_records if isinstance(r, dict) and r.get("id")}
+
+    # 7a. Accepted evidence IDs must reference real records
+    accepted_ids = review.get("accepted_evidence_ids", []) or []
+    phantom_ids = [eid for eid in accepted_ids if str(eid) not in record_by_id]
+    if phantom_ids:
+        blockers.append(
+            f"Post-hoc: {len(phantom_ids)} accepted evidence ID(s) reference nonexistent records: "
+            f"{', '.join(str(eid) for eid in phantom_ids[:5])}. "
+            f"Recovery: aiwf state record-review --verdict REVISE --blocker 'phantom-evidence' "
+            f"--accepted-evidence-id <REAL-ID>, then re-run prepare-close."
+        )
+
+    # 7b. Testing commands should have trace evidence
+    test_commands = testing.get("commands", []) or []
+    test_evidence_ids = testing.get("evidence_ids", []) or []
+    if test_commands and not test_evidence_ids:
+        post_hoc_warnings.append(
+            f"Testing recorded {len(test_commands)} command(s) but no evidence_ids — "
+            "test commands are not traceable to machine evidence. "
+            "Recovery: run aiwf state record-role-evidence --role tester --scan-git --command '<cmd>' "
+            "to link test commands to evidence, or re-run aiwf state record-testing with --evidence-id."
+        )
+    if test_evidence_ids:
+        missing_test_ev = [eid for eid in test_evidence_ids if str(eid) not in record_by_id]
+        if missing_test_ev:
+            post_hoc_warnings.append(
+                f"Testing references {len(missing_test_ev)} evidence ID(s) that don't exist: "
+                f"{', '.join(str(eid) for eid in missing_test_ev[:5])}. "
+                "Recovery: re-run testing with aiwf state record-testing using real evidence IDs."
+            )
+
+    # 7c. Testing=passed with zero commands is suspicious
+    if testing.get("status") == "passed" and not test_commands and not test_evidence_ids:
+        post_hoc_warnings.append(
+            "Testing status is 'passed' but no commands and no evidence_ids were recorded. "
+            "Recovery: re-run tests and record with aiwf state record-testing --status passed "
+            "--command 'pytest ...' --evidence-id <ID>, or if testing is genuinely not command-based, "
+            "record manual testing evidence with aiwf state record-role-evidence --role tester."
+        )
+
+    # 7d. Review PASS with all dimensions PASS and no adversarial observations
+    verdict = review.get("verdict", "")
+    if verdict in ("PASS", "PASS_WITH_RISK"):
+        dims = review.get("quality_dimensions", {}) or {}
+        all_pass = all(
+            d.get("score") == "PASS"
+            for d in (dims.values() if isinstance(dims, dict) else [])
+            if isinstance(d, dict)
+        )
+        adv_obs = review.get("adversarial_observations", []) or []
+        if all_pass and not adv_obs and verdict == "PASS":
+            post_hoc_warnings.append(
+                "Review verdict is PASS with all 8 quality dimensions scored PASS and zero "
+                "adversarial observations. This is a valid but unusual pattern. "
+                "Recovery: if review was not genuinely adversarial, open a fix-loop "
+                "(aiwf fixloop open --route reviewer --reason 'insufficient-adversarial-review'), "
+                "re-dispatch Reviewer with adversarial depth, then re-run prepare-close."
+            )
+
+    # 7e. Reviewer evidence ID should be traceable
+    rev_ev_id = review.get("reviewer_evidence_id", "")
+    if rev_ev_id and str(rev_ev_id) not in record_by_id:
+        post_hoc_warnings.append(
+            f"Reviewer evidence ID '{rev_ev_id}' does not match any evidence record. "
+            "Recovery: re-record review with aiwf state record-review --verdict ... "
+            "to generate a valid evidence ID."
+        )
+
+    # Post-hoc warnings are displayed but do NOT block closure.
+    # Only phantom evidence IDs (7a) block — the rest are advisory.
+    # Warnings are persisted to review.json so cross-task quality can detect
+    # repeated patterns (e.g., "testing=passed no commands" 3 tasks in a row).
 
     # Finalize
     passed = len(blockers) == 0
@@ -223,6 +316,7 @@ def prepare_close(base_dir: str) -> Dict[str, Any]:
         "blockers": blockers,
         "can_proceed_to_gate": passed,
         "summary": summary,
+        "post_hoc_warnings": post_hoc_warnings,
     }
 
 
@@ -230,9 +324,9 @@ def build_close_summary(base_dir: str) -> str:
     """Build a user-facing close summary. What was done and how thoroughly."""
     base = Path(base_dir)
     state = _read(base / ".aiwf" / "state" / "state.json")
-    review = _read(base / ".aiwf" / "quality" / "review.json")
-    testing = _read(base / ".aiwf" / "quality" / "testing.json")
-    evidence = _read(base / ".aiwf" / "evidence" / "records.json")
+    review = _read(base / ".aiwf" / "artifacts" / "quality" / "review.json")
+    testing = _read(base / ".aiwf" / "artifacts" / "quality" / "testing.json")
+    evidence = _read(base / ".aiwf" / "artifacts" / "evidence" / "records.json")
     goal = _read(base / ".aiwf" / "state" / "goal.json")
     lines = []
     warns = []

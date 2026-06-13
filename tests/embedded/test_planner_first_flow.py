@@ -31,7 +31,7 @@ class TestPlannerFirstFlow(unittest.TestCase):
             / "SKILL.md"
         ).read_text()
         self.assertIn("planner", text.lower())
-        self.assertIn("NOT the lead implementer", text)
+        self.assertIn("project architect", text.lower())
 
 
 if __name__ == "__main__":

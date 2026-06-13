@@ -26,7 +26,7 @@ def _cmd_idea_list(args: argparse.Namespace) -> None:
     from ..core.ideas import _parse_ideas as _pi
     if args.include_expired:
         # Show all with markers
-        path = (Path.cwd() / ".aiwf" / "reports" / "ideas.md")
+        path = (Path.cwd() / ".aiwf" / "artifacts" / "reports" / "ideas.md")
         all_ideas = _pi(path.read_text(encoding="utf-8")) if path.exists() else []
         if not all_ideas:
             print("Ideas: none")
@@ -85,7 +85,7 @@ def _cmd_project_map_init(args: argparse.Namespace) -> None:
     """aiwf project-map init — create PROJECT-MAP.md."""
     from ..core.project_map import ensure_project_map
     ensure_project_map(str(Path.cwd()))
-    print("PROJECT-MAP.md created at .aiwf/reports/项目地图.md")
+    print("PROJECT-MAP.md created at .aiwf/artifacts/reports/项目地图.md")
 
 def _cmd_project_map_show(args: argparse.Namespace) -> None:
     """aiwf project-map show — display PROJECT-MAP.md."""

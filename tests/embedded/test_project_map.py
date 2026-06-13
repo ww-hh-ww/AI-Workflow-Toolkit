@@ -24,7 +24,7 @@ class TestProjectMap(unittest.TestCase):
         (self.tmp / ".aiwf").mkdir(parents=True, exist_ok=True)
         for fn, dfn in MVP_STATE_FILES.items():
             p = self.tmp / ".aiwf" / fn; p.parent.mkdir(parents=True, exist_ok=True); p.write_text(json.dumps(dfn(), indent=2) + "\n")
-        pm = self.tmp / ".aiwf" / "reports" / "项目地图.md"
+        pm = self.tmp / ".aiwf" / "artifacts" / "reports" / "项目地图.md"
         if pm.exists(): pm.unlink()
 
     def _run(self, *args):
@@ -33,7 +33,7 @@ class TestProjectMap(unittest.TestCase):
                               capture_output=True, text=True, cwd=str(self.tmp), env=env, timeout=TIMEOUT)
 
     def _pm_text(self):
-        p = self.tmp / ".aiwf" / "reports" / "项目地图.md"
+        p = self.tmp / ".aiwf" / "artifacts" / "reports" / "项目地图.md"
         return p.read_text() if p.exists() else ""
 
     def _run_script(self, script_rel):
@@ -47,7 +47,7 @@ class TestProjectMap(unittest.TestCase):
 
     def test_init_creates_map(self):
         self._run("project-map", "init")
-        self.assertTrue((self.tmp / ".aiwf" / "reports" / "项目地图.md").exists())
+        self.assertTrue((self.tmp / ".aiwf" / "artifacts" / "reports" / "项目地图.md").exists())
 
     def test_default_has_required_sections(self):
         self._run("project-map", "init")

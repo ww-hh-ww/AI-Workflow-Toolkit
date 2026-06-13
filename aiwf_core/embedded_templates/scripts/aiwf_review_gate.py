@@ -12,7 +12,7 @@ def main():
         if data.get("cwd"):
             cwd = Path(data["cwd"])
 
-    cs_exists = (cwd / ".aiwf" / "reports" / "当前状态.md").exists()
+    cs_exists = (cwd / ".aiwf" / "artifacts" / "reports" / "当前状态.md").exists()
     if not (cwd / ".aiwf" / "state" / "state.json").exists():
         allow()
 

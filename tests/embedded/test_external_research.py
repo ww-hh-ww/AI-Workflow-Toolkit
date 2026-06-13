@@ -28,13 +28,19 @@ class TestExternalResearch(unittest.TestCase):
         return r
 
     def _seed_plan(self, task_id):
-        plan_dir = self.tmp / ".aiwf" / "plans"
+        from aiwf_core.core.state.plan_ops import upsert_plan
+
+        plan_id = f"PLAN-{task_id}"
+        plan_dir = self.tmp / ".aiwf" / "artifacts" / "plans"
         plan_dir.mkdir(parents=True, exist_ok=True)
-        plan_path = plan_dir / f"{task_id}.md"
+        plan_path = plan_dir / f"{plan_id}.md"
         if not plan_path.exists():
             plan_path.write_text(
-                f"# {task_id}\n\n"
+                f"# {plan_id}\n\n"
                 "> AI working plan.\n\n"
+                f"Plan ID: {plan_id}\n"
+                "Parent Goal: GOAL-001\n"
+                f"Task IDs: {task_id}\n\n"
                 "## Goal\nTest\n\n## Route\n- How: fix\n\n"
                 "## Scope\n- Change: test\n\n## Risks\n- none\n\n"
                 "## Verification\n- Machine-verifiable: yes\n\n"
@@ -44,6 +50,21 @@ class TestExternalResearch(unittest.TestCase):
                 "## Next Steps\n1. done\n",
                 encoding="utf-8",
             )
+        upsert_plan(str(self.tmp), plan_id, goal_id="GOAL-001", task_ids=[task_id])
+        ledger_path = self.tmp / ".aiwf" / "runtime" / "history" / "task-ledger.json"
+        if ledger_path.exists():
+            ledger = json.loads(ledger_path.read_text())
+            changed = False
+            for task in ledger.get("tasks", []):
+                if task.get("id") == task_id:
+                    task["plan_id"] = plan_id
+                    task["parent_plan"] = plan_id
+                    task["goal_id"] = task.get("goal_id") or "GOAL-001"
+                    task["parent_goal"] = task.get("parent_goal") or task["goal_id"]
+                    changed = True
+            if changed:
+                ledger_path.write_text(json.dumps(ledger, indent=2) + "\n")
+        return plan_id
 
     def test_record_and_promote_research_without_mutating_goal(self):
         goal_path = self.tmp / ".aiwf" / "state" / "goal.json"
@@ -58,12 +79,12 @@ class TestExternalResearch(unittest.TestCase):
             "--confidence", "low",
         ).stdout
         research_id = out.split("External research recorded: ")[1].splitlines()[0].strip()
-        store = json.loads((self.tmp / ".aiwf" / "research" / "external.json").read_text())
+        store = json.loads((self.tmp / ".aiwf" / "artifacts" / "research" / "external.json").read_text())
         self.assertEqual(store["records"][0]["status"], "raw")
         self.assertEqual(store["records"][0]["confidence"], "low")
 
         self._run_ok("research", "promote", research_id, "--decision", "Adopt only as advisory topology routing")
-        store = json.loads((self.tmp / ".aiwf" / "research" / "external.json").read_text())
+        store = json.loads((self.tmp / ".aiwf" / "artifacts" / "research" / "external.json").read_text())
         self.assertEqual(store["records"][0]["status"], "promoted")
         self.assertIn("Adopt only", store["records"][0]["used_for_decision"])
         self.assertEqual(before_goal, json.loads(goal_path.read_text()))
@@ -104,7 +125,7 @@ class TestExternalResearch(unittest.TestCase):
     def test_required_external_research_blocks_execution_activation_until_promoted(self):
         from aiwf_core.core.task_ledger import activate_task, upsert_task
 
-        (self.tmp / ".aiwf" / "reports" / "当前状态.md").unlink(missing_ok=True)
+        (self.tmp / ".aiwf" / "artifacts" / "reports" / "当前状态.md").unlink(missing_ok=True)
         self._run_ok(
             "state", "set-workflow-mode",
             "--request-mode", "execution",
@@ -133,7 +154,7 @@ class TestExternalResearch(unittest.TestCase):
     def test_required_external_research_allows_explicit_skip(self):
         from aiwf_core.core.task_ledger import activate_task, upsert_task
 
-        (self.tmp / ".aiwf" / "reports" / "当前状态.md").unlink(missing_ok=True)
+        (self.tmp / ".aiwf" / "artifacts" / "reports" / "当前状态.md").unlink(missing_ok=True)
         self._run_ok(
             "state", "set-workflow-mode",
             "--request-mode", "execution",

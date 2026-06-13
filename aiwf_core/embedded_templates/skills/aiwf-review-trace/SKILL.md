@@ -9,7 +9,7 @@ For tightly-coupled projects, a local change that looks correct in isolation can
 
 ## 1. Change Surface
 
-Read `.aiwf/evidence/records.json` (changed files + commands), `.aiwf/state/goal.json` (architecture_brief, review_focus, acceptance_criteria), `.aiwf/state/contexts.json` (scope).
+Read `.aiwf/artifacts/evidence/records.json` (changed files + commands), `.aiwf/state/goal.json` (architecture_brief, review_focus, acceptance_criteria), `.aiwf/state/contexts.json` (scope).
 Ask:
 - What exactly changed? What contracts, APIs, data formats, or assumptions were modified?
 - Did any single-point-of-truth file change (paths, constants, base classes)? These are the most dangerous.
@@ -26,7 +26,7 @@ If the executor only tested the changed file but didn't verify its dependents, t
 
 ## 3. Coupling Hotspots & Pattern Decay
 
-Read `.aiwf/history/task-history.json`, `.aiwf/reports/质量摘要.md`, prior adversarial observations.
+Read `.aiwf/runtime/history/task-history.json`, `.aiwf/artifacts/reports/质量摘要.md`, prior adversarial observations.
 - Is any changed file a hotspot (>=3 changes)? Ask whether this change fixes the root cause or just adds another patch.
 - Does the change cross `architecture_brief.module_boundaries` without being declared as an integration_point?
 - Are there prior adversarial observations about these files or modules? Escalate if unresolved.

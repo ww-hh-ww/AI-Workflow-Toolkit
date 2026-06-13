@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -eo pipefail
 ROOT="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
-VERSION="1.0"
+VERSION="$(PYTHONPATH="$ROOT" python3 -c 'from aiwf_core.constants import VERSION; print(VERSION)')"
 RELEASE="AIWF-v${VERSION}-$(date +%Y%m%d).zip"
 WORKDIR=$(mktemp -d)
 trap "rm -rf '$WORKDIR'" EXIT

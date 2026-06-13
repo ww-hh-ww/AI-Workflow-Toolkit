@@ -13,11 +13,50 @@ If you are planner-main, do not test by roleplaying tester for L2/L3 work. Dispa
 
 When executed inside the AIWF Tester subagent, perform template-guided testing. Depth comes from `test_template`, NOT a universal checklist. **workflow_level decides depth. surface_type decides failure-mode directions.**
 
+## Work Intent Discipline
+
+Testing strategy varies by work_intent. Read the active Plan's `work_intent`:
+
+**Before testing, pull from the tree:**
+1. **State**: `.aiwf/state/state.json` → `workflow_level`, `test_template`, `surface_types`.
+2. **Goal Tree**: `.aiwf/state/goals.json` → parent Goal's `surface_types`, sibling relations.
+3. **Plan**: `.aiwf/state/plans.json` → active Plan: `test_focus`, `interfaces`, `constraints`, `work_intent`.
+4. **Evaluation Contract**: `.aiwf/state/goal.json` → `quality_brief.evaluation_contract`.
+5. **Context**: `.aiwf/state/contexts.json` → `allowed_write`, `test_focus`, `escalation_triggers`.
+6. **Evidence**: `.aiwf/artifacts/evidence/records.json` → executor's changed files.
+
 ## Testing Basis Contract
 
-Testing must verify the active plan's `Verification` section and the risk implied by changed files. Read `.aiwf/plans/<active_task_id>.md`, `.aiwf/evidence/records.json`, `.aiwf/state/state.json`, `.aiwf/state/contexts.json`, and `.aiwf/state/goal.json` before choosing commands.
+Testing must verify the active plan's `Verification` section and the risk implied by changed files. Read `.aiwf/artifacts/plans/<PLAN-ID>.md`, `.aiwf/artifacts/evidence/records.json`, `.aiwf/state/state.json`, `.aiwf/state/contexts.json`, and `.aiwf/state/goal.json` before choosing commands.
 
 If the active plan no longer matches the observed changed files or feasible verification path, stop and return to Planner to update the plan before continuing. Do not paper over plan drift with ad hoc tests.
+
+## Plan-Type-Based Testing (Stage 4.6)
+
+Testing strategy must match the active Plan's `plan_kind` and `active_phase`. Read these from the active Plan before choosing tests.
+
+### By plan_kind
+
+- **`implementation` plan** → Test functional behavior: inputs, outputs, error paths, edge cases. The implementation must work correctly.
+- **`structural` plan** → Test interface integrity, boundary enforcement, prompt/status invariants. The structure must hold — code may be minimal. Test that contracts are enforced, not that every path is exercised.
+- **`migration` plan** → Test old→new path consistency, state compatibility, legacy reference removal. Both the old and new paths must be independently verifiable.
+- **`verification` plan** → Test evidence sufficiency, coverage completeness, validation rigor. The evidence must convince an independent Reviewer.
+- **`exploration` plan** → Test hypotheses, record findings. Scope is investigative; tests document what was learned, not what was built.
+
+### By active_phase
+
+- **`framing`** → Test that scope and interfaces are well-defined. Are boundaries clear? Are acceptance criteria testable?
+- **`implementation`** → Test that the implementation satisfies declared interfaces.
+- **`integration`** → Test cross-module paths and integration points. System coverage is required.
+- **`seal`** → Test that all obligations are discharged and evidence is complete.
+
+### Evidence Attribution
+
+Every test result must state which Plan and Goal it supports. When recording testing:
+```
+aiwf state record-testing ... --supports-plan PLAN-XXX --supports-goal GOAL-XXX
+```
+Evidence without a Plan/Goal target does not roll up and will be flagged in Admission Review.
 
 ## Validation Layers Before Declaring Adequate
 
@@ -73,7 +112,7 @@ Do NOT expand unilaterally. Request escalation if too weak.
 For tightly-coupled projects, a local change can break distant assumptions. Before writing a single test, trace the coupling graph. This is not optional reading — it is the core thinking structure.
 
 ### 1. Change Surface
-Read `.aiwf/evidence/records.json` (changed files), `.aiwf/state/goal.json` (architecture_brief).
+Read `.aiwf/artifacts/evidence/records.json` (changed files), `.aiwf/state/goal.json` (architecture_brief).
 Ask: what files changed? What public APIs, contracts, or data formats? Did any global constants, base classes, or shared utilities change? (These have the widest ripple — every importer is affected.)
 
 ### 2. Ripple Tracing
@@ -85,7 +124,7 @@ For every changed file that is a dependency of other code (library, utility, bas
 Pay special attention to **single-point-of-truth files** (like `paths.py`, `state_schema.py`, `constants.py`) — a one-line change there can silently affect dozens of call sites.
 
 ### 3. Coupling Hotspots
-Read `.aiwf/history/task-history.json` (hotspots), `.aiwf/reports/质量摘要.md` (prior cross_task_risks, testing_debt).
+Read `.aiwf/runtime/history/task-history.json` (hotspots), `.aiwf/artifacts/reports/质量摘要.md` (prior cross_task_risks, testing_debt).
 - Is this file a **hotspot** (changed >=3 times)? If so, existing tests aren't catching the real problem — don't just re-run them, strengthen them.
 - Does this change cross `architecture_brief.module_boundaries`? Cross-module changes are the #1 source of integration bugs.
 - Prior `cross_task_risks` or `testing_debt` for these files? Past warnings are the best predictor of present failures.
@@ -135,15 +174,16 @@ Record these commands with `aiwf state record-testing` and/or role evidence so R
 
 You MUST call `aiwf state record-testing` before exiting. Without testing.json with status=adequate|passed, prepare_close will reject.
 
+Every recording MUST include `--supports-plan <PLAN-ID> --supports-goal <GOAL-ID>` so evidence rolls up to the correct structural home.
 
 ```bash
 # Pass (keep this as one shell command; do not use line-continuation backslashes):
-# aiwf state record-testing --status adequate --command "pytest tests/unit/test_changed.py" --validation-layer targeted --command "pytest" --validation-layer full_regression --full-suite-status passed --command "mycli --version" --validation-layer real_usage --real-usage-status passed --real-usage-reason "installed CLI started and returned its version"
+# aiwf state record-testing --status adequate --supports-plan PLAN-XXX --supports-goal GOAL-XXX --command "pytest tests/unit/test_changed.py" --validation-layer targeted --command "pytest" --validation-layer full_regression --full-suite-status passed --command "mycli --version" --validation-layer real_usage --real-usage-status passed --real-usage-reason "installed CLI started and returned its version"
 # Explicit environmental deferral:
-# aiwf state record-testing --status adequate --validation-layer targeted --full-suite-status not_feasible --full-suite-reason "suite requires unavailable GPU" --real-usage-status not_available --real-usage-reason "staging API credentials unavailable" --untested-risk "GPU and staging API paths remain unverified"
+# aiwf state record-testing --status adequate --supports-plan PLAN-XXX --supports-goal GOAL-XXX --validation-layer targeted --full-suite-status not_feasible --full-suite-reason "suite requires unavailable GPU" --real-usage-status not_available --real-usage-reason "staging API credentials unavailable" --untested-risk "GPU and staging API paths remain unverified"
 # Fail:
-# aiwf state record-testing --status failed --command "npm test" --failure-summary "divide by -0 did not throw RangeError" --failed-obligation "Cover +0/-0 divisor behavior" --suspected-route executor --required-verification "rerun npm test"
-# Adversarial: aiwf state record-testing --status adequate --adversarial-mode --cross-task-risk "Repeated parser changes lack integration coverage"
+# aiwf state record-testing --status failed --supports-plan PLAN-XXX --supports-goal GOAL-XXX --command "npm test" --failure-summary "divide by -0 did not throw RangeError" --failed-obligation "Cover +0/-0 divisor behavior" --suspected-route executor --required-verification "rerun npm test"
+# Adversarial: aiwf state record-testing --status adequate --supports-plan PLAN-XXX --supports-goal GOAL-XXX --adversarial-mode --cross-task-risk "Repeated parser changes lack integration coverage"
 ```
 
 ## When Tests Fail

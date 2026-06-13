@@ -138,7 +138,7 @@ class TestImpactAwareHumanDocs(unittest.TestCase):
                              capture_output=True, text=True, cwd=str(self.tmp), env=env, timeout=TIMEOUT)
 
     def test_quality_digest_blocked_when_impact_quality_summary_no(self):
-        plan_dir = self.tmp / ".aiwf" / "plans"
+        plan_dir = self.tmp / ".aiwf" / "artifacts" / "plans"
         plan_dir.mkdir(parents=True, exist_ok=True)
         (plan_dir / "TASK-QD.md").write_text(
             "# TASK-QD\n\n## Impact\n- quality_summary: no — test\n", encoding="utf-8")
@@ -151,7 +151,7 @@ class TestImpactAwareHumanDocs(unittest.TestCase):
         self.assertIn("Impact.quality_summary is not 'yes'", r.stderr)
 
     def test_quality_digest_allowed_with_force(self):
-        plan_dir = self.tmp / ".aiwf" / "plans"
+        plan_dir = self.tmp / ".aiwf" / "artifacts" / "plans"
         plan_dir.mkdir(parents=True, exist_ok=True)
         (plan_dir / "TASK-QD.md").write_text(
             "# TASK-QD\n\n## Impact\n- quality_summary: no — test\n", encoding="utf-8")
@@ -294,6 +294,8 @@ class TestLevelBasedQualityVerdict(unittest.TestCase):
                   "--workflow-level", "L1_review_light",
                   "--reason", "test")
         # V1 accepted result must work on L1
+        (self.tmp / ".aiwf" / "artifacts" / "quality" / "testing.json").write_text(json.dumps(
+            {"status": "adequate", "commands": ["pytest"]}))
         r = self._run("state", "record-review",
                       "--result", "accepted",
                       "--closure-allowed",
@@ -318,16 +320,16 @@ class TestDeltaVerificationAfterFixLoop(unittest.TestCase):
         from aiwf_core.core.state.fixloop_ops import open_fix_loop, resolve_fix_loop
         base = tempfile.mkdtemp()
         try:
-            for d in [".aiwf/state", ".aiwf/quality", ".aiwf/evidence"]:
+            for d in [".aiwf/state", ".aiwf/artifacts/quality", ".aiwf/artifacts/evidence"]:
                 Path(base, d).mkdir(parents=True, exist_ok=True)
             Path(base, ".aiwf/state/state.json").write_text(json.dumps({
                 "phase": "reviewing", "workflow_level": "L1_review_light",
             }))
-            Path(base, ".aiwf/quality/testing.json").write_text(json.dumps({
+            Path(base, ".aiwf/artifacts/quality/testing.json").write_text(json.dumps({
                 "status": "passed", "commands": ["pytest"],
                 "acceptance_coverage": ["some test"],
             }))
-            Path(base, ".aiwf/quality/review.json").write_text(json.dumps({
+            Path(base, ".aiwf/artifacts/quality/review.json").write_text(json.dumps({
                 "result": "accepted", "closure_allowed": True,
             }))
 
@@ -344,15 +346,15 @@ class TestDeltaVerificationAfterFixLoop(unittest.TestCase):
         from aiwf_core.core.state.fixloop_ops import open_fix_loop, resolve_fix_loop
         base = tempfile.mkdtemp()
         try:
-            for d in [".aiwf/state", ".aiwf/quality", ".aiwf/evidence"]:
+            for d in [".aiwf/state", ".aiwf/artifacts/quality", ".aiwf/artifacts/evidence"]:
                 Path(base, d).mkdir(parents=True, exist_ok=True)
             Path(base, ".aiwf/state/state.json").write_text(json.dumps({
                 "phase": "reviewing", "workflow_level": "L1_review_light",
             }))
-            Path(base, ".aiwf/quality/testing.json").write_text(json.dumps({
+            Path(base, ".aiwf/artifacts/quality/testing.json").write_text(json.dumps({
                 "status": "passed", "commands": ["pytest"],
             }))
-            Path(base, ".aiwf/quality/review.json").write_text(json.dumps({
+            Path(base, ".aiwf/artifacts/quality/review.json").write_text(json.dumps({
                 "result": "accepted", "closure_allowed": True, "cleanup_status": "fresh",
             }))
 
@@ -362,7 +364,7 @@ class TestDeltaVerificationAfterFixLoop(unittest.TestCase):
                 invalidated_files=["src/calc.js"],
             )
             resolve_fix_loop(base, resolution="fixed", source="executor", force=True)
-            review = json.loads(Path(base, ".aiwf/quality/review.json").read_text())
+            review = json.loads(Path(base, ".aiwf/artifacts/quality/review.json").read_text())
             self.assertEqual(review["result"], "unknown")
             self.assertTrue(review.get("delta_review_required"))
         finally:

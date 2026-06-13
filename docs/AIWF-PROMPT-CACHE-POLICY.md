@@ -30,8 +30,8 @@ AIWF must not break Claude Code / model service prompt cache.
 
 - Full template text from quality_policy.py
 - Raw evidence.json dumps
-- Full `.aiwf/plans/*.md` task plans
-- Full `.aiwf/research/external.json` research registries
+- Full `.aiwf/artifacts/plans/*.md` task plans
+- Full `.aiwf/artifacts/research/external.json` research registries
 - Full project-map.json contents
 - Long review/cleanup/structure prose
 - Escalation history as narrative

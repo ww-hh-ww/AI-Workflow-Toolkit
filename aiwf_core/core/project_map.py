@@ -68,7 +68,7 @@ SECTION_MAP = {
 
 
 def _path(project_root: str) -> Path:
-    return Path(project_root) / ".aiwf" / "reports" / "项目地图.md"
+    return Path(project_root) / ".aiwf" / "artifacts" / "reports" / "项目地图.md"
 
 
 def ensure_project_map(project_root: str, force: bool = False) -> Path:

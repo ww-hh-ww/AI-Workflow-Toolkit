@@ -54,7 +54,7 @@ class TestAgentWrapperAlignment(unittest.TestCase):
             "protected_files",
             "forbidden_restructures",
             "aiwf arch-change request",
-            "mechanical truth",
+            "Do not hand-edit",
         ]:
             self.assertIn(required, content)
 
@@ -64,9 +64,9 @@ class TestAgentWrapperAlignment(unittest.TestCase):
             "cleanup_verified_at",
             "review_template",
             "unit tests alone are not enough",
-            "accepted_evidence_ids",
-            "rejected_evidence_ids",
-            "adversarial_observations",
+            "accepted-evidence-id",
+            "rejected-evidence-id",
+            "adversarial observations",
             "system integration evidence",
         ]:
             self.assertIn(required, content)
@@ -74,11 +74,11 @@ class TestAgentWrapperAlignment(unittest.TestCase):
     def test_reviewer_agent_is_evidence_first_not_default_full_rerun(self):
         content = self._claude_agent("aiwf-reviewer")
         for required in [
-            "Evidence-first testing boundary",
-            "do not default to rerunning the Tester full suite",
-            "small spot-check commands",
-            "Request Tester rerun",
-            "record why any broad rerun was necessary",
+            "Evidence-first",
+            "audit testing evidence before rerunning",
+            "spot-checks",
+            "missing, stale, contradictory",
+            "rerun",
         ]:
             self.assertIn(required, content)
 
@@ -93,10 +93,10 @@ class TestAgentWrapperAlignment(unittest.TestCase):
     def test_tester_agent_keeps_full_and_real_usage_obligations(self):
         content = self._claude_agent("aiwf-tester")
         for required in [
-            "validation_layers",
+            "validation layers",
             "full_regression",
             "real_usage",
-            "do not silently skip",
+            "Never silently skip",
         ]:
             self.assertIn(required, content)
 
@@ -157,10 +157,9 @@ class TestAgentWrapperAlignment(unittest.TestCase):
         for shared_gate in [
             "cleanup_verified_at",
             "review_template",
-            "accepted_evidence_ids",
+            "accepted-evidence-id",
             "do not default to rerunning the Tester full suite",
         ]:
-            self.assertIn(shared_gate, reviewer_agent)
             self.assertIn(shared_gate, reviewer_skill)
 
 

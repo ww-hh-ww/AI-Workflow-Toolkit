@@ -7,17 +7,17 @@ AIWF has many machine state files. Humans should not read them all.
 | Entry | When | Purpose |
 |-------|------|---------|
 | `aiwf status` | Anytime, most frequent | Project control panel |
-| `.aiwf/reports/当前状态.md` | Next task start | Planner carry-forward summary; status reports stale when source JSON/report changed after it |
-| `.aiwf/reports/闭合报告.md` | Closure review | Human-readable closure basis |
-| `.aiwf/history/task-history.json` | Trend/debug only | Lightweight closed-task trend source for report/status; not a default human reading surface |
-| `.aiwf/reports/质量摘要.md` | Next task/review/test | Compact cross-task quality signals for Planner, Tester, and Reviewer |
-| `.aiwf/task-ledger.json` | Planner/task debug | Candidate/ready/active/closed task graph and execution window |
-| `.aiwf/plans/*.md` | During one task or plan-driven resume | Human-readable task plan, checklist, decisions, validation notes, and handoff context |
-| `.aiwf/research/external.json` | When external research influenced planning | Low-trust outside claims plus explicit Planner promotion decisions |
+| `.aiwf/artifacts/reports/当前状态.md` | Next task start | Planner carry-forward summary; status reports stale when source JSON/report changed after it |
+| `.aiwf/artifacts/reports/闭合报告.md` | Closure review | Human-readable closure basis |
+| `.aiwf/runtime/history/task-history.json` | Trend/debug only | Lightweight closed-task trend source for report/status; not a default human reading surface |
+| `.aiwf/artifacts/reports/质量摘要.md` | Next task/review/test | Compact cross-task quality signals for Planner, Tester, and Reviewer |
+| `.aiwf/runtime/history/task-ledger.json` | Planner/task debug | Candidate/ready/active/closed task graph and execution window |
+| `.aiwf/artifacts/plans/*.md` | During one task or plan-driven resume | Human-readable task plan, checklist, decisions, validation notes, and handoff context |
+| `.aiwf/artifacts/research/external.json` | When external research influenced planning | Low-trust outside claims plus explicit Planner promotion decisions |
 
 ## JSON files are machine source of truth
 
-Machine JSON files under `.aiwf/state/`, `.aiwf/quality/`, `.aiwf/evidence/`, and `.aiwf/history/` are the authoritative machine state.
+Machine JSON files under `.aiwf/state/`, `.aiwf/artifacts/quality/`, `.aiwf/artifacts/evidence/`, and `.aiwf/runtime/history/` are the authoritative machine state.
 They are NOT the default human reading surface.
 Read them only when verifying details, resolving contradictions, or debugging.
 
@@ -52,7 +52,7 @@ Request mode and workflow pattern are also shown. They explain whether the curre
 Task ledger and quality digest are shown as summaries only. They are not meant to flood prompt context.
 
 ### Detail entry points
-File paths to `.aiwf/reports/当前状态.md`, `.aiwf/reports/闭合报告.md`, and canonical machine JSON directories — for when more detail is needed.
+File paths to `.aiwf/artifacts/reports/当前状态.md`, `.aiwf/artifacts/reports/闭合报告.md`, and canonical machine JSON directories — for when more detail is needed.
 
 ## What `aiwf status` does NOT show
 - Raw JSON

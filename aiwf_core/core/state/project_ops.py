@@ -43,7 +43,7 @@ def bootstrap_project(base_dir: str) -> Dict[str, Any]:
 
     # 3. Write baseline task-history entry
     from datetime import datetime, timezone
-    history_path = aiwf / "history" / "task-history.json"
+    history_path = aiwf / "runtime" / "history" / "task-history.json"
     history = {"tasks": [], "archived_hotspots": {}}
     if history_path.exists():
         try:
@@ -70,7 +70,7 @@ def bootstrap_project(base_dir: str) -> Dict[str, Any]:
     tasks.insert(0, baseline_task)
     history["tasks"] = tasks
     import json
-    (aiwf / "history" / "task-history.json").write_text(json.dumps(history, indent=2))
+    (aiwf / "runtime" / "history" / "task-history.json").write_text(json.dumps(history, indent=2))
     results["tasks"].append("task-history baseline written")
 
     # 4. Run env scan if possible (machine-only asset)
@@ -111,7 +111,7 @@ def get_state_summary(base_dir: str) -> Dict[str, Any]:
 
     state = rj("state/state.json", {"phase": "unknown"})
     goal = rj("state/goal.json", {})
-    review = rj("quality/review.json", {})
+    review = rj("artifacts/quality/review.json", {})
     fix_loop = rj("state/fix-loop.json", {"status": "none"})
 
     return {

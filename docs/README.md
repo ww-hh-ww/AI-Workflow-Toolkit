@@ -12,7 +12,7 @@ Hook 如何自动捕获每次文件变更为机器证据。
 
 ```text
 PreToolUse → aiwf_pre_snapshot.py → take_snapshot()
-  → 扫描项目文件（MD5 hash），写入 .aiwf/internal/pre-tool-snapshot.json
+  → 扫描项目文件（MD5 hash），写入 .aiwf/runtime/internal/pre-tool-snapshot.json
   → 工具执行（Write/Edit/Bash）
 PostToolUse → aiwf_capture_evidence.py → diff_snapshot()
   → 重新扫描文件，对比快照，找出 changed_files
@@ -36,8 +36,8 @@ Hook 脚本在目标项目的 `scripts/` 下，运行时需要导入 `aiwf_core`
 
 1. 添加项目根到 `sys.path`
 2. 尝试 `import aiwf_core` — pip install 后直接可用
-3. 失败则读 `.aiwf/internal/toolkit-path.txt` — `aiwf install` 写入的 AIWF 安装路径
-4. 写入 `.aiwf/internal/hook-diag.log` 诊断日志（持久化，不随快照清理）
+3. 失败则读 `.aiwf/runtime/internal/toolkit-path.txt` — `aiwf install` 写入的 AIWF 安装路径
+4. 写入 `.aiwf/runtime/internal/hook-diag.log` 诊断日志（持久化，不随快照清理）
 
 ### 踩过的坑
 
@@ -96,7 +96,7 @@ Hook 脚本在目标项目的 `scripts/` 下，运行时需要导入 `aiwf_core`
 | `aiwf_bash_guard.py` | PreToolUse | 阻止危险 shell 命令 |
 | `aiwf_review_gate.py` | Stop | 评估闭合门，决定是否允许 Stop |
 | `aiwf_rebase_state.py` | — | Planner 手动调用，重建 carry-forward 状态 |
-| `aiwf_export_report.py` | — | 生成闭合报告 (`.aiwf/reports/闭合报告.md`) |
+| `aiwf_export_report.py` | — | 生成闭合报告 (`.aiwf/artifacts/reports/闭合报告.md`) |
 
 ### 生成机制（`aiwf_core/install_claude.py:_write_scripts`）
 

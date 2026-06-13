@@ -171,7 +171,7 @@ class TestQualitySurfaces(unittest.TestCase):
                   "--surface-type", "api_endpoint",
                   "--surface-type", "error_handling")
         r = self._run_script("scripts/aiwf_export_report.py")
-        rpt = (self.tmp / ".aiwf" / "reports" / "闭合报告.md").read_text()
+        rpt = (self.tmp / ".aiwf" / "artifacts" / "reports" / "闭合报告.md").read_text()
         self.assertIn("Quality surfaces", rpt)
         self.assertIn("api_endpoint", rpt)
 
@@ -213,7 +213,7 @@ class TestQualitySurfaces(unittest.TestCase):
     def test_record_testing_writes_inferred_surfaces(self):
         self._run("state", "record-testing", "--status", "adequate",
                   "--inferred-surface", "state_mutation_cli")
-        t = json.loads((self.tmp / ".aiwf" / "quality" / "testing.json").read_text())
+        t = json.loads((self.tmp / ".aiwf" / "artifacts" / "quality" / "testing.json").read_text())
         self.assertIn("state_mutation_cli", t["inferred_surfaces"])
 
     def test_report_shows_inferred_surfaces(self):
@@ -223,7 +223,7 @@ class TestQualitySurfaces(unittest.TestCase):
                   "--inferred-surface", "state_mutation_cli",
                   "--missing-surface-note", "Planner missed state_mutation_cli")
         r = self._run_script("scripts/aiwf_export_report.py")
-        rpt = (self.tmp / ".aiwf" / "reports" / "闭合报告.md").read_text()
+        rpt = (self.tmp / ".aiwf" / "artifacts" / "reports" / "闭合报告.md").read_text()
         self.assertIn("declared", rpt)
         self.assertIn("inferred by tester", rpt)
 

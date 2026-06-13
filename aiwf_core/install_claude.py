@@ -98,10 +98,10 @@ _AH_PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(_AH_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_AH_PROJECT_ROOT))
 
-# === diagnostic log (persistent, check .aiwf/internal/hook-diag.log) ===
+# === diagnostic log (persistent, check .aiwf/runtime/internal/hook-diag.log) ===
 def _ah_diag(msg: str) -> None:
     try:
-        _dp = _AH_PROJECT_ROOT / ".aiwf" / "internal"
+        _dp = _AH_PROJECT_ROOT / ".aiwf" / "runtime" / "internal"
         _dp.mkdir(parents=True, exist_ok=True)
         with open(_dp / "hook-diag.log", "a") as _df:
             import datetime
@@ -119,7 +119,7 @@ try:
     _ah_diag("import aiwf_core ok")
 except ImportError as _e:
     _ah_diag(f"import aiwf_core failed: {_e}, trying toolkit-path.txt")
-    _TK_CFG = _AH_PROJECT_ROOT / ".aiwf" / "internal" / "toolkit-path.txt"
+    _TK_CFG = _AH_PROJECT_ROOT / ".aiwf" / "runtime" / "internal" / "toolkit-path.txt"
     if _TK_CFG.exists():
         _TK_ROOT = _TK_CFG.read_text().strip()
         _ah_diag(f"toolkit-path.txt found: {_TK_ROOT}, exists={Path(_TK_ROOT).exists()}")
@@ -241,6 +241,7 @@ def _write_settings(target: EmbedTarget | None = None) -> Path:
 _TEMPLATE_ROOT = Path(__file__).resolve().parent / "embedded_templates"
 
 SKILL_TEMPLATES = {
+    "aiwf-init": "skills/aiwf-init/SKILL.md",
     "aiwf-planner": "skills/aiwf-planner/SKILL.md",
     "aiwf-planner-docs": "skills/aiwf-planner-docs/SKILL.md",
     "aiwf-planner-contracts": "skills/aiwf-planner-contracts/SKILL.md",
@@ -450,20 +451,47 @@ def _write_agents(target: EmbedTarget | None = None) -> List[Path]:
 def _write_state_files() -> List[Path]:
     d = _aiwf_dir()
     d.mkdir(parents=True, exist_ok=True)
-    # Create all subdirectories
+    # Create v2 5-zone layout (Stage 4.7.3)
     for subdir in ALL_DIRS:
         (d / subdir).mkdir(parents=True, exist_ok=True)
     paths = []
-    # Map state files to new subdirectory paths
     file_paths = {
         "state.json": d / "state" / "state.json",
         "goal.json": d / "state" / "goal.json",
         "contexts.json": d / "state" / "contexts.json",
         "fix-loop.json": d / "state" / "fix-loop.json",
-        "evidence.json": d / "evidence" / "records.json",
-        "testing.json": d / "quality" / "testing.json",
-        "review.json": d / "quality" / "review.json",
+        "evidence.json": d / "artifacts" / "evidence" / "records.json",
+        "testing.json": d / "artifacts" / "quality" / "testing.json",
+        "review.json": d / "artifacts" / "quality" / "review.json",
     }
+    # Write .aiwf/README.md explaining the five zones
+    readme_target = d / "README.md"
+    if not readme_target.exists():
+        readme_target.write_text(
+            "\n".join([
+                "# AIWF Workspace",
+                "",
+                "This directory is AIWF's governance workspace. Humans do not normally read raw `.aiwf` files.",
+                "Ask the agent, run `aiwf status`, or read generated reports when you need a human explanation.",
+                "",
+                "Zones:",
+                "- `state/` — machine truth: registries, canonical state, gate inputs. JSON only.",
+                "- `artifacts/` — human projections: plans, reports, reviews, evidence summaries.",
+                "- `runtime/` — execution traces: history, checkpoints, internal files, caches.",
+                "- `assets/` — input assets referenced by AIWF.",
+                "- `archive/` — deprecated, migrated, or superseded material.",
+                "",
+                "Human entry points:",
+                "- `aiwf status`",
+                "- `.aiwf/artifacts/reports/当前状态.md`",
+                "- `.aiwf/artifacts/reports/闭合报告.md`",
+                "- `.aiwf/artifacts/reports/质量摘要.md`",
+                "",
+                "See `docs/AIWF_WORKSPACE_LAYOUT.md` for the full contract.",
+            ]),
+            encoding="utf-8",
+        )
+        paths.append(readme_target)
     for filename, default_fn in MVP_STATE_FILES.items():
         target = file_paths.get(filename, d / filename)
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -550,7 +578,7 @@ def _write_claude_md() -> Path:
 
 
 def _migrate_legacy_paths():
-    """Migrate .aiwf/ files from flat v1 layout to v2 subdirectory layout."""
+    """Move retired flat .aiwf files into the current five-zone layout."""
     root = _project_root()
     aiwf = root / ".aiwf"
     if not aiwf.exists():
@@ -561,16 +589,16 @@ def _migrate_legacy_paths():
         "goal.json": "state/goal.json",
         "contexts.json": "state/contexts.json",
         "fix-loop.json": "state/fix-loop.json",
-        "evidence.json": "evidence/records.json",
-        "testing.json": "quality/testing.json",
-        "review.json": "quality/review.json",
-        "task-history.json": "history/task-history.json",
-        "task-ledger.json": "history/task-ledger.json",
-        "current-state.md": "reports/当前状态.md",
-        "report.md": "reports/闭合报告.md",
-        "quality-digest.md": "reports/质量摘要.md",
-        "PROJECT-MAP.md": "reports/项目地图.md",
-        "baseline.json": "internal/baseline.json",
+        "evidence.json": "artifacts/evidence/records.json",
+        "testing.json": "artifacts/quality/testing.json",
+        "review.json": "artifacts/quality/review.json",
+        "task-history.json": "runtime/history/task-history.json",
+        "task-ledger.json": "runtime/history/task-ledger.json",
+        "current-state.md": "artifacts/reports/当前状态.md",
+        "report.md": "artifacts/reports/闭合报告.md",
+        "quality-digest.md": "artifacts/reports/质量摘要.md",
+        "PROJECT-MAP.md": "artifacts/reports/项目地图.md",
+        "baseline.json": "runtime/internal/baseline.json",
     }
 
     migrated = []
@@ -623,7 +651,7 @@ def install_embedded(mode: str = "claude", force: bool = False) -> Dict[str, Any
         if non_aiwf:
             from .core.state_ops import bootstrap_project
             bootstrap_project(str(_project_root()))
-            results["created"].append(rel(_project_root() / ".aiwf" / "history" / "task-history.json"))
+            results["created"].append(rel(_project_root() / ".aiwf" / "runtime" / "history" / "task-history.json"))
     except Exception:
         pass
 
@@ -651,7 +679,7 @@ def install_embedded(mode: str = "claude", force: bool = False) -> Dict[str, Any
 
     # Record toolkit root path so generated scripts can discover aiwf_core
     # at runtime without hardcoded absolute paths.
-    _tk_cfg = _aiwf_dir() / "internal" / "toolkit-path.txt"
+    _tk_cfg = _aiwf_dir() / "runtime" / "internal" / "toolkit-path.txt"
     _tk_cfg.parent.mkdir(parents=True, exist_ok=True)
     _tk_cfg.write_text(str(_aiwf_toolkit_root()))
     results["created"].append(rel(_tk_cfg))

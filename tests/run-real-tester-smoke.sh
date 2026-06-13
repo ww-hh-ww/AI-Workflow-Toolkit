@@ -130,7 +130,7 @@ python3 - <<'PY'
 import json
 from pathlib import Path
 
-testing = json.loads(Path(".aiwf/quality/testing.json").read_text())
+testing = json.loads(Path(".aiwf/artifacts/quality/testing.json").read_text())
 assert testing["status"] in ("adequate", "passed"), testing
 assert "targeted" in testing["validation_layers"], testing
 assert testing["full_suite_status"] == "passed", testing
