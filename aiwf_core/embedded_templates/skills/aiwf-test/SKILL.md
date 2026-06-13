@@ -3,15 +3,31 @@ name: aiwf-test
 description: Template-guided testing based on planner-selected test_template
 ---
 
-**Goal-driven verification:** Map each acceptance criterion to concrete evidence. A command that does not exercise the changed behavior is not sufficient. Prefer real tool invocations with captured output over prose claims about what was tested.
-
 # AIWF Test
 
-This skill contains role instructions for the AIWF Tester. Loading this skill does not create an independent tester session.
+## STOP — Check topology BEFORE any other action
 
-If you are planner-main, do not test by roleplaying tester for L2/L3 work. Dispatch the `aiwf-tester` subagent and pass it the active task/context, selected `test_template`, acceptance criteria, and system integration obligations. Inline testing is allowed only for L0_direct or explicitly light L1 self-checks where the workflow level permits it.
+Read `.aiwf/state/state.json` → `execution_topology`.
 
-When executed inside the AIWF Tester subagent, perform template-guided testing. Depth comes from `test_template`, NOT a universal checklist. **workflow_level decides depth. surface_type decides failure-mode directions.**
+**If execution_topology is "standard_team" or "fanout_merge":**
+You are planner-main. You do NOT test.
+
+```
+Agent({subagent_type: "aiwf-tester", prompt: "..."})
+```
+
+**If execution_topology is "light_review":**
+Testing and review are done by ONE subagent.
+
+```
+Agent({subagent_type: "aiwf-reviewer", prompt: "..."})
+```
+
+The reviewer-light subagent handles both testing AND review. Tell it to test first, then review.
+
+**Only continue below if execution_topology IS "single_agent" or "single_agent_with_machine_evidence".**
+
+---
 
 ## Work Intent Discipline
 

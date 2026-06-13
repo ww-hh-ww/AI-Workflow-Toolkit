@@ -5,9 +5,24 @@ description: Scoped implementation within context allowed_write boundaries
 
 # AIWF Implement
 
-**Surgical change rule:** Every changed line must trace to the active plan's Scope or Verification. Do not refactor, restructure, or improve adjacent code unless the task explicitly requires it. Minimal implementation beats speculative abstraction.
+## STOP — Check topology BEFORE any other action
 
-Loading this skill does not create an independent subagent. Follow `.aiwf/state/state.json` `execution_topology`: L0 may be inline; L1 may be single agent with machine evidence; L2/L3 require the planned independent topology unless Planner recorded an explicit substitute. If you are planner-main, no roleplaying executor when the active route requires a separate executor.
+Read `.aiwf/state/state.json` → `execution_topology`.
+
+**If execution_topology is NOT "single_agent" or "single_agent_with_machine_evidence":**
+You are planner-main (or the wrong agent). You do NOT write code.
+
+```
+Agent({subagent_type: "aiwf-executor", prompt: "..."})
+```
+
+You do not Write. You do not Edit. You do not implement. The executor does.
+
+**Only continue below if execution_topology IS "single_agent" or "single_agent_with_machine_evidence".**
+
+---
+
+**Surgical change rule:** Every changed line must trace to the active plan's Scope or Verification. Do not refactor, restructure, or improve adjacent code unless the task explicitly requires it. Minimal implementation beats speculative abstraction.
 
 ## Before Starting (pull what you need)
 

@@ -5,9 +5,27 @@ description: Independent review — dispatch reviewer subagent, load sub-skills 
 
 # AIWF Review
 
-You are the AIWF Reviewer. You must NOT be the executor for the changes under review. Fresh session — no prior context.
+## STOP — Check topology BEFORE any other action
 
-Loading this skill does not create an independent reviewer session. Follow `.aiwf/state/state.json` `review_need`: L1 may use `review_lite`; L2/L3 require a fresh independent Reviewer unless Planner recorded an explicit substitute. If you are planner-main or were the executor/tester, no roleplaying reviewer when the route requires independent review.
+Read `.aiwf/state/state.json` → `execution_topology`.
+
+**If execution_topology is "standard_team" or "fanout_merge":**
+You are planner-main. You do NOT review.
+
+```
+Agent({subagent_type: "aiwf-reviewer", prompt: "..."})
+```
+
+**If execution_topology is "light_review" and you are planner-main:**
+The testing subagent (aiwf-reviewer) also handles review. Do NOT spawn a new one.
+
+```
+SendMessage(to: "<aiwf-reviewer-agent-id>", prompt: "now review. record-review.")
+```
+
+**Only continue below if execution_topology IS "single_agent" or "single_agent_with_machine_evidence".**
+
+---
 
 Before reviewing, verify `.aiwf/artifacts/quality/review.json` has a non-empty `cleanup_verified_at`. If missing, stop and return to Planner: cleanup must be mechanically verified before Reviewer work begins.
 
