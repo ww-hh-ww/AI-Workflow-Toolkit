@@ -214,7 +214,7 @@ def check_and_record_scope_violations(
     from ...core.scope_policy import check_scope
     from ...core.review_contract import add_scope_violation_blocker
 
-    project_files = filter_internal(changed_files)
+    project_files = filter_internal(changed_files, cwd=base)
 
     violations = []
     for f in project_files:
@@ -270,7 +270,7 @@ def check_and_record_scope_violations(
 
 def check_and_record_missing_active_task(changed_files: list, base: Path) -> list:
     """Record project mutation without an active task as a workflow violation."""
-    project_files = filter_internal(changed_files)
+    project_files = filter_internal(changed_files, cwd=base)
     if not project_files:
         return []
     state_path = base / ".aiwf" / "state" / "state.json"

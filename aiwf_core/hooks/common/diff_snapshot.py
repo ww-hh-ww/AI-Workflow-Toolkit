@@ -1,13 +1,13 @@
 """Machine-observed file change detection via git diff.
 
 Returns changed files from git, never from model prose.
-Filters AIWF internal paths to prevent false scope violations.
+Filters AIWF internal paths and gitignored files to prevent false scope violations.
 """
 from __future__ import annotations
 
 import subprocess
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Set
 
 # Paths that AIWF generates internally — must not trigger scope violations.
 # These are filtered from changed_files before scope checking.
@@ -57,9 +57,36 @@ def is_internal_path(file_path: str) -> bool:
     return False
 
 
-def filter_internal(files: List[str]) -> List[str]:
-    """Remove AIWF internal paths from a list of file paths."""
-    return [f for f in files if not is_internal_path(f)]
+def _gitignored_files(cwd: Path, files: List[str]) -> Set[str]:
+    """Return the subset of files that are gitignored.
+
+    Uses git check-ignore --stdin for batch checking.
+    Falls back to empty set if git is unavailable.
+    """
+    if not files:
+        return set()
+    try:
+        r = subprocess.run(
+            ["git", "check-ignore", "--stdin", "-z"],
+            input="\0".join(files),
+            capture_output=True, text=True, cwd=str(cwd), timeout=15,
+        )
+        # git check-ignore with -z outputs matched paths null-terminated
+        ignored = set(r.stdout.split("\0"))
+        ignored.discard("")
+        return ignored
+    except Exception:
+        return set()
+
+
+def filter_internal(files: List[str], cwd: Optional[Path] = None) -> List[str]:
+    """Remove AIWF internal paths and gitignored files from a list of file paths."""
+    result = [f for f in files if not is_internal_path(f)]
+    if cwd is not None and result:
+        ignored = _gitignored_files(cwd, result)
+        if ignored:
+            result = [f for f in result if f not in ignored]
+    return result
 
 
 def git_changed_files(cwd: Path) -> Optional[List[str]]:
@@ -72,7 +99,7 @@ def git_changed_files(cwd: Path) -> Optional[List[str]]:
         if r.returncode != 0:
             return None
         files = [f.strip() for f in r.stdout.split("\n") if f.strip()]
-        return filter_internal(files)
+        return filter_internal(files, cwd=cwd)
     except Exception:
         return None
 
@@ -108,7 +135,7 @@ def git_untracked_files(cwd: Path) -> Optional[List[str]]:
                             files.append(rel)
                 continue
             files.append(rest)
-        return filter_internal(files)
+        return filter_internal(files, cwd=cwd)
     except Exception:
         return None
 
@@ -212,7 +239,7 @@ def baseline_diff_files(cwd: Path) -> Optional[List[str]]:
         untracked = git_untracked_files(cwd) or []
 
         all_files = list(set(tracked + untracked))
-        return filter_internal(all_files)
+        return filter_internal(all_files, cwd=cwd)
     except Exception:
         return None
 

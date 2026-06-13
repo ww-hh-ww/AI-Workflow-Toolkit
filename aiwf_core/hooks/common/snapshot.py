@@ -66,6 +66,28 @@ def _file_stat(path: Path) -> Dict[str, Any]:
         return {"mtime": 0, "size": 0}
 
 
+def _read_gitignore_dirs(root: Path) -> set:
+    """Read .gitignore and extract directory patterns (lines ending with /)."""
+    patterns = set()
+    gitignore = root / ".gitignore"
+    if not gitignore.exists():
+        return patterns
+    try:
+        for line in gitignore.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or line.startswith("!"):
+                continue
+            # Directory pattern: ends with /
+            if line.endswith("/"):
+                patterns.add(line.rstrip("/"))
+            # Simple directory name (no wildcards, no path separators)
+            elif "/" not in line and "*" not in line and "?" not in line:
+                patterns.add(line)
+    except Exception:
+        pass
+    return patterns
+
+
 def _should_scan(path: Path, root: Path, detected_excludes: set = None) -> bool:
     """Check if a path should be included in project file scanning."""
     try:
@@ -77,11 +99,11 @@ def _should_scan(path: Path, root: Path, detected_excludes: set = None) -> bool:
     if is_internal_path(rel):
         return False
 
-    # Exclude known non-project directories + auto-detected
+    # Exclude known non-project directories + auto-detected + gitignore
     parts = rel.replace("\\", "/").split("/")
     all_excludes = SNAPSHOT_EXCLUDE_DIRS | (detected_excludes or set())
     for part in parts:
-        if part in SNAPSHOT_EXCLUDE_DIRS:
+        if part in all_excludes:
             return False
 
     return True
@@ -90,12 +112,15 @@ def _should_scan(path: Path, root: Path, detected_excludes: set = None) -> bool:
 def _scan_project_files(root: Path) -> Dict[str, Dict[str, Any]]:
     """Scan all project files and return {rel_path: {hash, mtime, size}}."""
     result = {}
+    detected = _detect_project_excludes(root)
+    gitignore_dirs = _read_gitignore_dirs(root)
+    all_excludes = SNAPSHOT_EXCLUDE_DIRS | detected | gitignore_dirs
     try:
         for dirpath, dirnames, filenames in os.walk(str(root)):
             # Filter out excluded directories in-place
             dirnames[:] = [
                 d for d in dirnames
-                if d not in SNAPSHOT_EXCLUDE_DIRS
+                if d not in all_excludes
                 and not is_internal_path(str(Path(dirpath).relative_to(root) / d) if dirpath != str(root) else d)
             ]
 

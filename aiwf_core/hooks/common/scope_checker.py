@@ -8,6 +8,8 @@ import json
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+import subprocess
+
 from ...core.event_model import NormalizedEvent, ScopeResult
 from ...core.scope_policy import check_scope, check_bash_command
 from ...core.state_schema import default_contexts
@@ -20,6 +22,18 @@ def _read_json(path: Path, default: Dict) -> Dict:
         return json.loads(path.read_text(encoding="utf-8"))
     except Exception:
         return default
+
+
+def _is_gitignored(file_path: str, cwd: Path) -> bool:
+    """Check if a file is gitignored using git check-ignore."""
+    try:
+        r = subprocess.run(
+            ["git", "check-ignore", "-q", file_path],
+            capture_output=True, cwd=str(cwd), timeout=5,
+        )
+        return r.returncode == 0
+    except Exception:
+        return False
 
 
 def check_file_write(event: NormalizedEvent) -> ScopeResult:
@@ -145,12 +159,11 @@ def check_file_write(event: NormalizedEvent) -> ScopeResult:
     except Exception:
         pass
 
-    # Runtime build artifacts — warn but don't block
-    _artifact_patterns = (".pytest_cache/", ".coverage", ".mypy_cache/", ".ruff_cache/",
-                          "__pycache__/", ".tox/", "node_modules/", ".nyc_output/")
-    if any(p in file_path for p in _artifact_patterns):
+    # Gitignored files are build artifacts / dependencies / generated files —
+    # the project has declared them non-project. Don't flag as scope violations.
+    if _is_gitignored(file_path, cwd):
         return ScopeResult(file_path=file_path, allowed=True,
-                          reason="runtime artifact — allowed, add to project excludes if persistent")
+                          reason="gitignored file — allowed")
 
     # Fix-loop repair window: when a fix-loop is open, allow minimal writes
     # to files referenced in required_fixes. This breaks the deadlock where
