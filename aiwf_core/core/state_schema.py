@@ -54,6 +54,7 @@ def default_state() -> Dict[str, Any]:
         "review_need": "optional_light_review",
         "downgrade_allowed": True,
         "substitution_allowed": False,
+        "next_plan_docs_required": False,
         "routing_reasons": [],
         "hard_constraints": [],
         "substitution_records": [],
@@ -77,6 +78,7 @@ STATE_KEYS = {
     # V2-A routing topology (execution_topology derived from workflow_level)
     "verification_need", "review_need",
     "downgrade_allowed", "substitution_allowed",
+    "next_plan_docs_required",
     "routing_reasons", "hard_constraints", "substitution_records",
 }
 

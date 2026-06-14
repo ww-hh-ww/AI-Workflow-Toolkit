@@ -265,6 +265,14 @@ def prepare_close(base_dir: str) -> Dict[str, Any]:
             "record manual testing evidence with aiwf state record-role-evidence --role tester."
         )
 
+    # 7e. README.md: if it doesn't exist, remind Planner to create one.
+    readme_path = base / "README.md"
+    if not readme_path.exists():
+        post_hoc_warnings.append(
+            "README.md does not exist. Every project needs a README. "
+            "Create one in the next task with Impact.docs=yes."
+        )
+
     # 7d. Review PASS with all dimensions PASS and no adversarial observations
     verdict = review.get("verdict", "")
     if verdict in ("PASS", "PASS_WITH_RISK"):

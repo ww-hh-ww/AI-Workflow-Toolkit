@@ -1112,6 +1112,20 @@ def close_task(base_dir: str, task_id: str, note: str = "") -> Dict[str, Any]:
     if state.get("phase") == "closing":
         state["phase"] = "closed"
     _write(state_path, state)
+    # When a Plan completes without README: force next Plan to fix it
+    if task.get("plan_id") and not (Path(base_dir) / "README.md").exists():
+        try:
+            from .state.plan_ops import get_plan
+            plan = get_plan(base_dir, task["plan_id"], migrate=False)
+            remaining = plan.get("remaining_task_ids", []) or []
+            if not remaining:
+                state_path = Path(base_dir) / ".aiwf" / "state" / "state.json"
+                state = _read(state_path, {})
+                state["next_plan_docs_required"] = True
+                _write(state_path, state)
+                print("Plan complete but README.md missing. Next Plan will require Impact.docs=yes.")
+        except Exception:
+            pass
     save_ledger(base_dir, ledger)
     _refresh_mechanical_assets(base_dir)
     # Machine-only history and escalation state: always update

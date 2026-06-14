@@ -139,7 +139,7 @@ def _default_plan(task_id: str, context_id: str = "", title: str = "",
         "> One block for all read/write/sync decisions. yes/no/unknown + short reason.",
         "> Review checks this against actual changes. No other suggest/read/write policy needed.",
         "",
-        "- docs:          unknown — fill",
+        "- docs:          (yes/no) — does this change project surface area, README, or public docs?",
         "- project_map:   unknown — fill",
         "- environment:   unknown — fill",
         "- capabilities:  unknown — fill",
@@ -193,18 +193,7 @@ def create_task_plan(
     else:
         raise ValueError("plan_id or task_id is required")
     attached_tasks = list(dict.fromkeys(task_ids or ([legacy_task_id] if legacy_task_id else [])))
-    tg = target_goal_id or goal_id or ""
-    if not tg:
-        try:
-            from .state.goal_tree_ops import goal_exists
-            if goal_exists(base_dir, "GOAL-001"):
-                tg = "GOAL-001"
-            else:
-                import sys as _sys
-                print("Warning: no --goal-id specified and GOAL-001 not found in goals.json. "
-                      "Create a goal first: aiwf goal-tree create GOAL-001 --title '...'", file=_sys.stderr)
-        except Exception:
-            tg = "GOAL-001"
+    tg = target_goal_id or goal_id or "GOAL-001"
     kind = plan_kind or "implementation"
     phase = active_phase or "implementation"
     iface_list = list(dict.fromkeys(interfaces or []))
@@ -215,14 +204,23 @@ def create_task_plan(
     path.parent.mkdir(parents=True, exist_ok=True)
     created = not path.exists()
     if created:
-        path.write_text(
-            _default_plan(effective_plan_id, context_id=context_id, title=title,
-                          goal_id=goal_id, task_ids=attached_tasks,
-                          target_goal_id=tg, plan_kind=kind, active_phase=phase,
-                          interfaces=iface_list, constraints=constraint_list,
-                          child_goal_policy=cgp, work_intent=work_intent),
-            encoding="utf-8",
-        )
+        text = _default_plan(effective_plan_id, context_id=context_id, title=title,
+                             goal_id=goal_id, task_ids=attached_tasks,
+                             target_goal_id=tg, plan_kind=kind, active_phase=phase,
+                             interfaces=iface_list, constraints=constraint_list,
+                             child_goal_policy=cgp, work_intent=work_intent)
+        # Previous Plan completed without README → force this one to create it
+        state_path = Path(base_dir) / ".aiwf" / "state" / "state.json"
+        if state_path.exists():
+            import json as _json
+            state = _json.loads(state_path.read_text(encoding="utf-8"))
+            if state.get("next_plan_docs_required"):
+                text = text.replace(
+                    "- docs:          (yes/no) — does this change project surface area, README, or public docs?",
+                    "- docs:          yes — previous Plan finished without README.md, create it now")
+                state["next_plan_docs_required"] = False
+                state_path.write_text(_json.dumps(state, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        path.write_text(text, encoding="utf-8")
     try:
         from .state.plan_ops import upsert_plan
         upsert_plan(base_dir, effective_plan_id, goal_id=goal_id, task_ids=attached_tasks,
