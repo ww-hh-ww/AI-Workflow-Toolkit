@@ -518,7 +518,8 @@ plan.task_ids = [task_id, ...]       # One Plan, many Tasks
 
 Sibling relations express non-parent-child relationships between nodes.
 They are advisory — they inform planning, review, and impact analysis, but
-do not drive execution ordering. Only `task.dependencies[]` gates activation.
+do not drive execution ordering. Plan and Task dependency fields are separate
+machine gates.
 
 ### 6.1 Relation Types
 
@@ -545,8 +546,10 @@ do not drive execution ordering. Only `task.dependencies[]` gates activation.
 ### 6.3 Constraints
 
 - Relations are stored on the source node.
-- `depends_on` in relations is advisory. Only `task.dependencies[]` blocks activation.
-- If Planner wants a relation to become a gate, copy it into `task.dependencies[]`.
+- `depends_on` in relations is advisory. Goal relations never block Plan or Task activation.
+- `plan.dependencies[]` blocks activation of that Plan and its Tasks until every upstream Plan is `complete`.
+- `task.dependencies[]` independently controls finer-grained ordering within a Plan.
+- If Planner wants a Goal relation to become a gate, it must make a separate semantic decision to add a Plan or Task dependency. Relations are never copied mechanically.
 - Broken relations (target deleted) become grooming warnings, not blockers.
 - No graph engine. No traversal. Simple iteration only.
 

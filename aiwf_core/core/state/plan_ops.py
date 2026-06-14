@@ -100,6 +100,7 @@ def _empty_plan(plan_id: str, goal_id: str = "", task_ids: Optional[List[str]] =
         "review_focus": list(dict.fromkeys(review_focus or [])),
         "non_goals": list(dict.fromkeys(non_goals or [])),
         "dependencies": list(dict.fromkeys(dependencies or [])),
+        "dependency_decisions": [],
         "interface_contract": interface_contract or "",
         "escalation_triggers": list(dict.fromkeys(escalation_triggers or [])),
         "read_hints": list(dict.fromkeys(read_hints or [])),
@@ -113,6 +114,111 @@ def _find_plan(plans: Dict[str, Any], plan_id: str) -> Optional[Dict[str, Any]]:
         if isinstance(plan, dict) and (plan.get("plan_id") == plan_id or plan.get("id") == plan_id):
             return plan
     return None
+
+
+def _plan_id(plan: Dict[str, Any]) -> str:
+    return str(plan.get("plan_id") or plan.get("id") or "")
+
+
+def validate_plan_dependencies(plans: Dict[str, Any]) -> None:
+    """Validate the complete Plan dependency graph."""
+    entries = [p for p in plans.get("plans", []) or [] if isinstance(p, dict)]
+    by_id = {_plan_id(p): p for p in entries if _plan_id(p)}
+    for plan_id, plan in by_id.items():
+        for dependency_id in plan.get("dependencies", []) or []:
+            if dependency_id == plan_id:
+                raise ValueError(f"plan cannot depend on itself: {plan_id}")
+            if dependency_id not in by_id:
+                raise ValueError(f"plan dependency not found: {plan_id} -> {dependency_id}")
+
+    visiting: List[str] = []
+    visited = set()
+
+    def visit(plan_id: str) -> None:
+        if plan_id in visited:
+            return
+        if plan_id in visiting:
+            start = visiting.index(plan_id)
+            cycle = visiting[start:] + [plan_id]
+            raise ValueError(f"plan dependency cycle: {' -> '.join(cycle)}")
+        visiting.append(plan_id)
+        for dependency_id in by_id[plan_id].get("dependencies", []) or []:
+            visit(str(dependency_id))
+        visiting.pop()
+        visited.add(plan_id)
+
+    for plan_id in sorted(by_id):
+        visit(plan_id)
+
+
+def plan_dependency_blockers(base_dir: str, plan_id: str) -> List[str]:
+    plans = load_plans(base_dir)
+    plan = _find_plan(plans, plan_id)
+    if not plan:
+        return [f"plan not found: {plan_id}"]
+    blockers = []
+    for dependency_id in plan.get("dependencies", []) or []:
+        dependency = _find_plan(plans, str(dependency_id))
+        if not dependency:
+            blockers.append(f"plan dependency missing: {dependency_id}")
+            continue
+        status = str(dependency.get("status") or "draft")
+        if status != "complete":
+            blockers.append(f"plan dependency not complete: {dependency_id} (status={status})")
+    return blockers
+
+
+def plan_readiness(base_dir: str, plan_id: str) -> Dict[str, Any]:
+    plan = get_plan(base_dir, plan_id)
+    blockers = plan_dependency_blockers(base_dir, plan_id)
+    return {
+        "plan_id": plan_id,
+        "dependencies": list(plan.get("dependencies", []) or []),
+        "ready": bool(plan) and not blockers,
+        "blockers": blockers,
+    }
+
+
+def add_plan_dependency(base_dir: str, plan_id: str, dependency_id: str) -> Dict[str, Any]:
+    plans = load_plans(base_dir)
+    plan = _find_plan(plans, plan_id)
+    if not plan:
+        raise ValueError(f"plan not found: {plan_id}")
+    if not _find_plan(plans, dependency_id):
+        raise ValueError(f"plan dependency not found: {plan_id} -> {dependency_id}")
+    dependencies = list(plan.get("dependencies", []) or [])
+    if dependency_id not in dependencies:
+        dependencies.append(dependency_id)
+    plan["dependencies"] = dependencies
+    validate_plan_dependencies(plans)
+    plan["updated_at"] = _now()
+    save_plans(base_dir, plans)
+    return {"plan": plan, "dependency_id": dependency_id, "added": True}
+
+
+def remove_plan_dependency(base_dir: str, plan_id: str, dependency_id: str,
+                           reason: str) -> Dict[str, Any]:
+    reason = reason.strip()
+    if not reason:
+        raise ValueError("dependency removal reason is required")
+    plans = load_plans(base_dir)
+    plan = _find_plan(plans, plan_id)
+    if not plan:
+        raise ValueError(f"plan not found: {plan_id}")
+    dependencies = list(plan.get("dependencies", []) or [])
+    if dependency_id not in dependencies:
+        raise ValueError(f"plan dependency not present: {plan_id} -> {dependency_id}")
+    plan["dependencies"] = [item for item in dependencies if item != dependency_id]
+    plan.setdefault("dependency_decisions", []).append({
+        "action": "remove",
+        "dependency_id": dependency_id,
+        "reason": reason,
+        "decided_at": _now(),
+    })
+    validate_plan_dependencies(plans)
+    plan["updated_at"] = _now()
+    save_plans(base_dir, plans)
+    return {"plan": plan, "dependency_id": dependency_id, "removed": True, "reason": reason}
 
 
 def _legacy_task_refs(base: Path) -> Dict[str, Dict[str, str]]:
@@ -215,6 +321,7 @@ def upsert_plan(base_dir: str, plan_id: str, goal_id: str = "", task_ids: Option
                 purpose: str = "",
                 test_focus: Optional[List[str]] = None,
                 review_focus: Optional[List[str]] = None,
+                dependencies: Optional[List[str]] = None,
                 interface_contract: str = "",
                 escalation_triggers: Optional[List[str]] = None) -> Dict[str, Any]:
     if milestone_id:
@@ -253,6 +360,7 @@ def upsert_plan(base_dir: str, plan_id: str, goal_id: str = "", task_ids: Option
                            child_goal_policy=child_goal_policy, work_intent=work_intent,
                            allowed_write=allowed_write, forbidden_write=forbidden_write,
                            purpose=purpose, test_focus=test_focus, review_focus=review_focus,
+                           dependencies=dependencies,
                            interface_contract=interface_contract,
                            escalation_triggers=escalation_triggers)
         plans["plans"].append(plan)
@@ -277,6 +385,7 @@ def upsert_plan(base_dir: str, plan_id: str, goal_id: str = "", task_ids: Option
         plan.setdefault("review_focus", [])
         plan.setdefault("non_goals", [])
         plan.setdefault("dependencies", [])
+        plan.setdefault("dependency_decisions", [])
         plan.setdefault("interface_contract", "")
         plan.setdefault("escalation_triggers", [])
         plan.setdefault("read_hints", [])
@@ -315,6 +424,8 @@ def upsert_plan(base_dir: str, plan_id: str, goal_id: str = "", task_ids: Option
             plan["test_focus"] = list(dict.fromkeys(test_focus))
         if review_focus is not None:
             plan["review_focus"] = list(dict.fromkeys(review_focus))
+        if dependencies is not None:
+            plan["dependencies"] = list(dict.fromkeys(dependencies))
         if interface_contract:
             plan["interface_contract"] = interface_contract
         if escalation_triggers is not None:
@@ -335,6 +446,7 @@ def upsert_plan(base_dir: str, plan_id: str, goal_id: str = "", task_ids: Option
         plan["title"] = title
     if status == "active":
         plans["active_plan_id"] = plan_id
+    validate_plan_dependencies(plans)
     save_plans(base_dir, plans)
     if milestone_id:
         attach_plan_to_milestone(base_dir, milestone_id, plan_id, task_ids=plan.get("task_ids", []) or [])
@@ -353,6 +465,9 @@ def set_active_plan(base_dir: str, plan_id: str) -> Dict[str, Any]:
     plan = _find_plan(plans, plan_id)
     if not plan:
         raise ValueError(f"plan not found: {plan_id}")
+    blockers = plan_dependency_blockers(base_dir, plan_id)
+    if blockers:
+        raise ValueError("; ".join(blockers))
     plans["active_plan_id"] = plan_id
     save_plans(base_dir, plans)
     state_path = Path(base_dir) / ".aiwf" / "state" / "state.json"

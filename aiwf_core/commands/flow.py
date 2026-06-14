@@ -515,6 +515,31 @@ def _print_status_debug(root, state, goal, evidence, testing, review, fix_loop,
     task_counts = task_summary.get("counts", {})
     total_tasks = sum(task_counts.values())
     print(f"  Task ledger:      {len(active_tasks)} active / {total_tasks} tasks")
+    try:
+        from ..core.state.plan_ops import load_plans, plan_readiness
+        plan_entries = [
+            p for p in load_plans(str(root)).get("plans", []) or []
+            if isinstance(p, dict) and p.get("status") != "complete"
+        ]
+        ready_plans = []
+        blocked_plans = []
+        for plan in plan_entries:
+            plan_id = str(plan.get("plan_id") or plan.get("id") or "")
+            readiness = plan_readiness(str(root), plan_id)
+            if readiness["ready"]:
+                ready_plans.append(plan_id)
+            else:
+                blocked_plans.append(
+                    f"{plan_id} ({'; '.join(readiness['blockers'])})"
+                )
+        summary = f"{len(ready_plans)} ready / {len(blocked_plans)} blocked"
+        print(f"  Plan readiness:   {summary}")
+        if ready_plans:
+            print(f"  Ready Plans:      {', '.join(ready_plans)}")
+        for blocked in blocked_plans[:3]:
+            print(f"  Blocked Plan:     {blocked}")
+    except Exception:
+        print("  Plan readiness:   unknown")
     print(f"  Environment:      {_environment_status(root)}")
     try:
         from ..assets.schema import asset_status

@@ -321,6 +321,157 @@ class TestPlanRegistryStage1(unittest.TestCase):
         g = get_goal(str(self.tmp), "TMP-001")
         self.assertEqual(g["status"], "archived")
 
+    # ── Cross-Goal Plan dependencies ──
+
+    def test_old_plan_without_dependencies_remains_ready(self):
+        from aiwf_core.core.state.plan_ops import get_plan, plan_readiness, upsert_plan
+
+        upsert_plan(str(self.tmp), "PLAN-OLD", goal_id="GOAL-001", status="ready")
+
+        self.assertEqual(get_plan(str(self.tmp), "PLAN-OLD")["dependencies"], [])
+        self.assertTrue(plan_readiness(str(self.tmp), "PLAN-OLD")["ready"])
+
+    def test_cli_create_dependency_blocks_until_upstream_complete(self):
+        from aiwf_core.core.state.plan_ops import upsert_plan
+
+        self.assertEqual(
+            self._run("plan", "create", "PLAN-001", "--goal-id", "GOAL-001").returncode,
+            0,
+        )
+        downstream = self._run(
+            "plan", "create", "PLAN-002", "--goal-id", "GOAL-002",
+            "--depends-on", "PLAN-001",
+        )
+        self.assertEqual(downstream.returncode, 0, downstream.stderr)
+        blocked = self._run("plan", "activate", "PLAN-002")
+        self.assertNotEqual(blocked.returncode, 0)
+        self.assertIn("PLAN-001 (status=ready)", blocked.stderr)
+
+        upsert_plan(str(self.tmp), "PLAN-001", status="complete")
+        activated = self._run("plan", "activate", "PLAN-002")
+        self.assertEqual(activated.returncode, 0, activated.stderr)
+
+    def test_multiple_downstream_plans_become_ready_together(self):
+        from aiwf_core.core.state.plan_ops import plan_readiness, upsert_plan
+
+        upsert_plan(str(self.tmp), "PLAN-BASE", status="ready")
+        upsert_plan(str(self.tmp), "PLAN-A", goal_id="GOAL-A", status="ready",
+                    dependencies=["PLAN-BASE"])
+        upsert_plan(str(self.tmp), "PLAN-B", goal_id="GOAL-B", status="ready",
+                    dependencies=["PLAN-BASE"])
+        self.assertFalse(plan_readiness(str(self.tmp), "PLAN-A")["ready"])
+        self.assertFalse(plan_readiness(str(self.tmp), "PLAN-B")["ready"])
+
+        upsert_plan(str(self.tmp), "PLAN-BASE", status="complete")
+        self.assertTrue(plan_readiness(str(self.tmp), "PLAN-A")["ready"])
+        self.assertTrue(plan_readiness(str(self.tmp), "PLAN-B")["ready"])
+
+    def test_missing_and_self_dependencies_are_rejected(self):
+        from aiwf_core.core.state.plan_ops import upsert_plan
+
+        with self.assertRaisesRegex(ValueError, "dependency not found"):
+            upsert_plan(str(self.tmp), "PLAN-MISSING", dependencies=["PLAN-NOPE"])
+        upsert_plan(str(self.tmp), "PLAN-SELF")
+        with self.assertRaisesRegex(ValueError, "depend on itself"):
+            upsert_plan(str(self.tmp), "PLAN-SELF", dependencies=["PLAN-SELF"])
+
+    def test_direct_and_multilevel_cycles_are_rejected_globally(self):
+        from aiwf_core.core.state.plan_ops import add_plan_dependency, upsert_plan
+
+        upsert_plan(str(self.tmp), "PLAN-A", goal_id="GOAL-A")
+        upsert_plan(str(self.tmp), "PLAN-B", goal_id="GOAL-B")
+        add_plan_dependency(str(self.tmp), "PLAN-B", "PLAN-A")
+        with self.assertRaisesRegex(ValueError, "dependency cycle"):
+            add_plan_dependency(str(self.tmp), "PLAN-A", "PLAN-B")
+
+        upsert_plan(str(self.tmp), "PLAN-C", goal_id="GOAL-C")
+        add_plan_dependency(str(self.tmp), "PLAN-C", "PLAN-B")
+        with self.assertRaisesRegex(ValueError, "dependency cycle"):
+            add_plan_dependency(str(self.tmp), "PLAN-A", "PLAN-C")
+
+    def test_dependency_remove_requires_reason_and_records_trace(self):
+        from aiwf_core.core.state.plan_ops import (
+            add_plan_dependency, get_plan, remove_plan_dependency, upsert_plan,
+        )
+
+        upsert_plan(str(self.tmp), "PLAN-001")
+        upsert_plan(str(self.tmp), "PLAN-002")
+        add_plan_dependency(str(self.tmp), "PLAN-002", "PLAN-001")
+        with self.assertRaisesRegex(ValueError, "reason is required"):
+            remove_plan_dependency(str(self.tmp), "PLAN-002", "PLAN-001", "")
+        remove_plan_dependency(
+            str(self.tmp), "PLAN-002", "PLAN-001", "dependency superseded",
+        )
+
+        plan = get_plan(str(self.tmp), "PLAN-002")
+        self.assertEqual(plan["dependencies"], [])
+        self.assertEqual(plan["dependency_decisions"][-1]["action"], "remove")
+        self.assertEqual(plan["dependency_decisions"][-1]["reason"], "dependency superseded")
+
+    def test_cli_dep_show_and_plan_surfaces_explain_blocker(self):
+        installed = self._run("install", "claude", "--force")
+        self.assertEqual(installed.returncode, 0, installed.stderr)
+        self.assertEqual(self._run("plan", "create", "PLAN-001").returncode, 0)
+        self.assertEqual(
+            self._run("plan", "create", "PLAN-002", "--depends-on", "PLAN-001").returncode,
+            0,
+        )
+
+        dep_show = self._run("plan", "dep", "show", "PLAN-002")
+        plan_show = self._run("plan", "show", "PLAN-002")
+        plan_list = self._run("plan", "list")
+        status = self._run("status", "--debug")
+        for result in (dep_show, plan_show, plan_list, status):
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("PLAN-001", result.stdout)
+        self.assertIn("blocked", dep_show.stdout.lower())
+        self.assertIn("Plan readiness", status.stdout)
+
+    def test_goal_relation_is_advisory_and_does_not_gate_plan(self):
+        from aiwf_core.core.state.goal_tree_ops import add_relation, init_root
+        from aiwf_core.core.state.plan_ops import set_active_plan, upsert_plan
+
+        init_root(str(self.tmp), "GOAL-A", root_type="main")
+        init_root(str(self.tmp), "GOAL-B", root_type="main")
+        add_relation(str(self.tmp), "GOAL-A", "GOAL-B", "depends_on", "display only")
+        upsert_plan(str(self.tmp), "PLAN-A", goal_id="GOAL-A", target_goal_id="GOAL-A")
+
+        self.assertTrue(set_active_plan(str(self.tmp), "PLAN-A")["activated"])
+
+    def test_plan_dependency_does_not_create_task_dependency(self):
+        from aiwf_core.core.state.plan_ops import upsert_plan
+        from aiwf_core.core.task_ledger import upsert_task
+
+        upsert_plan(str(self.tmp), "PLAN-001", status="complete")
+        upsert_plan(str(self.tmp), "PLAN-002", dependencies=["PLAN-001"])
+        task = upsert_task(
+            str(self.tmp), "TASK-002", "Independent task ordering",
+            status="ready", plan_id="PLAN-002",
+        )["task"]
+
+        self.assertEqual(task["dependencies"], [])
+
+    def test_task_activation_respects_plan_dependency_even_at_l0(self):
+        from aiwf_core.core.state.plan_ops import upsert_plan
+        from aiwf_core.core.task_ledger import activate_task, upsert_task
+
+        state_path = self.tmp / ".aiwf" / "state" / "state.json"
+        state = json.loads(state_path.read_text())
+        state["workflow_level"] = "L0_direct"
+        state_path.write_text(json.dumps(state, indent=2) + "\n")
+        upsert_plan(str(self.tmp), "PLAN-001", status="ready")
+        upsert_plan(str(self.tmp), "PLAN-002", status="ready", dependencies=["PLAN-001"])
+        upsert_task(
+            str(self.tmp), "TASK-002", "Downstream", status="ready",
+            plan_id="PLAN-002", goal_id="GOAL-001",
+        )
+        blocked = activate_task(str(self.tmp), "TASK-002")
+        self.assertFalse(blocked["activated"])
+        self.assertTrue(any("PLAN-001" in item for item in blocked["blockers"]))
+
+        upsert_plan(str(self.tmp), "PLAN-001", status="complete")
+        self.assertTrue(activate_task(str(self.tmp), "TASK-002")["activated"])
+
 
 if __name__ == "__main__":
     unittest.main()

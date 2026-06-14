@@ -257,6 +257,17 @@ class TestTemplateContracts(unittest.TestCase):
         self.assertIn("supports-goal", c)
         self.assertIn("Evidence without a Plan/Goal target does not roll up", c)
 
+    def test_planner_skill_treats_plan_dependencies_as_optional_semantic_gates(self):
+        planner = self._read_skill("aiwf-planner")
+        execute = self._read_skill("aiwf-planner-execute")
+        self.assertIn("Cross-Goal Plan Dependencies (optional)", planner)
+        self.assertIn("suitable common parent Goal", planner)
+        self.assertIn("Do not mechanically copy", planner)
+        self.assertIn("Goal `depends_on` is structural display context only", planner)
+        self.assertIn("Plan dependency is the machine activation gate", planner)
+        self.assertIn("Several unlocked Plans may be ready simultaneously", execute)
+        self.assertIn("Goal `depends_on` relations are advisory", execute)
+
 
 if __name__ == "__main__":
     unittest.main()

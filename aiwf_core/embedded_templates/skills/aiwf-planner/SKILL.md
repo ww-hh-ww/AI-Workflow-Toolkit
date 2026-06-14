@@ -60,6 +60,19 @@ Use `aiwf goal-tree ...` commands. Do NOT hand-edit goals.json.
 
 If you find yourself creating 3 Plans for 3 files in the same module, you are doing too much ritual. Merge them.
 
+### Cross-Goal Plan Dependencies (optional)
+
+Use Plan dependencies only when the project has a real execution prerequisite. This is a semantic Planner judgment, not a required ceremony.
+
+- A coherent practice scaffold that spans sibling feature Goals may attach to their suitable common parent Goal via `target_goal_id`.
+- Common-parent selection is advisory model judgment. Do not infer or enforce an LCA from file scope.
+- Express execution order with `aiwf plan create ... --depends-on PLAN-ID` or `aiwf plan dep add`.
+- Do not mechanically copy Goal Tree parent/child structure or Goal `depends_on` relations into Plan dependencies.
+- Goal `depends_on` is structural display context only. Plan dependency is the machine activation gate.
+- If two Plans share product context but neither must finish first, keep them independent.
+- Multiple dependency-free or unlocked Plans may be ready at once. Choose actual activation order from scope, risk, and available resources; the workspace still permits only its configured active Task window.
+- Explain why a dependency is added, retained, or removed. Removal requires `aiwf plan dep remove ... --reason "<reason>"`.
+
 ## Work Intent Discipline
 
 Set `work_intent` for every Plan. It governs how the Executor behaves:

@@ -36,6 +36,9 @@ def _cmd_plan_create(args: argparse.Namespace) -> None:
     task_ids = getattr(args, "task_ids", []) or []
     if task_ids:
         kwargs["task_ids"] = task_ids
+    dependencies = getattr(args, "depends_on", None)
+    if dependencies is not None:
+        kwargs["dependencies"] = dependencies
     result = create_task_plan(str(Path.cwd()), task_id=legacy_task_id, plan_id=plan_id, **kwargs)
     effective_id = result.get("plan_id") or plan_id or legacy_task_id
     print(f"Plan: {effective_id} created={result['created']}")
@@ -54,6 +57,8 @@ def _cmd_plan_create(args: argparse.Namespace) -> None:
         print(f"  Interfaces: {', '.join(result['interfaces'])}")
     if result.get("constraints"):
         print(f"  Constraints: {', '.join(result['constraints'])}")
+    if result.get("dependencies"):
+        print(f"  Depends On: {', '.join(result['dependencies'])}")
     print("  Note: .aiwf/artifacts/plans/ is AI working memory; JSON gates remain mechanical truth.")
 
 
@@ -71,11 +76,20 @@ def _cmd_plan_update(args: argparse.Namespace) -> None:
 
 def _cmd_plan_show(args: argparse.Namespace) -> None:
     from ..core.task_plan import load_task_plan
+    from ..core.state.plan_ops import get_plan, plan_readiness
     text = load_task_plan(str(Path.cwd()), args.task_id)
     if not text:
         print(f"Task plan not found: {args.task_id}")
         raise SystemExit(1)
     print(text)
+    plan = get_plan(str(Path.cwd()), args.task_id)
+    if plan:
+        readiness = plan_readiness(str(Path.cwd()), args.task_id)
+        print("Plan dependency state:")
+        print(f"  Dependencies: {', '.join(readiness['dependencies']) or 'none'}")
+        print(f"  Readiness: {'ready' if readiness['ready'] else 'blocked'}")
+        for blocker in readiness["blockers"]:
+            print(f"  Blocked: {blocker}")
 
 
 def _cmd_plan_summarize(args: argparse.Namespace) -> None:
@@ -92,13 +106,55 @@ def _cmd_plan_summarize(args: argparse.Namespace) -> None:
 
 def _cmd_plan_list(args: argparse.Namespace) -> None:
     from ..core.task_plan import list_task_plans
+    from ..core.state.plan_ops import plan_readiness
     plans = list_task_plans(str(Path.cwd()))
     if not plans:
         print("Task plans: none")
         return
     print(f"Task plans: {len(plans)}")
     for plan in plans:
-        print(f"  {plan['task_id']} | {_rel(plan['path'])}")
+        state = plan_readiness(str(Path.cwd()), plan["plan_id"]) if plan.get("registry") else None
+        readiness = "unregistered"
+        if state:
+            readiness = "ready" if state["ready"] else f"blocked: {'; '.join(state['blockers'])}"
+        print(f"  {plan['task_id']} | {readiness} | {_rel(plan['path'])}")
+
+
+def _cmd_plan_dep_add(args: argparse.Namespace) -> None:
+    from ..core.state.plan_ops import add_plan_dependency
+    try:
+        result = add_plan_dependency(str(Path.cwd()), args.plan_id, args.dependency_id)
+    except ValueError as e:
+        print(f"Plan dependency add blocked: {e}", file=sys.stderr)
+        raise SystemExit(1)
+    print(f"Plan dependency added: {args.plan_id} -> {result['dependency_id']}")
+
+
+def _cmd_plan_dep_remove(args: argparse.Namespace) -> None:
+    from ..core.state.plan_ops import remove_plan_dependency
+    try:
+        result = remove_plan_dependency(
+            str(Path.cwd()), args.plan_id, args.dependency_id, args.reason,
+        )
+    except ValueError as e:
+        print(f"Plan dependency remove blocked: {e}", file=sys.stderr)
+        raise SystemExit(1)
+    print(f"Plan dependency removed: {args.plan_id} -> {result['dependency_id']}")
+    print(f"  Reason: {result['reason']}")
+
+
+def _cmd_plan_dep_show(args: argparse.Namespace) -> None:
+    from ..core.state.plan_ops import get_plan, plan_readiness
+    plan = get_plan(str(Path.cwd()), args.plan_id)
+    if not plan:
+        print(f"Plan not found: {args.plan_id}", file=sys.stderr)
+        raise SystemExit(1)
+    state = plan_readiness(str(Path.cwd()), args.plan_id)
+    print(f"Plan dependencies: {args.plan_id}")
+    print(f"  Depends On: {', '.join(state['dependencies']) or 'none'}")
+    print(f"  Readiness: {'ready' if state['ready'] else 'blocked'}")
+    for blocker in state["blockers"]:
+        print(f"  Blocked: {blocker}")
 
 
 def _cmd_plan_attach(args: argparse.Namespace) -> None:
@@ -146,6 +202,7 @@ def _cmd_plan_help(args: argparse.Namespace) -> None:
     print("  aiwf plan list       — list task plans")
     print("  aiwf plan activate   — activate a plan (set active_plan_id)")
     print("  aiwf plan deactivate — deactivate the active plan")
+    print("  aiwf plan dep        — add, remove, or show Plan dependencies")
 
 
 def _cmd_plan_activate(args: argparse.Namespace) -> None:

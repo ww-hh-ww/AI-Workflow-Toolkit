@@ -606,6 +606,19 @@ def _active_plan_blockers(base_dir: str, task: Dict[str, Any]) -> List[str]:
     state = _read(root / ".aiwf" / "state" / "state.json", {})
     level = state.get("workflow_level", "L1_review_light")
     request_mode = state.get("request_mode", "execution")
+    plan_id = str(task.get("plan_id") or "")
+
+    # Plan dependency ordering applies at every workflow level. L0 may omit a
+    # Plan, but it may not bypass dependencies when a Plan is attached.
+    if plan_id:
+        try:
+            from .state.plan_ops import get_plan, plan_dependency_blockers
+            if get_plan(base_dir, plan_id, migrate=False):
+                dependency_blockers = plan_dependency_blockers(base_dir, plan_id)
+                if dependency_blockers:
+                    return dependency_blockers
+        except Exception as e:
+            return [f"Plan dependency check failed: {e}"]
 
     if level == "L0_direct":
         return []
@@ -613,7 +626,6 @@ def _active_plan_blockers(base_dir: str, task: Dict[str, Any]) -> List[str]:
         return []
 
     task_id = task.get("id", "")
-    plan_id = str(task.get("plan_id") or "")
     legacy_plan_path = root / ".aiwf" / "artifacts" / "plans" / f"{task_id}.md"
     if not plan_id:
         if legacy_plan_path.exists() or task.get("parent_plan"):

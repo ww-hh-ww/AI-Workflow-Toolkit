@@ -33,6 +33,7 @@ from .frontier_commands import (
 )
 from .plan_commands import (
     _cmd_plan_activate, _cmd_plan_attach, _cmd_plan_create, _cmd_plan_deactivate,
+    _cmd_plan_dep_add, _cmd_plan_dep_remove, _cmd_plan_dep_show,
     _cmd_plan_detach, _cmd_plan_help, _cmd_plan_list, _cmd_plan_show,
     _cmd_plan_summarize, _cmd_plan_update,
 )
@@ -381,6 +382,8 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
     p_plc.add_argument("--interface-contract", default="", help="interface contract description")
     p_plc.add_argument("--escalation-trigger", action="append", default=[], dest="escalation_triggers",
                        help="repeatable escalation trigger")
+    p_plc.add_argument("--depends-on", action="append", default=None,
+                       help="require another Plan to be complete before activation")
     p_plc.set_defaults(func=_cmd_plan_create)
     p_plu = p_plan_sub.add_parser("update", help="update one plan section")
     p_plu.add_argument("--task-id", required=True, help="task ID")
@@ -407,6 +410,20 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
     p_pla_act.set_defaults(func=_cmd_plan_activate)
     p_pla_de = p_plan_sub.add_parser("deactivate", help="deactivate the active plan")
     p_pla_de.set_defaults(func=_cmd_plan_deactivate)
+    p_pldep = p_plan_sub.add_parser("dep", help="manage Plan execution dependencies")
+    p_pldep_sub = p_pldep.add_subparsers(dest="plan_dep_cmd", required=True)
+    p_pldep_add = p_pldep_sub.add_parser("add", help="add a Plan dependency")
+    p_pldep_add.add_argument("plan_id")
+    p_pldep_add.add_argument("dependency_id")
+    p_pldep_add.set_defaults(func=_cmd_plan_dep_add)
+    p_pldep_remove = p_pldep_sub.add_parser("remove", help="remove a Plan dependency")
+    p_pldep_remove.add_argument("plan_id")
+    p_pldep_remove.add_argument("dependency_id")
+    p_pldep_remove.add_argument("--reason", required=True)
+    p_pldep_remove.set_defaults(func=_cmd_plan_dep_remove)
+    p_pldep_show = p_pldep_sub.add_parser("show", help="show Plan dependency readiness")
+    p_pldep_show.add_argument("plan_id")
+    p_pldep_show.set_defaults(func=_cmd_plan_dep_show)
     p_plan.set_defaults(func=_cmd_plan_help)
     # ── mission ──
     p_mis = sub.add_parser("mission", help="project-level mission — semantic container above the Goal Tree")

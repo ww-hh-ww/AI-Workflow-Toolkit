@@ -17,11 +17,11 @@ The default strategy is **top-down refinement, bottom-up verification**.
 
 1. **Group by plan_kind** — `structural` first (they define interfaces), then `implementation` (they fill interfaces), then `verification` (they validate the result). Never activate an `implementation` Plan whose interface-defining `structural` Plan is not yet complete.
 
-2. **Read Goal depends_on** — `.aiwf/state/goals.json` → each Goal's `depends_on` field. If Goal A depends on Goal B, activate B's Plans before A's. A Goal whose dependencies are incomplete has `blocked` Plans — do not activate them.
+2. **Read Plan dependencies** — `.aiwf/state/plans.json` → each Plan's `dependencies` field. A Plan dependency is satisfied only when the upstream Plan is `complete`; `aiwf plan activate` and `aiwf task activate` enforce this. Goal `depends_on` relations are advisory display context and never activation gates.
 
 3. **Check Plan completion** — for Plans that define interfaces consumed by other Plans: all tasks must be closed, interfaces must be stable (`interface_stability: stable` in Plan metadata). A downstream Plan activated against a moving interface will need rework.
 
-4. **Cross-verify** — before activating a Plan, ask: do any of its task descriptions or context fields reference interfaces defined by an incomplete upstream Plan? If yes → do not activate. Record the dependency explicitly.
+4. **Cross-verify** — before activating a Plan, ask: do any of its task descriptions or context fields reference interfaces defined by an incomplete upstream Plan? If yes → do not activate. Record the dependency explicitly with `aiwf plan dep add`.
 
 5. **Drift detection** — if a lower Plan's implementation reveals gaps in an upper Plan's design, stop and update the upper Plan (`aiwf plan update`) before continuing the lower Plan. Do not silently patch the lower Plan to work around bad interfaces.
 
@@ -33,6 +33,7 @@ aiwf plan update --plan-id PLAN-XXX --section decision --content "Activated befo
 ```
 
 Do NOT auto-select next Plan by weight, score, or DFS/BFS traversal.
+Several unlocked Plans may be ready simultaneously. Planner chooses which one to activate from scope, risk, and resources; readiness does not create parallel active Tasks.
 
 ## Task-Level Ordering Within a Plan
 

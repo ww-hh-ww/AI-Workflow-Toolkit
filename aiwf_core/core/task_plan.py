@@ -182,6 +182,7 @@ def create_task_plan(
     purpose: str = "",
     test_focus: Optional[List[str]] = None,
     review_focus: Optional[List[str]] = None,
+    dependencies: Optional[List[str]] = None,
     interface_contract: str = "",
     escalation_triggers: Optional[List[str]] = None,
 ) -> Dict[str, object]:
@@ -238,6 +239,7 @@ def create_task_plan(
                     purpose=purpose,
                     test_focus=test_focus,
                     review_focus=review_focus,
+                    dependencies=dependencies,
                     interface_contract=interface_contract,
                     escalation_triggers=escalation_triggers)
     except ValueError:
@@ -255,6 +257,7 @@ def create_task_plan(
             "active_phase": phase,
             "interfaces": iface_list,
             "constraints": constraint_list,
+            "dependencies": list(dict.fromkeys(dependencies or [])),
             "child_goal_policy": cgp,
             "work_intent": work_intent or None}
 

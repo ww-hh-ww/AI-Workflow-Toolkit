@@ -88,7 +88,9 @@ class TestNodeContractDocs(unittest.TestCase):
 
     def test_relations_are_advisory_only(self):
         self.assertIn("`depends_on` in relations is advisory", self.node)
-        self.assertIn("Only `task.dependencies[]`", self.node)
+        self.assertIn("Goal relations never block Plan or Task activation", self.node)
+        self.assertIn("`plan.dependencies[]` blocks activation", self.node)
+        self.assertIn("`task.dependencies[]` independently controls", self.node)
 
     def test_no_graph_engine(self):
         self.assertIn("No graph engine", self.node)
