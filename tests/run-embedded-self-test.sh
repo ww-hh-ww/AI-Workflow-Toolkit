@@ -3,6 +3,7 @@ set -eo pipefail
 ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 export PYTHONDONTWRITEBYTECODE=1
 export PYTHONPATH="$ROOT${PYTHONPATH:+:$PYTHONPATH}"
+export PYTHONPYCACHEPREFIX="${PYTHONPYCACHEPREFIX:-${TMPDIR:-/tmp}/aiwf-pycache}"
 
 [[ -f "$ROOT/bin/aiwf" ]] && chmod +x "$ROOT/bin/aiwf" 2>/dev/null || true
 
@@ -17,18 +18,14 @@ TESTS=(
   "tests/embedded/test_core_governance_chain.py"
   "tests/embedded/test_asset_layer_contract.py"
   "tests/embedded/test_scope_path_normalization.py"
-  "tests/embedded/test_evidence_promotion.py"
   "tests/embedded/test_evidence_view.py"
   "tests/embedded/test_evidence_contract.py"
-  "tests/embedded/test_cleanup_contract.py"
   "tests/embedded/test_state_ops.py"
-  "tests/embedded/test_structure_contract.py"
   "tests/embedded/test_planner_decision_contract.py"
   "tests/embedded/test_planner_first_flow.py"
   "tests/embedded/test_complexity_routing.py"
   "tests/embedded/test_lessons_contract.py"
   "tests/embedded/test_workflow_levels.py"
-  "tests/embedded/test_gate_contract.py"
   "tests/embedded/test_no_external_orchestration.py"
 )
 

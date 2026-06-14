@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from ._common import _execution_contract_frozen, _freeze_explanation, _read, _write
+from ._common import _execution_contract_frozen, _freeze_explanation, _locked_json_update, _read, _write
 
 
 def _resolve_tree_inheritance(
@@ -214,14 +214,6 @@ def record_role_evidence(
     base = Path(base_dir)
     evidence_path = base / ".aiwf" / "artifacts" / "evidence" / "records.json"
     state = _read(base / ".aiwf" / "state" / "state.json")
-    evidence = _read(evidence_path)
-    records = evidence.get("records", [])
-    if not isinstance(records, list):
-        records = []
-
-    from datetime import datetime, timezone
-    from ..evidence_schema import next_ev_id
-
     active_context = context_id or state.get("active_context_id") or ""
     active_task_id = str(state.get("active_task_id") or "")
     inferred_plan = ""
@@ -267,43 +259,50 @@ def record_role_evidence(
     elif command:
         trust_lvl = "command_observed"
 
-    record = {
-        "id": next_ev_id(records),
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "context_id": active_context,
-        "phase": state.get("phase", ""),
-        "session_id": session_id or synthetic_session,
-        "agent_id": agent_id or role,
-        "agent_type": agent_type or role,
-        "tool_name": "AIWFRoleEvidence",
-        "tool_input": {
-            "role": role,
-            "summary": summary,
-            "scan_git": bool(scan_git),
+    from ..evidence_schema import next_ev_id
+
+    def _append(evidence: Dict[str, Any]) -> Dict[str, Any]:
+        records = evidence.get("records", [])
+        if not isinstance(records, list):
+            records = []
+        record = {
+            "id": next_ev_id(records),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "context_id": active_context,
+            "phase": state.get("phase", ""),
+            "session_id": session_id or synthetic_session,
+            "agent_id": agent_id or role,
+            "agent_type": agent_type or role,
+            "tool_name": "AIWFRoleEvidence",
+            "tool_input": {
+                "role": role,
+                "summary": summary,
+                "scan_git": bool(scan_git),
+                "supports_plan": effective_plan,
+                "supports_goal": effective_goal,
+            },
+            "trust_level": trust_lvl,
+            "command": command[:500] if command else "",
+            "exit_code": exit_code,
+            "changed_files": effective_changed,
+            "governance_changed_files": [],
+            "changed_files_source": "role_delivery_git_scan" if scan_git else "role_delivery",
+            "working_tree_changed_files": scanned_files,
+            "working_tree_source": scanned_source,
+            "attribution": "role_command",
+            "stdout_summary": summary[:500] if summary else "",
+            "stderr_summary": "",
+            "status": status,
+            "trust": "machine_observed",
             "supports_plan": effective_plan,
             "supports_goal": effective_goal,
-        },
-        "trust_level": trust_lvl,
-        "command": command[:500] if command else "",
-        "exit_code": exit_code,
-        "changed_files": effective_changed,
-        "governance_changed_files": [],
-        "changed_files_source": "role_delivery_git_scan" if scan_git else "role_delivery",
-        "working_tree_changed_files": scanned_files,
-        "working_tree_source": scanned_source,
-        "attribution": "role_command",
-        "stdout_summary": summary[:500] if summary else "",
-        "stderr_summary": "",
-        "status": status,
-        "trust": "machine_observed",
-        "supports_plan": effective_plan,
-        "supports_goal": effective_goal,
-    }
-    records.append(record)
-    evidence["records"] = records
-    evidence["updated_at"] = record["timestamp"]
-    _write(evidence_path, evidence)
-    return record
+        }
+        records.append(record)
+        evidence["records"] = records
+        evidence["updated_at"] = record["timestamp"]
+        return record
+
+    return _locked_json_update(evidence_path, {"records": []}, _append)
 
 def _ensure_critical_assets(base_dir: str) -> list:
     """Check and auto-fill critical assets. Returns notes about what was filled.

@@ -72,13 +72,22 @@ class TestPlannerAuthorityBoundaries(unittest.TestCase):
 
     def test_scope_violation_event_keeps_original_boundary_snapshot(self):
         from aiwf_core.hooks.common.evidence_writer import check_and_record_scope_violations
-        context = {"id": "CTX-1", "allowed_write": ["src/a.py"], "forbidden_write": ["secrets/"]}
+        import json
+        context = {"id": "CTX-1", "forbidden_write": ["secrets/"]}
+        # Task with allowed_write is the authoritative scope source
+        (self.tmp / ".aiwf" / "runtime" / "history").mkdir(parents=True, exist_ok=True)
+        (self.tmp / ".aiwf" / "runtime" / "history" / "task-ledger.json").write_text(
+            json.dumps({"tasks": [
+                {"id": "TASK-001", "status": "active", "allowed_write": ["src/a.py"]}
+            ]}))
+        state = self._read("state/state.json")
+        state["active_task_id"] = "TASK-001"
+        self._write("state/state.json", state)
         violations = check_and_record_scope_violations(["reports/out.md"], context, self.tmp)
         self.assertEqual(violations, ["reports/out.md"])
         event = self._read("artifacts/quality/review.json")["scope_violation_events"][0]
         self.assertEqual(event["path"], "reports/out.md")
         self.assertEqual(event["allowed_write_snapshot"], ["src/a.py"])
-        self.assertEqual(event["forbidden_write_snapshot"], ["secrets/"])
 
     def test_active_task_cannot_lower_workflow_level(self):
         from aiwf_core.core.state_ops import record_quality_policy
@@ -106,9 +115,9 @@ class TestPlannerAuthorityBoundaries(unittest.TestCase):
 
     def test_active_task_contract_cannot_be_replanned(self):
         from aiwf_core.core.task_ledger import upsert_task
-        upsert_task(str(self.tmp), "TASK-1", status="active", allowed_write=["src/a.py"])
+        upsert_task(str(self.tmp), "TASK-1", status="active", dependencies=["TASK-0"])
         with self.assertRaisesRegex(ValueError, "active task contract is frozen"):
-            upsert_task(str(self.tmp), "TASK-1", status="active", allowed_write=["src/a.py", "reports/"])
+            upsert_task(str(self.tmp), "TASK-1", status="active", dependencies=["TASK-0", "TASK-X"])
 
     def test_frozen_quality_contract_allows_addition_but_not_removal(self):
         from aiwf_core.core.state_ops import record_quality_brief

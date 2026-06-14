@@ -39,17 +39,47 @@ def check_scope(
         )
 
     if not active_context:
-        # Window guard: phase=closed with active task → block project writes until ledger closed
+        active_context = {}
+
+    # allowed_write lives only on the PLAN. Context is advisory. Tasks inherit
+    # from Plan on activation. Write Guard reads Plan directly via task.plan_id.
+    allowed_write: List[str] = []
+    forbidden_write: List[str] = active_context.get("forbidden_write", []) or [] if active_context else []
+    ctx_id = active_context.get("id", "") if active_context else ""
+
+    if state and state.get("active_task_id"):
+        try:
+            from pathlib import Path as _Path
+            root = _Path(project_root) if project_root else _Path.cwd()
+            # Read task's plan_id, then plan's allowed_write
+            ledger_path = root / ".aiwf" / "runtime" / "history" / "task-ledger.json"
+            if ledger_path.exists():
+                import json as _json
+                ledger = _json.loads(ledger_path.read_text(encoding="utf-8"))
+                plan_id = ""
+                for t in ledger.get("tasks", []) or []:
+                    if isinstance(t, dict) and t.get("id") == state["active_task_id"]:
+                        plan_id = t.get("plan_id") or t.get("parent_plan") or ""
+                        break
+                if plan_id:
+                    plans_path = root / ".aiwf" / "state" / "plans.json"
+                    if plans_path.exists():
+                        plans = _json.loads(plans_path.read_text(encoding="utf-8"))
+                        for p in plans.get("plans", []) or []:
+                            if isinstance(p, dict) and p.get("plan_id", p.get("id")) == plan_id:
+                                allowed_write = p.get("allowed_write", []) or []
+                                break
+        except Exception:
+            pass
+
+    if not allowed_write:
         if state and state.get("phase") == "closed" and state.get("active_task_id"):
             return ScopeResult(
                 file_path=normalized, allowed=False,
                 reason=f"prepare-close passed but task ledger still active ({state.get('active_task_id')}); run aiwf task close first",
             )
-        return ScopeResult(file_path=normalized, allowed=True, reason="no active context")
-
-    allowed_write: List[str] = active_context.get("allowed_write", []) or []
-    forbidden_write: List[str] = active_context.get("forbidden_write", []) or []
-    ctx_id = active_context.get("id", "")
+        if not state or not state.get("active_task_id"):
+            return ScopeResult(file_path=normalized, allowed=True, reason="no active task or context")
 
     # Check forbidden first (explicit denies, for paths outside allowed_write)
     for pattern in forbidden_write:
@@ -66,18 +96,7 @@ def check_scope(
                 reason=f"'{normalized}' matches forbidden_write pattern '{p}' for {ctx_id}",
             )
 
-    # No allowed_write means the dispatch is incomplete. Project writes remain blocked.
-    if not allowed_write:
-        return ScopeResult(
-            file_path=normalized,
-            active_context_id=ctx_id,
-            allowed_write=[],
-            forbidden_write=forbidden_write,
-            allowed=False,
-            reason=f"active context {ctx_id} has no allowed_write boundary",
-        )
-
-    # Check allowed
+    # Check allowed against task's scope
     for pattern in allowed_write:
         p = str(pattern).strip()
         if not p:
@@ -93,15 +112,15 @@ def check_scope(
             )
 
     # File is outside allowed_write — stop and file an architecture change request.
-    # Do NOT switch context mid-task (breaks scope contract + audit chain).
     # Do NOT close the task and recreate (destroys evidence). Let Planner decide.
+    # Scope boundaries are defined by the Plan; context is advisory only.
     fix_guidance = (
         f" Fix: stop and file an architecture change request — "
         f"'aiwf arch-change request --source executor"
         f" --reason \"need to write {normalized}\""
-        f" --proposed-change \"expand context {ctx_id} allowed_write to cover {normalized}\""
+        f" --proposed-change \"expand plan scope to cover {normalized}\""
         f" --affected-file {normalized}'. "
-        f"Planner will approve, deny, or redirect. Do NOT close the task or switch context."
+        f"Planner will approve, deny, or redirect. Do NOT close the task."
     )
 
     return ScopeResult(
@@ -110,7 +129,7 @@ def check_scope(
         active_context_id=ctx_id,
         allowed_write=allowed_write,
         forbidden_write=forbidden_write,
-        reason=f"'{normalized}' is outside allowed_write for {ctx_id}. {fix_guidance}",
+        reason=f"'{normalized}' is outside task scope. {fix_guidance}",
     )
 
 

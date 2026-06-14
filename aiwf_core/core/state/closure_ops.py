@@ -102,7 +102,18 @@ def prepare_close(base_dir: str) -> Dict[str, Any]:
         )
 
     # 2. Evidence exists — was any work actually done and captured?
-    accepted = [r for r in evidence.get("records", []) or [] if r.get("status") == "accepted"]
+    active_task_id = str(state.get("active_task_id") or "")
+    all_accepted = [r for r in evidence.get("records", []) or [] if r.get("status") == "accepted"]
+    # Filter: include evidence from current task OR with no task_id (old/legacy).
+    # Exclude evidence that belongs to a different task to prevent historical
+    # pollution from satisfying session diversity and trust checks.
+    if active_task_id:
+        accepted = [
+            r for r in all_accepted
+            if str(r.get("task_id") or "") in ("", active_task_id)
+        ]
+    else:
+        accepted = all_accepted
     if not accepted:
         blockers.append(
             "no accepted evidence. Run tool operations (Write/Edit/Bash) "
@@ -290,7 +301,7 @@ def prepare_close(base_dir: str) -> Dict[str, Any]:
     # Finalize
     passed = len(blockers) == 0
     if passed:
-        state["phase"] = "closed"
+        state["phase"] = "closing"
         state["close_attempt"] = False
         state["closure_allowed"] = True
         state["close_prepared_task_id"] = active_task_id

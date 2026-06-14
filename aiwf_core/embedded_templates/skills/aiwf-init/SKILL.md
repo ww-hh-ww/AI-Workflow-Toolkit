@@ -116,9 +116,9 @@ aiwf task activate <TASK-ID>
 aiwf task close <TASK-ID>      — only after prepare-close passes
 ```
 
-### Context (boundaries)
+### Scope (boundaries live on the Plan)
 ```
-aiwf state start-context --context-id CTX-001 --allowed-write 'src/...' --purpose '...'
+aiwf plan create PLAN-001 --goal-id GOAL-001 --allowed-write 'src/...' --purpose '...'
 ```
 
 ### Quality gates
@@ -175,8 +175,8 @@ Common blockers and fixes:
 | `plan.plan_kind` empty | `aiwf plan update --task-id <ID> --section goal --content 'plan_kind: implementation'` |
 | `plan.work_intent` empty | `aiwf plan update --task-id <ID> --section goal --content 'work_intent: feature'` |
 | `plan.target_goal_id` empty or missing | `aiwf plan create PLAN-ID --target-goal <GOAL-ID>` |
-| `context.purpose` empty | `aiwf state start-context --context-id <ID> --purpose '...'` |
-| `context.allowed_write` empty | `aiwf state start-context --context-id <ID> --allowed-write 'src/path/'` |
+| `plan.allowed_write` empty | `aiwf plan create PLAN-ID --allowed-write 'src/path/' --goal-id GOAL-001` |
+| `plan.purpose` empty | `aiwf plan update --plan-id PLAN-ID --section goal --content '...'` |
 | `contract.non_goals` empty | `aiwf state record-quality-brief --non-goal '...'` |
 | `contract.acceptance_criteria` empty | `aiwf state record-quality-brief --acceptance-criterion '...'` |
 | `evidence` no records | `aiwf state record-role-evidence --role executor --summary '...' --scan-git` |

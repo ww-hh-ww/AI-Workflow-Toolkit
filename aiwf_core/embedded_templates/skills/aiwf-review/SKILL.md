@@ -7,35 +7,42 @@ description: Independent review — dispatch reviewer subagent, load sub-skills 
 
 ## STOP — Check topology BEFORE any other action
 
-Read `.aiwf/state/state.json` → `execution_topology`.
+Read `.aiwf/state/state.json` → `workflow_level`. Derive execution topology:
 
-**If execution_topology is "standard_team" or "fanout_merge":**
+| workflow_level | topology |
+|---|---|
+| L0_direct | single_agent (inline OK) |
+| L1_review_light | light_review (reviewer-light subagent) |
+| L2_standard_team | standard_team (reviewer subagent) |
+| L3_full_power | fanout_merge (reviewer subagent) |
+
+**If L2/L3 (standard_team or fanout_merge):**
 You are planner-main. You do NOT review.
 
 ```
 Agent({subagent_type: "aiwf-reviewer", prompt: "..."})
 ```
 
-**If execution_topology is "light_review" and you are planner-main:**
+**If L1_review_light and you are planner-main:**
 The testing subagent (aiwf-reviewer) also handles review. Do NOT spawn a new one.
 
 ```
 SendMessage(to: "<aiwf-reviewer-agent-id>", prompt: "now review. record-review.")
 ```
 
-**Only continue below if execution_topology IS "single_agent" or "single_agent_with_machine_evidence".**
+**Only continue below if workflow_level IS "L0_direct".**
 
 ---
 
 Before reviewing, verify `.aiwf/artifacts/quality/review.json` has a non-empty `cleanup_verified_at`. If missing, stop and return to Planner: cleanup must be mechanically verified before Reviewer work begins.
 
-Read the active context from `.aiwf/state/contexts.json`: `context.review_focus`, `context.non_goals`, and `context.interface_contract` define review boundaries. Do not expand beyond them unilaterally.
+Read the active Plan from `.aiwf/state/plans.json`: `review_focus`, `non_goals`, and `interface_contract` define review boundaries. Do not expand beyond them unilaterally.
 
 Read `.aiwf/state/goal.json` `quality_brief.architecture_brief` for `allowed_files`, `protected_files`, `forbidden_restructures`, and module boundaries. If the architecture brief is missing or incomplete for the scope of changes, treat "Architecture contract insufficient" as a potential blocker.
 
 ## Review Basis Contract
 
-Review must evaluate Goal + Plan + Scope + Evidence + Testing + Impact as one contract. Read `.aiwf/state/goal.json`, `.aiwf/artifacts/plans/<PLAN-ID>.md`, `.aiwf/state/contexts.json`, `.aiwf/artifacts/evidence/records.json`, `.aiwf/artifacts/quality/testing.json`, and the active plan's `Impact` section before recording review.
+Review must evaluate Goal + Plan + Scope + Evidence + Testing + Impact as one contract. Read `.aiwf/state/goal.json`, `.aiwf/artifacts/plans/<PLAN-ID>.md`, `.aiwf/state/plans.json`, `.aiwf/artifacts/evidence/records.json`, `.aiwf/artifacts/quality/testing.json`, and the active plan's `Impact` section before recording review.
 
 If the active plan does not match the actual changed files, evidence, testing, or Impact declarations, record a blocker or request Planner plan update before acceptance. Do not accept by testing status alone.
 

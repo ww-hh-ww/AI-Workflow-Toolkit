@@ -711,7 +711,7 @@ class TestFrontierSkillAlignment(unittest.TestCase):
     def test_reviewer_skill_has_pull_based_before_reviewing(self):
         c = self._read_skill("aiwf-review")
         self.assertIn("Before reviewing, verify", c)
-        self.assertIn("Read the active context", c)
+        self.assertIn("Read the active Plan", c)
 
 
 class TestAgentWrapperAlignment(unittest.TestCase):

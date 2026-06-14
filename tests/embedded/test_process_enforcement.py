@@ -24,7 +24,7 @@ class TestProcessEnforcement(unittest.TestCase):
         _write(state_path, state)
         self._seed_planning_contracts()
 
-    def _seed_plan(self, task_id):
+    def _seed_plan(self, task_id, allowed_write=None):
         """Create a registry-backed plan artifact so L1+ activation can pass."""
         from aiwf_core.core.state.plan_ops import upsert_plan
 
@@ -50,7 +50,10 @@ class TestProcessEnforcement(unittest.TestCase):
                 "## Next Steps\n1. done\n",
                 encoding="utf-8",
             )
-        upsert_plan(str(self.tmp), plan_id, goal_id="GOAL-001", task_ids=[task_id], plan_kind="implementation", work_intent="feature")
+        kwargs = {"goal_id": "GOAL-001", "task_ids": [task_id], "plan_kind": "implementation", "work_intent": "feature"}
+        if allowed_write is not None:
+            kwargs["allowed_write"] = allowed_write
+        upsert_plan(str(self.tmp), plan_id, **kwargs)
         ledger_path = self.tmp / ".aiwf" / "runtime" / "history" / "task-ledger.json"
         if ledger_path.exists():
             ledger = json.loads(ledger_path.read_text())
@@ -258,10 +261,9 @@ class TestProcessEnforcement(unittest.TestCase):
         upsert_task(
             str(self.tmp), "TASK-SMALL", "Rename script section labels",
             status="ready",
-            allowed_write=["scripts/install.sh", "scripts/check.sh"],
         )
 
-        self._seed_plan("TASK-SMALL")
+        self._seed_plan("TASK-SMALL", allowed_write=["scripts/install.sh", "scripts/check.sh"])
         result = activate_task(str(self.tmp), "TASK-SMALL")
 
         self.assertTrue(result["activated"], result["blockers"])

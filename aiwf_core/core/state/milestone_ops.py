@@ -261,6 +261,13 @@ def upsert_milestone(
             milestone["recommended_next_frontier"] = recommended_next_frontier
         milestone["updated_at"] = _now()
     if milestone.get("status") == "active":
+        # Only one active milestone at a time — auto-deactivate any previously active
+        for m in data.get("milestones", []) or []:
+            if m is milestone:
+                continue
+            if m.get("status") == "active":
+                m["status"] = "pending"
+                m["updated_at"] = _now()
         data["active_milestone_id"] = milestone_id
     elif data.get("active_milestone_id") == milestone_id and milestone.get("status") != "active":
         data["active_milestone_id"] = None

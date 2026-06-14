@@ -110,15 +110,13 @@ Three decisions:
 5. Write decision into Plan + Context: scope, interfaces, constraints, work_intent.
 6. Confirm with user when confidence is low.
 
-## Context Dispatch
+## Scope & Guidance
 
-`aiwf state start-context` shapes what each role reads/writes/avoids.
-Fields: `purpose`, `read_hints`, `non_goals`, `dependencies`, `interface_contract`,
-`test_focus`, `review_focus`, `escalation_triggers`.
+Plan scope is set directly on the Plan via `aiwf plan create` or `aiwf plan update`.
+Fields: `allowed_write`, `purpose`, `read_hints`, `non_goals`, `dependencies`,
+`interface_contract`, `test_focus`, `review_focus`, `escalation_triggers`.
 
-Context fields inform role execution within scope — they do not expand `allowed_write`.
-
-Context inheritance: children inherit parent Goal/Plan boundaries. Planner only declares deltas.
+Tasks inherit scope from the Plan on activation. Planner only declares deltas from the parent Goal.
 
 ## Contracts (freeze before execution)
 

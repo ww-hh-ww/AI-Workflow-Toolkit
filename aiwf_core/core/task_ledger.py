@@ -117,7 +117,7 @@ def upsert_task(
     title: str = "",
     status: str = "candidate",
     dependencies: Optional[List[str]] = None,
-    allowed_write: Optional[List[str]] = None,
+    allowed_write: Optional[List[str]] = None,   # DEPRECATED: ignored; scope lives on Plan
     parallel_safe: bool = False,
     notes: Optional[List[str]] = None,
     parent_goal: str = "",
@@ -143,8 +143,6 @@ def upsert_task(
         if status != "active": contract_changes.append("status")
         if dependencies is not None and dependencies != (task.get("dependencies", []) or []):
             contract_changes.append("dependencies")
-        if allowed_write is not None and allowed_write != (task.get("allowed_write", []) or []):
-            contract_changes.append("allowed_write")
         if bool(parallel_safe) != bool(task.get("parallel_safe", False)):
             contract_changes.append("parallel_safe")
         if contract_changes:
@@ -161,7 +159,6 @@ def upsert_task(
             "title": title or task_id,
             "status": status,
             "dependencies": [],
-            "allowed_write": [],
             "parallel_safe": False,
             "notes": [],
             "created_at": _now(),
@@ -179,8 +176,6 @@ def upsert_task(
     task["status"] = status
     if dependencies is not None:
         task["dependencies"] = dependencies
-    if allowed_write is not None:
-        task["allowed_write"] = allowed_write
     task["parallel_safe"] = bool(parallel_safe)
     if notes:
         task.setdefault("notes", []).extend(notes)
@@ -219,6 +214,22 @@ def _overlap(a: List[str], b: List[str]) -> List[str]:
     return sorted(set(a or []) & set(b or []))
 
 
+def _task_plan_scope(base_dir: str, task: Dict[str, Any]) -> List[str]:
+    """Read the task's scope boundary — Plan is authoritative, task is legacy fallback."""
+    plan_id = str(task.get("plan_id") or task.get("parent_plan") or "")
+    if plan_id:
+        try:
+            from .state.plan_ops import get_plan
+            plan = get_plan(base_dir, plan_id, migrate=False)
+            plan_scope = plan.get("allowed_write", []) or []
+            if plan_scope:
+                return list(plan_scope)
+        except Exception:
+            pass
+    # Legacy fallback: task-level allowed_write (deprecated, will be removed)
+    return list(task.get("allowed_write", []) or [])
+
+
 def _quality_activation_blockers(base_dir: str, task: Dict[str, Any]) -> List[str]:
     """Consume task_gravity() for quality-based activation blockers."""
     # Architecture review tasks are the REMEDY for gravity warnings, not
@@ -228,7 +239,7 @@ def _quality_activation_blockers(base_dir: str, task: Dict[str, Any]) -> List[st
     if _is_architecture_review_task(task):
         return []
     from .task_gravity import task_gravity
-    gravity = task_gravity(base_dir, task.get("allowed_write", []))
+    gravity = task_gravity(base_dir, _task_plan_scope(base_dir, task))
     blockers: List[str] = []
     for c in gravity.get("hard_constraints", []):
         kind = c.get("kind", "")
@@ -255,7 +266,7 @@ def _mechanical_routing_factors(base_dir: str, task: Dict[str, Any]) -> Dict[str
     machine_verifiable factors alongside the original coarse factors.
     """
     root = Path(base_dir)
-    allowed = [str(p) for p in (task.get("allowed_write", []) or []) if str(p)]
+    allowed = [str(p) for p in _task_plan_scope(base_dir, task) if str(p)]
     module_roots = {
         p.replace("\\", "/").split("/")[0]
         for p in allowed
@@ -354,12 +365,12 @@ def _apply_mechanical_routing(base_dir: str, task: Dict[str, Any]) -> Dict[str, 
     factors = _mechanical_routing_factors(base_dir, task)
     from .routing import compute_routing_score
     background = factors.pop("_background", {}) or {}
-    decision = compute_routing_score(factors, file_count=max(len(task.get("allowed_write", []) or []), 1))
+    decision = compute_routing_score(factors, file_count=max(len(_task_plan_scope(base_dir, task)), 1))
 
     recommended = decision["workflow_level"]
     try:
         from .task_gravity import task_gravity
-        gravity_level = task_gravity(base_dir, task.get("allowed_write", [])).get("suggested_min_level")
+        gravity_level = task_gravity(base_dir, _task_plan_scope(base_dir, task)).get("suggested_min_level")
         if gravity_level in WORKFLOW_LEVELS and WORKFLOW_LEVELS.index(gravity_level) > WORKFLOW_LEVELS.index(recommended):
             recommended = gravity_level
             decision["routing_factors"].append(f"gravity:{gravity_level}")
@@ -407,7 +418,6 @@ def _apply_mechanical_routing(base_dir: str, task: Dict[str, Any]) -> Dict[str, 
         "quality_escalation_required": WORKFLOW_LEVELS.index(recommended) > WORKFLOW_LEVELS.index(current),
         # V2-A topology dimensions
         "verification_need": decision.get("verification_need", "standard"),
-        "execution_topology": decision.get("execution_topology", "light_review"),
         "review_need": decision.get("review_need", "optional_light_review"),
         "downgrade_allowed": decision.get("downgrade_allowed", True),
         "substitution_allowed": decision.get("substitution_allowed", False),
@@ -535,7 +545,7 @@ def activation_blockers(base_dir: str, task_id: str, skip_current_state_check: b
         blockers.append(f"default active task limit reached: {max_active}")
     if task.get("parallel_safe"):
         for other in active:
-            overlap = _overlap(task.get("allowed_write", []), other.get("allowed_write", []))
+            overlap = _overlap(_task_plan_scope(base_dir, task), _task_plan_scope(base_dir, other))
             if overlap:
                 blockers.append(f"parallel write boundary conflict with {other.get('id')}: {', '.join(overlap[:5])}")
 
@@ -611,7 +621,13 @@ def _active_plan_blockers(base_dir: str, task: Dict[str, Any]) -> List[str]:
                 "plans.json as the Plan machine authority. Create a registry-backed plan with: "
                 f"aiwf plan create PLAN-001 --goal-id GOAL-001 && aiwf plan attach PLAN-001 {task_id}"
             ]
-        return [f"L1+ execution requires task.plan_id; create a registry-backed plan and attach {task_id}"]
+        return [
+            f"Task {task_id} has no plan_id. Create and attach a plan:\n"
+            f"  aiwf plan create PLAN-001 --goal-id GOAL-001\n"
+            f"  aiwf plan attach PLAN-001 {task_id}\n"
+            f"  aiwf task plan {task_id} --status ready\n"
+            f"(plan attach automatically links this task to the plan and its goal)"
+        ]
 
     try:
         from .state.plan_ops import get_plan
@@ -646,14 +662,16 @@ def _active_plan_blockers(base_dir: str, task: Dict[str, Any]) -> List[str]:
                 f"task.milestone_id {task_milestone} does not match plan.milestone_id {plan_milestone}"
             ]
 
-    plan_path = root / ".aiwf" / "artifacts" / "plans" / f"{plan_id}.md"
+    from .task_plan import validate_plan_impact, _resolve_plan_artifact_id
+    artifact_id = _resolve_plan_artifact_id(base_dir, plan_id)
+    plan_path = root / ".aiwf" / "artifacts" / "plans" / f"{artifact_id}.md"
     if plan_path.exists():
-        from .task_plan import validate_plan_impact
-        impact_issues = validate_plan_impact(base_dir, plan_id)
+        impact_issues = validate_plan_impact(base_dir, artifact_id)
         if impact_issues:
-            return [f"Plan Impact incomplete: {'; '.join(impact_issues[:3])}"]
+            suffix = f"; ... {len(impact_issues) - 3} more" if len(impact_issues) > 3 else ""
+            return [f"Plan Impact incomplete: {'; '.join(impact_issues[:3])}{suffix}"]
         return []
-    return [f"Plan artifact missing for registry plan {plan_id}: .aiwf/artifacts/plans/{plan_id}.md"]
+    return [f"Plan artifact missing for registry plan {plan_id}: .aiwf/artifacts/plans/{artifact_id}.md"]
 
 
 def activate_task(base_dir: str, task_id: str) -> Dict[str, Any]:
@@ -689,6 +707,8 @@ def activate_task(base_dir: str, task_id: str) -> Dict[str, Any]:
     state["active_task_id"] = task_id
     if task.get("plan_id"):
         state["active_plan_id"] = task["plan_id"]
+    if state.get("phase") not in ("testing", "reviewing", "closing", "closed"):
+        state["phase"] = "implementing"
     _write(state_path, state)
     save_ledger(base_dir, ledger)
     return {"activated": True, "task": task, "ledger": ledger, "blockers": []}
@@ -1015,7 +1035,7 @@ def close_task(base_dir: str, task_id: str, note: str = "") -> Dict[str, Any]:
         }
     if task.get("status") == "active":
         state = _read(Path(base_dir) / ".aiwf" / "state" / "state.json", {})
-        if not (state.get("phase") == "closed" and state.get("closure_allowed")):
+        if not (state.get("phase") in ("closing", "closed") and state.get("closure_allowed")):
             return {
                 "closed": False,
                 "task": task,
@@ -1077,7 +1097,9 @@ def close_task(base_dir: str, task_id: str, note: str = "") -> Dict[str, Any]:
     state = _read(state_path, {})
     if state.get("active_task_id") == task_id:
         state["active_task_id"] = None
-        _write(state_path, state)
+    if state.get("phase") == "closing":
+        state["phase"] = "closed"
+    _write(state_path, state)
     save_ledger(base_dir, ledger)
     _refresh_mechanical_assets(base_dir)
     # Machine-only history and escalation state: always update

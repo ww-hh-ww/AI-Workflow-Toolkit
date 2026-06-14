@@ -54,8 +54,16 @@ class TestHooks(unittest.TestCase):
             (self.tmp / ".aiwf" / "state" / "state.json").write_text(json.dumps(s, indent=2))
             (self.tmp / ".aiwf" / "state" / "contexts.json").write_text(json.dumps(
                 {"contexts": [{"id": "CTX-001",
-                 "allowed_write": allowed_write,
                  "forbidden_write": forbidden_write or []}]}, indent=2))
+            # allowed_write lives on the Plan now — create one
+            (self.tmp / ".aiwf" / "state" / "plans.json").write_text(json.dumps({
+                "plans": [{"plan_id": "PLAN-001", "allowed_write": allowed_write,
+                           "goal_id": "GOAL-001", "target_goal_id": "GOAL-001"}]}, indent=2))
+            (self.tmp / ".aiwf" / "runtime" / "history" / "task-ledger.json").parent.mkdir(
+                parents=True, exist_ok=True)
+            (self.tmp / ".aiwf" / "runtime" / "history" / "task-ledger.json").write_text(json.dumps(
+                {"tasks": [{"id": "TASK-001", "status": "active", "plan_id": "PLAN-001"}],
+                 "execution_window": {"active_task_ids": ["TASK-001"]}}, indent=2))
         inp = json.dumps({"session_id": "t", "cwd": str(self.tmp),
                           "tool_name": tool, "tool_input": {"file_path": file_path}})
         return _run_script(self.tmp / "scripts" / "aiwf_scope_check.py", inp, self.tmp)

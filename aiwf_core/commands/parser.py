@@ -200,7 +200,7 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
     p_rrv = p_state_sub.add_parser("record-review", help="record review results and reviewer evidence (V2: use --verdict for quality outcome)")
     p_rrv.add_argument("--verdict", default="", choices=["","PASS","PASS_WITH_RISK","REVISE","REJECT"], help="V2 quality verdict (derives result + closure)")
     p_rrv.add_argument("--result", default="", choices=["","accepted","needs_fix","needs_more_testing","evidence_insufficient","scope_violation","rejected"], help="V1 review result (use --verdict for V2)")
-    p_rrv.add_argument("--dimension-score", action="append", default=[], dest="dimension_scores", metavar="NAME=PASS|RISK|FAIL", help="repeatable dimension score (e.g. correctness=PASS)")
+    p_rrv.add_argument("--dimension-score", action="append", default=[], dest="dimension_scores", metavar="NAME=PASS|RISK|FAIL", help="repeatable dimension score: requirement_fit, architecture_fit, minimality, correctness, test_adequacy, maintainability, risk_debt, human_trust")
     p_rrv.add_argument("--dimension-note", action="append", default=[], dest="dimension_notes", metavar="NAME_NOTE=text", help="repeatable dimension note (e.g. correctness_note=logic verified)")
     p_rrv.add_argument("--basis-status", action="append", default=[], dest="basis_statuses", metavar="NAME=covered|gap|not_applicable", help="repeatable review basis status for goal/plan/scope/evidence/testing/impact")
     p_rrv.add_argument("--basis-note", action="append", default=[], dest="basis_notes", metavar="NAME_NOTE=text", help="repeatable review basis note (required for gap/not_applicable)")

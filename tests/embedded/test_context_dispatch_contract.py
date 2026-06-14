@@ -87,11 +87,12 @@ class TestContextDispatch(unittest.TestCase):
         self.assertIn("context.test_focus", content.lower())
         self.assertIn("context.escalation_triggers", content.lower())
 
-    def test_review_skill_has_context_dispatch_refs(self):
+    def test_review_skill_has_plan_scope_refs(self):
         content = (self.tmp / ".claude" / "skills" / "aiwf-review" / "SKILL.md").read_text()
-        self.assertIn("context.review_focus", content.lower())
-        self.assertIn("context.non_goals", content.lower())
-        self.assertIn("context.interface_contract", content.lower())
+        self.assertIn("review_focus", content.lower())
+        self.assertIn("non_goals", content.lower())
+        self.assertIn("interface_contract", content.lower())
+        self.assertIn("plans.json", content.lower())
 
     def test_status_does_not_dump_context_dispatch(self):
         from aiwf_core.core.state_ops import start_context

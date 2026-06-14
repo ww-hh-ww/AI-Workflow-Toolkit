@@ -67,6 +67,24 @@ EXECUTION_TOPOLOGIES = [
     "fanout_merge",                        # parallel agents + merge
 ]
 
+# workflow_level → execution_topology: the canonical stored field is level.
+# Topology is derived from level on every read — never stored independently.
+LEVEL_TO_TOPOLOGY = {
+    "L0_direct": "single_agent",
+    "L1_review_light": "light_review",
+    "L2_standard_team": "standard_team",
+    "L3_full_power": "fanout_merge",
+}
+
+# topology → workflow_level: used by route downgrade to validate and map.
+TOPOLOGY_TO_LEVEL = {
+    "single_agent": "L0_direct",
+    "single_agent_with_machine_evidence": "L1_review_light",
+    "light_review": "L1_review_light",
+    "standard_team": "L2_standard_team",
+    "fanout_merge": "L3_full_power",
+}
+
 REVIEW_NEEDS = [
     "none",                    # self-review ok
     "optional_light_review",   # light review if useful
@@ -552,6 +570,14 @@ def compute_topology_override(
 
     # Check substitution validity
     if requested_order < current_order:
+        # Single-step limit: downgrade one level at a time
+        if current_order - requested_order > 1:
+            allowed = False
+            warnings.append(
+                f"Topology downgrade from '{current_topology}' to "
+                f"'{requested_topology}' skips {current_order - requested_order} levels. "
+                "Downgrade ONE level at a time."
+            )
         has_substitution_grounds = any(
             flag and factor in SUBSTITUTION_ALLOWED_FACTORS
             for factor, flag in factors.items()
@@ -571,6 +597,7 @@ def compute_topology_override(
         "effective_topology": requested_topology if (allowed or requested_order >= current_order) else current_topology,
         "reason": reason,
         "warnings": warnings,
+        "is_downgrade": requested_order < current_order,
     }
 
 

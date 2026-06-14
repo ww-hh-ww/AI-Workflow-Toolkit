@@ -1,15 +1,22 @@
 ---
 name: aiwf-implement
-description: Scoped implementation within context allowed_write boundaries
+description: Scoped implementation within Plan scope boundaries
 ---
 
 # AIWF Implement
 
 ## STOP — Check topology BEFORE any other action
 
-Read `.aiwf/state/state.json` → `execution_topology`.
+Read `.aiwf/state/state.json` → `workflow_level`. Derive execution topology:
 
-**If execution_topology is NOT "single_agent" or "single_agent_with_machine_evidence":**
+| workflow_level | topology |
+|---|---|
+| L0_direct | single_agent (inline OK) |
+| L1_review_light | light_review (subagent required) |
+| L2_standard_team | standard_team (subagent required) |
+| L3_full_power | fanout_merge (subagent required) |
+
+**If workflow_level is NOT "L0_direct":**
 You are planner-main (or the wrong agent). You do NOT write code.
 
 ```
@@ -18,7 +25,7 @@ Agent({subagent_type: "aiwf-executor", prompt: "..."})
 
 You do not Write. You do not Edit. You do not implement. The executor does.
 
-**Only continue below if execution_topology IS "single_agent" or "single_agent_with_machine_evidence".**
+**Only continue below if workflow_level IS "L0_direct".**
 
 ---
 
@@ -26,11 +33,11 @@ You do not Write. You do not Edit. You do not implement. The executor does.
 
 ## Before Starting (pull what you need)
 
-1. **Context**: Read `.aiwf/state/contexts.json` → `allowed_write`, `forbidden_write`, `purpose`, `non_goals`, `dependencies`, `interface_contract`.
+1. **Plan scope**: Read `.aiwf/state/plans.json` → active Plan: `allowed_write`, `forbidden_write`, `purpose`, `non_goals`, `dependencies`, `interface_contract`.
 2. **Goal Tree**: Read `.aiwf/state/goals.json` → parent Goal: `module_boundaries`, `architecture_invariants`, `non_goals` propagate from Goal.
 3. **Plan**: Read `.aiwf/state/plans.json` → active Plan: `plan_kind`, `work_intent`, `interfaces`, `constraints`, `active_phase`.
 4. **Architecture Brief**: Read `.aiwf/state/goal.json` → `quality_brief.architecture_brief`: `protected_files`, `forbidden_restructures`, `allowed_files`, `integration_points`.
-5. **State**: Read `.aiwf/state/state.json` → `workflow_level`, `execution_topology`.
+5. **State**: Read `.aiwf/state/state.json` → `workflow_level` (topology derives from this).
 
 ## Work Intent Discipline
 

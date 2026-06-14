@@ -29,8 +29,8 @@ MIN_TRUST_FOR_CLOSURE = {
 
 # L2+ requires evidence from multiple independent sessions (executor, tester, reviewer).
 MIN_INDEPENDENT_SESSIONS = {
-    "L0_direct": 0,
-    "L1_review_light": 1,
+    "L0_direct": 1,
+    "L1_review_light": 2,
     "L2_standard_team": 3,
     "L3_full_power": 3,
 }

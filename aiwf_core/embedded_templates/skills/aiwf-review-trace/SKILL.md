@@ -9,7 +9,7 @@ For tightly-coupled projects, a local change that looks correct in isolation can
 
 ## 1. Change Surface
 
-Read `.aiwf/artifacts/evidence/records.json` (changed files + commands), `.aiwf/state/goal.json` (architecture_brief, review_focus, acceptance_criteria), `.aiwf/state/contexts.json` (scope).
+Read `.aiwf/artifacts/evidence/records.json` (changed files + commands), `.aiwf/state/goal.json` (architecture_brief, review_focus, acceptance_criteria), `.aiwf/state/plans.json` (scope, interfaces).
 Ask:
 - What exactly changed? What contracts, APIs, data formats, or assumptions were modified?
 - Did any single-point-of-truth file change (paths, constants, base classes)? These are the most dangerous.

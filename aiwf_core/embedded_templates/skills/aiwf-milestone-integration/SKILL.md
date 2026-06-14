@@ -7,16 +7,17 @@ description: Exhaustive system connectivity audit at milestone boundaries
 
 ## STOP — Check topology BEFORE any other action
 
-Read `.aiwf/state/state.json` → `execution_topology`.
+Read `.aiwf/state/state.json` → `workflow_level`.
+L0=inline, L1/L2/L3=SPAWN subagent.
 
-**If execution_topology is NOT "single_agent" or "single_agent_with_machine_evidence":**
+**If workflow_level is NOT "L0_direct":**
 You are planner-main. You do NOT test.
 
 ```
 Agent({subagent_type: "aiwf-tester", prompt: "Milestone integration test for <MILESTONE-ID>. ..."})
 ```
 
-**Only continue if topology allows inline.**
+**Only continue if workflow_level IS "L0_direct".**
 
 ---
 

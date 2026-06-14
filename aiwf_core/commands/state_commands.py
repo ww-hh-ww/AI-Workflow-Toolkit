@@ -312,7 +312,6 @@ def _cmd_record_review(args: argparse.Namespace) -> None:
                 file=sys.stderr,
             )
             raise SystemExit(1)
-            raise SystemExit(1)
 
     observations = []
     for idx, msg in enumerate(args.adversarial_observations or [], start=1):
@@ -339,6 +338,7 @@ def _cmd_record_review(args: argparse.Namespace) -> None:
             score = score.strip()
             if name not in QUALITY_DIMENSIONS:
                 print(f"Review record blocked: unknown quality dimension: {name}", file=sys.stderr)
+                print(f"Valid dimensions: {', '.join(sorted(QUALITY_DIMENSIONS))}", file=sys.stderr)
                 raise SystemExit(1)
             if score not in VALID_DIMENSION_SCORES or score == "unscored":
                 print(f"Review record blocked: invalid score for {name}: {score}", file=sys.stderr)
@@ -350,6 +350,7 @@ def _cmd_record_review(args: argparse.Namespace) -> None:
             name = key.replace("_note", "").strip()
             if name not in QUALITY_DIMENSIONS:
                 print(f"Review record blocked: unknown quality dimension note: {name}", file=sys.stderr)
+                print(f"Valid dimensions: {', '.join(sorted(QUALITY_DIMENSIONS))}", file=sys.stderr)
                 raise SystemExit(1)
             if name in dims:
                 dims[name]["note"] = note.strip()

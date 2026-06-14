@@ -353,7 +353,6 @@ class TestRoutingV2StateSchema(unittest.TestCase):
         from aiwf_core.core.state_schema import default_state
         s = default_state()
         self.assertIn("verification_need", s)
-        self.assertIn("execution_topology", s)
         self.assertIn("review_need", s)
         self.assertIn("downgrade_allowed", s)
         self.assertIn("substitution_allowed", s)
@@ -361,14 +360,16 @@ class TestRoutingV2StateSchema(unittest.TestCase):
         self.assertIn("hard_constraints", s)
         self.assertIn("substitution_records", s)
         self.assertEqual(s["verification_need"], "standard")
-        self.assertEqual(s["execution_topology"], "light_review")
         self.assertEqual(s["review_need"], "optional_light_review")
         self.assertTrue(s["downgrade_allowed"])
         self.assertFalse(s["substitution_allowed"])
+        # execution_topology is derived from workflow_level, not stored
+        from aiwf_core.core.routing import LEVEL_TO_TOPOLOGY
+        self.assertEqual(LEVEL_TO_TOPOLOGY.get(s["workflow_level"]), "light_review")
 
     def test_state_keys_include_topology(self):
         from aiwf_core.core.state_schema import STATE_KEYS
-        for key in ("verification_need", "execution_topology", "review_need",
+        for key in ("verification_need", "review_need",
                      "downgrade_allowed", "substitution_allowed",
                      "routing_reasons", "hard_constraints", "substitution_records"):
             self.assertIn(key, STATE_KEYS)
@@ -405,7 +406,7 @@ class TestRoutingV2MechanicalRouting(unittest.TestCase):
         brief["non_goals"] = ["test"]
         _write(goal_path, goal)
 
-    def _seed_plan(self, task_id):
+    def _seed_plan(self, task_id, allowed_write=None):
         from aiwf_core.core.state.plan_ops import upsert_plan
 
         plan_id = f"PLAN-{task_id}"
@@ -428,7 +429,10 @@ class TestRoutingV2MechanicalRouting(unittest.TestCase):
                 "## Next Steps\n1. done\n",
                 encoding="utf-8",
             )
-        upsert_plan(str(self.tmp), plan_id, goal_id="GOAL-001", task_ids=[task_id])
+        kwargs = {"goal_id": "GOAL-001", "task_ids": [task_id]}
+        if allowed_write is not None:
+            kwargs["allowed_write"] = allowed_write
+        upsert_plan(str(self.tmp), plan_id, **kwargs)
         ledger_path = self.tmp / ".aiwf" / "runtime" / "history" / "task-ledger.json"
         if ledger_path.exists():
             ledger = json.loads(ledger_path.read_text())
@@ -450,22 +454,21 @@ class TestRoutingV2MechanicalRouting(unittest.TestCase):
         self._seed_planning_contracts()
         upsert_task(
             str(self.tmp), "TASK-V2A-001", "Fix validator grep", status="ready",
-            allowed_write=["scripts/validate.template.sh"],
         )
 
-        self._seed_plan("TASK-V2A-001")
+        self._seed_plan("TASK-V2A-001", allowed_write=["scripts/validate.template.sh"])
         result = activate_task(str(self.tmp), "TASK-V2A-001")
         self.assertTrue(result["activated"], result["blockers"])
 
         state = json.loads((self.tmp / ".aiwf" / "state" / "state.json").read_text())
 
-        # V2-A topology fields should be populated
+        # V2-A fields should be populated (execution_topology derived from level)
         self.assertIn("verification_need", state)
-        self.assertIn("execution_topology", state)
         self.assertIn("review_need", state)
         self.assertIn("downgrade_allowed", state)
         self.assertIn("substitution_allowed", state)
         self.assertIn("hard_constraints", state)
+        self.assertIn("workflow_level", state)
 
         # A mechanical validator template change should be low-risk
         self.assertIn(state["workflow_level"], ("L0_direct", "L1_review_light"))
@@ -486,10 +489,9 @@ class TestRoutingV2MechanicalRouting(unittest.TestCase):
 
         upsert_task(
             str(self.tmp), "TASK-V2A-002", "Fix failing test", status="ready",
-            allowed_write=["src/broken.py"],
         )
 
-        self._seed_plan("TASK-V2A-002")
+        self._seed_plan("TASK-V2A-002", allowed_write=["src/broken.py"])
         result = activate_task(str(self.tmp), "TASK-V2A-002")
         # Should be blocked by fix-loop, but let's check state anyway
         state = json.loads((self.tmp / ".aiwf" / "state" / "state.json").read_text())

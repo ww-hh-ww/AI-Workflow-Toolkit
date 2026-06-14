@@ -51,7 +51,6 @@ def default_state() -> Dict[str, Any]:
         "planned_capability_ids": [],
         # V2-A routing topology dimensions
         "verification_need": "standard",
-        "execution_topology": "light_review",
         "review_need": "optional_light_review",
         "downgrade_allowed": True,
         "substitution_allowed": False,
@@ -75,8 +74,8 @@ STATE_KEYS = {
     "adversarial_mode",
     "request_mode", "workflow_pattern", "pattern_reason",
     "external_research_required", "active_plan_id", "planned_capability_ids",
-    # V2-A routing topology
-    "verification_need", "execution_topology", "review_need",
+    # V2-A routing topology (execution_topology derived from workflow_level)
+    "verification_need", "review_need",
     "downgrade_allowed", "substitution_allowed",
     "routing_reasons", "hard_constraints", "substitution_records",
 }

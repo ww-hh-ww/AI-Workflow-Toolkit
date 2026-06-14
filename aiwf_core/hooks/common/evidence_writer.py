@@ -10,8 +10,9 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from ...core.event_model import EvidenceRecord, NormalizedEvent
-from ...core.evidence_schema import create_evidence_record, append_evidence
+from ...core.evidence_schema import create_evidence_record
 from ...core.state_schema import default_evidence
+from ...core.state._common import _locked_json_update
 from .diff_snapshot import detect_changed_files_with_baseline, filter_internal
 from ...core.scope_policy import classify_file_change
 
@@ -87,7 +88,6 @@ def record_post_tool_event(
     evidence_path = base / ".aiwf" / "artifacts" / "evidence" / "records.json"
     state_path = base / ".aiwf" / "state" / "state.json"
 
-    evidence = _read_json(evidence_path, default_evidence())
     state = _read_json(state_path, {})
 
     # Get working tree dirty files (cumulative, for reference)
@@ -95,99 +95,99 @@ def record_post_tool_event(
     working_tree_files = wt_diff["files"]
     wt_source = wt_diff["source"]
 
-    # Determine operation-level changed_files
-    if operation_changed_files is not None:
-        # Use pre/post snapshot result (true per-operation)
-        op_files = list(operation_changed_files)
-        final_source = op_source or "pre_post_snapshot"
-        final_attribution = op_attribution or "strong"
-    else:
-        # Fallback: dirty-set delta
-        previous_wt = _get_last_working_tree_files(evidence)
-        op_files, _, att, src = _compute_operation_files(
-            working_tree_files, previous_wt)
-        final_source = "dirty_set_delta_fallback" if previous_wt else src
-        final_attribution = "weak" if not previous_wt else att
-
     command = ""
     if event.tool_name == "Bash":
         command = event.tool_input.get("command", "") or ""
 
-    record = create_evidence_record(
-        tool_name=event.tool_name,
-        tool_input=event.tool_input,
-        command=command[:500] if command else "",
-        exit_code=event.exit_code,
-        changed_files=op_files,
-        changed_files_source=final_source,
-        session_id=event.session_id,
-        agent_id=event.agent_id,
-        agent_type=event.agent_type,
-        context_id=state.get("active_context_id") or "",
-        phase=state.get("phase", ""),
-        existing_records=evidence.get("records", []),
-    )
+    def _append(evidence: Dict[str, Any]) -> tuple:
+        # Determine operation-level changed_files while holding the evidence
+        # lock; the dirty-set fallback depends on the previous record.
+        if operation_changed_files is not None:
+            op_files = list(operation_changed_files)
+            final_source = op_source or "pre_post_snapshot"
+            final_attribution = op_attribution or "strong"
+        else:
+            previous_wt = _get_last_working_tree_files(evidence)
+            op_files, _, att, src = _compute_operation_files(
+                working_tree_files, previous_wt)
+            final_source = "dirty_set_delta_fallback" if previous_wt else src
+            final_attribution = "weak" if not previous_wt else att
 
-    # Split changed_files into project vs governance
-    project_files = [f for f in op_files if classify_file_change(f) == "project"]
-    gov_files = [f for f in op_files if classify_file_change(f) == "governance"]
+        records = evidence.get("records", [])
+        if not isinstance(records, list):
+            records = []
+        record = create_evidence_record(
+            tool_name=event.tool_name,
+            tool_input=event.tool_input,
+            command=command[:500] if command else "",
+            exit_code=event.exit_code,
+            changed_files=op_files,
+            changed_files_source=final_source,
+            session_id=event.session_id,
+            agent_id=event.agent_id,
+            agent_type=event.agent_type,
+            context_id=state.get("active_context_id") or "",
+            phase=state.get("phase", ""),
+            existing_records=records,
+        )
 
-    # Compute trust_level so closure gates can evaluate evidence quality.
-    # Mirrors context_ops.record_role_evidence trust-level logic.
-    if final_source == "pre_post_snapshot":
-        trust_lvl = "command_observed"
-    elif final_attribution == "strong":
-        trust_lvl = "git_observed"
-    elif command:
-        trust_lvl = "command_observed"
-    else:
-        trust_lvl = "role_recorded"
+        project_files = [f for f in op_files if classify_file_change(f) == "project"]
+        gov_files = [f for f in op_files if classify_file_change(f) == "governance"]
 
-    record_dict = {
-        "id": record.id,
-        "timestamp": record.timestamp,
-        "context_id": record.context_id,
-        "phase": record.phase,
-        "session_id": record.session_id,
-        "agent_id": record.agent_id,
-        "agent_type": record.agent_type,
-        "tool_name": record.tool_name,
-        "tool_input": record.tool_input,
-        "command": record.command,
-        "exit_code": record.exit_code,
-        "changed_files": project_files,
-        "governance_changed_files": gov_files,
-        "changed_files_source": final_source,
-        "working_tree_changed_files": working_tree_files,
-        "working_tree_source": wt_source,
-        "attribution": final_attribution,
-        "stdout_summary": record.stdout_summary,
-        "stderr_summary": record.stderr_summary,
-        "status": record.status,
-        "trust": record.trust,
-        "trust_level": trust_lvl,
-    }
+        if final_source == "pre_post_snapshot":
+            trust_lvl = "command_observed"
+        elif final_attribution == "strong":
+            trust_lvl = "git_observed"
+        elif command:
+            trust_lvl = "command_observed"
+        else:
+            trust_lvl = "role_recorded"
 
-    active_task_id = str(state.get("active_task_id") or "")
-    if active_task_id:
-        try:
-            ledger_path = base / ".aiwf" / "runtime" / "history" / "task-ledger.json"
-            ledger = _read_json(ledger_path, {"tasks": []}) if ledger_path.exists() else {"tasks": []}
-            for task in ledger.get("tasks", []) or []:
-                if isinstance(task, dict) and task.get("id") == active_task_id:
-                    record_dict["supports_plan"] = str(task.get("plan_id") or task.get("parent_plan") or "")
-                    record_dict["supports_goal"] = str(task.get("goal_id") or task.get("parent_goal") or "")
-                    break
-        except Exception:
-            pass
+        record_dict = {
+            "id": record.id,
+            "timestamp": record.timestamp,
+            "context_id": record.context_id,
+            "phase": record.phase,
+            "session_id": record.session_id,
+            "agent_id": record.agent_id,
+            "agent_type": record.agent_type,
+            "tool_name": record.tool_name,
+            "tool_input": record.tool_input,
+            "command": record.command,
+            "exit_code": record.exit_code,
+            "changed_files": project_files,
+            "governance_changed_files": gov_files,
+            "changed_files_source": final_source,
+            "working_tree_changed_files": working_tree_files,
+            "working_tree_source": wt_source,
+            "attribution": final_attribution,
+            "stdout_summary": record.stdout_summary,
+            "stderr_summary": record.stderr_summary,
+            "status": record.status,
+            "trust": record.trust,
+            "trust_level": trust_lvl,
+        }
 
-    records = evidence.get("records", [])
-    if not isinstance(records, list):
-        records = []
-    records.append(record_dict)
-    evidence["records"] = records
-    evidence["updated_at"] = record.timestamp
-    _write_json(evidence_path, evidence)
+        active_task_id = str(state.get("active_task_id") or "")
+        if active_task_id:
+            record_dict["task_id"] = active_task_id
+            try:
+                ledger_path = base / ".aiwf" / "runtime" / "history" / "task-ledger.json"
+                ledger = _read_json(ledger_path, {"tasks": []}) if ledger_path.exists() else {"tasks": []}
+                for task in ledger.get("tasks", []) or []:
+                    if isinstance(task, dict) and task.get("id") == active_task_id:
+                        record_dict["supports_plan"] = str(task.get("plan_id") or task.get("parent_plan") or "")
+                        record_dict["supports_goal"] = str(task.get("goal_id") or task.get("parent_goal") or "")
+                        break
+            except Exception:
+                pass
+
+        records.append(record_dict)
+        evidence["records"] = records
+        evidence["updated_at"] = record.timestamp
+        return record, final_source, gov_files, op_files
+
+    record, final_source, gov_files, op_files = _locked_json_update(evidence_path, default_evidence(), _append)
 
     role_text = f"{event.agent_type} {event.agent_id}".lower()
     if "reviewer" in role_text and ".aiwf/artifacts/quality/review.json" in gov_files:
@@ -214,11 +214,15 @@ def check_and_record_scope_violations(
     from ...core.scope_policy import check_scope
     from ...core.review_contract import add_scope_violation_blocker
 
+    state_path = base / ".aiwf" / "state" / "state.json"
+    state = _read_json(state_path, {})
+    active_task_id = str(state.get("active_task_id") or "")
+
     project_files = filter_internal(changed_files, cwd=base)
 
     violations = []
     for f in project_files:
-        result = check_scope(f, active_context)
+        result = check_scope(f, active_context, state=state, project_root=str(base))
         if not result.allowed:
             violations.append(f)
 
@@ -237,10 +241,22 @@ def check_and_record_scope_violations(
                 review, vf, active_context.get("id", "unknown")
             )
             events = review.setdefault("scope_violation_events", [])
+            # allowed_write lives on the task, not the context
+            task_allowed = []
+            if active_task_id:
+                try:
+                    ledger_path = base / ".aiwf" / "runtime" / "history" / "task-ledger.json"
+                    ledger = _read_json(ledger_path, {"tasks": []})
+                    for t in ledger.get("tasks", []) or []:
+                        if isinstance(t, dict) and t.get("id") == active_task_id:
+                            task_allowed = list(t.get("allowed_write", []) or [])
+                            break
+                except Exception:
+                    pass
             event = {
                 "path": vf,
                 "context_id": active_context.get("id", "unknown"),
-                "allowed_write_snapshot": list(active_context.get("allowed_write", []) or []),
+                "allowed_write_snapshot": task_allowed,
                 "forbidden_write_snapshot": list(active_context.get("forbidden_write", []) or []),
                 "recorded_at": datetime.now(timezone.utc).isoformat(),
                 "status": "recorded",

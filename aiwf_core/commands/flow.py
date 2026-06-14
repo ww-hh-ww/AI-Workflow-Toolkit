@@ -62,8 +62,15 @@ def _print_status_human(root, state, goal, evidence, testing, review, fix_loop):
 
     phase = state.get("phase", "unknown")
     goal_text = goal.get("current_goal") or goal.get("active_goal", "") or "(none)"
+    active_task_id = state.get("active_task_id") or ""
+    has_goal = goal_text != "(none)"
+    display_mode = state.get("request_mode", "execution")
+    display_level = state.get("workflow_level", "L1")
+    if not has_goal and not active_task_id and phase == "discussing":
+        display_mode = "discussion"
+        display_level = "not_routed"
     print(f"Goal:  {goal_text[:120]}")
-    print(f"Phase: {phase}  level={state.get('workflow_level', 'L1')}  mode={state.get('request_mode', 'execution')}")
+    print(f"Phase: {phase}  level={display_level}  mode={display_mode}")
 
     # Can close?
     blockers = []
@@ -111,8 +118,8 @@ def _print_status_human(root, state, goal, evidence, testing, review, fix_loop):
     verdict = review.get("verdict", "pending")
     verdict_part = f" verdict={verdict}" if verdict not in ("", "pending", None) else ""
     print(f"Testing:  {tstat}  Review: {rstat}{verdict_part}  Cleanup: {review.get('cleanup_status', '?')}")
-    if state.get("active_task_id"):
-        print(f"Task:     {state['active_task_id']}")
+    if active_task_id:
+        print(f"Task:     {active_task_id}")
 
     # Risk
     risks = []
@@ -149,7 +156,8 @@ def _print_status_prompt(root, state, goal, testing, review, fix_loop):
     #   light_review: executor=SUBAGENT, testing+review=one SUBAGENT (L1)
     #   standard_team: executor+tester+reviewer each SUBAGENT (L2)
     #   fanout_merge: same as standard_team, adversarial depth (L3/security)
-    topo = state.get("execution_topology", "")
+    from ..core.routing import LEVEL_TO_TOPOLOGY
+    topo = LEVEL_TO_TOPOLOGY.get(state.get("workflow_level", ""), "light_review")
     needs_exec_sub = topo in ("light_review", "standard_team", "fanout_merge")
     needs_test_sub = topo in ("standard_team", "fanout_merge")
     needs_review_sub = topo in ("standard_team", "fanout_merge")
@@ -294,9 +302,9 @@ def _print_status_prompt(root, state, goal, testing, review, fix_loop):
                     if ar_blocked:
                         missing.append("load /aiwf-milestone-arch-review → verify Goal interfaces")
                     if missing:
-                        print(f"MILESTONE READY {ms_id}: {'; '.join(missing)}")
+                        print(f"MILESTONE NEEDS VERIFICATION {ms_id}: {'; '.join(missing)}")
                 elif not blockers:
-                    print(f"MILESTONE READY {ms_id}: verification complete — run aiwf milestone close {ms_id}")
+                    print(f"MILESTONE CLOSABLE {ms_id}: verification complete — run aiwf milestone close {ms_id}")
     except Exception:
         pass
 

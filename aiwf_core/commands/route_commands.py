@@ -37,11 +37,14 @@ def _cmd_route_explain(args: argparse.Namespace) -> None:
 
     from ..core.routing import explain_routing
 
+    from ..core.routing import LEVEL_TO_TOPOLOGY
+
+    level = state.get("workflow_level", "L1_review_light")
     # Build a decision-like dict from current state
     decision = {
-        "workflow_level": state.get("workflow_level", "L1_review_light"),
-        "label": state.get("workflow_level", ""),
-        "execution_topology": state.get("execution_topology", "light_review"),
+        "workflow_level": level,
+        "label": level,
+        "execution_topology": LEVEL_TO_TOPOLOGY.get(level, "light_review"),
         "verification_need": state.get("verification_need", "standard"),
         "review_need": state.get("review_need", "optional_light_review"),
         "routing_factors": state.get("routing_factors", []),
@@ -68,9 +71,10 @@ def _cmd_route_downgrade(args: argparse.Namespace) -> None:
     root = Path.cwd()
     state = _read_state(root)
 
-    from ..core.routing import compute_topology_override
+    from ..core.routing import LEVEL_TO_TOPOLOGY, TOPOLOGY_TO_LEVEL, compute_topology_override
 
-    current_topo = state.get("execution_topology", "light_review")
+    current_level = state.get("workflow_level", "L1_review_light")
+    current_topo = LEVEL_TO_TOPOLOGY.get(current_level, "light_review")
     requested = args.to
 
     # Build factors from current state
@@ -98,6 +102,7 @@ def _cmd_route_downgrade(args: argparse.Namespace) -> None:
         "timestamp": _now(),
         "from_topology": current_topo,
         "to_topology": result["effective_topology"],
+        "from_level": current_level,
         "reason": args.reason,
         "substitute_verification": args.substitute or "",
         "type": "downgrade",
@@ -105,10 +110,25 @@ def _cmd_route_downgrade(args: argparse.Namespace) -> None:
     subs = state.setdefault("substitution_records", [])
     subs.append(record)
 
-    state["execution_topology"] = result["effective_topology"]
+    # workflow_level is the canonical stored field — topology derives from it
+    new_level = TOPOLOGY_TO_LEVEL.get(result["effective_topology"])
+    old_level = current_level
+    if new_level:
+        state["workflow_level"] = new_level
+    # Downgrades require explicit user confirmation — never silent
+    if result.get("is_downgrade"):
+        state["requires_user_decision"] = True
+        state["quality_escalation_required"] = True
+        state["quality_escalation_reason"] = (
+            f"Workflow downgraded from {current_level} ({current_topo}) to "
+            f"{new_level} ({result['effective_topology']}) "
+            f"(reason: {args.reason[:120]})"
+        )
     _write_state(root, state)
 
-    print(f"Topology downgraded: {current_topo} -> {result['effective_topology']}")
+    print(f"Workflow downgraded: {current_level} ({current_topo}) -> {new_level} ({result['effective_topology']})")
+    if state.get("requires_user_decision"):
+        print("  USER DECISION REQUIRED — confirm or reject this downgrade")
     print(f"  Reason: {args.reason[:120]}")
     if args.substitute:
         print(f"  Substitute verification: {args.substitute[:120]}")
@@ -122,9 +142,10 @@ def _cmd_route_substitute(args: argparse.Namespace) -> None:
     root = Path.cwd()
     state = _read_state(root)
 
-    from ..core.routing import compute_topology_override
+    from ..core.routing import LEVEL_TO_TOPOLOGY, TOPOLOGY_TO_LEVEL, compute_topology_override
 
-    current_topo = state.get("execution_topology", "light_review")
+    current_level = state.get("workflow_level", "L1_review_light")
+    current_topo = LEVEL_TO_TOPOLOGY.get(current_level, "light_review")
     requested = args.use
 
     factors = {}
@@ -151,6 +172,7 @@ def _cmd_route_substitute(args: argparse.Namespace) -> None:
         "timestamp": _now(),
         "from_topology": current_topo,
         "to_topology": result["effective_topology"],
+        "from_level": current_level,
         "reason": args.reason,
         "waived": args.waive or "",
         "substitute_verification": args.substitute or "",
@@ -159,12 +181,26 @@ def _cmd_route_substitute(args: argparse.Namespace) -> None:
     subs = state.setdefault("substitution_records", [])
     subs.append(record)
 
-    state["execution_topology"] = result["effective_topology"]
+    # workflow_level is canonical — topology derives from it
+    new_level = TOPOLOGY_TO_LEVEL.get(result["effective_topology"])
+    if new_level:
+        state["workflow_level"] = new_level
+    # Downgrades require explicit user confirmation
+    if result.get("is_downgrade"):
+        state["requires_user_decision"] = True
+        state["quality_escalation_required"] = True
+        state["quality_escalation_reason"] = (
+            f"Workflow substituted from {current_level} ({current_topo}) to "
+            f"{new_level} ({result['effective_topology']}) "
+            f"(reason: {args.reason[:120]})"
+        )
     if args.substitute:
         state["substitution_allowed"] = True
     _write_state(root, state)
 
-    print(f"Topology substituted: {current_topo} -> {result['effective_topology']}")
+    print(f"Workflow substituted: {current_level} ({current_topo}) -> {new_level} ({result['effective_topology']})")
+    if state.get("requires_user_decision"):
+        print("  USER DECISION REQUIRED — confirm or reject this substitution")
     print(f"  Reason: {args.reason[:120]}")
     if args.waive:
         print(f"  Waived: {args.waive}")

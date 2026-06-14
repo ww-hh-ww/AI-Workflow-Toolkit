@@ -7,16 +7,23 @@ description: Template-guided testing based on planner-selected test_template
 
 ## STOP — Check topology BEFORE any other action
 
-Read `.aiwf/state/state.json` → `execution_topology`.
+Read `.aiwf/state/state.json` → `workflow_level`. Derive execution topology:
 
-**If execution_topology is "standard_team" or "fanout_merge":**
+| workflow_level | topology |
+|---|---|
+| L0_direct | single_agent (inline OK) |
+| L1_review_light | light_review (reviewer-light subagent) |
+| L2_standard_team | standard_team (tester subagent) |
+| L3_full_power | fanout_merge (tester subagent) |
+
+**If L2/L3 (standard_team or fanout_merge):**
 You are planner-main. You do NOT test.
 
 ```
 Agent({subagent_type: "aiwf-tester", prompt: "..."})
 ```
 
-**If execution_topology is "light_review":**
+**If L1_review_light:**
 Testing and review are done by ONE subagent.
 
 ```
@@ -25,7 +32,17 @@ Agent({subagent_type: "aiwf-reviewer", prompt: "..."})
 
 The reviewer-light subagent handles both testing AND review. Tell it to test first, then review.
 
-**Only continue below if execution_topology IS "single_agent" or "single_agent_with_machine_evidence".**
+**Only continue below if workflow_level IS "L0_direct".**
+
+---
+
+## YOUR JOB IS TO WRITE TESTS, NOT JUST RUN THEM
+
+Running the existing test suite is verification, not testing. Your primary deliverable is **new tests** that cover what the executor wrote and what the executor missed.
+
+**If you find uncovered paths and only list them in the report without writing tests, you have not done your job. Status=adequate is the maximum for a report-only pass — and only if you wrote at least one new test.**
+
+Before recording any result, ask: "Did I write new tests?" If the answer is no, you are not done.
 
 ---
 
@@ -38,12 +55,12 @@ Testing strategy varies by work_intent. Read the active Plan's `work_intent`:
 2. **Goal Tree**: `.aiwf/state/goals.json` → parent Goal's `surface_types`, sibling relations.
 3. **Plan**: `.aiwf/state/plans.json` → active Plan: `test_focus`, `interfaces`, `constraints`, `work_intent`.
 4. **Evaluation Contract**: `.aiwf/state/goal.json` → `quality_brief.evaluation_contract`.
-5. **Context**: `.aiwf/state/contexts.json` → `allowed_write`, `test_focus`, `escalation_triggers`.
+5. **Plan scope**: `.aiwf/state/plans.json` → active Plan: `allowed_write`, `test_focus`, `escalation_triggers`.
 6. **Evidence**: `.aiwf/artifacts/evidence/records.json` → executor's changed files.
 
 ## Testing Basis Contract
 
-Testing must verify the active plan's `Verification` section and the risk implied by changed files. Read `.aiwf/artifacts/plans/<PLAN-ID>.md`, `.aiwf/artifacts/evidence/records.json`, `.aiwf/state/state.json`, `.aiwf/state/contexts.json`, and `.aiwf/state/goal.json` before choosing commands.
+Testing must verify the active plan's `Verification` section and the risk implied by changed files. Read `.aiwf/artifacts/plans/<PLAN-ID>.md`, `.aiwf/artifacts/evidence/records.json`, `.aiwf/state/state.json`, `.aiwf/state/plans.json`, and `.aiwf/state/goal.json` before choosing commands.
 
 If the active plan no longer matches the observed changed files or feasible verification path, stop and return to Planner to update the plan before continuing. Do not paper over plan drift with ad hoc tests.
 

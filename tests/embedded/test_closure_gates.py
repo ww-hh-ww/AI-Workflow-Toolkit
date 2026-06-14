@@ -419,7 +419,7 @@ class TestEvidenceTrustLevel(unittest.TestCase):
         self.assertTrue(result["passed"],
                         f"L2 should pass with command_observed evidence: {result['blockers']}")
 
-    def test_l1_passes_role_recorded_evidence(self):
+    def test_l1_passes_two_session_evidence(self):
         from aiwf_core.core.state_ops import prepare_close
         base = _make_state_dir(tempfile.mkdtemp(),
             state={"phase": "reviewing", "workflow_level": "L1_review_light",
@@ -429,11 +429,13 @@ class TestEvidenceTrustLevel(unittest.TestCase):
             evidence={"records": [
                 {"id": "EV-001", "status": "accepted", "trust_level": "role_recorded",
                  "session_id": "s1"},
+                {"id": "EV-002", "status": "accepted", "trust_level": "role_recorded",
+                 "session_id": "s2"},
             ]},
         )
         result = prepare_close(base)
         self.assertTrue(result["passed"],
-                        f"L1 should pass with role_recorded evidence: {result['blockers']}")
+                        f"L1 should pass with 2-session evidence: {result['blockers']}")
 
     def test_evidence_without_trust_level_defaults_to_claimed(self):
         """Hook-style evidence missing trust_level is treated as 'claimed'."""
@@ -558,7 +560,9 @@ class TestImpactCloseGates(unittest.TestCase):
             "- quality_summary: no — no quality impact\n")
         self._write_evidence({"records": [
             {"id": "EV-001", "status": "accepted", "trust_level": "role_recorded",
-             "session_id": "s1", "changed_files": ["src/a.py"]}
+             "session_id": "s1", "changed_files": ["src/a.py"]},
+            {"id": "EV-002", "status": "accepted", "trust_level": "role_recorded",
+             "session_id": "s2", "changed_files": ["src/b.py"]},
         ]})
         (self.base / ".aiwf/runtime/history/task-ledger.json").write_text(
             json.dumps({

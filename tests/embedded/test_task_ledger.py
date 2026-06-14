@@ -44,7 +44,7 @@ class TestTaskLedger(unittest.TestCase):
         return subprocess.run([sys.executable, "-m", "aiwf_core.cli", *args],
                               capture_output=True, text=True, cwd=str(self.tmp), env=env, timeout=TIMEOUT)
 
-    def _seed_plan(self, task_id):
+    def _seed_plan(self, task_id, allowed_write=None):
         """Create a registry-backed plan artifact so L1+ activation can pass."""
         from aiwf_core.core.state.plan_ops import upsert_plan
 
@@ -70,7 +70,10 @@ class TestTaskLedger(unittest.TestCase):
                 "## Next Steps\n1. done\n",
                 encoding="utf-8",
             )
-        upsert_plan(str(self.tmp), plan_id, goal_id="GOAL-001", task_ids=[task_id], plan_kind="implementation", work_intent="feature")
+        kwargs = {"goal_id": "GOAL-001", "task_ids": [task_id], "plan_kind": "implementation", "work_intent": "feature"}
+        if allowed_write is not None:
+            kwargs["allowed_write"] = allowed_write
+        upsert_plan(str(self.tmp), plan_id, **kwargs)
         ledger_path = self.tmp / ".aiwf" / "runtime" / "history" / "task-ledger.json"
         if ledger_path.exists():
             ledger = json.loads(ledger_path.read_text())
@@ -148,11 +151,11 @@ class TestTaskLedger(unittest.TestCase):
     def test_parallel_safe_allows_non_overlapping_active_tasks(self):
         from aiwf_core.core.task_ledger import activate_task, upsert_task
 
-        upsert_task(str(self.tmp), "TASK-001", "A", status="ready", allowed_write=["src/a.py"])
-        upsert_task(str(self.tmp), "TASK-002", "B", status="ready", allowed_write=["src/b.py"], parallel_safe=True)
-        self._seed_plan("TASK-001")
+        upsert_task(str(self.tmp), "TASK-001", "A", status="ready")
+        upsert_task(str(self.tmp), "TASK-002", "B", status="ready", parallel_safe=True)
+        self._seed_plan("TASK-001", allowed_write=["src/a.py"])
         self.assertTrue(activate_task(str(self.tmp), "TASK-001")["activated"])
-        self._seed_plan("TASK-002")
+        self._seed_plan("TASK-002", allowed_write=["src/b.py"])
         second = activate_task(str(self.tmp), "TASK-002")
 
         self.assertTrue(second["activated"], second["blockers"])
@@ -160,11 +163,11 @@ class TestTaskLedger(unittest.TestCase):
     def test_parallel_safe_blocks_write_boundary_overlap(self):
         from aiwf_core.core.task_ledger import activate_task, upsert_task
 
-        upsert_task(str(self.tmp), "TASK-001", "A", status="ready", allowed_write=["src/shared.py"])
-        upsert_task(str(self.tmp), "TASK-002", "B", status="ready", allowed_write=["src/shared.py"], parallel_safe=True)
-        self._seed_plan("TASK-001")
+        upsert_task(str(self.tmp), "TASK-001", "A", status="ready")
+        upsert_task(str(self.tmp), "TASK-002", "B", status="ready", parallel_safe=True)
+        self._seed_plan("TASK-001", allowed_write=["src/shared.py"])
         self.assertTrue(activate_task(str(self.tmp), "TASK-001")["activated"])
-        self._seed_plan("TASK-002")
+        self._seed_plan("TASK-002", allowed_write=["src/shared.py"])
         second = activate_task(str(self.tmp), "TASK-002")
 
         self.assertFalse(second["activated"])
@@ -180,6 +183,37 @@ class TestTaskLedger(unittest.TestCase):
         upsert_task(str(self.tmp), "TASK-001", "Scaffold", status="closed")
         self._seed_plan("TASK-002")
         self.assertTrue(activate_task(str(self.tmp), "TASK-002")["activated"])
+
+    def test_plan_attach_updates_task_ledger_authority(self):
+        """plan attach must satisfy the L1+ task.plan_id activation gate."""
+        from aiwf_core.core.state.plan_ops import attach_task_to_plan, upsert_plan
+        from aiwf_core.core.task_ledger import activate_task, load_ledger, upsert_task
+
+        upsert_task(str(self.tmp), "TASK-001", "Attach me", status="ready", allowed_write=["README.md"])
+        plan_dir = self.tmp / ".aiwf" / "artifacts" / "plans"
+        plan_dir.mkdir(parents=True, exist_ok=True)
+        (plan_dir / "PLAN-001.md").write_text(
+            "# PLAN-001\n\n"
+            "## Impact\n"
+            "- docs: no — test\n"
+            "- project_map: no — test\n"
+            "- environment: no — test\n"
+            "- capabilities: no — test\n"
+            "- quality_summary: no — test\n",
+            encoding="utf-8",
+        )
+        upsert_plan(str(self.tmp), "PLAN-001", goal_id="GOAL-001", status="ready")
+
+        result = attach_task_to_plan(str(self.tmp), "PLAN-001", "TASK-001")
+        self.assertTrue(result["attached"], result.get("reason"))
+        task = load_ledger(str(self.tmp))["tasks"][0]
+        self.assertEqual(task["plan_id"], "PLAN-001")
+        self.assertEqual(task["parent_plan"], "PLAN-001")
+
+        activated = activate_task(str(self.tmp), "TASK-001")
+        self.assertTrue(activated["activated"], activated["blockers"])
+        state = json.loads((self.tmp / ".aiwf" / "state" / "state.json").read_text())
+        self.assertEqual(state["phase"], "implementing")
 
     def test_close_task_appends_task_history_and_quality_escalation(self):
         from aiwf_core.core.task_ledger import close_task, upsert_task
@@ -268,8 +302,8 @@ class TestTaskLedger(unittest.TestCase):
         state = json.loads((self.tmp / ".aiwf" / "state" / "state.json").read_text())
         state["workflow_level"] = "L2_standard_team"
         (self.tmp / ".aiwf" / "state" / "state.json").write_text(json.dumps(state, indent=2))
-        upsert_task(str(self.tmp), "TASK-001", "Touch hotspot", status="ready", allowed_write=["src/shared.py"])
-        self._seed_plan("TASK-001")
+        upsert_task(str(self.tmp), "TASK-001", "Touch hotspot", status="ready")
+        self._seed_plan("TASK-001", allowed_write=["src/shared.py"])
         result = activate_task(str(self.tmp), "TASK-001")
 
         self.assertFalse(result["activated"])
@@ -298,8 +332,8 @@ class TestTaskLedger(unittest.TestCase):
         })
         goal["quality_brief"]["non_goals"] = ["test"]
         (self.tmp / ".aiwf" / "state" / "goal.json").write_text(json.dumps(goal, indent=2))
-        upsert_task(str(self.tmp), "TASK-001", "Touch hotspot", status="ready", allowed_write=["src/shared.py"])
-        self._seed_plan("TASK-001")
+        upsert_task(str(self.tmp), "TASK-001", "Touch hotspot", status="ready")
+        self._seed_plan("TASK-001", allowed_write=["src/shared.py"])
         result = activate_task(str(self.tmp), "TASK-001")
 
         self.assertTrue(result["activated"], result["blockers"])
@@ -422,8 +456,8 @@ class TestTaskLedger(unittest.TestCase):
         result = activate_task(str(self.tmp), "TASK-002")
         self.assertFalse(result["activated"],
                          "TASK-002 should not activate with TASK-001's plan")
-        self.assertTrue(any("task.plan_id" in b or "registry-backed plan" in b for b in result["blockers"]),
-                        f"Should require TASK-002's registry-backed plan, got: {result['blockers']}")
+        self.assertTrue(any("has no plan_id" in b or "registry-backed plan" in b for b in result["blockers"]),
+                        f"Should require TASK-002's plan, got: {result['blockers']}")
 
     def test_task_activation_requires_plan_for_same_task_id(self):
         """Activation only succeeds when the plan matches the task ID."""

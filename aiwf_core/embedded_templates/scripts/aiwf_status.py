@@ -391,10 +391,10 @@ def _milestone_signals(cwd, active_milestone_id):
                     missing.append("load /aiwf-milestone-integration")
                 if ar_blocked:
                     missing.append("load /aiwf-milestone-arch-review")
-                signals.append(f"MILESTONE READY {active_milestone_id}: {'; '.join(missing)}")
+                signals.append(f"MILESTONE NEEDS VERIFICATION {active_milestone_id}: {'; '.join(missing)}")
             elif not blockers:
                 signals.append(
-                    f"MILESTONE READY {active_milestone_id}: verification complete "
+                    f"MILESTONE CLOSABLE {active_milestone_id}: verification complete "
                     f"— aiwf milestone close {active_milestone_id}"
                 )
 

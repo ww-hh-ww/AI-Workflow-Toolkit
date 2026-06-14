@@ -1,5 +1,5 @@
 """Focused evidence contract — per-operation snapshot evidence with git repo."""
-import json, os, shutil, subprocess, sys, tempfile, unittest
+import json, os, shutil, subprocess, sys, tempfile, threading, unittest
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -165,6 +165,39 @@ class TestEvidence(unittest.TestCase):
             ctx, self.tmp)
         self.assertEqual(len(violations), 0,
                         f"Internal paths must not trigger violations, got {violations}")
+
+    def test_role_evidence_concurrent_appends_keep_unique_ids(self):
+        """Concurrent role deliveries must not overwrite each other's records."""
+        from aiwf_core.core.state.context_ops import record_role_evidence
+
+        errors = []
+
+        def worker(role):
+            try:
+                record_role_evidence(
+                    str(self.tmp), role, summary=f"{role} evidence",
+                    command=f"{role} command", context_id="CTX-LOCK",
+                    status="accepted",
+                )
+            except Exception as exc:
+                errors.append(exc)
+
+        threads = [
+            threading.Thread(target=worker, args=(role,))
+            for role in ("executor", "tester", "reviewer")
+        ]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        self.assertEqual(errors, [])
+        records = _ev_records(self.tmp)
+        ids = [r.get("id") for r in records]
+        roles = {r.get("agent_type") for r in records}
+        self.assertEqual(len(records), 3)
+        self.assertEqual(len(set(ids)), 3)
+        self.assertEqual(roles, {"executor", "tester", "reviewer"})
 
 
 if __name__ == "__main__":

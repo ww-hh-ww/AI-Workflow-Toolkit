@@ -43,7 +43,17 @@ def _empty_plan(plan_id: str, goal_id: str = "", task_ids: Optional[List[str]] =
                 interfaces: Optional[List[str]] = None,
                 constraints: Optional[List[str]] = None,
                 child_goal_policy: str = "",
-                work_intent: str = "") -> Dict[str, Any]:
+                work_intent: str = "",
+                allowed_write: Optional[List[str]] = None,
+                forbidden_write: Optional[List[str]] = None,
+                purpose: str = "",
+                test_focus: Optional[List[str]] = None,
+                review_focus: Optional[List[str]] = None,
+                non_goals: Optional[List[str]] = None,
+                dependencies: Optional[List[str]] = None,
+                interface_contract: str = "",
+                escalation_triggers: Optional[List[str]] = None,
+                read_hints: Optional[List[str]] = None) -> Dict[str, Any]:
     now = _now()
     ids = list(dict.fromkeys(task_ids or []))
     kind = plan_kind or DEFAULT_PLAN_KIND
@@ -82,6 +92,17 @@ def _empty_plan(plan_id: str, goal_id: str = "", task_ids: Optional[List[str]] =
             "remaining_task_ids": ids,
             "changed_files": [],
         },
+        # Context fields — the Plan IS the context. Tasks inherit on activation.
+        "allowed_write": list(dict.fromkeys(allowed_write or [])),
+        "forbidden_write": list(dict.fromkeys(forbidden_write or [])),
+        "purpose": purpose or "",
+        "test_focus": list(dict.fromkeys(test_focus or [])),
+        "review_focus": list(dict.fromkeys(review_focus or [])),
+        "non_goals": list(dict.fromkeys(non_goals or [])),
+        "dependencies": list(dict.fromkeys(dependencies or [])),
+        "interface_contract": interface_contract or "",
+        "escalation_triggers": list(dict.fromkeys(escalation_triggers or [])),
+        "read_hints": list(dict.fromkeys(read_hints or [])),
         "created_at": now,
         "updated_at": now,
     }
@@ -188,7 +209,14 @@ def upsert_plan(base_dir: str, plan_id: str, goal_id: str = "", task_ids: Option
                 interfaces: Optional[List[str]] = None,
                 constraints: Optional[List[str]] = None,
                 child_goal_policy: str = "",
-                work_intent: str = "") -> Dict[str, Any]:
+                work_intent: str = "",
+                allowed_write: Optional[List[str]] = None,
+                forbidden_write: Optional[List[str]] = None,
+                purpose: str = "",
+                test_focus: Optional[List[str]] = None,
+                review_focus: Optional[List[str]] = None,
+                interface_contract: str = "",
+                escalation_triggers: Optional[List[str]] = None) -> Dict[str, Any]:
     if milestone_id:
         from .milestone_ops import attach_plan_to_milestone, milestone_exists
         if not milestone_exists(base_dir, milestone_id):
@@ -222,7 +250,11 @@ def upsert_plan(base_dir: str, plan_id: str, goal_id: str = "", task_ids: Option
                            milestone_id=milestone_id, plan_kind=plan_kind,
                            target_goal_id=target_goal_id, active_phase=active_phase,
                            interfaces=interfaces, constraints=constraints,
-                           child_goal_policy=child_goal_policy, work_intent=work_intent)
+                           child_goal_policy=child_goal_policy, work_intent=work_intent,
+                           allowed_write=allowed_write, forbidden_write=forbidden_write,
+                           purpose=purpose, test_focus=test_focus, review_focus=review_focus,
+                           interface_contract=interface_contract,
+                           escalation_triggers=escalation_triggers)
         plans["plans"].append(plan)
     else:
         plan.setdefault("id", plan_id)
@@ -237,6 +269,17 @@ def upsert_plan(base_dir: str, plan_id: str, goal_id: str = "", task_ids: Option
         plan.setdefault("child_goal_policy", "")
         plan.setdefault("admission_trace", None)
         plan.setdefault("work_intent", None)
+        # Context fields — Plan IS the context
+        plan.setdefault("allowed_write", [])
+        plan.setdefault("forbidden_write", [])
+        plan.setdefault("purpose", "")
+        plan.setdefault("test_focus", [])
+        plan.setdefault("review_focus", [])
+        plan.setdefault("non_goals", [])
+        plan.setdefault("dependencies", [])
+        plan.setdefault("interface_contract", "")
+        plan.setdefault("escalation_triggers", [])
+        plan.setdefault("read_hints", [])
         if goal_id:
             plan["goal_id"] = goal_id
         if target_goal_id:
@@ -261,6 +304,21 @@ def upsert_plan(base_dir: str, plan_id: str, goal_id: str = "", task_ids: Option
             plan["child_goal_policy"] = child_goal_policy
         if work_intent:
             plan["work_intent"] = work_intent
+        # Context fields
+        if allowed_write is not None:
+            plan["allowed_write"] = list(dict.fromkeys(allowed_write))
+        if forbidden_write is not None:
+            plan["forbidden_write"] = list(dict.fromkeys(forbidden_write))
+        if purpose:
+            plan["purpose"] = purpose
+        if test_focus is not None:
+            plan["test_focus"] = list(dict.fromkeys(test_focus))
+        if review_focus is not None:
+            plan["review_focus"] = list(dict.fromkeys(review_focus))
+        if interface_contract:
+            plan["interface_contract"] = interface_contract
+        if escalation_triggers is not None:
+            plan["escalation_triggers"] = list(dict.fromkeys(escalation_triggers))
         for tid in task_ids or []:
             if tid not in plan.setdefault("task_ids", []):
                 plan["task_ids"].append(tid)
@@ -338,6 +396,32 @@ def attach_task_to_plan(base_dir: str, plan_id: str, task_id: str) -> Dict[str, 
     plan = _find_plan(plans, plan_id)
     if not plan:
         return {"attached": False, "plan": None, "plans": plans, "reason": f"plan not found: {plan_id}"}
+    try:
+        from ..task_ledger import load_ledger, save_ledger
+
+        ledger = load_ledger(base_dir)
+        for task in ledger.get("tasks", []) or []:
+            if not isinstance(task, dict) or task.get("id") != task_id:
+                continue
+            existing = str(task.get("plan_id") or task.get("parent_plan") or "")
+            if existing and existing != plan_id:
+                return {
+                    "attached": False,
+                    "plan": plan,
+                    "plans": plans,
+                    "reason": f"task {task_id} already belongs to plan {existing}",
+                }
+            task["plan_id"] = plan_id
+            task["parent_plan"] = plan_id
+            goal_id = str(plan.get("target_goal_id") or plan.get("goal_id") or "")
+            if goal_id:
+                task["goal_id"] = goal_id
+                task["parent_goal"] = goal_id
+            task["updated_at"] = _now()
+            save_ledger(base_dir, ledger)
+            break
+    except Exception:
+        pass
     task_ids = plan.setdefault("task_ids", [])
     if task_id not in task_ids:
         task_ids.append(task_id)

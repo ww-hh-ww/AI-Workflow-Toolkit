@@ -92,19 +92,12 @@ def check_file_write(event: NormalizedEvent) -> ScopeResult:
                 reason=f"no active task — run 'aiwf task activate <TASK-ID>' before writing to '{normalized}'",
             )
 
-    active_ctx_id = state.get("active_context_id")
-    if not active_ctx_id:
-        # Block project file writes without an active context.
-        # Governance files are always allowed.
-        if _is_governance_file(normalized):
-            return ScopeResult(file_path=file_path, allowed=True, reason="governance file, no context needed")
-        return ScopeResult(
-            file_path=file_path, allowed=False, active_context_id="(none)",
-            reason=f"no active context — run 'aiwf state start-context' to create one before writing to '{file_path}'"
-        )
-
+    # Context is advisory (purpose, test_focus, review_focus). Scope enforcement
+    # reads from the task's allowed_write (in task-ledger.json). If there's no
+    # active task, the check at line 85-93 already blocks non-L0 writes.
+    active_ctx_id = state.get("active_context_id", "")
     contexts = _read_json(cwd / ".aiwf" / "state" / "contexts.json", default_contexts())
-    active_ctx = None
+    active_ctx = {}
     for ctx in contexts.get("contexts", []):
         if ctx.get("id") == active_ctx_id:
             active_ctx = ctx

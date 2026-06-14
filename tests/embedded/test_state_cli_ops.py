@@ -413,7 +413,7 @@ class TestStateCliOps(unittest.TestCase):
         self._run("state", "prepare-close")
         s = json.loads((self.tmp/".aiwf" / "state" / "state.json").read_text())
         self.assertTrue(s["closure_allowed"])
-        self.assertEqual(s["phase"], "closed")
+        self.assertEqual(s["phase"], "closing")
         self.assertFalse(s["close_attempt"])
 
     def test_prepare_close_output_short(self):

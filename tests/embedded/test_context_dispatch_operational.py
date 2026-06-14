@@ -76,11 +76,11 @@ class TestContextDispatchOperational(unittest.TestCase):
         self.assertIn("start-context", r.stdout)
 
     # ── Planner skill ──
-    def test_planner_skill_has_start_context_cli(self):
+    def test_planner_skill_has_plan_scope_cli(self):
         c = (self.tmp/".claude"/"skills"/"aiwf-planner-contracts"/"SKILL.md").read_text()
-        self.assertIn("aiwf state start-context", c)
+        self.assertIn("aiwf plan create", c)
         self.assertIn("--purpose", c)
-        self.assertIn("--test-focus", c)
+        self.assertIn("--allowed-write", c)
 
     # ── Status ──
     def test_status_shows_context_dispatch_present(self):

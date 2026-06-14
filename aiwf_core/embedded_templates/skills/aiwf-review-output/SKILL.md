@@ -74,7 +74,7 @@ Every V2 verdict must record all six review basis items:
 Use `covered` only after evaluating the actual source:
 - `goal`: `.aiwf/state/goal.json`, Evaluation Contract, and current user intent.
 - `plan`: active `.aiwf/artifacts/plans/<PLAN-ID>.md`, especially Goal Progress, Scope, Done Means, and Verification.
-- `scope`: context allowed_write / forbidden_write, changed files, and scope violations.
+- `scope`: Plan `allowed_write` / `forbidden_write`, changed files, and scope violations.
 - `evidence`: accepted and rejected evidence IDs, changed files, and trust levels.
 - `testing`: `.aiwf/artifacts/quality/testing.json`, commands, coverage, untested risks, and changed-file risk.
 - `impact`: active plan's Impact section against actual project/governance/support changes.

@@ -661,9 +661,10 @@ def planner_process_guidance(base_dir: str) -> Dict[str, Any]:
     except Exception:
         pass
 
-    # Topology guidance: surface V2-A dimensions so the model knows HOW to execute,
-    # not just WHAT level. These are advisory — the model judges, the gates verify.
-    topology = state.get("execution_topology", "light_review")
+    # Topology guidance: derived from workflow_level, the canonical stored field.
+    # These are advisory — the model judges, the gates verify.
+    from .routing import LEVEL_TO_TOPOLOGY
+    topology = LEVEL_TO_TOPOLOGY.get(level, "light_review")
     verif_need = state.get("verification_need", "standard")
     rev_need = state.get("review_need", "optional_light_review")
     _topo_guidance = _topology_dispatch_guidance(topology, verif_need, rev_need, level, active_task)
