@@ -35,9 +35,9 @@ class TestContextDispatchOperational(unittest.TestCase):
         return r.stdout
 
     # ── CLI ──
-    def test_start_context_cli_writes_all_fields(self):
+    def test_start_context_cli_writes_advisory_fields(self):
         r = self._run("state", "start-context", "--context-id", "CTX-001",
-                      "--label", "subtract", "--allowed-write", "src/calc.js",
+                      "--label", "subtract",
                       "--purpose", "implement subtract", "--test-focus", "normal subtraction",
                       "--review-focus", "no unrelated change", "--non-goal", "no redesign")
         self.assertEqual(r.returncode, 0)
@@ -47,7 +47,7 @@ class TestContextDispatchOperational(unittest.TestCase):
         self.assertEqual(ctx["test_focus"], ["normal subtraction"])
         self.assertEqual(ctx["review_focus"], ["no unrelated change"])
         self.assertEqual(ctx["non_goals"], ["no redesign"])
-        self.assertEqual(ctx["allowed_write"], ["src/calc.js"])
+        # allowed_write lives on Plan now, not context
 
     def test_start_context_sets_active_context(self):
         self._run("state", "start-context", "--context-id", "CTX-002",

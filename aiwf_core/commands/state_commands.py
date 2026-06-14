@@ -91,8 +91,6 @@ def _cmd_start_context(args: argparse.Namespace) -> None:
 
         ctxs = start_context(
             str(Path.cwd()), args.context_id, args.label or "",
-            allowed_write=_split_csv(args.allowed_write),
-            forbidden_write=_split_csv(args.forbidden_write),
             note=args.note or "",
             purpose=args.purpose or "",
             read_hints=_split_csv(args.read_hints),
@@ -109,10 +107,9 @@ def _cmd_start_context(args: argparse.Namespace) -> None:
     print(f"Context started:")
     print(f"  ID: {ctx['id']}")
     print(f"  Title: {ctx.get('title', '')}")
-    print(f"  Allowed write: {len(ctx.get('allowed_write', []))} paths")
-    print(f"  Forbidden write: {len(ctx.get('forbidden_write', []))} paths")
     has_dispatch = any(ctx.get(k) for k in ["purpose","test_focus","review_focus"])
     print(f"  Dispatch: {'present' if has_dispatch else 'not set'}")
+    print(f"  Note: scope boundaries live on the Plan (aiwf plan create --allowed-write ...)")
     print(f"  Active context: {args.context_id}")
 
 def _cmd_record_testing(args: argparse.Namespace) -> None:

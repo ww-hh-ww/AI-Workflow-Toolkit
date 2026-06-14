@@ -150,11 +150,9 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
     p_qb.add_argument("--sample-output", action="append", default=[], dest="sample_outputs", help="repeatable sample/output path that must align with the new structure")
     p_qb.add_argument("--surface-type", action="append", default=[], dest="surface_types", help="repeatable quality surface types")
     p_qb.set_defaults(func=_cmd_record_quality_brief)
-    p_sc = p_state_sub.add_parser("start-context", help="create or update a context with dispatch fields")
+    p_sc = p_state_sub.add_parser("start-context", help="create or update an advisory context (scope lives on Plan)")
     p_sc.add_argument("--context-id", required=True, help="context ID (e.g. CTX-001)")
     p_sc.add_argument("--label", default="", help="context label")
-    p_sc.add_argument("--allowed-write", action="append", default=[], dest="allowed_write", help="repeatable allowed-write paths")
-    p_sc.add_argument("--forbidden-write", action="append", default=[], dest="forbidden_write", help="repeatable forbidden-write paths")
     p_sc.add_argument("--note", default="", help="context note")
     p_sc.add_argument("--purpose", default="", help="why this context exists")
     p_sc.add_argument("--read-hint", action="append", default=[], dest="read_hints", help="repeatable advisory read hints")
@@ -371,6 +369,18 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
     p_plc.add_argument("--milestone-id", default="", help="optional milestone ID")
     p_plc.add_argument("--context-id", default="", help="context ID")
     p_plc.add_argument("--title", default="", help="plan title")
+    p_plc.add_argument("--allowed-write", action="append", default=[], dest="allowed_write",
+                       help="repeatable allowed write path (scope boundary)")
+    p_plc.add_argument("--forbidden-write", action="append", default=[], dest="forbidden_write",
+                       help="repeatable forbidden write path")
+    p_plc.add_argument("--purpose", default="", help="plan purpose (one-line intent)")
+    p_plc.add_argument("--test-focus", action="append", default=[], dest="test_focus",
+                       help="repeatable test focus hint")
+    p_plc.add_argument("--review-focus", action="append", default=[], dest="review_focus",
+                       help="repeatable review focus hint")
+    p_plc.add_argument("--interface-contract", default="", help="interface contract description")
+    p_plc.add_argument("--escalation-trigger", action="append", default=[], dest="escalation_triggers",
+                       help="repeatable escalation trigger")
     p_plc.set_defaults(func=_cmd_plan_create)
     p_plu = p_plan_sub.add_parser("update", help="update one plan section")
     p_plu.add_argument("--task-id", required=True, help="task ID")

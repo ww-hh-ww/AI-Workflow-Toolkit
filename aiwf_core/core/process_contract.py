@@ -199,10 +199,20 @@ def _recovery_guidance(
     if not active_task:
         active_plan = state.get("active_plan_id")
         if active_plan and request_mode == "execution":
-            return _blocked(
-                "plan_only_drift",
-                "planner",
-                f"freeze execution contract and activate planned task {active_plan}",
+            # Skip if the plan is already complete (all tasks closed)
+            plan_complete = False
+            try:
+                from .state.plan_ops import get_plan
+                plan = get_plan(base_dir, active_plan, migrate=False)
+                remaining = plan.get("remaining_task_ids", []) or []
+                plan_complete = not remaining
+            except Exception:
+                pass
+            if not plan_complete:
+                return _blocked(
+                    "plan_only_drift",
+                    "planner",
+                    f"freeze execution contract and activate planned task {active_plan}",
                 "A human-readable plan exists, but no active task/context execution contract is running.",
                 [
                     "record quality policy and Architecture/Evaluation Brief for the plan",

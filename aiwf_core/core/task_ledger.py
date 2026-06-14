@@ -687,6 +687,18 @@ def activate_task(base_dir: str, task_id: str) -> Dict[str, Any]:
     task["status"] = "active"
     task["activated_at"] = _now()
     task["updated_at"] = _now()
+    # Sync plan task_status so plans.json doesn't drift from task-ledger
+    if task.get("plan_id"):
+        try:
+            from .state.plan_ops import load_plans, save_plans
+            plans = load_plans(base_dir)
+            for p in plans.get("plans", []) or []:
+                if p.get("plan_id", p.get("id")) == task["plan_id"]:
+                    p.setdefault("task_status", {})[task_id] = "active"
+                    save_plans(base_dir, plans)
+                    break
+        except Exception:
+            pass
     if task.get("plan_id"):
         try:
             from .state.plan_ops import get_plan

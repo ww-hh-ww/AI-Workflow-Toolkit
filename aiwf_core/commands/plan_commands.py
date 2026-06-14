@@ -21,9 +21,10 @@ def _cmd_plan_create(args: argparse.Namespace) -> None:
         print("plan_id or task_id is required: aiwf plan create <PLAN-ID>", file=sys.stderr)
         raise SystemExit(1)
     kwargs = {}
-    list_fields = {"interfaces", "constraints"}
+    list_fields = {"interfaces", "constraints", "allowed_write", "forbidden_write",
+                   "test_focus", "review_focus", "escalation_triggers"}
     str_fields = ("goal_id", "context_id", "title", "kind", "plan_kind", "target_goal_id", "active_phase",
-                  "child_goal_policy", "milestone_id", "work_intent")
+                  "child_goal_policy", "milestone_id", "work_intent", "purpose", "interface_contract")
     for k in str_fields:
         v = getattr(args, k, "") or ""
         if v:

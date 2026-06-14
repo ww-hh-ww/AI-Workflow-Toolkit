@@ -177,6 +177,13 @@ def create_task_plan(
     constraints: Optional[List[str]] = None,
     child_goal_policy: str = "",
     work_intent: str = "",
+    allowed_write: Optional[List[str]] = None,
+    forbidden_write: Optional[List[str]] = None,
+    purpose: str = "",
+    test_focus: Optional[List[str]] = None,
+    review_focus: Optional[List[str]] = None,
+    interface_contract: str = "",
+    escalation_triggers: Optional[List[str]] = None,
 ) -> Dict[str, object]:
     legacy_task_id = _safe_task_id(task_id) if task_id else ""
     if plan_id:
@@ -186,7 +193,18 @@ def create_task_plan(
     else:
         raise ValueError("plan_id or task_id is required")
     attached_tasks = list(dict.fromkeys(task_ids or ([legacy_task_id] if legacy_task_id else [])))
-    tg = target_goal_id or goal_id or "GOAL-001"
+    tg = target_goal_id or goal_id or ""
+    if not tg:
+        try:
+            from .state.goal_tree_ops import goal_exists
+            if goal_exists(base_dir, "GOAL-001"):
+                tg = "GOAL-001"
+            else:
+                import sys as _sys
+                print("Warning: no --goal-id specified and GOAL-001 not found in goals.json. "
+                      "Create a goal first: aiwf goal-tree create GOAL-001 --title '...'", file=_sys.stderr)
+        except Exception:
+            tg = "GOAL-001"
     kind = plan_kind or "implementation"
     phase = active_phase or "implementation"
     iface_list = list(dict.fromkeys(interfaces or []))
@@ -216,7 +234,14 @@ def create_task_plan(
                     interfaces=iface_list,
                     constraints=constraint_list,
                     child_goal_policy=cgp,
-                    work_intent=work_intent)
+                    work_intent=work_intent,
+                    allowed_write=allowed_write,
+                    forbidden_write=forbidden_write,
+                    purpose=purpose,
+                    test_focus=test_focus,
+                    review_focus=review_focus,
+                    interface_contract=interface_contract,
+                    escalation_triggers=escalation_triggers)
     except ValueError:
         raise
     except Exception:
