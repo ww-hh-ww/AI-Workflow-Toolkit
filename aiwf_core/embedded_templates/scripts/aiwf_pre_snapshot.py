@@ -12,14 +12,13 @@ def _log(msg: str) -> None:
         pass
 
 def main():
-    cwd = Path.cwd()
+    cwd = Path(__file__).resolve().parent.parent
     tool_name = "unknown"
     tool_input = {}
     data = parse_claude_stdin()
     if data:
         try:
             event = normalize(data)
-            cwd = Path(event.cwd or str(Path.cwd()))
             tool_name = event.tool_name or tool_name
             tool_input = event.tool_input or tool_input
             _log(f"stdin ok, tool={tool_name} cwd={cwd}")

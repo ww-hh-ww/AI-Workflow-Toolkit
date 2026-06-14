@@ -630,7 +630,7 @@ def main():
         try:
             d = json.loads(raw)
             if d.get("cwd"):
-                cwd = Path(d["cwd"])
+                cwd = Path(__file__).resolve().parent.parent
         except json.JSONDecodeError:
             pass
 

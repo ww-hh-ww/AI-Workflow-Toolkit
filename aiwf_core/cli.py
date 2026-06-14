@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 from typing import List, Optional
@@ -11,6 +12,7 @@ from .commands.flow import cmd_status
 from .commands.parser import build_parser
 from .constants import VERSION
 from .core.state_schema import MVP_STATE_FILES
+from .core.project_root import resolve_aiwf_project_root
 
 
 def cmd_init(args: argparse.Namespace) -> None:
@@ -60,6 +62,8 @@ def _show_planner_facade() -> None:
 
 def main(argv: Optional[List[str]] = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
+    if not argv or argv[0] not in {"install", "init", "--version", "version", "--help", "-h", "help"}:
+        os.chdir(resolve_aiwf_project_root(Path.cwd()))
     if not argv:
         try:
             _show_planner_facade()

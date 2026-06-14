@@ -7,10 +7,7 @@ from aiwf_core.adapters.claude.responses import allow, block_stop
 
 def main():
     data = parse_claude_stdin()
-    cwd = Path.cwd()
-    if data:
-        if data.get("cwd"):
-            cwd = Path(data["cwd"])
+    cwd = Path(__file__).resolve().parent.parent
 
     cs_exists = (cwd / ".aiwf" / "artifacts" / "reports" / "当前状态.md").exists()
     if not (cwd / ".aiwf" / "state" / "state.json").exists():

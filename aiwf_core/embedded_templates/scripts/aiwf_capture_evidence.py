@@ -23,8 +23,7 @@ def main():
     if event.tool_name not in ("Write", "Edit", "MultiEdit", "Bash", "Agent", "Task"):
         sys.exit(0)
 
-    cwd = event.cwd or str(Path.cwd())
-    base = Path(cwd) if cwd else Path.cwd()
+    base = Path(__file__).resolve().parent.parent
 
     # Try pre/post snapshot diff first (true per-operation evidence)
     snap_diff = diff_snapshot(base)
