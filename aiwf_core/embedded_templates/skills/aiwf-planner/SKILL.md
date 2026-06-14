@@ -47,6 +47,19 @@ Use `aiwf goal-tree ...` commands. Do NOT hand-edit goals.json.
 - `migration` — move between states, preserve both paths during transition.
 - `exploration` — investigate under Temporary Root, do not commit to permanent structure.
 
+### How many Plans? How many Tasks?
+
+**One Plan = one logical module.** A Plan covers a coherent unit of work: a subsystem, a feature, a cross-cutting concern. It is NOT one file. Three files that share the same interface and depend on each other belong in ONE Plan.
+
+**One Task = one independent implementation/verification cycle.** A module that needs two passes (skeleton first, then fill) gets two Tasks under the same Plan. A module simple enough to do in one pass gets one Task.
+
+**Decide by module boundary and complexity, not by ritual:**
+- Same interface, shared dependencies, reviewable as a unit → one Plan, one Task
+- Same interface but needs multiple independent passes → one Plan, multiple Tasks
+- Independent subsystems with no shared interface → multiple Plans
+
+If you find yourself creating 3 Plans for 3 files in the same module, you are doing too much ritual. Merge them.
+
 ## Work Intent Discipline
 
 Set `work_intent` for every Plan. It governs how the Executor behaves:
