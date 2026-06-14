@@ -474,7 +474,7 @@ def _print_status_debug(root, state, goal, evidence, testing, review, fix_loop,
     print(f"  Testing:  {testing.get('status', 'missing')}")
     verdict = review.get("verdict", "pending")
     verdict_part = f" verdict={verdict}" if verdict not in ("", "pending", None) else ""
-    print(f"  Review:   {review.get('result', 'unknown')}{verdict_part}  closure_allowed={review.get('closure_allowed', False)}")
+    print(f"  Review:   {review.get('result', 'unknown')}{verdict_part}  review_gate={review.get('closure_allowed', False)}")
     print(f"  Quality brief: {_quality_brief_status(goal)}")
     print(f"  Task type: {state.get('task_type') or 'not selected'}")
     print(f"  Test:     {state.get('test_template') or 'not selected'}")
@@ -503,8 +503,8 @@ def _print_status_debug(root, state, goal, evidence, testing, review, fix_loop,
         print("  Architecture changes: resolved")
     else:
         print("  Architecture changes: none")
-    closure_ok = state.get("closure_allowed") or review.get("closure_allowed")
-    print(f"  Closure:  {'allowed' if closure_ok else 'closed' if state.get('phase') == 'closed' else 'blocked' if state.get('close_attempt') else 'not attempted'}")
+    closure_ok = state.get("closure_allowed")
+    print(f"  Closure:  {'closed' if state.get('phase') == 'closed' else 'allowed' if closure_ok else 'blocked' if state.get('close_attempt') else 'not attempted'}")
     print()
 
     print("── Awareness ──")

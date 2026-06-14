@@ -43,7 +43,7 @@ def _blocker(field: str, question: str, fix: str) -> str:
 
 # ── planned → implementing ──
 
-def planned_to_implementing_gates(base_dir: str) -> List[str]:
+def planned_to_implementing_gates(base_dir: str, task_plan_id: str = "") -> List[str]:
     """Fields that must be filled before task activation.
 
     Tiered by workflow level:
@@ -58,7 +58,7 @@ def planned_to_implementing_gates(base_dir: str) -> List[str]:
 
     # ── Plan fields ──
     plans_data = _read(root / ".aiwf" / "state" / "plans.json")
-    active_plan_id = state.get("active_plan_id", "")
+    active_plan_id = state.get("active_plan_id", "") or task_plan_id
     plan = None
     if active_plan_id:
         for p in plans_data.get("plans", []) or []:
@@ -125,30 +125,29 @@ def planned_to_implementing_gates(base_dir: str) -> List[str]:
         except Exception:
             pass
 
-    # ── Context fields (L1+) ──
+    # ── Plan scope (L1+) ──
+    # allowed_write is the Plan's scope authority; context is deprecated.
+    # The activation gate must verify the active Plan has a scope.
     if level != "L0_direct":
-        contexts_data = _read(root / ".aiwf" / "state" / "contexts.json")
-        active_ctx_id = state.get("active_context_id", "")
-        ctx = None
-        if active_ctx_id:
-            for c in contexts_data.get("contexts", []) or []:
-                if isinstance(c, dict) and c.get("id") == active_ctx_id:
-                    ctx = c
-                    break
-
-        if ctx:
-            if _empty(ctx.get("purpose")):
+        if plan:
+            if not plan.get("allowed_write"):
                 blockers.append(_blocker(
-                    "context.purpose",
-                    "What is this context meant to achieve?",
-                    "aiwf state start-context --context-id <ID> --purpose '...'",
+                    "plan.allowed_write",
+                    "Which files are allowed to be modified under this Plan?",
+                    "aiwf plan create PLAN-ID --allowed-write 'src/path/'",
                 ))
-            if _empty(ctx.get("allowed_write")):
+            if not plan.get("purpose"):
                 blockers.append(_blocker(
-                    "context.allowed_write",
-                    "Which files are allowed to be modified?",
-                    "aiwf state start-context --context-id <ID> --allowed-write 'src/path/'",
+                    "plan.purpose",
+                    "What is this Plan meant to achieve?",
+                    "aiwf plan create PLAN-ID --purpose '...'",
                 ))
+        else:
+            blockers.append(_blocker(
+                "plan",
+                "No Plan found — create and activate a Plan before activating a task",
+                "aiwf plan create PLAN-ID --target-goal <GOAL-ID> --kind implementation --allowed-write 'src/' --purpose '...'",
+            ))
 
     # ── Contract fields (L1+) ──
     # Only check when quality_brief has been started (any field filled).
@@ -269,8 +268,8 @@ def testing_to_reviewing_gates(base_dir: str) -> List[str]:
             "aiwf state record-testing --status adequate --supports-plan <PLAN-ID> --supports-goal <GOAL-ID> --command '...'",
         ))
 
-    # L2/L3: cleanup must be verified before review
-    if level in ("L2_standard_team", "L3_full_power"):
+    # L1+: cleanup must be verified before review
+    if level != "L0_direct":
         review = _read(root / ".aiwf" / "artifacts" / "quality" / "review.json")
         if _empty(review.get("cleanup_verified_at")):
             blockers.append(_blocker(

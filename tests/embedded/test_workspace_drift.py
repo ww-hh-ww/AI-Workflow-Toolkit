@@ -89,6 +89,19 @@ class TestWorkspaceDrift(unittest.TestCase):
         gov = [c["path"] for c in d["governance_changes"]]
         self.assertIn(".aiwf/state/state.json", gov)
 
+    def test_non_ascii_governance_path_is_not_git_quoted(self):
+        report = self.tmp / ".aiwf" / "artifacts" / "reports" / "项目地图.md"
+        report.parent.mkdir(parents=True, exist_ok=True)
+        report.write_text("changed\n", encoding="utf-8")
+
+        self._run_ok("workspace", "scan")
+
+        d = self._drift()
+        gov = [c["path"] for c in d["governance_changes"]]
+        project = [c["path"] for c in d["project_changes"]]
+        self.assertIn(".aiwf/artifacts/reports/项目地图.md", gov)
+        self.assertNotIn(".aiwf/artifacts/reports/项目地图.md", project)
+
     # ── writes file ──
     def test_scan_writes_drift_json(self):
         self._run_ok("workspace", "scan")

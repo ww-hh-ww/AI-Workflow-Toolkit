@@ -35,7 +35,8 @@ aiwf status
 │   → aiwf plan activate <PLAN-ID>
 │
 ├─ PRIMARY says "activate a task"
-│   → aiwf task plan <ID> --plan <PLAN-ID> --title '...' --allowed-write '...'
+│   → Confirm the Plan has allowed_write, forbidden_write, and purpose
+│   → aiwf task plan <ID> --plan <PLAN-ID> --title '...'
 │   → aiwf task activate <ID>
 │   → If blocked by phase gate: read the blocker message, run the fix command
 │
@@ -103,7 +104,8 @@ aiwf mission update --statement '...' --boundary '...' --status active
 
 ### Plan (how)
 ```
-aiwf plan create <PLAN-ID> --goal-id <GOAL-ID> --kind implementation --work-intent feature
+aiwf plan create <PLAN-ID> --goal-id <GOAL-ID> --kind implementation --work-intent feature \
+  --allowed-write 'src/...' --purpose '...'
 aiwf plan activate <PLAN-ID>   — explicitly choose which Plan is active (NOT automatic)
 aiwf plan deactivate            — clear active plan, return to discussing
 aiwf plan update --task-id <ID> --section impact --content "..."
@@ -111,7 +113,7 @@ aiwf plan update --task-id <ID> --section impact --content "..."
 
 ### Task (execution unit)
 ```
-aiwf task plan <TASK-ID> --plan <PLAN-ID> --title '...' --allowed-write 'src/...'
+aiwf task plan <TASK-ID> --plan <PLAN-ID> --title '...'
 aiwf task activate <TASK-ID>
 aiwf task close <TASK-ID>      — only after prepare-close passes
 ```
@@ -156,7 +158,7 @@ Mission ("why this project exists")
 - **Milestone**: horizontal delivery checkpoint. Has a mechanical verdict gate (PASS/PASS_WITH_RISK/REVISE/REJECT). Covers specific Goals.
 - **Goal**: functional skeleton node. Can be grafted, pruned, nested. The tree's operation unit.
 - **Plan**: how a Goal is achieved. Has `plan_kind`, `work_intent`, `interfaces`, `constraints`. Must be explicitly activated.
-- **Task**: execution unit. Bounded by `allowed_write`. Moves through the state machine.
+- **Task**: execution unit. Inherits scope from its Plan and moves through the state machine.
 
 ## Phase gates
 

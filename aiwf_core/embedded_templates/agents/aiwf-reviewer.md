@@ -37,7 +37,7 @@ If `aiwf state record-review` is blocked by a phase gate, read the blocker messa
 4. **Plan**: `.aiwf/state/plans.json` → active Plan: `plan_kind`, `work_intent`, `interfaces`, `constraints`, `review_focus`.
 5. **Architecture Brief**: `.aiwf/state/goal.json` → `quality_brief.architecture_brief`: `protected_files`, `forbidden_restructures`, `integration_points`, `public_api_changes`.
 6. **Evaluation Contract**: `.aiwf/state/goal.json` → `quality_brief.evaluation_contract`: `acceptance_criteria`, `review_obligations`, `closure_question`.
-7. **Context**: `.aiwf/state/contexts.json` → `allowed_write`, `forbidden_write`, `review_focus`.
+7. **Plan scope and guidance**: `.aiwf/state/plans.json` → `allowed_write`, `forbidden_write`, `review_focus`.
 8. **Evidence**: `.aiwf/artifacts/evidence/records.json` and `.aiwf/artifacts/quality/testing.json` — testing is evidence to critique, not proof to trust blindly.
 9. **Routing context**: `.aiwf/state/state.json` → `review_need`, `routing_factors`, `execution_topology`. These tell you WHY this review depth was chosen.
 

@@ -416,6 +416,7 @@ def _apply_mechanical_routing(base_dir: str, task: Dict[str, Any]) -> Dict[str, 
         "git_policy": policy["git_policy"],
         "recommended_minimum_level": recommended,
         "quality_escalation_required": WORKFLOW_LEVELS.index(recommended) > WORKFLOW_LEVELS.index(current),
+        "requires_user_decision": downgrade_gap,
         # V2-A topology dimensions
         "verification_need": decision.get("verification_need", "standard"),
         "review_need": decision.get("review_need", "optional_light_review"),
@@ -593,7 +594,7 @@ def activation_blockers(base_dir: str, task_id: str, skip_current_state_check: b
     # Phase-gate field checks: Plan, Context, Contract must have key fields filled
     try:
         from .phase_gates import planned_to_implementing_gates
-        blockers.extend(planned_to_implementing_gates(base_dir))
+        blockers.extend(planned_to_implementing_gates(base_dir, task_plan_id=task.get("plan_id", "") or ""))
     except Exception:
         pass
     return blockers
@@ -1049,6 +1050,16 @@ def close_task(base_dir: str, task_id: str, note: str = "") -> Dict[str, Any]:
             "blockers": [f"task status is '{task.get('status')}', not active; activate the task before close"],
         }
     if task.get("status") == "active":
+        fix_loop = _read(Path(base_dir) / ".aiwf" / "state" / "fix-loop.json", {})
+        if fix_loop.get("status") == "open":
+            return {
+                "closed": False,
+                "task": task,
+                "ledger": ledger,
+                "blockers": [
+                    "open fix-loop blocks task close; resolve it and re-run prepare-close"
+                ],
+            }
         state = _read(Path(base_dir) / ".aiwf" / "state" / "state.json", {})
         if not (state.get("phase") in ("closing", "closed") and state.get("closure_allowed")):
             return {

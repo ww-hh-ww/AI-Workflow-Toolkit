@@ -46,7 +46,12 @@ def _cmd_task_plan(args: argparse.Namespace) -> None:
     task = result["task"]
     print(f"Task recorded: {task['id']} status={task['status']}")
     print(f"  Dependencies: {len(task.get('dependencies', []) or [])}")
-    print(f"  Allowed write: {len(task.get('allowed_write', []) or [])}")
+    if task.get("plan_id") or task.get("parent_plan"):
+        print(f"  Scope: inherited from Plan {task.get('plan_id') or task.get('parent_plan')}")
+    else:
+        print("  Scope: no Plan linked")
+    if args.allowed_write:
+        print("  Note: task --allowed-write is deprecated and ignored; define scope on the Plan")
     print(f"  Parallel safe: {task.get('parallel_safe', False)}")
     if task.get("parent_goal"):
         print(f"  Parent goal: {task['parent_goal']}")

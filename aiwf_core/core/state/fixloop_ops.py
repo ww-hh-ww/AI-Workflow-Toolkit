@@ -80,9 +80,14 @@ def open_fix_loop(
 
     _write(fix_loop_path, fix_loop)
 
-    # Update state phase if needed
+    # Opening a fix-loop invalidates any prior closure preparation. Otherwise a
+    # stale prepare-close result could still be used to close the active task.
     state = _read(state_path)
-    if state.get("phase") not in ("closing", "closed"):
+    state["closure_allowed"] = False
+    state["close_attempt"] = False
+    state["close_prepared_task_id"] = ""
+    state["close_prepared_at"] = ""
+    if state.get("phase") != "closed":
         state["phase"] = "reviewing"
     _write(state_path, state)
 
@@ -455,5 +460,4 @@ def list_architecture_changes(base_dir: str) -> List[Dict[str, Any]]:
     fl_path = base / ".aiwf" / "state" / "fix-loop.json"
     fl = _read(fl_path)
     return fl.get("architecture_change_requests", []) or []
-
 

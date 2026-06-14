@@ -149,7 +149,8 @@ def scan_workspace_drift(project_root: str) -> Dict[str, Any]:
 
     # Get status
     try:
-        r = subprocess.run(["git", "status", "--short", "--untracked-files=all"],
+        r = subprocess.run(["git", "-c", "core.quotepath=false", "status", "--short",
+                            "--untracked-files=all"],
                            capture_output=True, text=True, cwd=str(root), timeout=5)
         if r.returncode != 0: return result
         for line in r.stdout.split("\n"):

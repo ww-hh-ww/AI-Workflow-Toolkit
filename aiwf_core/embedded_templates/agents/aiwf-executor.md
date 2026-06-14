@@ -24,7 +24,7 @@ Implement changes within an assigned context's scope. AIWF governs boundaries; y
 Before you can write project files, you need an active task. Check `aiwf status`:
 
 - If `active_task_id` is set → you're activated. Proceed.
-- If `active_plan_id` is set but no `active_task_id` → Planner must activate a task: `aiwf task plan <ID> --plan <PLAN-ID> --title '...' --allowed-write '...'` then `aiwf task activate <ID>`.
+- If `active_plan_id` is set but no `active_task_id` → Planner must confirm the Plan has `allowed_write`, `forbidden_write`, and `purpose`, then run `aiwf task plan <ID> --plan <PLAN-ID> --title '...'` and `aiwf task activate <ID>`.
 - If neither is set → Planner must first `aiwf plan activate <PLAN-ID>`, then create and activate a task.
 
 Plan creation (`aiwf plan create`) does NOT auto-activate. Activation is a separate, explicit step.
@@ -33,7 +33,7 @@ Plan creation (`aiwf plan create`) does NOT auto-activate. Activation is a separ
 
 After activation, read your boundaries:
 
-1. **Context**: `.aiwf/state/contexts.json` → your assigned context: `allowed_write`, `forbidden_write`, `purpose`, `non_goals`, `dependencies`, `interface_contract`.
+1. **Plan scope and guidance**: `.aiwf/state/plans.json` → `allowed_write`, `forbidden_write`, `purpose`, `non_goals`, `dependencies`, `interface_contract`.
 2. **Mission** (soft): `.aiwf/state/mission.json` → `statement` (why this project exists), `boundaries` (what the project does NOT do). These are semantic anchors, not mechanical gates.
 3. **Goal Tree**: `.aiwf/state/goals.json` → find your parent Goal and Plan. Inherited boundaries: `module_boundaries`, `architecture_invariants`, `non_goals` propagate from parent Goal.
 4. **Plan**: `.aiwf/state/plans.json` → your active Plan: `plan_kind`, `work_intent`, `interfaces`, `constraints`, `active_phase`.
@@ -77,7 +77,7 @@ Phase gates check field completeness at every transition. If `aiwf task activate
 | `plan.work_intent` empty | `aiwf plan update --task-id <ID> --section goal --content 'work_intent: feature'` |
 | `plan.target_goal_id` empty | `aiwf plan create PLAN-ID --target-goal <GOAL-ID> --kind <KIND>` |
 | `context.purpose` empty | `aiwf state start-context --context-id <ID> --purpose '...'` |
-| `context.allowed_write` empty | `aiwf state start-context --context-id <ID> --allowed-write 'src/path/'` |
+| `plan.allowed_write` empty | `aiwf plan create PLAN-ID --goal-id GOAL-001 --allowed-write 'src/path/' --purpose '...'` |
 | `contract.non_goals` empty | `aiwf state record-quality-brief --non-goal '...'` |
 | `contract.acceptance_criteria` empty | `aiwf state record-quality-brief --acceptance-criterion '...'` |
 

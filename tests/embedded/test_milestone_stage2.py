@@ -56,6 +56,8 @@ class TestMilestoneStage2(unittest.TestCase):
             title="Test plan",
             milestone_id=milestone_id,
             work_intent="feature",
+            allowed_write=["src/"],
+            purpose="Test plan",
         )
         update_task_plan_section(str(self.tmp), plan_id, "impact",
             "- docs: no — test\n"

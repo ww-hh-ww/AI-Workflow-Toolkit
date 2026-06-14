@@ -241,7 +241,7 @@ class TestGoalTreeRegistry(unittest.TestCase):
         from aiwf_core.core.state.plan_ops import upsert_plan
 
         init_root(str(self.tmp), "GOAL-001", root_type="main")
-        upsert_plan(str(self.tmp), "PLAN-001", goal_id="GOAL-001")
+        upsert_plan(str(self.tmp), "PLAN-001", goal_id="GOAL-001", plan_kind="implementation", work_intent="feature", allowed_write=["src/"], purpose="Test task")
         upsert_task(str(self.tmp), "TASK-001", "Test", status="ready",
                     plan_id="PLAN-001", goal_id="GOAL-001")
 
@@ -264,7 +264,7 @@ class TestGoalTreeRegistry(unittest.TestCase):
         from aiwf_core.core.state.plan_ops import upsert_plan
 
         init_root(str(self.tmp), "GOAL-001", root_type="main")
-        upsert_plan(str(self.tmp), "PLAN-001", goal_id="GOAL-001")
+        upsert_plan(str(self.tmp), "PLAN-001", goal_id="GOAL-001", plan_kind="implementation", work_intent="feature", allowed_write=["src/"], purpose="Test task")
         upsert_task(str(self.tmp), "TASK-001", "Test", status="ready",
                     plan_id="PLAN-001", goal_id="GOAL-001")
 

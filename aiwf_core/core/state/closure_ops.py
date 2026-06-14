@@ -74,11 +74,13 @@ def prepare_close(base_dir: str) -> Dict[str, Any]:
     review_path = base / ".aiwf" / "artifacts" / "quality" / "review.json"
     evidence_path = base / ".aiwf" / "artifacts" / "evidence" / "records.json"
     testing_path = base / ".aiwf" / "artifacts" / "quality" / "testing.json"
+    fix_loop_path = base / ".aiwf" / "state" / "fix-loop.json"
 
     state = _read(state_path)
     review = _read(review_path)
     evidence = _read(evidence_path)
     testing = _read(testing_path)
+    fix_loop = _read(fix_loop_path)
 
     from ..review_contract import promote_evidence
     evidence = promote_evidence(evidence, review)
@@ -92,6 +94,14 @@ def prepare_close(base_dir: str) -> Dict[str, Any]:
         blockers.extend(reviewing_to_closing_gates(base_dir))
     except Exception:
         pass
+
+    # 0b. Fix-loop gate: open fix-loop blocks closure unconditionally
+    if fix_loop.get("status") == "open":
+        blockers.append(
+            "fix-loop is open — resolve or escalate before closing. "
+            f"Route: {fix_loop.get('route', 'unknown')}. "
+            f"Reason: {fix_loop.get('reason', 'not recorded')}"
+        )
 
     # 1. Phase sequence — has the workflow progressed to a closeable state?
     phase = state.get("phase", "discussing")

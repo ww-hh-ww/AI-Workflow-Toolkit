@@ -161,6 +161,20 @@ class TestInstall(unittest.TestCase):
         count = content.count("AIWF MANAGED BLOCK START")
         self.assertEqual(count, 1, f"Managed block should appear once, got {count}")
 
+    def test_install_output_lists_each_created_path_once(self):
+        result = _run(
+            [sys.executable, "-m", "aiwf_core.cli", "install", "claude", "--force"],
+            self.tmp,
+        )
+
+        created = [
+            line.strip()[2:]
+            for line in result.stdout.splitlines()
+            if line.strip().startswith("+ ")
+        ]
+        self.assertEqual(created.count(".aiwf/README.md"), 1)
+        self.assertEqual(len(created), len(set(created)))
+
     def test_claude_md_preserves_user_content(self):
         """Existing CLAUDE.md user content is preserved."""
         # Write a custom CLAUDE.md

@@ -82,6 +82,11 @@ def closure_conditions_met(
     blockers = []
     missing = []
 
+    # Open fix-loop blocks closure regardless of other conditions
+    if fix_loop.get("status") == "open":
+        blockers.append("fix-loop is open — resolve or escalate before closing")
+        missing.append("fix-loop")
+
     if close_attempt or state.get("phase") == "closed":
         if not evidence_records:
             blockers.append("no evidence records")

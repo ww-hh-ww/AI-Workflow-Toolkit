@@ -196,6 +196,9 @@ def _recovery_guidance(
     except Exception:
         pass
 
+    if not active_task and state.get("phase") == "closed":
+        return _base_recovery()
+
     if not active_task:
         active_plan = state.get("active_plan_id")
         if active_plan and request_mode == "execution":
@@ -216,8 +219,8 @@ def _recovery_guidance(
                 "A human-readable plan exists, but no active task/context execution contract is running.",
                 [
                     "record quality policy and Architecture/Evaluation Brief for the plan",
-                    "start a scoped context with allowed_write and forbidden_write",
-                    f"run aiwf task plan <TASK-ID> --plan {active_plan} --title '...' --allowed-write '...'",
+                    f"set allowed_write, forbidden_write, and purpose on Plan {active_plan}",
+                    f"run aiwf task plan <TASK-ID> --plan {active_plan} --title '...'",
                     "run aiwf task activate <TASK-ID>",
                     "or switch request_mode to discussion/research/spike if execution is not confirmed",
                 ],
@@ -231,9 +234,10 @@ def _recovery_guidance(
             "missing_step",
             "planner",
             "plan and activate one scoped task",
-            "Project writes need an active task with context boundaries and mechanical routing.",
+            "Project writes need an active task with Plan scope and mechanical routing.",
             [
-                "run aiwf task plan <TASK-ID> --title '...' --allowed-write '...'",
+                "create a Plan with allowed_write, forbidden_write, and purpose",
+                "run aiwf task plan <TASK-ID> --plan <PLAN-ID> --title '...'",
                 "run aiwf task activate <TASK-ID>",
                 "run aiwf status after activation and explain current/background routing signals",
             ],
@@ -278,8 +282,9 @@ def _recovery_guidance(
                     "ask the user for architecture boundaries only when source inspection cannot determine them",
                 ],
                 ["do not proceed with vague architecture obligations"],
-                user_decision_required=False,
-            )
+            user_decision_required=False,
+        )
+
         if testing.get("status") not in ("adequate", "passed"):
             return _blocked(
                 "missing_step",
@@ -378,27 +383,27 @@ def build_activation_summary(base_dir: str) -> str:
     root = Path(base_dir)
     state = _read(root / ".aiwf" / "state" / "state.json", {})
     goal = _read(root / ".aiwf" / "state" / "goal.json", {})
-    contexts = _read(root / ".aiwf" / "state" / "contexts.json", {})
+    plans = _read(root / ".aiwf" / "state" / "plans.json", {})
     lines = []
     warns = []
 
     active_goal = goal.get("active_goal") or goal.get("current_goal", "") or "(none)"
     level = state.get("workflow_level", "L1_review_light")
-    active_ctx_id = state.get("active_context_id", "")
 
     # ── Project Plan ──
     lines.append("## What We're Doing")
     lines.append(f"  {active_goal[:200]}")
 
-    # Scope
-    active_ctx = None
-    for ctx in contexts.get("contexts", []):
-        if ctx.get("id") == active_ctx_id:
-            active_ctx = ctx
+    # Scope is mechanical Plan truth. Context remains advisory dispatch data.
+    active_plan = None
+    active_plan_id = state.get("active_plan_id", "") or ""
+    for plan in plans.get("plans", []):
+        if plan.get("plan_id") == active_plan_id:
+            active_plan = plan
             break
-    if active_ctx:
-        aw = active_ctx.get("allowed_write", []) or []
-        fw = active_ctx.get("forbidden_write", []) or []
+    if active_plan:
+        aw = active_plan.get("allowed_write", []) or []
+        fw = active_plan.get("forbidden_write", []) or []
         if aw:
             lines.append(f"  Files: {', '.join(aw[:5])}" + (f" (+{len(aw)-5} more)" if len(aw) > 5 else ""))
         if fw:
@@ -418,8 +423,12 @@ def build_activation_summary(base_dir: str) -> str:
                    "L3_full_power": "critical (full team + checkpoints)"}
     lines.append(f"  Complexity: {level_label.get(level, level)}")
 
-    topo = "planner handles everything" if level in ("L0_direct", "L1_review_light") else \
-           "independent executor, tester, and reviewer"
+    topo = {
+        "L0_direct": "planner inline with machine evidence",
+        "L1_review_light": "executor subagent + reviewer-light",
+        "L2_standard_team": "independent executor, tester, and reviewer",
+        "L3_full_power": "independent executor, tester, and adversarial reviewer",
+    }.get(level, "selected workflow topology")
     if state.get("planner_inline_session"):
         topo += " (inline override recorded)"
     lines.append(f"  Team: {topo}")
@@ -430,7 +439,14 @@ def build_activation_summary(base_dir: str) -> str:
                   "risk_matrix_plus_integration_adversarial": "full risk matrix + adversarial"}
     lines.append(f"  Testing: {test_depth.get(test_template, test_template or 'not selected')}")
 
-    contracts_ok = bool(brief.get("acceptance_criteria") or brief.get("test_focus") or brief.get("review_focus"))
+    evaluation = brief.get("evaluation_contract", {}) or {}
+    contracts_ok = bool(
+        evaluation.get("acceptance_criteria")
+        or evaluation.get("test_obligations")
+        or evaluation.get("review_obligations")
+        or brief.get("test_focus")
+        or brief.get("review_focus")
+    )
     lines.append(f"  Contracts: {'ready' if contracts_ok else 'missing — planner must fill before execution'}")
 
     if not goal.get("confirmed", True):
@@ -595,7 +611,8 @@ def planner_process_guidance(base_dir: str) -> Dict[str, Any]:
             + ", then run aiwf fix-loop resolve --resolution '<what was reverted>'; "
               "context widening cannot legalize past writes"
         )
-    if not active_task and request_mode not in ("discussion", "clarification", "research"):
+    if (not active_task and state.get("phase") != "closed"
+            and request_mode not in ("discussion", "clarification", "research")):
         active_plan = state.get("active_plan_id")
         if active_plan and request_mode == "execution":
             required.append(

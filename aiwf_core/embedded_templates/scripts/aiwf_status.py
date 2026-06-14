@@ -213,6 +213,8 @@ def recovery_lines(cwd, state, goal, review, fix_loop):
         return blocked("scope", "planner", "recover scope violation",
                        "revert violating files, then run aiwf fixloop resolve; new extra work needs a new scoped task",
                        user=False)
+    if not active_task and state.get("phase") == "closed":
+        return []
     if request_mode in ("discussion", "clarification", "research"):
         return [f"Recovery: open/{request_mode} owner=planner",
                 f"PRIMARY: continue {request_mode}",

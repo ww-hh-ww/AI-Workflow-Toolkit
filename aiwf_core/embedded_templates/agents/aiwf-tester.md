@@ -31,7 +31,7 @@ Before you can record testing, the system checks that implementation evidence ex
 3. **Goal Tree**: `.aiwf/state/goals.json` → parent Goal's `surface_types` (inherited test surfaces), sibling relations (`conflicts_with` → escalation triggers).
 4. **Plan**: `.aiwf/state/plans.json` → active Plan: `test_focus`, `interfaces`, `constraints`, `work_intent`.
 5. **Evaluation Contract**: `.aiwf/state/goal.json` → `quality_brief.evaluation_contract`: `acceptance_criteria`, `test_obligations`, `known_risks`, `system_integration_obligations`.
-6. **Context**: `.aiwf/state/contexts.json` → `allowed_write` (what was changed), `test_focus`, `escalation_triggers`.
+6. **Plan guidance**: `.aiwf/state/plans.json` → `allowed_write` (expected scope), `test_focus`, `escalation_triggers`.
 7. **Evidence**: `.aiwf/artifacts/evidence/records.json` → executor's changed files and commands.
 8. **Routing context**: `.aiwf/state/state.json` → `verification_need`, `routing_factors`, `execution_topology`. These tell you WHY this test depth was chosen.
 

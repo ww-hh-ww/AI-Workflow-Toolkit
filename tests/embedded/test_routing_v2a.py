@@ -429,9 +429,11 @@ class TestRoutingV2MechanicalRouting(unittest.TestCase):
                 "## Next Steps\n1. done\n",
                 encoding="utf-8",
             )
-        kwargs = {"goal_id": "GOAL-001", "task_ids": [task_id]}
+        kwargs = {"goal_id": "GOAL-001", "task_ids": [task_id], "plan_kind": "implementation", "work_intent": "feature", "purpose": "Test task"}
         if allowed_write is not None:
             kwargs["allowed_write"] = allowed_write
+        else:
+            kwargs["allowed_write"] = ["src/"]
         upsert_plan(str(self.tmp), plan_id, **kwargs)
         ledger_path = self.tmp / ".aiwf" / "runtime" / "history" / "task-ledger.json"
         if ledger_path.exists():

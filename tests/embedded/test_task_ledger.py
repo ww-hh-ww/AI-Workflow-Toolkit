@@ -70,9 +70,11 @@ class TestTaskLedger(unittest.TestCase):
                 "## Next Steps\n1. done\n",
                 encoding="utf-8",
             )
-        kwargs = {"goal_id": "GOAL-001", "task_ids": [task_id], "plan_kind": "implementation", "work_intent": "feature"}
+        kwargs = {"goal_id": "GOAL-001", "task_ids": [task_id], "plan_kind": "implementation", "work_intent": "feature", "purpose": "Test task"}
         if allowed_write is not None:
             kwargs["allowed_write"] = allowed_write
+        else:
+            kwargs["allowed_write"] = ["src/"]
         upsert_plan(str(self.tmp), plan_id, **kwargs)
         ledger_path = self.tmp / ".aiwf" / "runtime" / "history" / "task-ledger.json"
         if ledger_path.exists():
@@ -202,7 +204,7 @@ class TestTaskLedger(unittest.TestCase):
             "- quality_summary: no — test\n",
             encoding="utf-8",
         )
-        upsert_plan(str(self.tmp), "PLAN-001", goal_id="GOAL-001", status="ready")
+        upsert_plan(str(self.tmp), "PLAN-001", goal_id="GOAL-001", status="ready", plan_kind="implementation", work_intent="feature", allowed_write=["src/"], purpose="Test task")
 
         result = attach_task_to_plan(str(self.tmp), "PLAN-001", "TASK-001")
         self.assertTrue(result["attached"], result.get("reason"))
@@ -253,6 +255,21 @@ class TestTaskLedger(unittest.TestCase):
 
         self.assertFalse(result["closed"])
         self.assertTrue(any("not active" in b for b in result["blockers"]))
+
+    def test_open_fix_loop_blocks_close_even_with_stale_prepared_state(self):
+        from aiwf_core.core.task_ledger import close_task, upsert_task
+
+        upsert_task(str(self.tmp), "TASK-001", "Stale close", status="ready")
+        self._mark_prepare_close_passed("TASK-001")
+        fix_loop_path = self.tmp / ".aiwf" / "state" / "fix-loop.json"
+        fix_loop = json.loads(fix_loop_path.read_text())
+        fix_loop.update({"status": "open", "route": "executor", "reason": "late defect"})
+        fix_loop_path.write_text(json.dumps(fix_loop, indent=2) + "\n")
+
+        result = close_task(str(self.tmp), "TASK-001")
+
+        self.assertFalse(result["closed"])
+        self.assertTrue(any("open fix-loop" in b for b in result["blockers"]))
 
     def test_task_history_archives_trimmed_hotspots(self):
         from aiwf_core.core.cross_task_quality import append_task_history_from_state
@@ -363,6 +380,24 @@ class TestTaskLedger(unittest.TestCase):
         # Routing respects the pre-set L2 level (downgrade_allowed path)
         self.assertEqual(state["workflow_level"], "L2_standard_team")
 
+    def test_advisory_routing_gap_requires_user_decision(self):
+        from aiwf_core.core.task_ledger import activate_task, upsert_task
+
+        state_path = self.tmp / ".aiwf" / "state" / "state.json"
+        state = json.loads(state_path.read_text())
+        state["workflow_level"] = "L0_direct"
+        state_path.write_text(json.dumps(state, indent=2) + "\n")
+        upsert_task(str(self.tmp), "TASK-001", "Advisory upgrade", status="ready")
+        self._seed_plan("TASK-001")
+
+        result = activate_task(str(self.tmp), "TASK-001")
+
+        self.assertTrue(result["activated"], result["blockers"])
+        state = json.loads(state_path.read_text())
+        self.assertTrue(state["quality_escalation_required"])
+        self.assertTrue(state["requires_user_decision"])
+        self.assertNotEqual(state["recommended_minimum_level"], state["workflow_level"])
+
     def test_suspend_task_saves_and_restore_state_snapshot(self):
         from aiwf_core.core.task_ledger import activate_task, suspend_task, upsert_task
 
@@ -391,7 +426,12 @@ class TestTaskLedger(unittest.TestCase):
         self.assertEqual(restored["active_context_id"], "CTX-SUSPEND")
 
     def test_active_task_quality_warning_in_user_prompt_submit(self):
-        self._run("plan", "create", "PLAN-TASK-001", "--goal-id", "GOAL-001", "--task", "TASK-001")
+        from aiwf_core.core.task_plan import update_task_plan_section
+        self._run("plan", "create", "PLAN-TASK-001", "--goal-id", "GOAL-001", "--task", "TASK-001",
+                  "--allowed-write", "src/", "--purpose", "Test plan", "--work-intent", "feature")
+        update_task_plan_section(str(self.tmp), "PLAN-TASK-001", "impact",
+            "- docs: no — test\n- project_map: no — test\n- environment: no — test\n"
+            "- capabilities: no — test\n- quality_summary: no — test\n")
         self._run("task", "plan", "--task-id", "TASK-001", "--title", "Hot", "--status", "ready",
                   "--allowed-write", "src/shared.py", "--plan", "PLAN-TASK-001", "--goal", "GOAL-001")
         self._run("task", "activate", "TASK-001")
@@ -419,8 +459,20 @@ class TestTaskLedger(unittest.TestCase):
         r = self._run("task", "plan", "--task-id", "TASK-001", "--title", "Scaffold", "--status", "ready")
         self.assertEqual(r.returncode, 0)
         self.assertIn("Task recorded", r.stdout)
+        self.assertIn("Scope: no Plan linked", r.stdout)
         status = self._run("task", "status")
         self.assertIn("ready: 1", status.stdout)
+
+    def test_cli_task_plan_reports_plan_scope_inheritance(self):
+        r = self._run(
+            "task", "plan", "TASK-PLAN", "--title", "Scoped", "--status", "ready",
+            "--plan", "PLAN-001", "--allowed-write", "src/ignored.py",
+        )
+
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("Scope: inherited from Plan PLAN-001", r.stdout)
+        self.assertIn("--allowed-write is deprecated and ignored", r.stdout)
+        self.assertNotIn("Allowed write: 0", r.stdout)
 
     def test_cli_task_plan_accepts_positional_task_id(self):
         r = self._run("task", "plan", "TASK-POS", "--title", "Positional", "--status", "ready")

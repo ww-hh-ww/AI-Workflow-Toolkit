@@ -51,7 +51,9 @@ class TestUncertaintyRouting(unittest.TestCase):
                 "## Next Steps\n1. done\n",
                 encoding="utf-8",
             )
-        upsert_plan(str(self.tmp), plan_id, goal_id="GOAL-001", task_ids=[task_id])
+        upsert_plan(str(self.tmp), plan_id, goal_id="GOAL-001", task_ids=[task_id],
+                    plan_kind="implementation", work_intent="feature",
+                    allowed_write=["src/"], purpose="Test task")
         ledger_path = self.tmp / ".aiwf" / "runtime" / "history" / "task-ledger.json"
         if ledger_path.exists():
             ledger = json.loads(ledger_path.read_text())

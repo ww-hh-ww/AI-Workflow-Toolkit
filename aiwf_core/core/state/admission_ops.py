@@ -274,8 +274,8 @@ def admit_change(base_dir: str, summary: str,
     if admission == "attach_plan":
         reason = f"signal '{keyword}' — modifies implementation under existing functional skeleton"
         impact = "local, no new Goal needed"
-        confidence = "medium" if best_goal else "low"
-        if not best_goal:
+        confidence = "medium" if (best_goal or target_goal_hint) else "low"
+        if not best_goal and not target_goal_hint:
             notes.append(
                 "No matching Goal found in tree; target defaults to GOAL-001. "
                 "Verify this is the correct parent Goal."

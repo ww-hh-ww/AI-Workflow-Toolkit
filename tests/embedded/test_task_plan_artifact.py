@@ -82,6 +82,52 @@ class TestTaskPlanArtifact(unittest.TestCase):
         self.assertEqual(guidance["recovery"]["category"], "discussion")
         self.assertFalse(any("Plan-only drift" in item for item in guidance["required_now"]))
 
+    def test_closed_completed_plan_does_not_route_to_plan_only_drift(self):
+        from aiwf_core.core.process_contract import planner_process_guidance
+
+        self._run_ok("plan", "create", "--plan-id", "PLAN-001", "--task-id", "TASK-001",
+                     "--context-id", "CTX-001", "--title", "Build route")
+        self._run_ok("plan", "activate", "PLAN-001")
+        plans_path = self.tmp / ".aiwf" / "state" / "plans.json"
+        plans = json.loads(plans_path.read_text())
+        plans["plans"][0]["remaining_task_ids"] = []
+        plans_path.write_text(json.dumps(plans, indent=2) + "\n")
+        state_path = self.tmp / ".aiwf" / "state" / "state.json"
+        state = json.loads(state_path.read_text())
+        state.update({"phase": "closed", "active_task_id": None, "closure_allowed": True})
+        state_path.write_text(json.dumps(state, indent=2) + "\n")
+
+        guidance = planner_process_guidance(str(self.tmp))
+        status = self._run("status", "--debug")
+
+        self.assertEqual(guidance["recovery"]["state"], "clear")
+        self.assertFalse(any("Plan-only drift" in item for item in guidance["required_now"]))
+        self.assertIn("Closure:  closed", status.stdout)
+        self.assertNotIn("Plan-only drift", status.stdout)
+
+    def test_activation_summary_uses_plan_scope_and_current_l1_topology(self):
+        from aiwf_core.core.process_contract import build_activation_summary
+
+        self._run_ok(
+            "plan", "create", "--plan-id", "PLAN-001", "--task-id", "TASK-001",
+            "--title", "Build route", "--allowed-write", "src/app.py",
+            "--forbidden-write", "README.md", "--purpose", "Scoped implementation",
+        )
+        self._run_ok("plan", "activate", "PLAN-001")
+        self._run_ok(
+            "state", "record-quality-brief",
+            "--acceptance-criterion", "behavior works",
+            "--test-obligation", "run tests",
+            "--review-obligation", "review scope",
+        )
+
+        summary = build_activation_summary(str(self.tmp))
+
+        self.assertIn("Files: src/app.py", summary)
+        self.assertIn("Forbidden: README.md", summary)
+        self.assertIn("Team: executor subagent + reviewer-light", summary)
+        self.assertIn("Contracts: ready", summary)
+
     def test_plan_update_treats_backslash_content_as_literal_text(self):
         self._run_ok("plan", "create", "--task-id", "TASK-001", "--context-id", "CTX-001", "--title", "Build route")
         content = r"Preserve regex capture text: \1 and \g<name> are literal notes."
@@ -111,7 +157,7 @@ class TestTaskPlanArtifact(unittest.TestCase):
         brief["non_goals"] = ["test"]
         (self.tmp / ".aiwf" / "state" / "goal.json").write_text(json.dumps(goal, indent=2))
 
-        create_task_plan(str(self.tmp), "TASK-001", context_id="CTX-001", title="Plan says done", work_intent="feature")
+        create_task_plan(str(self.tmp), "TASK-001", context_id="CTX-001", title="Plan says done", work_intent="feature", allowed_write=["src/"], purpose="Test plan")
         update_task_plan_section(str(self.tmp), "TASK-001", "impact",
             "- docs: no — test-only task\n- project_map: no — test\n- environment: no — test\n- capabilities: no — test\n- quality_summary: no — test\n")
         update_task_plan_section(str(self.tmp), "TASK-001", "testing", "- [x] All tests passed\n- [x] Reviewed\n")
@@ -224,7 +270,7 @@ class TestTaskPlanArtifact(unittest.TestCase):
             "## Next Steps\n1. done\n",
             encoding="utf-8",
         )
-        upsert_plan(str(self.tmp), "PLAN-TASK-001", goal_id="GOAL-001", task_ids=["TASK-001"], plan_kind="implementation", work_intent="feature")
+        upsert_plan(str(self.tmp), "PLAN-TASK-001", goal_id="GOAL-001", task_ids=["TASK-001"], plan_kind="implementation", work_intent="feature", allowed_write=["src/"], purpose="Test task")
 
         upsert_task(str(self.tmp), "TASK-001", "Test", status="ready", allowed_write=["test.py"],
                     plan_id="PLAN-TASK-001", goal_id="GOAL-001")
@@ -268,7 +314,7 @@ class TestTaskPlanArtifact(unittest.TestCase):
             "## Next Steps\n1. done\n",
             encoding="utf-8",
         )
-        upsert_plan(str(self.tmp), "PLAN-TASK-001", goal_id="GOAL-001", task_ids=["TASK-001"], plan_kind="implementation", work_intent="feature")
+        upsert_plan(str(self.tmp), "PLAN-TASK-001", goal_id="GOAL-001", task_ids=["TASK-001"], plan_kind="implementation", work_intent="feature", allowed_write=["src/"], purpose="Test task")
 
         upsert_task(str(self.tmp), "TASK-001", "Test", status="ready", allowed_write=["test.py"],
                     plan_id="PLAN-TASK-001", goal_id="GOAL-001")

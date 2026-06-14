@@ -118,6 +118,31 @@ class TestFailureFixLoop(unittest.TestCase):
         fl = self._fix_loop()
         self.assertEqual(fl["source"], "reviewer")
 
+    def test_fix_loop_open_revokes_prepared_close(self):
+        state_path = self.tmp / ".aiwf" / "state" / "state.json"
+        state = json.loads(state_path.read_text())
+        state.update({
+            "phase": "closing",
+            "closure_allowed": True,
+            "close_attempt": True,
+            "close_prepared_task_id": "TASK-001",
+            "close_prepared_at": "2026-06-14T00:00:00+00:00",
+        })
+        state_path.write_text(json.dumps(state, indent=2) + "\n")
+
+        result = self._run("fixloop", "open", "--route", "executor",
+                           "--reason", "late defect")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        state = json.loads(state_path.read_text())
+        self.assertEqual(state["phase"], "reviewing")
+        self.assertFalse(state["closure_allowed"])
+        self.assertFalse(state["close_attempt"])
+        self.assertEqual(state["close_prepared_task_id"], "")
+        self.assertEqual(state["close_prepared_at"], "")
+        status = self._run("status", "--debug")
+        self.assertNotIn("Closure:  allowed", status.stdout)
+
     def test_fix_loop_resolve_writes_status_resolved(self):
         self._run("fixloop", "open", "--route", "executor",
                   "--reason", "implementation bug")

@@ -564,7 +564,8 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
     p_tp.add_argument("--title", default="", help="task title")
     p_tp.add_argument("--status", default="candidate", choices=["candidate","ready","active","blocked","suspended","closed","rejected"], help="task status")
     p_tp.add_argument("--dependency", action="append", default=[], dest="dependencies", help="repeatable dependency task ID")
-    p_tp.add_argument("--allowed-write", action="append", default=[], dest="allowed_write", help="repeatable allowed write path")
+    p_tp.add_argument("--allowed-write", action="append", default=[], dest="allowed_write",
+                      help="deprecated and ignored; define scope with aiwf plan create --allowed-write")
     p_tp.add_argument("--parallel-safe", action="store_true", help="Planner verified independent parallel execution")
     p_tp.add_argument("--note", action="append", default=[], dest="notes", help="repeatable task note")
     p_tp.add_argument("--parent-goal", default="", dest="parent_goal", help="GOAL-ID this task serves")

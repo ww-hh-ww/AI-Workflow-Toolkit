@@ -84,7 +84,7 @@ class TestPlanRegistryStage1(unittest.TestCase):
         from aiwf_core.core.task_ledger import upsert_task
         from aiwf_core.core.state.plan_ops import get_plan, upsert_plan
 
-        upsert_plan(str(self.tmp), "PLAN-001", goal_id="GOAL-001")
+        upsert_plan(str(self.tmp), "PLAN-001", goal_id="GOAL-001", plan_kind="implementation", work_intent="feature", allowed_write=["src/"], purpose="Test task")
 
         result = upsert_task(
             str(self.tmp), "TASK-001", "Feature", status="ready",
@@ -140,7 +140,7 @@ class TestPlanRegistryStage1(unittest.TestCase):
         from aiwf_core.core.task_ledger import activate_task, close_task, upsert_task
         from aiwf_core.core.state.plan_ops import get_plan, upsert_plan
 
-        upsert_plan(str(self.tmp), "PLAN-001", goal_id="GOAL-001", task_ids=["TASK-001", "TASK-002"])
+        upsert_plan(str(self.tmp), "PLAN-001", goal_id="GOAL-001", task_ids=["TASK-001", "TASK-002"], plan_kind="implementation", work_intent="feature", allowed_write=["src/"], purpose="Test task")
         self._seed_plan_markdown("PLAN-001")
         upsert_task(str(self.tmp), "TASK-001", "Feature A", status="ready", plan_id="PLAN-001", goal_id="GOAL-001")
         upsert_task(str(self.tmp), "TASK-002", "Feature B", status="ready", plan_id="PLAN-001", goal_id="GOAL-001")
@@ -161,7 +161,7 @@ class TestPlanRegistryStage1(unittest.TestCase):
     def test_plan_defaults_active_phase_to_implementation(self):
         from aiwf_core.core.state.plan_ops import get_plan, upsert_plan
 
-        upsert_plan(str(self.tmp), "PLAN-001", goal_id="GOAL-001")
+        upsert_plan(str(self.tmp), "PLAN-001", goal_id="GOAL-001", plan_kind="implementation", work_intent="feature", allowed_write=["src/"], purpose="Test task")
         plan = get_plan(str(self.tmp), "PLAN-001")
         self.assertEqual(plan["active_phase"], "implementation")
 

@@ -696,7 +696,9 @@ def install_embedded(mode: str = "claude", force: bool = False) -> Dict[str, Any
     readme_path = _aiwf_dir() / "README.md"
     if not readme_path.exists() or force:
         readme_path.write_text(_template_text("README.md"), encoding="utf-8")
-        results["created"].append(rel(readme_path))
+        readme_rel = rel(readme_path)
+        if readme_rel not in results["created"]:
+            results["created"].append(readme_rel)
 
     # PROJECT-MAP and ideas are NOT auto-created on install.
     # Impact.project_map controls when project-map is generated.

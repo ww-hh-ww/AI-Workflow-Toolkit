@@ -57,6 +57,21 @@ class TestAdmissionLogic(_Base):
         notes = result.get("notes", []) or []
         self.assertTrue(any("Heuristic" in n for n in notes))
 
+    def test_explicit_target_goal_does_not_claim_default_fallback(self):
+        from aiwf_core.core.state.admission_ops import admit_change
+        from aiwf_core.core.state.goal_tree_ops import init_root
+
+        init_root(str(self.tmp), "GOAL-001", root_type="main", title="Root")
+        result = admit_change(
+            str(self.tmp),
+            "fix typo in README",
+            target_goal_hint="GOAL-EXPLICIT",
+        )
+
+        self.assertEqual(result["target_goal_id"], "GOAL-EXPLICIT")
+        self.assertFalse(any("target defaults to GOAL-001" in n for n in result["notes"]))
+        self.assertEqual(result["confidence"], "medium")
+
     def test_admit_graft_goal_for_skeleton_change(self):
         from aiwf_core.core.state.admission_ops import admit_change
         from aiwf_core.core.state.goal_tree_ops import init_root
