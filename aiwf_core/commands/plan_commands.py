@@ -32,7 +32,15 @@ def _cmd_plan_create(args: argparse.Namespace) -> None:
     for k in list_fields:
         v = getattr(args, k, []) or []
         if v:
-            kwargs[k] = v
+            # Split comma-separated values: --allowed-write "a,b,c" → ["a","b","c"]
+            split = []
+            for item in v:
+                for part in str(item).split(","):
+                    part = part.strip()
+                    if part:
+                        split.append(part)
+            if split:
+                kwargs[k] = split
     task_ids = getattr(args, "task_ids", []) or []
     if task_ids:
         kwargs["task_ids"] = task_ids
