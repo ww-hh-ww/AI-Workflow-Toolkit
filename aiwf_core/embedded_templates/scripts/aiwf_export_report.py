@@ -585,6 +585,7 @@ def main():
 
     lines.append("## Closure Gate")
     close_attempt = state.get("close_attempt", False)
+    phase_closed = state.get("phase") == "closed"
     ev_ok = len(accepted_ids) > 0
     test_ok = testing.get("status") in ("adequate", "passed")
     quality_blockers = quality_verdict_blockers(review)
@@ -595,7 +596,7 @@ def main():
     scope_ok = not state.get("scope_violation", False)
     cleanup_ok = review.get("cleanup_status") == "fresh" and not review.get("stale_items") and not review.get("cleanup_blockers")
     structure_ok = review.get("structure_status") == "accepted"
-    all_ok = close_attempt and ev_ok and test_ok and review_ok and fix_ok and scope_ok and cleanup_ok and structure_ok and impact_ok
+    all_ok = (close_attempt or phase_closed) and ev_ok and test_ok and review_ok and fix_ok and scope_ok and cleanup_ok and structure_ok and impact_ok
 
     lines.append(f"- Close attempt: {close_attempt}")
     lines.append(f"- Evidence accepted: {ev_ok} ({len(accepted_ids)} records)")

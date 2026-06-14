@@ -239,9 +239,23 @@ def recovery_lines(cwd, state, goal, review, fix_loop):
     if not active_task:
         active_plan = state.get("active_plan_id")
         if active_plan and request_mode == "execution":
-            return blocked("plan_only_drift", "planner",
-                           f"freeze execution contract and activate planned task {active_plan}",
-                           "record policy/brief/context, then aiwf task plan and aiwf task activate")
+            # Skip if the plan is already complete (all tasks closed/rejected)
+            plan_complete = False
+            try:
+                plans_path = Path(cwd) / ".aiwf" / "state" / "plans.json"
+                if plans_path.exists():
+                    plans = json.loads(plans_path.read_text())
+                    for p in plans.get("plans", []) or []:
+                        if p.get("plan_id") == active_plan:
+                            remaining = p.get("remaining_task_ids", []) or []
+                            plan_complete = not remaining
+                            break
+            except Exception:
+                pass
+            if not plan_complete:
+                return blocked("plan_only_drift", "planner",
+                               f"freeze execution contract and activate planned task {active_plan}",
+                               "record policy/brief/context, then aiwf task plan and aiwf task activate")
         return blocked("missing_step", "planner", "plan and activate one scoped task",
                        "run aiwf task plan, aiwf task activate, then aiwf status")
     if level in ("L2_standard_team", "L3_full_power"):

@@ -732,6 +732,9 @@ def suspend_task(base_dir: str, task_id: str, note: str = "") -> Dict[str, Any]:
     task = _find(ledger["tasks"], task_id)
     if not task:
         return {"suspended": False, "task": None, "ledger": ledger, "blockers": [f"task not found: {task_id}"]}
+    if task.get("status") in ("closed", "rejected"):
+        return {"suspended": False, "task": task, "ledger": ledger,
+                "blockers": [f"cannot suspend task with terminal status: {task['status']}"]}
     state_path = Path(base_dir) / ".aiwf" / "state" / "state.json"
     state = _read(state_path, {})
     snapshot_keys = [

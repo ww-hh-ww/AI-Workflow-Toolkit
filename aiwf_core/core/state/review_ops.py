@@ -119,9 +119,8 @@ def record_review(
         from ..review_contract import set_review_rejected
         set_review_rejected(review, result, blockers or [], rejected_evidence_ids or [])
 
-    _write(review_path, review)
-
-    # Phase-gate: before transitioning to reviewing, check testing+cleanup
+    # Phase-gate: check BEFORE writing review so a failed gate doesn't
+    # leave a dirty PASS/closure_allowed=true state on disk.
     if state.get("phase") not in ("closing", "closed"):
         try:
             from ..phase_gates import testing_to_reviewing_gates
@@ -136,6 +135,9 @@ def record_review(
         except Exception:
             pass
         state["phase"] = "reviewing"
+
+    _write(review_path, review)
+    if state.get("phase") not in ("closing", "closed"):
         _write(base / ".aiwf" / "state" / "state.json", state)
     return review
 

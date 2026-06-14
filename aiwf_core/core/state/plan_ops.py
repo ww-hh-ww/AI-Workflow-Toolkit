@@ -439,6 +439,7 @@ def attach_task_to_plan(base_dir: str, plan_id: str, task_id: str) -> Dict[str, 
     plan["remaining_task_ids"] = [
         tid for tid in plan.get("task_ids", []) or []
         if tid not in set(plan.get("closed_task_ids", []) or [])
+        and plan.get("task_status", {}).get(tid) != "rejected"
     ]
     plan["updated_at"] = _now()
     save_plans(base_dir, plans)

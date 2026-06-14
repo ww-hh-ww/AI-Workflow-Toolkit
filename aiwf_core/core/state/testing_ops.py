@@ -52,9 +52,14 @@ def record_testing(
     if evidence_ids is not None: testing["evidence_ids"] = evidence_ids
     if untested_risks is not None: testing["untested_risks"] = untested_risks
     if coverage_summary: testing["coverage_summary"] = coverage_summary
-    if failure_summary: testing["failure_summary"] = failure_summary
-    if failed_obligations is not None: testing["failed_obligations"] = failed_obligations
-    if failed_commands is not None: testing["failed_commands"] = failed_commands
+    if status in ("adequate", "passed"):
+        testing["failure_summary"] = failure_summary or ""
+        testing["failed_obligations"] = failed_obligations or []
+        testing["failed_commands"] = failed_commands or []
+    else:
+        if failure_summary: testing["failure_summary"] = failure_summary
+        if failed_obligations is not None: testing["failed_obligations"] = failed_obligations
+        if failed_commands is not None: testing["failed_commands"] = failed_commands
     if suspected_route: testing["suspected_route"] = suspected_route
     if required_verification is not None: testing["required_verification"] = required_verification
     if acceptance_coverage is not None: testing["acceptance_coverage"] = acceptance_coverage

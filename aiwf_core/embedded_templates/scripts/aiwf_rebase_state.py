@@ -139,31 +139,49 @@ def upsert_history(base, state, goal, evidence, testing, review, contexts, fix_l
     tasks = history.get("tasks", []) if isinstance(history.get("tasks"), list) else []
 
     goal_version = goal.get("goal_version", 1)
-    task_id = f"goal-v{goal_version}-closed"
     changed = changed_files_from_evidence(evidence)
     ctx_ids = [c.get("id", "") for c in contexts.get("contexts", []) or [] if c.get("id")]
-    record = {
-        "id": task_id,
-        "closed_at": datetime.now(timezone.utc).isoformat(),
-        "goal_version": goal_version,
-        "goal": goal.get("current_goal") or goal.get("active_goal", "") or "",
-        "workflow_level": state.get("workflow_level", state.get("workflow_strength", "")),
-        "task_type": state.get("task_type", ""),
-        "context_ids": ctx_ids[:20],
-        "accepted_evidence_count": len([r for r in evidence.get("records", []) or [] if r.get("status") == "accepted"]),
-        "changed_files": changed[:50],
-        "testing_status": testing.get("status", "missing"),
-        "untested_risk_count": len(testing.get("untested_risks", []) or []),
-        "review_result": review.get("result", "unknown"),
-        "review_verdict": review.get("verdict", "pending"),
-        "review_basis_status": review_basis_summary(review),
-        "fix_loop_attempt_count": fix_loop.get("attempt_count", 0) or 0,
-        "cleanup_status": review.get("cleanup_status", ""),
-        "structure_status": review.get("structure_status", ""),
-    }
 
-    tasks = [t for t in tasks if t.get("id") != task_id]
-    tasks.append(record)
+    # Use actual closed task IDs from the ledger when available, to avoid
+    # double-counting alongside the synthetic goal-v{version}-closed entry.
+    source_ids = []
+    try:
+        ledger_path = base / ".aiwf" / "runtime" / "history" / "task-ledger.json"
+        if ledger_path.exists():
+            ledger = json.loads(ledger_path.read_text(encoding="utf-8"))
+            for t in ledger.get("tasks", []) or []:
+                if isinstance(t, dict) and t.get("status") == "closed":
+                    source_ids.append(t.get("id", ""))
+    except Exception:
+        pass
+
+    if not source_ids:
+        source_ids = [f"goal-v{goal_version}-closed"]
+
+    existing_ids = {t.get("id") for t in tasks}
+    for tid in source_ids:
+        if tid in existing_ids:
+            continue
+        record = {
+            "id": tid,
+            "closed_at": datetime.now(timezone.utc).isoformat(),
+            "goal_version": goal_version,
+            "goal": goal.get("current_goal") or goal.get("active_goal", "") or "",
+            "workflow_level": state.get("workflow_level", state.get("workflow_strength", "")),
+            "task_type": state.get("task_type", ""),
+            "context_ids": ctx_ids[:20],
+            "accepted_evidence_count": len([r for r in evidence.get("records", []) or [] if r.get("status") == "accepted"]),
+            "changed_files": changed[:50],
+            "testing_status": testing.get("status", "missing"),
+            "untested_risk_count": len(testing.get("untested_risks", []) or []),
+            "review_result": review.get("result", "unknown"),
+            "review_verdict": review.get("verdict", "pending"),
+            "review_basis_status": review_basis_summary(review),
+            "fix_loop_attempt_count": fix_loop.get("attempt_count", 0) or 0,
+            "cleanup_status": review.get("cleanup_status", ""),
+            "structure_status": review.get("structure_status", ""),
+        }
+        tasks.append(record)
     archived = history.get("archived_hotspots", {})
     if not isinstance(archived, dict): archived = {}
     if len(tasks) > MAX_HISTORY:
