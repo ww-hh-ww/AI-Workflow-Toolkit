@@ -73,6 +73,14 @@ def _cmd_milestone_show(args: argparse.Namespace) -> None:
         print(f"  Coherence: {synthesis['coherence_check']}")
     if synthesis.get("interface_stability"):
         print(f"  Interface Stability: {synthesis['interface_stability']}")
+    from ..core.state.milestone_ops import check_milestone_technical_readiness
+    technical_blockers = check_milestone_technical_readiness(str(Path.cwd()), args.milestone_id)
+    acceptance = m.get("user_acceptance", {}) or {}
+    print(f"  Technical Ready: {'yes' if not technical_blockers else 'no'}")
+    print(f"  User Confirmation Required: {'yes' if acceptance.get('required', True) else 'no'}")
+    print(f"  User Confirmed: {'yes' if acceptance.get('status') == 'confirmed' else 'no'}")
+    if acceptance.get("confirmed_by"):
+        print(f"  Confirmed By: {acceptance['confirmed_by']}")
 
 
 def _cmd_milestone_update(args: argparse.Namespace) -> None:
@@ -127,6 +135,21 @@ def _cmd_milestone_close(args: argparse.Namespace) -> None:
     for blocker in result.get("blockers", []) or []:
         print(f"  - {blocker}")
     if result.get("blockers"):
+        raise SystemExit(1)
+
+
+def _cmd_milestone_confirm(args: argparse.Namespace) -> None:
+    from ..core.state.milestone_ops import confirm_milestone_acceptance
+    result = confirm_milestone_acceptance(
+        str(Path.cwd()),
+        args.milestone_id,
+        confirmed_by=args.confirmed_by,
+        summary=args.summary,
+    )
+    print(f"Milestone acceptance: {args.milestone_id} confirmed={result['confirmed']}")
+    for blocker in result.get("blockers", []) or []:
+        print(f"  - {blocker}")
+    if not result.get("confirmed"):
         raise SystemExit(1)
 
 
@@ -228,4 +251,5 @@ def _cmd_milestone_help(args: argparse.Namespace) -> None:
     print("  aiwf milestone assess MS-001 --verdict PASS --summary '...'")
     print("  aiwf milestone integration-test MS-001 --status passed --command '...'")
     print("  aiwf milestone arch-review MS-001 --status intact --interface 'AUTH→BACKEND'")
+    print("  aiwf milestone confirm MS-001 --summary 'User accepted stage delivery'")
     print("  aiwf milestone close MS-001")

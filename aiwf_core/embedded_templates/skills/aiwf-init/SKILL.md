@@ -159,8 +159,14 @@ aiwf state cancel-close        — recover from stuck closing state
 ```
 aiwf milestone create <ID> --mission-id MISSION-001 --covered-goal <GOAL-ID>
 aiwf milestone assess <ID> --verdict PASS --summary '...'
+aiwf milestone confirm <ID> --summary 'User accepted the stage outcome'
 aiwf milestone close <ID>
 ```
+
+Milestone technical PASS is not automatically user acceptance. Checkpoint and
+manual milestones require explicit confirmation before close. PASS_WITH_RISK
+always requires confirmation; only low-risk `advance_policy=auto` + PASS may
+close without asking.
 
 ## The structural model
 
@@ -192,6 +198,17 @@ Goal Tree rules:
 - Run `aiwf project-map validate` after Goal Tree or module-boundary changes.
 - `goals.json` owns capability identity; `.aiwf/assets/project-map.json`
   `goal_bindings` owns curated capability-to-module mapping.
+
+Before nesting a Goal, answer:
+
+1. Is the parent materially incomplete without this child? (`composition`)
+2. Does the child primarily belong to this parent? (`primary_ownership`)
+3. Can the child produce an independent outcome outside the parent?
+
+Use parent/child only for yes + yes + no. Shared capabilities stay as siblings
+with `supports`; output consumers stay as siblings with `depends_on`. Do not
+flatten constituent capabilities into the first level, and do not create
+hierarchy from directories, phases, or milestones.
 
 ## Phase gates
 

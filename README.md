@@ -255,6 +255,14 @@ aiwf relation add GOAL-ANALYSIS-FRAMEWORK GOAL-SEARCH-STRATEGY depends_on \
 
 Goal relation 只表达产品能力图。如果它同时代表真实开发前置顺序，Planner 还需要单独建立 Plan dependency。
 
+Goal 父子关系使用三问判断：
+
+1. 没有这个子能力，父能力是否明显不完整？
+2. 子能力是否主要归属于该父能力，而不是被多个能力域平等消费？
+3. 子能力能否脱离父能力独立产生产品或系统结果？
+
+`是 + 是 + 否` 才建立父子 Goal。被多方消费时使用兄弟 Goal + `supports`；消费其他能力输出时使用兄弟 Goal + `depends_on`。同目录、同实施阶段或同 Milestone 都不能构成父子关系。
+
 Goal 不能按文件路径、目录、纯技术分层、实施批次或 Milestone 切割。文件与目录属于 `module_boundaries`、Plan scope 和 Context；Milestone 只通过 `covered_goal_ids` 横向引用本次交付涉及的 Goals，不拥有 Goal Tree，也不反向决定 Goal 边界。
 
 Goal 与代码结构通过 PROJECT-MAP 集中连接：
@@ -489,6 +497,16 @@ Milestone 闭合包括：
 - 主链路失败会阻止闭合
 
 Milestone 架构 Review 发现问题后会将综合结论恢复为 `REVISE`。修复后必须重新运行 integration、重新进行架构 Review、重新评估，再允许 close。
+
+技术验收通过与正式闭合是两个步骤。`checkpoint` / `manual` Milestone 在集成、架构和综合评估通过后，Planner 必须展示完成内容、范围外内容、残余风险和下一阶段，并取得用户确认：
+
+```bash
+aiwf milestone confirm MS-001 \
+  --summary "用户接受当前阶段成果及列出的残余风险"
+aiwf milestone close MS-001
+```
+
+`PASS_WITH_RISK` 始终需要确认；只有低风险、`advance_policy=auto` 且 verdict 为 `PASS` 的内部 Milestone 可以在展示摘要后自动闭合。任何重新评估、重新集成或重新架构审查都会使旧确认失效。
 
 ## Rooted Structure
 

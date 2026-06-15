@@ -83,6 +83,7 @@ def _print_human_foundation(foundation: dict, result: dict) -> None:
         print(f"  {g.get('id', '')}: {g.get('title', '')}{rel_tag}")
         if g.get("intent"):
             print(f"    {g['intent']}")
+        _print_child_goals(g.get("child_goals"), indent=2)
     print()
 
     # Structural Plan
@@ -162,3 +163,25 @@ def _print_human_foundation(foundation: dict, result: dict) -> None:
     print("—")
     print("This is a proposal. Review, then create structure manually.")
     print("See docs/DAY1_FOUNDATION_TREE.md for the full design contract.")
+
+
+def _print_child_goals(children: object, indent: int) -> None:
+    if not isinstance(children, list):
+        return
+    prefix = "  " * indent
+    detail_prefix = "  " * (indent + 1)
+    for child in children:
+        if not isinstance(child, dict):
+            continue
+        print(f"{prefix}└─ {child.get('id', '')}: {child.get('title', '')}")
+        if child.get("intent"):
+            print(f"{detail_prefix}{child['intent']}")
+        rationale = child.get("hierarchy_rationale") or {}
+        if isinstance(rationale, dict):
+            composition = str(rationale.get("composition") or "").strip()
+            ownership = str(rationale.get("primary_ownership") or "").strip()
+            if composition:
+                print(f"{detail_prefix}composition: {composition}")
+            if ownership:
+                print(f"{detail_prefix}primary ownership: {ownership}")
+        _print_child_goals(child.get("child_goals"), indent + 1)

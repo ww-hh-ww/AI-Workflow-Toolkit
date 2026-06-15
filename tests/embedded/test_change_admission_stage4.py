@@ -1097,6 +1097,80 @@ class TestFoundationTree(_Base):
         result = validate_foundation_tree(f)
         self.assertTrue(result["valid"], f"Issues: {result['issues']}")
 
+    def test_nested_goal_with_hierarchy_triad_passes(self):
+        from aiwf_core.core.state.foundation_ops import validate_foundation_tree
+
+        f = self._valid_foundation()
+        f["first_level_goals"][0]["child_goals"] = [
+            {
+                "id": "G1-QUERY",
+                "title": "Query Strategy",
+                "intent": "Build structured queries",
+                "hierarchy_rationale": {
+                    "composition": "Search execution is incomplete without query construction",
+                    "primary_ownership": "Query construction primarily belongs to search execution",
+                    "independent_outcome": False,
+                },
+            }
+        ]
+        f["active_path"]["sequence"].insert(2, "G1-QUERY")
+        result = validate_foundation_tree(f)
+        self.assertTrue(result["valid"], f"Issues: {result['issues']}")
+        self.assertEqual(result["summary"]["nested_goal_count"], 1)
+
+    def test_cli_displays_nested_goal_and_hierarchy_rationale(self):
+        f = self._valid_foundation()
+        f["first_level_goals"][0]["child_goals"] = [
+            {
+                "id": "G1-QUERY",
+                "title": "Query Strategy",
+                "intent": "Build structured queries",
+                "hierarchy_rationale": {
+                    "composition": "Search is incomplete without query construction",
+                    "primary_ownership": "Query construction belongs to search",
+                    "independent_outcome": False,
+                },
+            }
+        ]
+        f_path = Path(self.tmp) / "nested-foundation.json"
+        f_path.write_text(json.dumps(f), encoding="utf-8")
+        result = self._run("goal-tree", "validate-foundation", "--file", str(f_path))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("G1-QUERY: Query Strategy", result.stdout)
+        self.assertIn("composition: Search is incomplete", result.stdout)
+        self.assertIn("primary ownership: Query construction belongs", result.stdout)
+
+    def test_nested_goal_without_hierarchy_triad_fails(self):
+        from aiwf_core.core.state.foundation_ops import validate_foundation_tree
+
+        f = self._valid_foundation()
+        f["first_level_goals"][0]["child_goals"] = [
+            {"id": "G1-QUERY", "title": "Query Strategy", "intent": "Build queries"}
+        ]
+        result = validate_foundation_tree(f)
+        self.assertFalse(result["valid"])
+        self.assertTrue(any("hierarchy_rationale is required" in i for i in result["issues"]))
+
+    def test_independent_child_is_rejected_as_parent_child(self):
+        from aiwf_core.core.state.foundation_ops import validate_foundation_tree
+
+        f = self._valid_foundation()
+        f["first_level_goals"][0]["child_goals"] = [
+            {
+                "id": "G1-SHARED",
+                "title": "Shared Evidence Grading",
+                "intent": "Serve several capability domains",
+                "hierarchy_rationale": {
+                    "composition": "Useful to this parent",
+                    "primary_ownership": "Shared across multiple parents",
+                    "independent_outcome": True,
+                },
+            }
+        ]
+        result = validate_foundation_tree(f)
+        self.assertFalse(result["valid"])
+        self.assertTrue(any("use sibling Goal + relation" in i for i in result["issues"]))
+
     def test_no_shell_commands_in_output(self):
         from aiwf_core.core.state.foundation_ops import validate_foundation_tree
 

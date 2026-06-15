@@ -112,6 +112,14 @@ def _empty_milestone(
             "notes": "",
             "review_history": [],
         },
+        "user_acceptance": {
+            "required": advance_policy != "auto",
+            "status": "pending" if advance_policy != "auto" else "not_required",
+            "confirmed_by": "",
+            "summary": "",
+            "confirmed_at": "",
+            "assessment_recorded_at": "",
+        },
         "snapshot": {
             "goals": {},                # {goal_id: {status, plan_count, task_count}}
             "deferred": [],             # items carried to next milestone
@@ -121,6 +129,33 @@ def _empty_milestone(
         "created_at": now,
         "updated_at": now,
     }
+
+
+def _ensure_user_acceptance(milestone: Dict[str, Any]) -> Dict[str, Any]:
+    policy = str(milestone.get("advance_policy") or "checkpoint")
+    verdict = str((milestone.get("stage_synthesis", {}) or {}).get("verdict") or "pending")
+    required = policy != "auto" or verdict == "PASS_WITH_RISK"
+    acceptance = milestone.setdefault("user_acceptance", {})
+    acceptance["required"] = required
+    acceptance.setdefault("confirmed_by", "")
+    acceptance.setdefault("summary", "")
+    acceptance.setdefault("confirmed_at", "")
+    acceptance.setdefault("assessment_recorded_at", "")
+    if not required:
+        acceptance["status"] = "not_required"
+    else:
+        acceptance.setdefault("status", "pending")
+        if acceptance.get("status") == "not_required":
+            acceptance["status"] = "pending"
+    return acceptance
+
+
+def _invalidate_user_acceptance(milestone: Dict[str, Any]) -> None:
+    acceptance = _ensure_user_acceptance(milestone)
+    acceptance["status"] = "pending" if acceptance.get("required") else "not_required"
+    acceptance["confirmed_by"] = ""
+    acceptance["summary"] = ""
+    acceptance["confirmed_at"] = ""
 
 
 def _find_milestone(data: Dict[str, Any], milestone_id: str) -> Optional[Dict[str, Any]]:
@@ -220,6 +255,7 @@ def upsert_milestone(
             "open_gaps": [],
         })
         milestone.setdefault("stage_synthesis", _empty_milestone(milestone_id)["stage_synthesis"])
+        _ensure_user_acceptance(milestone)
         if goal_id:
             milestone["goal_id"] = goal_id
         if title:
@@ -233,6 +269,7 @@ def upsert_milestone(
             data["mission_id"] = mission_id
         if advance_policy:
             milestone["advance_policy"] = advance_policy
+            _invalidate_user_acceptance(milestone)
         if checkpoint_level:
             milestone["checkpoint_level"] = checkpoint_level
         for pid in plan_ids or []:
@@ -368,6 +405,8 @@ def record_milestone_assessment(
         "next_recommendation": next_recommendation,
         "recorded_at": _now(),
     }
+    _invalidate_user_acceptance(milestone)
+    milestone["user_acceptance"]["assessment_recorded_at"] = milestone["stage_synthesis"]["recorded_at"]
     milestone["updated_at"] = _now()
     save_milestones(base_dir, data)
     return {"recorded": True, "milestone": milestone}
@@ -448,6 +487,7 @@ def record_milestone_integration(
     it["accounted_files"] = _unique(accounted_files or [])
     it["function_traces"] = traces
     it["recorded_at"] = _now()
+    _invalidate_user_acceptance(milestone)
     milestone["updated_at"] = _now()
     save_milestones(base_dir, data)
     return {"recorded": True, "milestone_id": milestone_id, "integration_test": it}
@@ -521,6 +561,7 @@ def record_milestone_arch_review(
     ar["resolution"] = resolution.strip()
     ar["resolution_evidence_ids"] = _unique(resolution_evidence_ids or [])
     ar["recorded_at"] = _now()
+    _invalidate_user_acceptance(milestone)
     if status == "issues_found":
         milestone["status"] = "active"
         synthesis = milestone.setdefault(
@@ -591,11 +632,11 @@ def check_milestone_activatable(base_dir: str, milestone_id: str) -> List[str]:
     return reasons
 
 
-def check_milestone_readiness(base_dir: str, milestone_id: str) -> List[str]:
-    """Return blockers preventing milestone close. Read-only, no side effects.
+def check_milestone_technical_readiness(base_dir: str, milestone_id: str) -> List[str]:
+    """Return technical blockers preventing milestone acceptance/close.
 
     Used by status prompt to determine if a milestone is ready for verification,
-    and by close_milestone as the gate logic.
+    and by confirmation/close as the technical gate logic.
     """
     data = load_milestones(base_dir)
     milestone = _find_milestone(data, milestone_id)
@@ -690,6 +731,59 @@ def check_milestone_readiness(base_dir: str, milestone_id: str) -> List[str]:
         blockers.append(
             "milestone architecture review not done. "
             "Verify cross-Goal interface integrity, then: aiwf milestone arch-review <ID> --status intact"
+        )
+    return blockers
+
+
+def confirm_milestone_acceptance(
+    base_dir: str,
+    milestone_id: str,
+    confirmed_by: str,
+    summary: str,
+) -> Dict[str, Any]:
+    """Record explicit user acceptance after all technical gates pass."""
+    data = load_milestones(base_dir)
+    milestone = _find_milestone(data, milestone_id)
+    if not milestone:
+        return {"confirmed": False, "milestone": None, "blockers": [f"milestone not found: {milestone_id}"]}
+    blockers = check_milestone_technical_readiness(base_dir, milestone_id)
+    if blockers:
+        return {"confirmed": False, "milestone": milestone, "blockers": blockers}
+    synthesis = milestone.get("stage_synthesis", {}) or {}
+    if synthesis.get("verdict") not in ("PASS", "PASS_WITH_RISK"):
+        return {
+            "confirmed": False,
+            "milestone": milestone,
+            "blockers": ["only PASS or PASS_WITH_RISK milestones can be accepted"],
+        }
+    if not str(confirmed_by or "").strip():
+        return {"confirmed": False, "milestone": milestone, "blockers": ["confirmed_by is required"]}
+    if not str(summary or "").strip():
+        return {"confirmed": False, "milestone": milestone, "blockers": ["acceptance summary is required"]}
+    acceptance = _ensure_user_acceptance(milestone)
+    acceptance["required"] = True
+    acceptance["status"] = "confirmed"
+    acceptance["confirmed_by"] = str(confirmed_by).strip()
+    acceptance["summary"] = str(summary).strip()
+    acceptance["confirmed_at"] = _now()
+    acceptance["assessment_recorded_at"] = str(synthesis.get("recorded_at") or "")
+    milestone["updated_at"] = _now()
+    save_milestones(base_dir, data)
+    return {"confirmed": True, "milestone": milestone, "blockers": []}
+
+
+def check_milestone_readiness(base_dir: str, milestone_id: str) -> List[str]:
+    """Return all blockers preventing final milestone close."""
+    blockers = check_milestone_technical_readiness(base_dir, milestone_id)
+    if blockers:
+        return blockers
+    milestone = get_milestone(base_dir, milestone_id)
+    acceptance = _ensure_user_acceptance(milestone)
+    if acceptance.get("required") and acceptance.get("status") != "confirmed":
+        blockers.append(
+            "milestone is technically ready but user acceptance is required. "
+            f"Present the stage summary and run: aiwf milestone confirm {milestone_id} "
+            "--summary '<user acceptance>'"
         )
     return blockers
 

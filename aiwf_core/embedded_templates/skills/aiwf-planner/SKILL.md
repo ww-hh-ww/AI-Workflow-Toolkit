@@ -81,6 +81,41 @@ Tree position answers **what capability contains or owns another capability**.
 It does not answer who consumes whom. A cross-cutting capability may remain a
 sibling Goal even when several other Goals use it.
 
+Before making any Goal a child of another Goal, answer the hierarchy triad:
+
+1. **Composition** — Without this child capability, is the parent capability
+   materially incomplete?
+2. **Primary ownership** — Does this child primarily belong to this parent,
+   rather than serving several capability domains equally?
+3. **Independent outcome** — Can this child deliver a meaningful product/system
+   outcome independently of the parent?
+
+Decision:
+
+```text
+composition=yes + primary ownership=yes + independent outcome=no
+→ parent/child Goals
+
+shared by several capability domains
+→ sibling Goal + supports
+
+consumes another capability's output
+→ sibling Goal + depends_on
+
+same directory, implementation phase, or milestone only
+→ no Goal hierarchy
+```
+
+Do not flatten real decomposition. For example, query strategy, multi-round
+retrieval, and result reranking are child Goals of Search Execution when they
+are constituent parts of that complete capability and do not stand alone as
+independent product outcomes.
+
+For every proposed child Goal in a Foundation Tree, record
+`hierarchy_rationale.composition`, `hierarchy_rationale.primary_ownership`, and
+`hierarchy_rationale.independent_outcome=false`. If the final answer is true,
+model the capability as a sibling and add a directed Goal relation instead.
+
 Use directed Goal relations for capability interaction:
 
 - `A supports B`: A provides a reusable capability, evidence, policy, or service
@@ -178,7 +213,7 @@ Every new work enters through ONE path. Choose before creating structure.
 ### Path 1: Day-1 Foundation Tree — new projects, mission-level requests
 
 1. For an existing codebase, inventory already-delivered capabilities before proposing new work.
-2. Produce Foundation Tree Proposal: root Goal, 2–5 first-level capability Goals, existing and planned capability branches, one structural Plan, interfaces, boundaries, active path, Temporary Roots.
+2. Produce Foundation Tree Proposal: root Goal, 2–5 first-level capability Goals, existing and planned capability branches, hierarchy triad rationales for child Goals, one structural Plan, interfaces, boundaries, active path, Temporary Roots.
 3. Validate: `aiwf goal-tree validate-foundation --file foundation.json`
 4. Present to user. Only after acceptance: create goals, plans, first active task.
 

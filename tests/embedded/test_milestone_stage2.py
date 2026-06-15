@@ -170,7 +170,10 @@ class TestMilestoneStage2(unittest.TestCase):
         self.assertEqual(milestone["status"], "active")
 
     def test_milestone_close_requires_assessment_then_allows_pass(self):
-        from aiwf_core.core.state.milestone_ops import close_milestone, record_milestone_assessment, upsert_milestone
+        from aiwf_core.core.state.milestone_ops import (
+            close_milestone, confirm_milestone_acceptance,
+            record_milestone_assessment, upsert_milestone,
+        )
 
         upsert_milestone(str(self.tmp), "MS-001", goal_id="GOAL-001", status="active")
         blocked = close_milestone(str(self.tmp), "MS-001")
@@ -207,6 +210,14 @@ class TestMilestoneStage2(unittest.TestCase):
             str(self.tmp), "MS-001", status="intact",
             notes="Cross-goal interfaces are intact",
         )
+        awaiting_user = close_milestone(str(self.tmp), "MS-001")
+        self.assertFalse(awaiting_user["closed"])
+        self.assertTrue(any("user acceptance is required" in b for b in awaiting_user["blockers"]))
+        confirmed = confirm_milestone_acceptance(
+            str(self.tmp), "MS-001", confirmed_by="user",
+            summary="Accepted stage outcome and residual validation risk",
+        )
+        self.assertTrue(confirmed["confirmed"], confirmed["blockers"])
         closed = close_milestone(str(self.tmp), "MS-001")
 
         self.assertTrue(closed["closed"], closed["blockers"])
@@ -218,6 +229,51 @@ class TestMilestoneStage2(unittest.TestCase):
 
         self.assertNotEqual(blocked.returncode, 0)
         self.assertIn("closed=False", blocked.stdout)
+
+    def test_milestone_confirm_cli_requires_technical_readiness(self):
+        self._run_ok(
+            "milestone", "create", "MS-CONFIRM",
+            "--goal-id", "GOAL-001", "--status", "active",
+        )
+        blocked = self._run(
+            "milestone", "confirm", "MS-CONFIRM",
+            "--summary", "User accepts",
+        )
+        self.assertNotEqual(blocked.returncode, 0)
+        self.assertIn("stage synthesis required", blocked.stdout)
+
+    def test_milestone_confirm_cli_records_acceptance_then_allows_close(self):
+        from aiwf_core.core.state.milestone_ops import (
+            record_milestone_arch_review, record_milestone_assessment,
+            record_milestone_integration, upsert_milestone,
+        )
+        upsert_milestone(str(self.tmp), "MS-CONFIRM", status="active")
+        record_milestone_assessment(
+            str(self.tmp), "MS-CONFIRM", verdict="PASS", summary="Technically ready",
+        )
+        record_milestone_integration(
+            str(self.tmp), "MS-CONFIRM", status="passed",
+            coverage_mode="function_reverse_trace", main_path_status="passed",
+            source_files=["src/main.py"],
+            function_traces=[{
+                "file": "src/main.py", "function": "main", "callers": [],
+                "status": "entrypoint", "reason": "",
+            }],
+        )
+        record_milestone_arch_review(str(self.tmp), "MS-CONFIRM", status="intact")
+
+        confirmed = self._run_ok(
+            "milestone", "confirm", "MS-CONFIRM",
+            "--confirmed-by", "user",
+            "--summary", "Accepted stage delivery",
+        )
+        self.assertIn("confirmed=True", confirmed.stdout)
+        shown = self._run_ok("milestone", "show", "MS-CONFIRM")
+        self.assertIn("Technical Ready: yes", shown.stdout)
+        self.assertIn("User Confirmation Required: yes", shown.stdout)
+        self.assertIn("User Confirmed: yes", shown.stdout)
+        closed = self._run_ok("milestone", "close", "MS-CONFIRM")
+        self.assertIn("closed=True", closed.stdout)
 
     def test_milestone_close_blocks_incomplete_attached_plan(self):
         from aiwf_core.core.state.milestone_ops import (
@@ -355,7 +411,8 @@ class TestMissionIntegration(unittest.TestCase):
 
     def test_milestone_close_checks_covered_goals(self):
         from aiwf_core.core.state.milestone_ops import (
-            close_milestone, upsert_milestone, record_milestone_assessment,
+            close_milestone, confirm_milestone_acceptance,
+            upsert_milestone, record_milestone_assessment,
         )
 
         # GOAL-001 is not in the Goal Tree unless explicitly registered.
@@ -376,7 +433,8 @@ class TestMissionIntegration(unittest.TestCase):
 
     def test_milestone_close_succeeds_when_no_covered_goals(self):
         from aiwf_core.core.state.milestone_ops import (
-            close_milestone, upsert_milestone, record_milestone_assessment,
+            close_milestone, confirm_milestone_acceptance,
+            upsert_milestone, record_milestone_assessment,
         )
 
         upsert_milestone(
@@ -410,8 +468,95 @@ class TestMissionIntegration(unittest.TestCase):
             notes="Cross-goal interfaces are intact",
         )
 
+        confirm_milestone_acceptance(
+            str(self.tmp), "MS-001", confirmed_by="user",
+            summary="Accepted technically verified milestone",
+        )
         result = close_milestone(str(self.tmp), "MS-001")
         self.assertTrue(result["closed"], result.get("blockers", []))
+
+    def test_auto_pass_can_close_without_user_confirmation(self):
+        from aiwf_core.core.state.milestone_ops import (
+            close_milestone, record_milestone_arch_review,
+            record_milestone_assessment, record_milestone_integration,
+            upsert_milestone,
+        )
+        upsert_milestone(
+            str(self.tmp), "MS-AUTO", status="active", advance_policy="auto",
+        )
+        record_milestone_assessment(
+            str(self.tmp), "MS-AUTO", verdict="PASS", summary="Internal checkpoint passed",
+        )
+        record_milestone_integration(
+            str(self.tmp), "MS-AUTO", status="passed",
+            coverage_mode="function_reverse_trace", main_path_status="passed",
+            source_files=["src/main.py"],
+            function_traces=[{
+                "file": "src/main.py", "function": "main", "callers": [],
+                "status": "entrypoint", "reason": "",
+            }],
+        )
+        record_milestone_arch_review(str(self.tmp), "MS-AUTO", status="intact")
+        result = close_milestone(str(self.tmp), "MS-AUTO")
+        self.assertTrue(result["closed"], result["blockers"])
+
+    def test_auto_pass_with_risk_still_requires_user_confirmation(self):
+        from aiwf_core.core.state.milestone_ops import (
+            close_milestone, record_milestone_arch_review,
+            record_milestone_assessment, record_milestone_integration,
+            upsert_milestone,
+        )
+        upsert_milestone(
+            str(self.tmp), "MS-RISK", status="active", advance_policy="auto",
+        )
+        record_milestone_assessment(
+            str(self.tmp), "MS-RISK", verdict="PASS_WITH_RISK",
+            summary="Passed with accepted technical residual",
+            residual_risks=["low-risk follow-up"],
+        )
+        record_milestone_integration(
+            str(self.tmp), "MS-RISK", status="passed",
+            coverage_mode="function_reverse_trace", main_path_status="passed",
+            source_files=["src/main.py"],
+            function_traces=[{
+                "file": "src/main.py", "function": "main", "callers": [],
+                "status": "entrypoint", "reason": "",
+            }],
+        )
+        record_milestone_arch_review(str(self.tmp), "MS-RISK", status="intact")
+        result = close_milestone(str(self.tmp), "MS-RISK")
+        self.assertFalse(result["closed"])
+        self.assertTrue(any("user acceptance is required" in b for b in result["blockers"]))
+
+    def test_new_technical_record_invalidates_prior_confirmation(self):
+        from aiwf_core.core.state.milestone_ops import (
+            confirm_milestone_acceptance, get_milestone,
+            record_milestone_arch_review, record_milestone_assessment,
+            record_milestone_integration, upsert_milestone,
+        )
+        upsert_milestone(str(self.tmp), "MS-STALE", status="active")
+        record_milestone_assessment(
+            str(self.tmp), "MS-STALE", verdict="PASS", summary="Ready",
+        )
+        record_milestone_integration(
+            str(self.tmp), "MS-STALE", status="passed",
+            coverage_mode="function_reverse_trace", main_path_status="passed",
+            source_files=["src/main.py"],
+            function_traces=[{
+                "file": "src/main.py", "function": "main", "callers": [],
+                "status": "entrypoint", "reason": "",
+            }],
+        )
+        record_milestone_arch_review(str(self.tmp), "MS-STALE", status="intact")
+        self.assertTrue(confirm_milestone_acceptance(
+            str(self.tmp), "MS-STALE", "user", "Accepted",
+        )["confirmed"])
+        record_milestone_assessment(
+            str(self.tmp), "MS-STALE", verdict="PASS", summary="Reassessed",
+        )
+        acceptance = get_milestone(str(self.tmp), "MS-STALE")["user_acceptance"]
+        self.assertEqual(acceptance["status"], "pending")
+        self.assertEqual(acceptance["confirmed_at"], "")
 
     def test_integration_pass_requires_function_reverse_trace(self):
         from aiwf_core.core.state.milestone_ops import (
@@ -448,7 +593,8 @@ class TestMissionIntegration(unittest.TestCase):
 
     def test_architecture_issues_block_pass_with_risk_close_until_rereviewed(self):
         from aiwf_core.core.state.milestone_ops import (
-            close_milestone, get_milestone, record_milestone_arch_review,
+            close_milestone, confirm_milestone_acceptance,
+            get_milestone, record_milestone_arch_review,
             record_milestone_assessment, record_milestone_integration,
             upsert_milestone,
         )
@@ -505,6 +651,11 @@ class TestMissionIntegration(unittest.TestCase):
             str(self.tmp), "MS-ARCH", verdict="PASS",
             summary="Authentication issue repaired and reverified",
         )
+        confirmed = confirm_milestone_acceptance(
+            str(self.tmp), "MS-ARCH", confirmed_by="user",
+            summary="Accepted repaired and reverified milestone",
+        )
+        self.assertTrue(confirmed["confirmed"], confirmed["blockers"])
         closed = close_milestone(str(self.tmp), "MS-ARCH")
         self.assertTrue(closed["closed"], closed["blockers"])
         history = get_milestone(str(self.tmp), "MS-ARCH")["architecture_review"]["review_history"]

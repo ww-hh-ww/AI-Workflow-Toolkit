@@ -53,7 +53,19 @@ A valid Foundation Tree must NOT:
       "id": "string (e.g. G1, G2...)",
       "title": "string",
       "intent": "string",
-      "relation_to_root": "extends | implements | decomposes"
+      "relation_to_root": "extends | implements | decomposes",
+      "child_goals": [
+        {
+          "id": "string",
+          "title": "string",
+          "intent": "string",
+          "hierarchy_rationale": {
+            "composition": "why the parent is incomplete without this child",
+            "primary_ownership": "why this child primarily belongs here",
+            "independent_outcome": false
+          }
+        }
+      ]
     }
   ],
 
@@ -108,6 +120,7 @@ A valid Foundation Tree must NOT:
 |-------|------|
 | root_goal | Required. Must have id, title, intent. |
 | first_level_goals | 1–7 entries. Each must have id, title, intent, relation_to_root. |
+| child_goals | Optional recursive decomposition. Every child requires hierarchy_rationale with composition, primary_ownership, and independent_outcome=false. If independent_outcome=true, use a sibling Goal plus relation. |
 | structural_plan | Required. plan_kind must be "structural". active_phase must be "framing" or "implementation". Must have at least 1 interface. |
 | interfaces | Each interface must have owner and description. |
 | active_path | Required. Must reference only declared goal/plan IDs. |

@@ -92,3 +92,23 @@ aiwf milestone arch-review <MILESTONE-ID> \
   plus `--resolution-evidence-id` when evidence exists.
 - The previous issues remain in review history, and the milestone must be
   assessed again as PASS/PASS_WITH_RISK before close.
+
+## User acceptance before final close
+
+Technical PASS means the milestone is eligible for delivery acceptance; it does
+not mean the user has accepted the stage boundary.
+
+After integration, architecture review, and stage synthesis all pass:
+
+1. Present what was completed, what remains outside scope, residual risks, and
+   the recommended next stage.
+2. For `advance_policy=checkpoint|manual`, ask the user to accept the milestone.
+3. For `PASS_WITH_RISK`, always ask, even when `advance_policy=auto`.
+4. After explicit acceptance, record:
+   `aiwf milestone confirm <ID> --summary "<what the user accepted>"`
+5. Only then run `aiwf milestone close <ID>`.
+
+For a low-risk internal milestone with `advance_policy=auto` and verdict=PASS,
+Planner may close without asking after showing the technical summary. REVISE or
+REJECT can never be confirmed or force-closed. Any rerun of assessment,
+integration, or architecture review invalidates prior acceptance.

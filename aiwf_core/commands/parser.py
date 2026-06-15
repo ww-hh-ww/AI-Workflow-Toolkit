@@ -73,7 +73,7 @@ from .goal_tree_commands import (
 )
 from .milestone_commands import (
     _cmd_milestone_arch_review, _cmd_milestone_assess, _cmd_milestone_close,
-    _cmd_milestone_create, _cmd_milestone_help, _cmd_milestone_integration_test,
+    _cmd_milestone_confirm, _cmd_milestone_create, _cmd_milestone_help, _cmd_milestone_integration_test,
     _cmd_milestone_list, _cmd_milestone_show, _cmd_milestone_update,
 )
 from .mission_commands import (
@@ -528,6 +528,11 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
     p_msl = p_ms_sub.add_parser("close", help="close milestone after assessment")
     p_msl.add_argument("milestone_id", help="milestone ID")
     p_msl.set_defaults(func=_cmd_milestone_close)
+    p_msconfirm = p_ms_sub.add_parser("confirm", help="record user acceptance after technical gates pass")
+    p_msconfirm.add_argument("milestone_id", help="milestone ID")
+    p_msconfirm.add_argument("--confirmed-by", default="user", help="who accepted the milestone")
+    p_msconfirm.add_argument("--summary", required=True, help="what the user accepted")
+    p_msconfirm.set_defaults(func=_cmd_milestone_confirm)
     p_ms.set_defaults(func=_cmd_milestone_help)
     # ── goal tree registry ──
     p_gt = sub.add_parser("goal-tree", help="recursive Goal Tree registry (Stage 3.2+)")

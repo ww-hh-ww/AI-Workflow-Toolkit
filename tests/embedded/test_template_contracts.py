@@ -316,6 +316,17 @@ class TestTemplateContracts(unittest.TestCase):
         self.assertIn("aiwf relation add <A> <B> <TYPE>", init_text)
         self.assertNotIn("aiwf relation add <A> <B> --type <T>", init_text)
 
+    def test_planner_uses_hierarchy_triad_to_avoid_flat_goal_trees(self):
+        planner = " ".join(self._read_skill("aiwf-planner").split())
+        init = " ".join(self._read_skill("aiwf-init").split())
+
+        for text in (planner, init):
+            self.assertIn("composition", text)
+            self.assertIn("primary_ownership", text)
+        self.assertIn("independent_outcome=false", planner)
+        self.assertIn("Do not flatten real decomposition", planner)
+        self.assertIn("Use parent/child only for yes + yes + no", init)
+
     def test_milestone_skills_require_reverse_trace_and_rework_blockers(self):
         integration = self._read_skill("aiwf-milestone-integration")
         architecture = self._read_skill("aiwf-milestone-arch-review")
@@ -325,6 +336,10 @@ class TestTemplateContracts(unittest.TestCase):
         self.assertIn("CRITICAL|HIGH|MEDIUM|LOW", architecture)
         self.assertIn("mechanically blocks milestone close", architecture)
         self.assertIn("may not be deferred as `PASS_WITH_RISK`", architecture)
+        self.assertIn("User acceptance before final close", architecture)
+        self.assertIn("PASS_WITH_RISK`, always ask", architecture)
+        self.assertIn("milestone confirm", architecture)
+        self.assertIn("invalidates prior acceptance", architecture)
 
 
 if __name__ == "__main__":

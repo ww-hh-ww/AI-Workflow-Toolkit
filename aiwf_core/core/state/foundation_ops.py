@@ -15,6 +15,66 @@ MAX_FIRST_LEVEL = 7
 MIN_FIRST_LEVEL = 1
 
 
+def _validate_child_goals(
+    children: Any,
+    parent_id: str,
+    path: str,
+    all_ids: set,
+    issues: List[str],
+    warnings: List[str],
+) -> None:
+    """Validate optional nested capability decomposition and hierarchy rationale."""
+    if children is None:
+        return
+    if not isinstance(children, list):
+        issues.append(f"{path}.child_goals must be a list")
+        return
+
+    for index, child in enumerate(children):
+        child_path = f"{path}.child_goals[{index}]"
+        if not isinstance(child, dict):
+            issues.append(f"{child_path} must be an object")
+            continue
+        goal_id = str(child.get("id") or "")
+        if not goal_id:
+            issues.append(f"{child_path}: id is required")
+        elif goal_id in all_ids:
+            issues.append(f"{child_path}: duplicate id '{goal_id}'")
+        else:
+            all_ids.add(goal_id)
+        if not child.get("title"):
+            issues.append(f"{child_path} '{goal_id}': title is required")
+        if not child.get("intent"):
+            warnings.append(f"{child_path} '{goal_id}': intent is empty")
+
+        rationale = child.get("hierarchy_rationale")
+        if not isinstance(rationale, dict):
+            issues.append(
+                f"{child_path} '{goal_id}': hierarchy_rationale is required "
+                f"for parent {parent_id}"
+            )
+        else:
+            if not str(rationale.get("composition") or "").strip():
+                issues.append(f"{child_path} '{goal_id}': hierarchy_rationale.composition is required")
+            if not str(rationale.get("primary_ownership") or "").strip():
+                issues.append(f"{child_path} '{goal_id}': hierarchy_rationale.primary_ownership is required")
+            independent = rationale.get("independent_outcome")
+            if independent is not False:
+                issues.append(
+                    f"{child_path} '{goal_id}': independent_outcome must be false "
+                    f"for parent/child Goals; use sibling Goal + relation otherwise"
+                )
+
+        _validate_child_goals(
+            child.get("child_goals"),
+            goal_id or parent_id,
+            child_path,
+            all_ids,
+            issues,
+            warnings,
+        )
+
+
 def validate_foundation_tree(foundation: Dict[str, Any]) -> Dict[str, Any]:
     """Validate a Day-1 Foundation Tree proposal.
 
@@ -60,11 +120,12 @@ def validate_foundation_tree(foundation: Dict[str, Any]) -> Dict[str, Any]:
         )
 
     fl_ids = set()
+    nested_ids = set()
     for i, g in enumerate(fl_goals):
         gid = g.get("id", "")
         if not gid:
             issues.append(f"first_level_goals[{i}]: id is required")
-        elif gid in fl_ids:
+        elif gid in fl_ids or gid in nested_ids:
             issues.append(f"first_level_goals[{i}]: duplicate id '{gid}'")
         else:
             fl_ids.add(gid)
@@ -78,12 +139,33 @@ def validate_foundation_tree(foundation: Dict[str, Any]) -> Dict[str, Any]:
                 f"first_level_goals[{i}] '{gid}': invalid relation_to_root '{rel}'. "
                 f"Must be one of: {', '.join(sorted(VALID_RELATIONS))}"
             )
+        _validate_child_goals(
+            g.get("child_goals"),
+            gid,
+            f"first_level_goals[{i}]",
+            fl_ids | nested_ids,
+            issues,
+            warnings,
+        )
+        # Collect nested IDs after validation without losing additions made in
+        # the helper's shared set.
+        declared = set(fl_ids) | set(nested_ids)
+        def _collect(items: Any) -> None:
+            if not isinstance(items, list):
+                return
+            for item in items:
+                if isinstance(item, dict) and item.get("id"):
+                    declared.add(str(item["id"]))
+                    _collect(item.get("child_goals"))
+        _collect(g.get("child_goals"))
+        nested_ids = declared - fl_ids
 
     # Collect all declared IDs for active_path validation
     all_declared_ids = {"GOAL-ROOT"}
     if root and root.get("id"):
         all_declared_ids.add(root["id"])
     all_declared_ids.update(fl_ids)
+    all_declared_ids.update(nested_ids)
 
     # ── Structural Plan ──
     s_plan = foundation.get("structural_plan") or {}
@@ -218,6 +300,7 @@ def _build_foundation_summary(foundation: Dict[str, Any],
         "root_goal_title": root.get("title", ""),
         "first_level_count": len(fl_goals),
         "first_level_ids": [g.get("id", "") for g in fl_goals],
+        "nested_goal_count": _count_nested_goals(fl_goals),
         "has_structural_plan": bool(s_plan and s_plan.get("plan_id")),
         "structural_plan_id": s_plan.get("plan_id", ""),
         "structural_plan_phase": s_plan.get("active_phase", ""),
@@ -229,3 +312,16 @@ def _build_foundation_summary(foundation: Dict[str, Any],
         "issue_count": len(issues),
         "warning_count": len(warnings),
     }
+
+
+def _count_nested_goals(goals: Any) -> int:
+    if not isinstance(goals, list):
+        return 0
+    total = 0
+    for goal in goals:
+        if not isinstance(goal, dict):
+            continue
+        children = goal.get("child_goals") or []
+        if isinstance(children, list):
+            total += len(children) + _count_nested_goals(children)
+    return total
