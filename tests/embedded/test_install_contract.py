@@ -239,10 +239,11 @@ class TestReasonixInstall(unittest.TestCase):
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
-    def test_reasonix_install_output_uses_skill_command(self):
+    def test_reasonix_install_output_uses_init_then_conversation(self):
         self.assertIn("reasonix", self.result.stdout)
-        self.assertIn('/skill aiwf-planner "I want to implement a feature. Let\'s discuss first."', self.result.stdout)
-        self.assertNotIn('/aiwf-planner "I want to implement a feature', self.result.stdout)
+        self.assertIn("/skill aiwf-init", self.result.stdout)
+        self.assertIn("describing your goal or question naturally", self.result.stdout)
+        self.assertNotIn("/skill aiwf-planner", self.result.stdout)
 
     def test_reasonix_settings_use_reasonix_project_dir(self):
         settings = self._j(".reasonix/settings.json")

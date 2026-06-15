@@ -96,8 +96,10 @@ claude
 在 Claude Code 中：
 
 ```text
-/aiwf-planner "我想实现一个功能，先和我讨论"
+/aiwf-init
 ```
+
+初始化完成后直接用自然语言描述目标、问题或想法，不需要手工调用 Planner、Executor、Tester 或 Reviewer。
 
 ### Reasonix
 
@@ -111,21 +113,28 @@ reasonix code .
 在 Reasonix 中：
 
 ```text
-/skill aiwf-planner "我想实现一个功能，先和我讨论"
+/skill aiwf-init
 ```
 
-用户主要只需要和 Planner 对接。实现、测试、审查和闭合是由 Planner 调度的 `planner-directed capabilities`；Planner 会根据项目和风险决定是否使用独立 Executor、Tester、Reviewer 或 Architect。
+初始化完成后同样直接对话。`aiwf-init` 会读取当前状态并把请求路由到正确阶段；Planner 是主要协调者，实现、测试、审查和闭合是由 Planner 调度的 `planner-directed capabilities`。用户不需要记住或手工编排这些内部 Skills。
 
 AIWF 命令会从当前目录向上寻找项目根目录，因此在项目子目录执行 `aiwf status`、`aiwf task` 等命令时会复用同一个顶层 `.aiwf/`，不会创建嵌套状态目录。
 
 ## 第一次使用
 
-安装后先运行：
+进入编码会话后只需初始化一次：
 
-```bash
-aiwf status
-aiwf doctor
+```text
+# Claude Code
+/aiwf-init
+
+# Reasonix
+/skill aiwf-init
 ```
+
+之后直接对话。`aiwf-init` 会先运行 `aiwf status`，根据 `PRIMARY`、`REQUIRED NEXT` 和 `[ATTN]` 自动选择需要的内部能力。日常使用不要求用户手工输入 `/aiwf-planner` 或逐个调用实现、测试、审查与闭合 Skills。
+
+`aiwf doctor` 用于安装健康检查；`aiwf status` 用于诊断当前阶段和阻塞原因。
 
 默认入口只展示最常用命令：
 
@@ -565,6 +574,7 @@ aiwf project-map --help
 
 核心 Skills：
 
+- `aiwf-init`（用户入口）
 - `aiwf-planner`
 - `aiwf-planner-contracts`
 - `aiwf-planner-execute`
@@ -584,7 +594,7 @@ aiwf project-map --help
 - Explorer
 - Curator
 
-Skills 决定角色如何思考和执行；状态契约决定哪些事实必须留下；机器门禁阻止错误顺序和未经修复的闭合。
+用户通常只调用一次 `aiwf-init`，随后直接对话。其余 Skills 由当前状态和 Planner 按阶段调度。Skills 决定角色如何思考和执行；状态契约决定哪些事实必须留下；机器门禁阻止错误顺序和未经修复的闭合。
 
 ## 外部研究与能力
 

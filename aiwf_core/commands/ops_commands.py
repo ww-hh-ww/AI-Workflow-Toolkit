@@ -324,9 +324,8 @@ def _cmd_install(args: argparse.Namespace) -> None:
     print()
     print("Next steps:")
     print(f"  1. Start {target.product_name}: {target.command_name}")
-    planner_command = target.planner_command.replace('"describe your goal"', '"I want to implement a feature. Let\'s discuss first."')
-    print(f"  2. Talk to planner: {planner_command}")
-    print("  3. Keep using planner as the main interface; it directs implement/test/review/close capabilities")
+    print(f"  2. Initialize AIWF once: {target.entry_command}")
+    print("  3. Continue by describing your goal or question naturally")
     print("  4. Run: aiwf doctor    (to verify installation health)")
 
 def _cmd_doctor(args: argparse.Namespace) -> None:
@@ -472,4 +471,3 @@ def _cmd_audit_archive(args: argparse.Namespace) -> None:
         print(f"  Contaminants: none")
         print(f"  Structure: clean")
         print(f"\n  AUDIT PASSED")
-

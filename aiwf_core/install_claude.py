@@ -25,7 +25,7 @@ class EmbedTarget(NamedTuple):
     config_dir: str
     project_env_var: str
     instruction_file: str
-    planner_command: str
+    entry_command: str
 
 
 TARGETS: Dict[str, EmbedTarget] = {
@@ -36,7 +36,7 @@ TARGETS: Dict[str, EmbedTarget] = {
         config_dir=".claude",
         project_env_var="CLAUDE_PROJECT_DIR",
         instruction_file="CLAUDE.md",
-        planner_command='/aiwf-planner "describe your goal"',
+        entry_command="/aiwf-init",
     ),
     "reasonix": EmbedTarget(
         mode="reasonix",
@@ -45,7 +45,7 @@ TARGETS: Dict[str, EmbedTarget] = {
         config_dir=".reasonix",
         project_env_var="REASONIX_PROJECT_DIR",
         instruction_file="REASONIX.md",
-        planner_command='/skill aiwf-planner "describe your goal"',
+        entry_command="/skill aiwf-init",
     ),
 }
 
@@ -858,13 +858,16 @@ def show_status() -> str:
 
     lines.append("")
     if target.mode == "reasonix":
-        lines.append("Skills: /skill aiwf-planner, /skill aiwf-implement, /skill aiwf-test, /skill aiwf-review, /skill aiwf-close")
+        lines.append("Entry: /skill aiwf-init, then continue with natural conversation")
+        lines.append("Internal skills: aiwf-planner, aiwf-implement, aiwf-test, aiwf-review, aiwf-close")
     else:
-        lines.append("Skills: /aiwf-planner, /aiwf-implement, /aiwf-test, /aiwf-review, /aiwf-close")
+        lines.append("Entry: /aiwf-init, then continue with natural conversation")
+        lines.append("Internal skills: aiwf-planner, aiwf-implement, aiwf-test, aiwf-review, aiwf-close")
     lines.append("Scripts: scripts/aiwf_*.py")
     lines.append("")
     lines.append("Continue:")
-    lines.append(f"  {target.planner_command}    # discuss with planner-main")
+    lines.append(f"  {target.entry_command}    # initialize AIWF guidance")
+    lines.append("  Then describe your goal or question naturally.")
     lines.append("  aiwf doctor                            # check installation health")
 
     return "\n".join(lines) + "\n"
