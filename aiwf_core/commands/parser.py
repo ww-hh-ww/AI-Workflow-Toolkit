@@ -18,7 +18,8 @@ from .project_memory_commands import (
     _cmd_goal_revise, _cmd_idea_capture, _cmd_idea_expire, _cmd_idea_help,
     _cmd_idea_list, _cmd_idea_promote, _cmd_memory_help, _cmd_memory_suggest,
     _cmd_project_bootstrap, _cmd_project_map_help, _cmd_project_map_init, _cmd_project_map_show,
-    _cmd_project_map_summarize, _cmd_project_map_update, _cmd_rule_add,
+    _cmd_project_map_bind, _cmd_project_map_relations, _cmd_project_map_summarize,
+    _cmd_project_map_unbind, _cmd_project_map_update, _cmd_project_map_validate, _cmd_rule_add,
     _cmd_rule_add_negative, _cmd_rule_global_candidate, _cmd_rule_help,
     _cmd_rule_list, _cmd_rule_retire,
 )
@@ -797,7 +798,7 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
     p_rg.set_defaults(func=_cmd_rule_global_candidate)
     p_rule.set_defaults(func=_cmd_rule_help)
     # ── project-map ──
-    p_pm = sub.add_parser("project-map", help="project map (init, show, update, summarize)")
+    p_pm = sub.add_parser("project-map", help="project map and Goal-to-module bindings")
     p_pm_sub = p_pm.add_subparsers(dest="pm_cmd")
     p_pm_sub.add_parser("init", help="create PROJECT-MAP.md").set_defaults(func=_cmd_project_map_init)
     p_pm_sub.add_parser("show", help="display PROJECT-MAP.md").set_defaults(func=_cmd_project_map_show)
@@ -808,6 +809,19 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
     p_pmu.add_argument("--text", required=True, help="new content for the section")
     p_pmu.set_defaults(func=_cmd_project_map_update)
     p_pm_sub.add_parser("summarize", help="show short summary of PROJECT-MAP.md").set_defaults(func=_cmd_project_map_summarize)
+    p_pmbind = p_pm_sub.add_parser("bind", help="bind a Goal to repository modules")
+    p_pmbind.add_argument("goal_id", help="Goal ID from goals.json")
+    p_pmbind.add_argument("--module", action="append", required=True, dest="modules", help="repository-relative module path; repeatable")
+    p_pmbind.add_argument("--entrypoint", action="append", default=[], dest="entrypoints", help="repository-relative entrypoint; repeatable")
+    p_pmbind.add_argument("--interface", action="append", default=[], dest="interfaces", help="owned or exposed interface; repeatable")
+    p_pmbind.add_argument("--note", default="", help="semantic ownership note")
+    p_pmbind.set_defaults(func=_cmd_project_map_bind)
+    p_pmunbind = p_pm_sub.add_parser("unbind", help="remove a Goal-to-module binding")
+    p_pmunbind.add_argument("goal_id", help="Goal ID")
+    p_pmunbind.add_argument("--reason", required=True, help="why the binding is removed")
+    p_pmunbind.set_defaults(func=_cmd_project_map_unbind)
+    p_pm_sub.add_parser("relations", help="show Goal-to-module bindings").set_defaults(func=_cmd_project_map_relations)
+    p_pm_sub.add_parser("validate", help="validate Goal bindings against Goal Tree and repository").set_defaults(func=_cmd_project_map_validate)
     p_pm.set_defaults(func=_cmd_project_map_help)
     p_mem = sub.add_parser("memory", help="advisory lesson retrieval (suggest)")
     p_mem_sub = p_mem.add_subparsers(dest="mem_cmd")

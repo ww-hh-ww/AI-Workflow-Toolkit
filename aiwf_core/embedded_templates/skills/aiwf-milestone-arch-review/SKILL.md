@@ -45,8 +45,12 @@ You are looking for STRUCTURAL mismatches between reality and intent.
   may need a new relation)
 
 ### Boundary violations
-- Each covered goal has `module_boundaries`. Does the connectivity map show
-  paths crossing those boundaries without a declared relation?
+- Read `.aiwf/assets/project-map.json` `goal_bindings` and run
+  `aiwf project-map validate` before comparing structure.
+- Each covered Goal should have a current Goal-to-module binding. Does the
+  connectivity map show paths crossing those boundaries without a declared relation?
+- Missing or stale bindings are mapping defects. Do not reshape Goals around
+  files or milestone coverage; route the correction back to Planner.
 
 ### Invariants
 - Each covered goal has `architecture_invariants`. Does the connectivity map

@@ -228,7 +228,7 @@ AIWF 使用三种不同层级表达长期工作：
 
 ### Goal Tree：功能结构
 
-Goal 表达产品或系统能力，可以组成递归有根树：
+Goal 表达产品或系统能力，可以组成递归有根树。它描述项目完整的能力结构，而不只是下一阶段准备交付的内容。对于已有项目，安装 AIWF 之前已经存在并可工作的能力也要作为一等 Goal 纳入树中：
 
 ```text
 GOAL-PRODUCT
@@ -238,6 +238,39 @@ GOAL-PRODUCT
 ```
 
 Goal relation（如 `depends_on`、`blocks`、`supports`）用于结构展示和语义参考，不直接充当 Plan 激活门。
+
+关系方向约定：
+
+- `A supports B`：A 是提供者，B 是消费者。
+- `A depends_on B`：A 是消费者，B 是前置能力。
+- 不同父节点之间使用 `--cross`。
+- 横向能力可以保持为兄弟 Goal；兄弟关系不表示彼此独立。
+
+```bash
+aiwf relation add GOAL-EVIDENCE-GRADING GOAL-QUERY-STRATEGY supports \
+  --cross --reason "query strategy consumes graded evidence"
+aiwf relation add GOAL-ANALYSIS-FRAMEWORK GOAL-SEARCH-STRATEGY depends_on \
+  --cross --reason "analysis consumes search strategy output"
+```
+
+Goal relation 只表达产品能力图。如果它同时代表真实开发前置顺序，Planner 还需要单独建立 Plan dependency。
+
+Goal 不能按文件路径、目录、纯技术分层、实施批次或 Milestone 切割。文件与目录属于 `module_boundaries`、Plan scope 和 Context；Milestone 只通过 `covered_goal_ids` 横向引用本次交付涉及的 Goals，不拥有 Goal Tree，也不反向决定 Goal 边界。
+
+Goal 与代码结构通过 PROJECT-MAP 集中连接：
+
+- `goals.json`：能力身份与父子结构的权威来源。
+- `.aiwf/assets/project-map.json`：文件、依赖，以及人工确认的 `goal_bindings`。
+- `项目地图.md`：面向人的架构说明和长期方向，不复制完整文件清单。
+
+```bash
+aiwf project-map bind GOAL-NOTES \
+  --module src/notes \
+  --entrypoint src/notes/index.ts \
+  --interface "note repository"
+aiwf project-map relations
+aiwf project-map validate
+```
 
 ### Plan：实践脚手架
 
@@ -439,7 +472,7 @@ ARCH-* Review
 
 ## Milestone
 
-Milestone 是可选的阶段交付节点，可横跨多个 Goal。它适合长周期项目，不强加给轻量任务。
+Milestone 是可选的横向阶段交付切片，可横跨多个 Goal。它适合长周期项目，不强加给轻量任务。Goal Tree 始终保留完整能力结构；Milestone 只选择其中本阶段需要集成验证和闭合的一部分。
 
 Milestone 闭合包括：
 

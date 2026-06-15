@@ -268,6 +268,54 @@ class TestTemplateContracts(unittest.TestCase):
         self.assertIn("Several unlocked Plans may be ready simultaneously", execute)
         self.assertIn("Goal `depends_on` relations are advisory", execute)
 
+    def test_goal_tree_models_complete_capabilities_not_paths_or_milestones(self):
+        planner = self._read_skill("aiwf-planner")
+        init = self._read_skill("aiwf-init")
+        milestone = self._read_skill("aiwf-milestone-integration")
+        planner_text = " ".join(planner.split())
+        init_text = " ".join(init.split())
+        milestone_text = " ".join(milestone.split())
+
+        self.assertIn("complete functional capability structure", planner_text)
+        self.assertIn("existing capabilities as first-class Goals", planner_text)
+        self.assertIn("file or directory path", planner_text)
+        self.assertIn("Milestones are independent horizontal delivery slices", planner_text)
+        self.assertIn("must not determine where Goal boundaries are drawn", planner_text)
+
+        self.assertIn("complete capability structure", init_text)
+        self.assertIn("capabilities that existed before AIWF was installed", init_text)
+        self.assertIn("does not own the Goal Tree or define Goal boundaries", init_text)
+
+        self.assertIn("does not reshape the Goal Tree", milestone_text)
+        self.assertIn("do not redefine capability boundaries", milestone_text)
+
+    def test_architecture_skills_validate_goal_to_module_bindings(self):
+        planner = self._read_skill("aiwf-planner")
+        init = self._read_skill("aiwf-init")
+        architect = self._read_skill("aiwf-architect")
+        milestone_arch = self._read_skill("aiwf-milestone-arch-review")
+
+        for text in (planner, init, architect, milestone_arch):
+            self.assertIn("project-map validate", text)
+            self.assertIn("goal_bindings", text)
+        self.assertIn("Do not rewrite the Goal Tree around directories", architect)
+        self.assertIn("Do not reshape Goals around", milestone_arch)
+
+    def test_planner_explains_cross_goal_relation_direction_and_execution_boundary(self):
+        planner = self._read_skill("aiwf-planner")
+        init = self._read_skill("aiwf-init")
+        planner_text = " ".join(planner.split())
+        init_text = " ".join(init.split())
+
+        self.assertIn("Capability ownership vs cross-Goal relations", planner_text)
+        self.assertIn("The direction is always consumer → prerequisite", planner_text)
+        self.assertIn("Sibling placement does not mean independence", planner_text)
+        self.assertIn("add the corresponding Plan dependency separately", planner_text)
+        self.assertIn("Provider → consumer", init_text)
+        self.assertIn("Consumer → prerequisite", init_text)
+        self.assertIn("aiwf relation add <A> <B> <TYPE>", init_text)
+        self.assertNotIn("aiwf relation add <A> <B> --type <T>", init_text)
+
     def test_milestone_skills_require_reverse_trace_and_rework_blockers(self):
         integration = self._read_skill("aiwf-milestone-integration")
         architecture = self._read_skill("aiwf-milestone-arch-review")

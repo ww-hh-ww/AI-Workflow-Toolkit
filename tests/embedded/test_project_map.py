@@ -26,6 +26,8 @@ class TestProjectMap(unittest.TestCase):
             p = self.tmp / ".aiwf" / fn; p.parent.mkdir(parents=True, exist_ok=True); p.write_text(json.dumps(dfn(), indent=2) + "\n")
         pm = self.tmp / ".aiwf" / "artifacts" / "reports" / "项目地图.md"
         if pm.exists(): pm.unlink()
+        asset_pm = self.tmp / ".aiwf" / "assets" / "project-map.json"
+        if asset_pm.exists(): asset_pm.unlink()
 
     def _run(self, *args):
         env = os.environ.copy(); env["PYTHONPATH"] = str(PROJECT_ROOT)
@@ -184,6 +186,68 @@ class TestProjectMap(unittest.TestCase):
         r = self._run("project-map")
         self.assertNotIn("Traceback", r.stderr)
         self.assertIn("init", r.stdout.lower())
+
+    def test_goal_binding_connects_goal_tree_to_modules(self):
+        (self.tmp / "src").mkdir(exist_ok=True)
+        (self.tmp / "src" / "notes.py").write_text("def list_notes():\n    return []\n")
+        self._run("goal-tree", "init-root", "GOAL-PRODUCT", "--type", "main", "--title", "Product")
+        self._run("goal-tree", "add", "GOAL-NOTES", "--parent", "GOAL-PRODUCT", "--title", "Notes")
+        result = self._run(
+            "project-map", "bind", "GOAL-NOTES",
+            "--module", "src/notes.py",
+            "--entrypoint", "src/notes.py",
+            "--interface", "note repository",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        relations = self._run("project-map", "relations")
+        self.assertIn("GOAL-NOTES", relations.stdout)
+        self.assertIn("src/notes.py", relations.stdout)
+        validation = self._run("project-map", "validate")
+        self.assertEqual(validation.returncode, 0, validation.stderr)
+        self.assertIn("valid", validation.stdout)
+
+    def test_goal_binding_rejects_unknown_goal_and_missing_path(self):
+        unknown = self._run("project-map", "bind", "GOAL-MISSING", "--module", "src/missing.py")
+        self.assertNotEqual(unknown.returncode, 0)
+        self._run("goal-tree", "init-root", "GOAL-PRODUCT", "--type", "main", "--title", "Product")
+        missing = self._run("project-map", "bind", "GOAL-PRODUCT", "--module", "src/missing.py")
+        self.assertNotEqual(missing.returncode, 0)
+
+    def test_asset_rescan_preserves_curated_goal_bindings(self):
+        (self.tmp / "src").mkdir(exist_ok=True)
+        (self.tmp / "src" / "core.py").write_text("def run():\n    return True\n")
+        self._run("goal-tree", "init-root", "GOAL-CORE", "--type", "main", "--title", "Core")
+        self._run("project-map", "bind", "GOAL-CORE", "--module", "src/core.py")
+        self._run("asset", "init")
+        asset = json.loads((self.tmp / ".aiwf" / "assets" / "project-map.json").read_text())
+        self.assertEqual(asset["goal_bindings"][0]["goal_id"], "GOAL-CORE")
+
+    def test_unbind_requires_reason_and_records_history(self):
+        (self.tmp / "src").mkdir(exist_ok=True)
+        (self.tmp / "src" / "core.py").write_text("def run():\n    return True\n")
+        self._run("goal-tree", "init-root", "GOAL-CORE", "--type", "main", "--title", "Core")
+        self._run("project-map", "bind", "GOAL-CORE", "--module", "src/core.py")
+        missing_reason = self._run("project-map", "unbind", "GOAL-CORE")
+        self.assertNotEqual(missing_reason.returncode, 0)
+        removed = self._run(
+            "project-map", "unbind", "GOAL-CORE",
+            "--reason", "capability moved to another Goal",
+        )
+        self.assertEqual(removed.returncode, 0, removed.stderr)
+        asset = json.loads((self.tmp / ".aiwf" / "assets" / "project-map.json").read_text())
+        self.assertEqual(asset["goal_bindings"], [])
+        self.assertEqual(asset["goal_binding_history"][-1]["goal_id"], "GOAL-CORE")
+        self.assertIn("moved", asset["goal_binding_history"][-1]["reason"])
+
+    def test_validate_warns_for_unbound_leaf_capability(self):
+        (self.tmp / "src").mkdir(exist_ok=True)
+        (self.tmp / "src" / "core.py").write_text("def run():\n    return True\n")
+        self._run("goal-tree", "init-root", "GOAL-PRODUCT", "--type", "main", "--title", "Product")
+        self._run("goal-tree", "add", "GOAL-CORE", "--parent", "GOAL-PRODUCT", "--title", "Core")
+        self._run("asset", "init")
+        validation = self._run("project-map", "validate")
+        self.assertEqual(validation.returncode, 0, validation.stderr)
+        self.assertIn("leaf capability Goal has no project-map binding: GOAL-CORE", validation.stdout)
 
     # ═══════════════════════════════════════════════════════════════
     # Skill text

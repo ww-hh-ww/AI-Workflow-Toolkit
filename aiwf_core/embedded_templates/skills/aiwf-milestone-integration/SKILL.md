@@ -26,6 +26,12 @@ Agent({subagent_type: "aiwf-tester", prompt: "Milestone integration test for <MI
 Per-task tests verified individual changes. Now verify the WHOLE system connects
 — exhaustively. Do not read the Goal tree. Do not trust declarations.
 
+This audit verifies a horizontal delivery slice; it does not reshape the Goal
+Tree. Milestone coverage may reference several Goals, but those references do
+not make the Milestone their parent and do not redefine capability boundaries.
+Report missing or disconnected capabilities to Planner rather than converting
+files, paths, or integration batches into new Goal nodes.
+
 ## STEP 1 — Pre-judge structure (planner-main, read-only)
 
 Read the project structure. Identify:

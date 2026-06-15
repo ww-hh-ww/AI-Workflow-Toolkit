@@ -28,6 +28,87 @@ Once structure is decided and contracts are frozen, hand off to `/aiwf-planner-e
 
 ## Goal Tree Decisions
 
+### Goal ontology: model capabilities, not implementation containers
+
+The Goal Tree is the project's complete functional capability structure. A Goal
+names an outcome or capability the product/system provides, regardless of
+whether that capability is already implemented, currently changing, or only
+planned.
+
+Before shaping a tree for an existing project:
+
+1. Inspect the current product behavior, public/system entrypoints, and existing
+   architecture.
+2. Inventory the capabilities that already work today.
+3. Add those existing capabilities as first-class Goals alongside new and
+   planned capabilities.
+4. Mark implementation state in Goal/Plan status and evidence; do not omit a
+   capability merely because its code predates AIWF.
+
+**Never cut Goal nodes by:**
+
+- file or directory path (`src/auth`, `services/`, `App.tsx`)
+- technical layer alone (`frontend`, `backend`, `database`) unless that layer is
+  itself a coherent system capability with an explicit outcome
+- implementation batch, sprint, release, or milestone boundary
+- test phase, review phase, or temporary work assignment
+
+Paths and technical ownership belong in Goal `module_boundaries`, Plan
+`allowed_write`, interfaces, and Context scope. They are metadata about where a
+capability lives, not the identity of the capability.
+
+Keep the durable capability-to-code relationship in PROJECT-MAP:
+
+- `.aiwf/state/goals.json` is authoritative for capability identity and hierarchy.
+- `.aiwf/assets/project-map.json` `goal_bindings` is authoritative for the
+  curated Goal-to-module/entrypoint mapping.
+- `.aiwf/artifacts/reports/项目地图.md` explains architecture and direction for
+  humans; do not duplicate a full file inventory there.
+- After creating or reshaping Goals, use `aiwf project-map bind ...` and run
+  `aiwf project-map validate`.
+- A source rescan may refresh files/imports/exports, but must preserve curated
+  `goal_bindings`.
+
+Milestones are independent horizontal delivery slices. A Milestone references
+the Goals it verifies through `covered_goal_ids`; it is not a parent of the Goal
+Tree, does not create a second tree, and must not determine where Goal boundaries
+are drawn. A partial milestone may cover only some Goals without removing or
+hiding the rest of the capability tree.
+
+### Capability ownership vs cross-Goal relations
+
+Tree position answers **what capability contains or owns another capability**.
+It does not answer who consumes whom. A cross-cutting capability may remain a
+sibling Goal even when several other Goals use it.
+
+Use directed Goal relations for capability interaction:
+
+- `A supports B`: A provides a reusable capability, evidence, policy, or service
+  that helps B. This is advisory and does not require A to complete before B.
+- `A depends_on B`: A consumes B's output or cannot fulfill its capability
+  contract without B. The direction is always consumer → prerequisite.
+- `A blocks B`: A currently prevents B from progressing.
+- `conflicts_with` and `invalidates`: use only for explicit semantic conflicts;
+  do not use them as generic dependency labels.
+
+Examples:
+
+```text
+EVIDENCE-GRADING --[supports]--> QUERY-STRATEGY
+EVIDENCE-GRADING --[supports]--> RESULT-RERANKING
+SEARCH-AUDIT --[supports]--> VALIDATION
+ANALYSIS-FRAMEWORK --[depends_on]--> SEARCH-STRATEGY
+```
+
+If related Goals have different parents, use `aiwf relation add ... --cross`.
+Do not make a shared capability the parent of its consumers unless those
+consumer capabilities are genuinely functional parts of it. Sibling placement
+does not mean independence.
+
+Goal relations describe the product capability graph. They remain advisory for
+execution. When implementation order is real, add the corresponding Plan
+dependency separately; do not infer it automatically from the Goal relation.
+
 ### Goal-level: where in the tree?
 
 - **Existing Goal covers this?** → attach a Plan to that Goal. No new Goal needed.
@@ -96,9 +177,10 @@ Every new work enters through ONE path. Choose before creating structure.
 
 ### Path 1: Day-1 Foundation Tree — new projects, mission-level requests
 
-1. Produce Foundation Tree Proposal: root Goal, 2–5 first-level Goals, one structural Plan, interfaces, boundaries, active path, Temporary Roots.
-2. Validate: `aiwf goal-tree validate-foundation --file foundation.json`
-3. Present to user. Only after acceptance: create goals, plans, first active task.
+1. For an existing codebase, inventory already-delivered capabilities before proposing new work.
+2. Produce Foundation Tree Proposal: root Goal, 2–5 first-level capability Goals, existing and planned capability branches, one structural Plan, interfaces, boundaries, active path, Temporary Roots.
+3. Validate: `aiwf goal-tree validate-foundation --file foundation.json`
+4. Present to user. Only after acceptance: create goals, plans, first active task.
 
 ### Path 2: Semantic Admission — incremental work in an existing tree
 

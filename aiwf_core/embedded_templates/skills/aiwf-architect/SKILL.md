@@ -74,6 +74,13 @@ With reviewer signals as your starting point, verify and extend:
 
 ### 2a. Architecture drift vs PROJECT-MAP
 - Does the actual code structure match PROJECT-MAP Architecture Direction?
+- Run `aiwf project-map validate`. Do concrete leaf capability Goals have
+  current `goal_bindings` to real modules and entrypoints?
+- Compare `.aiwf/state/goals.json` capability boundaries with
+  `.aiwf/assets/project-map.json` `goal_bindings`. Unknown Goals, missing paths,
+  and modules owned by the wrong Goal are architecture drift.
+- Do not rewrite the Goal Tree around directories. Correct the binding when code
+  moved; revise the Goal Tree only when the product capability structure changed.
 - Have new modules emerged that aren't in the architecture brief?
 - Are module boundaries holding, or is coupling creeping up?
 - Cross-reference with `contract_gap` and `cross_module` observations.
@@ -140,6 +147,9 @@ periodic review. The machine record is authoritative.
 
 ### 1. Architecture drift vs PROJECT-MAP
 - Does the actual code structure match PROJECT-MAP Architecture Direction?
+- Validate the Goal-to-module index with `aiwf project-map validate`.
+- Treat stale or missing `goal_bindings` as a mapping defect, not permission to
+  convert directories into Goal nodes.
 - Have new modules emerged that aren't in the architecture brief?
 - Are module boundaries holding, or is coupling creeping up?
 

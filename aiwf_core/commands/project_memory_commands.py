@@ -121,6 +121,57 @@ def _cmd_project_map_summarize(args: argparse.Namespace) -> None:
     print(f"  Deferred risks: {s.get('deferred_risks_count', 0)}")
     print(f"  Rejected routes: {s.get('rejected_routes_count', 0)}")
 
+def _cmd_project_map_bind(args: argparse.Namespace) -> None:
+    from ..core.project_map import bind_goal_modules
+    try:
+        binding = bind_goal_modules(
+            str(Path.cwd()),
+            args.goal_id,
+            args.modules,
+            entrypoints=args.entrypoints,
+            interfaces=args.interfaces,
+            note=args.note,
+        )
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        raise SystemExit(1)
+    print(f"Bound {binding['goal_id']} to {len(binding['module_paths'])} module path(s).")
+
+def _cmd_project_map_unbind(args: argparse.Namespace) -> None:
+    from ..core.project_map import unbind_goal_modules
+    try:
+        record = unbind_goal_modules(str(Path.cwd()), args.goal_id, args.reason)
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        raise SystemExit(1)
+    print(f"Removed binding for {record['goal_id']}: {record['reason']}")
+
+def _cmd_project_map_relations(args: argparse.Namespace) -> None:
+    from ..core.project_map import list_goal_bindings
+    bindings = list_goal_bindings(str(Path.cwd()))
+    if not bindings:
+        print("Goal-to-module bindings: none")
+        return
+    print(f"Goal-to-module bindings: {len(bindings)}")
+    for binding in bindings:
+        print(f"  {binding.get('goal_id')}: {', '.join(binding.get('module_paths', []) or [])}")
+        if binding.get("entrypoints"):
+            print(f"    entrypoints: {', '.join(binding['entrypoints'])}")
+        if binding.get("interfaces"):
+            print(f"    interfaces: {', '.join(binding['interfaces'])}")
+
+def _cmd_project_map_validate(args: argparse.Namespace) -> None:
+    from ..core.project_map import validate_goal_bindings
+    result = validate_goal_bindings(str(Path.cwd()))
+    print(f"Project Map Goal bindings: {'valid' if result['valid'] else 'invalid'}")
+    print(f"  Bindings: {result.get('binding_count', 0)} / Goals: {result.get('goal_count', 0)}")
+    for warning in result.get("warnings", []):
+        print(f"  Warning: {warning}")
+    for issue in result.get("issues", []):
+        print(f"  Error: {issue}")
+    if not result["valid"]:
+        raise SystemExit(1)
+
 def _cmd_project_map_help(args: argparse.Namespace) -> None:
     """aiwf project-map — show available subcommands."""
     print("AIWF Project Map")
@@ -130,6 +181,10 @@ def _cmd_project_map_help(args: argparse.Namespace) -> None:
     print("  aiwf project-map show       — display PROJECT-MAP.md")
     print("  aiwf project-map update     — update a section")
     print("  aiwf project-map summarize  — show short summary")
+    print("  aiwf project-map bind       — bind a Goal to modules and entrypoints")
+    print("  aiwf project-map unbind     — remove a Goal binding with a reason")
+    print("  aiwf project-map relations  — show Goal-to-module bindings")
+    print("  aiwf project-map validate   — validate bindings against Goal Tree and files")
 
 def _cmd_rule_add(args: argparse.Namespace) -> None:
     from ..core.project_rules import add_project_rule

@@ -96,6 +96,24 @@ aiwf goal-tree prune <ID> --reason '...'
 aiwf goal-tree validate        — check tree integrity (cycles, orphans)
 ```
 
+### Goal relations (capability graph)
+```
+# Provider → consumer; advisory support, not an execution gate
+aiwf relation add GOAL-EVIDENCE-GRADING GOAL-QUERY-STRATEGY supports \
+  --cross --reason 'query strategy consumes graded evidence'
+
+# Consumer → prerequisite; functional dependency, still advisory for execution
+aiwf relation add GOAL-ANALYSIS-FRAMEWORK GOAL-SEARCH-STRATEGY depends_on \
+  --cross --reason 'analysis consumes search strategy output'
+
+aiwf relation show GOAL-ANALYSIS-FRAMEWORK
+```
+
+Tree parent/child means capability containment. Goal relations mean cross-Goal
+consumption, support, conflict, or dependency. A horizontal capability can stay
+as a sibling Goal and support several consumers. If execution order must be
+enforced, create a Plan dependency separately.
+
 ### Mission (why)
 ```
 aiwf mission show
@@ -148,17 +166,32 @@ aiwf milestone close <ID>
 
 ```
 Mission ("why this project exists")
-  └── Milestones ("delivery checkpoints — horizontal cuts across Goals")
-       └── Goal Tree ("functional skeleton — recursive Goals")
-            └── Plan ("procedural scaffold — how to achieve a Goal")
-                 └── Task ("execution unit")
+├── Goal Tree ("complete capability structure — recursive Goals")
+│    └── Plan ("procedural scaffold — how to achieve a Goal")
+│         └── Task ("execution unit")
+└── Milestones ("horizontal delivery slices referencing covered Goals")
 ```
 
 - **Mission**: semantic anchor, no hard gates. Defines statement + boundaries. Injected into Context on start.
-- **Milestone**: horizontal delivery checkpoint. Has a mechanical verdict gate (PASS/PASS_WITH_RISK/REVISE/REJECT). Covers specific Goals.
-- **Goal**: functional skeleton node. Can be grafted, pruned, nested. The tree's operation unit.
+- **Goal**: first-class product/system capability, including capabilities that existed before AIWF was installed. Can be grafted, pruned, nested. The tree's operation unit.
+- **Milestone**: independent horizontal delivery checkpoint. Has a mechanical verdict gate (PASS/PASS_WITH_RISK/REVISE/REJECT). It references specific Goals through `covered_goal_ids`; it does not own the Goal Tree or define Goal boundaries.
 - **Plan**: how a Goal is achieved. Has `plan_kind`, `work_intent`, `interfaces`, `constraints`. Must be explicitly activated.
 - **Task**: execution unit. Inherits scope from its Plan and moves through the state machine.
+
+Goal Tree rules:
+
+- Model the complete capability structure, not only the next milestone or the
+  work that remains.
+- Inventory existing behavior and represent already-delivered capabilities as
+  Goals before adding new capability branches.
+- Do not use file paths, directory names, implementation phases, or milestone
+  slices as Goal identities.
+- Put paths in `module_boundaries`, Plan scope, interfaces, and Context instead.
+- Record durable Goal-to-code ownership with
+  `aiwf project-map bind <GOAL-ID> --module <PATH> [--entrypoint <PATH>]`.
+- Run `aiwf project-map validate` after Goal Tree or module-boundary changes.
+- `goals.json` owns capability identity; `.aiwf/assets/project-map.json`
+  `goal_bindings` owns curated capability-to-module mapping.
 
 ## Phase gates
 
@@ -186,7 +219,7 @@ Common blockers and fixes:
 | `cleanup` not verified | `aiwf cleanup check && aiwf state mark-cleanup-fresh` |
 | `review.verdict` pending | `aiwf state record-review --verdict PASS ...` |
 | `goal.graft_interface` missing (L2+) | `aiwf goal-tree graft <ID> --target <PARENT> --interface-consumed '...' --capability-provided '...'` |
-| `relation.reason` missing (L2+) | `aiwf relation add <A> <B> --type <T> --cross --reason '...'` |
+| `relation.reason` missing (L2+) | `aiwf relation add <A> <B> <TYPE> --cross --reason '...'` |
 
 ## Mechanical truth
 

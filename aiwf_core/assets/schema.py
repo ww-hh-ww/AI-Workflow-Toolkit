@@ -156,6 +156,14 @@ def init_assets(root_dir: str) -> Dict[str, Any]:
     root = Path(root_dir)
     asset_dir = root / ASSET_DIR
     asset_dir.mkdir(parents=True, exist_ok=True)
+    existing_bindings = []
+    existing_pm_path = asset_dir / "project-map.json"
+    if existing_pm_path.exists():
+        try:
+            existing_pm = json.loads(existing_pm_path.read_text(encoding="utf-8"))
+            existing_bindings = existing_pm.get("goal_bindings", []) or []
+        except Exception:
+            existing_bindings = []
 
     all_files = _scan_files(root)
     source_files = [f for f in all_files if _module_role(f) != "test"]
@@ -170,6 +178,12 @@ def init_assets(root_dir: str) -> Dict[str, Any]:
 
     pm["modules"] = []
     pm["dependency_edges"] = []
+    # Tier 2: Planner-curated capability-to-code ownership. Asset rescans must
+    # refresh mechanical fields without erasing semantic Goal bindings.
+    pm["goal_bindings"] = existing_bindings
+    pm["_asset"]["tier2_curated_fields"] = [
+        "goal_bindings", "conventions", "strategy", "architecture_notes",
+    ]
     imports_map = {}
 
     for sf in source_files:
