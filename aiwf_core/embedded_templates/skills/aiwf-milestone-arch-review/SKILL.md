@@ -68,10 +68,23 @@ You are looking for STRUCTURAL mismatches between reality and intent.
 aiwf milestone arch-review <MILESTONE-ID> \
   --status intact|issues_found \
   --interface "<GOAL-A>→<GOAL-B>" \
-  --issue "Undeclared coupling: <GOAL-A> calls <GOAL-C> but no relation declared" \
+  --issue "HIGH:::Undeclared coupling: <GOAL-A> calls <GOAL-C> but no relation declared" \
   --notes "<summary>"
 ```
 
 - No structural mismatches → status=intact
 - Any broken dependency, violated invariant, or intent gap → status=issues_found
-- Undeclared couplings are advisory (--issue), not blockers — Planner decides
+- Every issue must be classified `CRITICAL|HIGH|MEDIUM|LOW`.
+- `status=intact` with any issue is rejected as contradictory.
+- `issues_found` mechanically blocks milestone close.
+- A broken main path, failed authentication/authorization, unusable entrypoint,
+  violated security invariant, or disconnected required integration is CRITICAL.
+  It must return to Planner/fix-loop, be repaired, re-tested, and re-reviewed.
+- CRITICAL/HIGH findings may not be deferred as `PASS_WITH_RISK`.
+- Recording `issues_found` automatically invalidates the milestone synthesis to
+  `REVISE` and keeps/reopens the milestone as active.
+- After fixes, rerun milestone integration first, then rerun architecture review:
+  `--status intact --resolution "<what changed and why the issue is resolved>"`
+  plus `--resolution-evidence-id` when evidence exists.
+- The previous issues remain in review history, and the milestone must be
+  assessed again as PASS/PASS_WITH_RISK before close.

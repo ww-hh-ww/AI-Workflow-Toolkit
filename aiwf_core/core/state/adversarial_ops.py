@@ -16,7 +16,7 @@ def disposition_adversarial_observation(
     disposed_by: str = "planner",
 ) -> Dict[str, Any]:
     """Update disposition on a single adversarial observation. Prefer this over direct edit."""
-    valid_dispositions = {"ignored", "accepted", "deferred", "brief_updated"}
+    valid_dispositions = {"ignored", "accepted", "deferred", "brief_updated", "resolved"}
     if disposition not in valid_dispositions:
         raise ValueError(f"invalid disposition: {disposition}. Valid: {', '.join(sorted(valid_dispositions))}")
     if not reason or not reason.strip():
@@ -30,6 +30,8 @@ def disposition_adversarial_observation(
     found = False
     for obs in obs_list:
         if isinstance(obs, dict) and obs.get("id") == adv_id:
+            if obs.get("severity") in ("critical", "high") and disposition != "resolved":
+                raise ValueError("CRITICAL/HIGH observations can only be dispositioned as resolved")
             obs["disposition"] = disposition
             obs["disposition_reason"] = reason.strip()
             obs["disposed_by"] = disposed_by
@@ -40,4 +42,3 @@ def disposition_adversarial_observation(
     review["adversarial_observations"] = obs_list
     _write(review_path, review)
     return {"id": adv_id, "disposition": disposition, "found": True}
-

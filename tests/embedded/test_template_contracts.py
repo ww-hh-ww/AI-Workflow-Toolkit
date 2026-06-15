@@ -268,6 +268,16 @@ class TestTemplateContracts(unittest.TestCase):
         self.assertIn("Several unlocked Plans may be ready simultaneously", execute)
         self.assertIn("Goal `depends_on` relations are advisory", execute)
 
+    def test_milestone_skills_require_reverse_trace_and_rework_blockers(self):
+        integration = self._read_skill("aiwf-milestone-integration")
+        architecture = self._read_skill("aiwf-milestone-arch-review")
+        self.assertIn("reverse call-site audit", integration)
+        self.assertIn("function_reverse_trace", integration)
+        self.assertIn("A prose summary cannot satisfy the gate", integration)
+        self.assertIn("CRITICAL|HIGH|MEDIUM|LOW", architecture)
+        self.assertIn("mechanically blocks milestone close", architecture)
+        self.assertIn("may not be deferred as `PASS_WITH_RISK`", architecture)
+
 
 if __name__ == "__main__":
     unittest.main()

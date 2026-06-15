@@ -38,6 +38,16 @@ def quality_verdict_blockers(review: Dict[str, Any]) -> List[str]:
 
     if result == "accepted" and review.get("root_cause") == "symptom_only":
         blockers.append("review root_cause is symptom_only; accepted review cannot close")
+    unresolved_high = [
+        obs for obs in (review.get("adversarial_observations", []) or [])
+        if isinstance(obs, dict)
+        and obs.get("severity") in ("critical", "high")
+        and obs.get("disposition") != "resolved"
+    ]
+    if unresolved_high:
+        blockers.append(
+            f"review has {len(unresolved_high)} unresolved CRITICAL/HIGH adversarial observation(s)"
+        )
 
     if verdict in ("", "pending"):
         return blockers

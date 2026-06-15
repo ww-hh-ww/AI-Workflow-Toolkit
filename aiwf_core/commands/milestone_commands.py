@@ -137,14 +137,42 @@ def _cmd_milestone_integration_test(args: argparse.Namespace) -> None:
         for c in args.command:
             cmd, _, out = c.partition(":::")
             commands.append({"command": cmd.strip(), "output_summary": out.strip()})
-    result = record_milestone_integration(
-        str(Path.cwd()),
-        args.milestone_id,
-        status=args.status,
-        commands=commands or None,
-        summary=args.summary or "",
-        failed_points=args.failed_point or None,
-    )
+    function_traces = []
+    for item in args.function_trace or []:
+        parts = item.split("::", 4)
+        if len(parts) < 4:
+            print(
+                "Integration test blocked: --function-trace requires "
+                "FILE::FUNCTION::CALLERS::STATUS[::REASON]",
+                file=sys.stderr,
+            )
+            raise SystemExit(1)
+        file_path, function, callers, status = (part.strip() for part in parts[:4])
+        reason = parts[4].strip() if len(parts) > 4 else ""
+        function_traces.append({
+            "file": file_path,
+            "function": function,
+            "callers": [c.strip() for c in callers.split(",") if c.strip()],
+            "status": status,
+            "reason": reason,
+        })
+    try:
+        result = record_milestone_integration(
+            str(Path.cwd()),
+            args.milestone_id,
+            status=args.status,
+            commands=commands or None,
+            summary=args.summary or "",
+            failed_points=args.failed_point or None,
+            coverage_mode=args.coverage_mode or "",
+            main_path_status=args.main_path_status or "",
+            source_files=args.source_file or None,
+            accounted_files=args.accounted_file or None,
+            function_traces=function_traces or None,
+        )
+    except ValueError as e:
+        print(f"Integration test blocked: {e}", file=sys.stderr)
+        raise SystemExit(1)
     print(f"Integration test recorded: {args.milestone_id} status={args.status}")
 
 def _cmd_milestone_arch_review(args: argparse.Namespace) -> None:
@@ -156,14 +184,34 @@ def _cmd_milestone_arch_review(args: argparse.Namespace) -> None:
             from_g = parts[0].strip() if parts else ""
             to_g = parts[1].strip() if len(parts) > 1 else ""
             iface.append({"from_goal": from_g, "to_goal": to_g, "status": "intact"})
-    result = record_milestone_arch_review(
-        str(Path.cwd()),
-        args.milestone_id,
-        status=args.status,
-        interface_integrity=iface or None,
-        cross_goal_issues=args.issue or None,
-        notes=args.notes or "",
-    )
+    issues = []
+    for item in args.issue or []:
+        severity, sep, description = item.partition(":::")
+        if not sep:
+            print(
+                "Architecture review blocked: --issue requires SEVERITY:::DESCRIPTION",
+                file=sys.stderr,
+            )
+            raise SystemExit(1)
+        issues.append({
+            "severity": severity.strip().lower(),
+            "description": description.strip(),
+            "disposition": "open",
+        })
+    try:
+        result = record_milestone_arch_review(
+            str(Path.cwd()),
+            args.milestone_id,
+            status=args.status,
+            interface_integrity=iface or None,
+            cross_goal_issues=issues or None,
+            notes=args.notes or "",
+            resolution=args.resolution or "",
+            resolution_evidence_ids=args.resolution_evidence_id or None,
+        )
+    except ValueError as e:
+        print(f"Architecture review blocked: {e}", file=sys.stderr)
+        raise SystemExit(1)
     print(f"Architecture review recorded: {args.milestone_id} status={args.status}")
 
 def _cmd_milestone_help(args: argparse.Namespace) -> None:

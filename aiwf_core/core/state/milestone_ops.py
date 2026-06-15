@@ -99,12 +99,18 @@ def _empty_milestone(
             "commands": [],             # [{command, output_summary, exit_code}]
             "summary": "",
             "failed_integration_points": [],
+            "coverage_mode": "",
+            "main_path_status": "not_run",
+            "source_files": [],
+            "accounted_files": [],
+            "function_traces": [],
         },
         "architecture_review": {
             "status": "not_run",        # not_run | intact | issues_found
             "interface_integrity": [],  # [{from_goal, to_goal, status: intact|broken}]
-            "cross_goal_issues": [],
+            "cross_goal_issues": [],     # [{severity, description, disposition}]
             "notes": "",
+            "review_history": [],
         },
         "snapshot": {
             "goals": {},                # {goal_id: {status, plan_count, task_count}}
@@ -374,22 +380,74 @@ def record_milestone_integration(
     commands: Optional[List[Dict[str, Any]]] = None,
     summary: str = "",
     failed_points: Optional[List[str]] = None,
+    coverage_mode: str = "",
+    main_path_status: str = "",
+    source_files: Optional[List[str]] = None,
+    accounted_files: Optional[List[str]] = None,
+    function_traces: Optional[List[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     """Record milestone-level integration test results."""
     if status not in ("passed", "failed"):
         raise ValueError(f"invalid integration status: {status}")
+    if coverage_mode and coverage_mode not in ("function_reverse_trace",):
+        raise ValueError(f"invalid integration coverage_mode: {coverage_mode}")
+    if main_path_status and main_path_status not in ("passed", "failed", "not_run"):
+        raise ValueError(f"invalid main_path_status: {main_path_status}")
+    traces = list(function_traces or [])
+    valid_trace_statuses = {"entrypoint", "connected", "intentionally_unused", "untraced", "disconnected"}
+    for trace in traces:
+        trace_status = str(trace.get("status") or "")
+        if trace_status not in valid_trace_statuses:
+            raise ValueError(f"invalid function trace status: {trace_status}")
+        if trace_status == "intentionally_unused" and not str(trace.get("reason") or "").strip():
+            raise ValueError("intentionally_unused function trace requires a reason")
+    if status == "passed":
+        missing = []
+        if coverage_mode != "function_reverse_trace":
+            missing.append("coverage_mode=function_reverse_trace")
+        if main_path_status != "passed":
+            missing.append("main_path_status=passed")
+        if not source_files:
+            missing.append("source_files")
+        if not traces:
+            missing.append("function_traces")
+        if missing:
+            raise ValueError(
+                "passed milestone integration requires exhaustive reverse trace: "
+                + ", ".join(missing)
+            )
+        unresolved = [
+            f"{t.get('file')}::{t.get('function')}"
+            for t in traces if t.get("status") in ("untraced", "disconnected")
+        ]
+        if unresolved:
+            raise ValueError(
+                "passed milestone integration has unresolved function traces: "
+                + ", ".join(unresolved[:10])
+            )
+        traced_files = {str(t.get("file") or "") for t in traces}
+        covered_files = traced_files | set(accounted_files or [])
+        missing_files = [path for path in source_files or [] if path not in covered_files]
+        if missing_files:
+            raise ValueError(
+                "passed milestone integration has unaccounted source files: "
+                + ", ".join(missing_files[:10])
+            )
     data = load_milestones(base_dir)
     milestone = _find_milestone(data, milestone_id)
     if not milestone:
         raise ValueError(f"milestone not found: {milestone_id}")
     it = milestone.setdefault("integration_test", {})
     it["status"] = status
-    if commands:
-        it["commands"] = commands
-    if summary:
-        it["summary"] = summary
-    if failed_points:
-        it["failed_integration_points"] = failed_points
+    it["commands"] = list(commands or [])
+    it["summary"] = summary
+    it["failed_integration_points"] = _unique(failed_points or [])
+    it["coverage_mode"] = coverage_mode
+    it["main_path_status"] = main_path_status or "not_run"
+    it["source_files"] = _unique(source_files or [])
+    it["accounted_files"] = _unique(accounted_files or [])
+    it["function_traces"] = traces
+    it["recorded_at"] = _now()
     milestone["updated_at"] = _now()
     save_milestones(base_dir, data)
     return {"recorded": True, "milestone_id": milestone_id, "integration_test": it}
@@ -400,24 +458,82 @@ def record_milestone_arch_review(
     milestone_id: str,
     status: str,
     interface_integrity: Optional[List[Dict[str, Any]]] = None,
-    cross_goal_issues: Optional[List[str]] = None,
+    cross_goal_issues: Optional[List[Any]] = None,
     notes: str = "",
+    resolution: str = "",
+    resolution_evidence_ids: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """Record milestone-level architecture review — cross-Goal interface integrity."""
     if status not in ("intact", "issues_found"):
         raise ValueError(f"invalid arch review status: {status}")
+    issues = []
+    valid_severities = {"critical", "high", "medium", "low"}
+    for raw_issue in cross_goal_issues or []:
+        issue = dict(raw_issue) if isinstance(raw_issue, dict) else {
+            "severity": "high",
+            "description": str(raw_issue),
+            "disposition": "open",
+        }
+        issue["severity"] = str(issue.get("severity") or "").lower()
+        issue["description"] = str(issue.get("description") or "").strip()
+        issue["disposition"] = str(issue.get("disposition") or "open")
+        if issue["severity"] not in valid_severities:
+            raise ValueError(f"invalid architecture issue severity: {issue['severity']}")
+        if not issue["description"]:
+            raise ValueError("architecture issue description is required")
+        issues.append(issue)
+    if status == "intact" and issues:
+        raise ValueError("architecture review cannot be intact while issues are recorded")
+    if status == "issues_found" and not issues:
+        raise ValueError("issues_found architecture review requires at least one issue")
     data = load_milestones(base_dir)
     milestone = _find_milestone(data, milestone_id)
     if not milestone:
         raise ValueError(f"milestone not found: {milestone_id}")
     ar = milestone.setdefault("architecture_review", {})
+    previous_status = str(ar.get("status") or "not_run")
+    previous_recorded_at = str(ar.get("recorded_at") or "")
+    if previous_status == "issues_found" and status == "intact":
+        if not resolution.strip():
+            raise ValueError(
+                "architecture issues require a resolution summary before review can become intact"
+            )
+        integration_recorded_at = str(
+            (milestone.get("integration_test", {}) or {}).get("recorded_at") or ""
+        )
+        if not integration_recorded_at or integration_recorded_at <= previous_recorded_at:
+            raise ValueError(
+                "architecture issues require milestone integration to be rerun after the finding"
+            )
+    history = ar.setdefault("review_history", [])
+    if ar.get("status") and ar.get("status") != "not_run":
+        history.append({
+            "status": ar.get("status"),
+            "interface_integrity": list(ar.get("interface_integrity", []) or []),
+            "cross_goal_issues": list(ar.get("cross_goal_issues", []) or []),
+            "notes": ar.get("notes", ""),
+            "recorded_at": ar.get("recorded_at", ""),
+        })
     ar["status"] = status
-    if interface_integrity:
-        ar["interface_integrity"] = interface_integrity
-    if cross_goal_issues:
-        ar["cross_goal_issues"] = cross_goal_issues
-    if notes:
-        ar["notes"] = notes
+    ar["interface_integrity"] = list(interface_integrity or [])
+    ar["cross_goal_issues"] = issues
+    ar["notes"] = notes
+    ar["resolution"] = resolution.strip()
+    ar["resolution_evidence_ids"] = _unique(resolution_evidence_ids or [])
+    ar["recorded_at"] = _now()
+    if status == "issues_found":
+        milestone["status"] = "active"
+        synthesis = milestone.setdefault(
+            "stage_synthesis", _empty_milestone(milestone_id)["stage_synthesis"]
+        )
+        synthesis["status"] = "completed"
+        synthesis["verdict"] = "REVISE"
+        synthesis["summary"] = "Architecture review found unresolved milestone issues."
+        synthesis["open_gaps"] = _unique([
+            *list(synthesis.get("open_gaps", []) or []),
+            *[issue["description"] for issue in issues],
+        ])
+        synthesis["recorded_at"] = _now()
     milestone["updated_at"] = _now()
     save_milestones(base_dir, data)
     return {"recorded": True, "milestone_id": milestone_id, "architecture_review": ar}
@@ -539,10 +655,38 @@ def check_milestone_readiness(base_dir: str, milestone_id: str) -> List[str]:
             "Run cross-Goal integration tests covering all covered_goals' "
             "integration_points, then: aiwf milestone integration-test <ID> --status passed"
         )
+    else:
+        if it.get("coverage_mode") != "function_reverse_trace":
+            blockers.append("milestone integration coverage is not a function-level reverse trace")
+        if it.get("main_path_status") != "passed":
+            blockers.append("milestone main path is not verified as passed")
+        traces = it.get("function_traces", []) or []
+        if not traces:
+            blockers.append("milestone integration has no function trace inventory")
+        unresolved = [
+            f"{t.get('file')}::{t.get('function')}"
+            for t in traces if t.get("status") in ("untraced", "disconnected")
+        ]
+        if unresolved:
+            blockers.append(
+                "milestone integration has unresolved function traces: "
+                + ", ".join(unresolved[:10])
+            )
 
     # Architecture review: must verify cross-Goal interface integrity.
     ar = milestone.get("architecture_review", {}) or {}
-    if ar.get("status") not in ("intact",):
+    if ar.get("status") == "issues_found":
+        issues = ar.get("cross_goal_issues", []) or []
+        labels = [
+            f"{str(issue.get('severity') or 'high').upper()}: {issue.get('description', '')}"
+            if isinstance(issue, dict) else str(issue)
+            for issue in issues
+        ]
+        blockers.append(
+            "milestone architecture review has unresolved issues; fix and rerun review: "
+            + "; ".join(labels[:5])
+        )
+    elif ar.get("status") != "intact":
         blockers.append(
             "milestone architecture review not done. "
             "Verify cross-Goal interface integrity, then: aiwf milestone arch-review <ID> --status intact"

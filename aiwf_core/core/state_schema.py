@@ -359,6 +359,10 @@ def default_review() -> Dict[str, Any]:
         "negative_patterns": [],
         "followups": [],
         "reviewer_evidence_id": "",
+        "recorded_at": "",
+        "resolution": "",
+        "resolution_evidence_ids": [],
+        "review_history": [],
         # V2 quality dimensions — reviewer scores each axis
         "quality_dimensions": {
             "requirement_fit": {"score": "unscored", "note": ""},
@@ -391,7 +395,9 @@ REVIEW_KEYS = {
     "repeated_change_hotspots", "adversarial_observations",
     "scope_violation_events",
     "lessons", "negative_patterns", "followups",
-    "reviewer_evidence_id", "quality_dimensions", "review_basis",
+    "reviewer_evidence_id", "recorded_at", "resolution",
+    "resolution_evidence_ids", "review_history",
+    "quality_dimensions", "review_basis",
 }
 
 VALID_REVIEW_VERDICTS = {"pending", "PASS", "PASS_WITH_RISK", "REVISE", "REJECT"}
@@ -402,6 +408,20 @@ VALID_REVIEW_RESULTS = {"unknown", "accepted", "needs_fix", "needs_more_testing"
 
 VALID_DIMENSION_SCORES = {"unscored", "PASS", "RISK", "FAIL"}
 VALID_BASIS_STATUSES = {"missing", "covered", "gap", "not_applicable"}
+
+
+def default_architecture_review() -> Dict[str, Any]:
+    return {
+        "status": "not_run",
+        "task_id": "",
+        "issues": [],
+        "summary": "",
+        "recorded_at": "",
+        "resolution": "",
+        "resolution_evidence_ids": [],
+        "resolved_task_ids": [],
+        "review_history": [],
+    }
 
 QUALITY_DIMENSIONS = [
     "requirement_fit",
@@ -525,5 +545,6 @@ MVP_STATE_FILES = {
     "artifacts/evidence/records.json": default_evidence,
     "artifacts/quality/testing.json": default_testing,
     "artifacts/quality/review.json": default_review,
+    "artifacts/quality/architecture-review.json": default_architecture_review,
     "state/fix-loop.json": default_fix_loop,
 }

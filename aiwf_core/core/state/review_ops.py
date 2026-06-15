@@ -28,6 +28,8 @@ def record_review(
     cleanup_code: str = "",
     docs_checked: str = "",
     root_cause: str = "",
+    resolution: str = "",
+    resolution_evidence_ids: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """Write review.json through a command and append reviewer role evidence.
 
@@ -56,6 +58,45 @@ def record_review(
     review_path = base / ".aiwf" / "artifacts" / "quality" / "review.json"
     state = _read(base / ".aiwf" / "state" / "state.json")
     review = _read(review_path)
+    previous = json.loads(json.dumps(review))
+    previous_verdict = str(previous.get("verdict", "") or "")
+    now = datetime.now(timezone.utc).isoformat()
+
+    if previous_verdict in ("REVISE", "REJECT") and verdict in ("PASS", "PASS_WITH_RISK"):
+        if not resolution.strip():
+            raise ValueError("clearing a prior REVISE/REJECT review requires --resolution")
+        testing = _read(base / ".aiwf" / "artifacts" / "quality" / "testing.json")
+        previous_at = str(previous.get("recorded_at", "") or "")
+        testing_at = str(testing.get("recorded_at", "") or "")
+        if not testing_at or (previous_at and testing_at <= previous_at):
+            raise ValueError("review blockers require testing to be rerun after the blocking review")
+        if not resolution_evidence_ids:
+            raise ValueError("clearing review blockers requires --resolution-evidence-id")
+        evidence = _read(base / ".aiwf" / "artifacts" / "evidence" / "records.json")
+        known_evidence = {
+            str(record.get("id", ""))
+            for record in evidence.get("records", [])
+            if isinstance(record, dict)
+        }
+        missing_evidence = [
+            evidence_id for evidence_id in resolution_evidence_ids
+            if evidence_id not in known_evidence
+        ]
+        if missing_evidence:
+            raise ValueError(
+                "review resolution evidence IDs not found: " + ", ".join(missing_evidence)
+            )
+
+    blocking_observations = [
+        obs for obs in (adversarial_observations or [])
+        if isinstance(obs, dict) and obs.get("severity") in ("critical", "high")
+    ]
+    if verdict in ("PASS", "PASS_WITH_RISK") and blocking_observations:
+        raise ValueError("CRITICAL/HIGH adversarial observations cannot pass; use REVISE or REJECT")
+
+    history = list(review.get("review_history", []) or [])
+    if review.get("recorded_at"):
+        history.append({k: v for k, v in previous.items() if k != "review_history"})
 
     review["verdict"] = verdict or "pending"
     review["result"] = result
@@ -63,6 +104,10 @@ def record_review(
     review["accepted_evidence_ids"] = list(accepted_evidence_ids or [])
     review["rejected_evidence_ids"] = list(rejected_evidence_ids or [])
     review["blockers"] = list(blockers or [])
+    review["recorded_at"] = now
+    review["resolution"] = resolution.strip()
+    review["resolution_evidence_ids"] = list(resolution_evidence_ids or [])
+    review["review_history"] = history
 
     # V2 quality dimensions
     if quality_dimensions:

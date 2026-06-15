@@ -108,6 +108,34 @@ With reviewer signals as your starting point, verify and extend:
 - Testing patterns: are tests keeping pace with implementation?
 - Naming/structural conventions: are they holding?
 
+## Machine Outcome
+
+Record the machine outcome before closing the `ARCH-*` review task:
+
+```bash
+aiwf state record-architecture-review \
+  --task-id ARCH-010 \
+  --status issues_found \
+  --issue "critical:::production authentication path is disconnected" \
+  --summary "Periodic architecture review found a broken main path"
+```
+
+Use `--status intact` only when no issues remain. If a prior review found
+issues, create explicit `ARCH-FIX-*` remediation tasks. Ordinary tasks remain
+blocked. After those tasks close, rerun an `ARCH-*` review and record:
+
+```bash
+aiwf state record-architecture-review \
+  --task-id ARCH-011 \
+  --status intact \
+  --resolution "authentication boundary repaired and regression-tested" \
+  --resolved-task-id ARCH-FIX-001 \
+  --resolution-evidence-id EV-ARCH-FIX
+```
+
+Closing a task whose name starts with `ARCH-` does not by itself satisfy the
+periodic review. The machine record is authoritative.
+
 ## Output
 
 ### 1. Architecture drift vs PROJECT-MAP

@@ -256,7 +256,16 @@ def _quality_activation_blockers(base_dir: str, task: Dict[str, Any]) -> List[st
 def _is_architecture_review_task(task: Dict[str, Any]) -> bool:
     task_id = str(task.get("id", "") or "")
     title = str(task.get("title", "") or "").strip().lower()
-    return task_id.startswith("ARCH-") or title.startswith("[architect]")
+    return (
+        (task_id.startswith("ARCH-") and not task_id.startswith("ARCH-FIX-"))
+        or title.startswith("[architect]")
+    )
+
+
+def _is_architecture_remediation_task(task: Dict[str, Any]) -> bool:
+    task_id = str(task.get("id", "") or "").upper()
+    title = str(task.get("title", "") or "").lower()
+    return task_id.startswith("ARCH-FIX-") or title.startswith("[architecture fix]")
 
 
 def _mechanical_routing_factors(base_dir: str, task: Dict[str, Any]) -> Dict[str, bool]:
@@ -481,8 +490,23 @@ def _user_confirmation_blockers(base_dir: str) -> List[str]:
 
 def _periodic_architecture_blockers(base_dir: str, task: Dict[str, Any]) -> List[str]:
     """Block ordinary task activation while a periodic architecture review is due."""
-    if _is_architecture_review_task(task):
+    if _is_architecture_review_task(task) or _is_architecture_remediation_task(task):
         return []
+    architecture_review = _read(
+        Path(base_dir) / ".aiwf" / "artifacts" / "quality" / "architecture-review.json",
+        {},
+    )
+    if architecture_review.get("status") == "issues_found":
+        issues = architecture_review.get("issues", []) or []
+        labels = ", ".join(
+            str(issue.get("severity", "")).upper()
+            for issue in issues[:3] if isinstance(issue, dict)
+        )
+        return [
+            "[gravity] periodic architecture review has unresolved issues"
+            + (f": {labels}" if labels else "")
+            + "; activate an ARCH-FIX-* task, then rerun an ARCH-* review"
+        ]
     from .task_gravity import should_trigger_architecture_review
     trigger = should_trigger_architecture_review(base_dir)
     if not trigger.get("should_trigger"):
@@ -1021,6 +1045,17 @@ def active_task_completion_blockers(base_dir: str) -> List[str]:
     if not task:
         return [f"active task is missing from task ledger: {task_id}"]
     blockers = _mode_completion_blockers(base_dir, task) + _l2_l3_completion_blockers(base_dir, task)
+    if _is_architecture_review_task(task):
+        architecture_review = _read(
+            Path(base_dir) / ".aiwf" / "artifacts" / "quality" / "architecture-review.json",
+            {},
+        )
+        if architecture_review.get("task_id") != task_id or architecture_review.get("status") not in (
+            "intact", "issues_found"
+        ):
+            blockers.append(
+                "ARCH-* review task requires aiwf state record-architecture-review before close"
+            )
     blockers.extend(_claim_evidence_blockers(base_dir, task_id))
     return blockers
 

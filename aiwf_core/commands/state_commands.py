@@ -311,15 +311,34 @@ def _cmd_record_review(args: argparse.Namespace) -> None:
             raise SystemExit(1)
 
     observations = []
-    for idx, msg in enumerate(args.adversarial_observations or [], start=1):
+    valid_observation_severities = {"critical", "high", "warn", "low"}
+    for idx, raw in enumerate(args.adversarial_observations or [], start=1):
+        parts = raw.split(":::", 2)
+        if len(parts) == 3:
+            severity, kind, msg = (part.strip() for part in parts)
+            severity = severity.lower()
+            if severity not in valid_observation_severities:
+                print(f"Review record blocked: invalid adversarial severity: {severity}", file=sys.stderr)
+                raise SystemExit(1)
+        else:
+            severity, kind, msg = "warn", "review_observation", raw.strip()
         observations.append({
             "id": f"ADV-{idx:03d}",
-            "severity": "warn",
-            "kind": "review_observation",
+            "severity": severity,
+            "kind": kind or "review_observation",
             "message": msg,
             "suggestion": "",
             "disposition": "pending",
         })
+    blocking_observations = [
+        o for o in observations if o.get("severity") in ("critical", "high")
+    ]
+    if verdict in ("PASS", "PASS_WITH_RISK") and blocking_observations:
+        print(
+            "Review record blocked: CRITICAL/HIGH observations require REVISE or REJECT and rework.",
+            file=sys.stderr,
+        )
+        raise SystemExit(1)
     # V2 quality dimensions
     dims = {}
     dim_scores = getattr(args, "dimension_scores", None) or []
@@ -510,6 +529,8 @@ def _cmd_record_review(args: argparse.Namespace) -> None:
             cleanup_code=getattr(args, "cleanup_code", "") or "",
             docs_checked=getattr(args, "docs_checked", "") or "",
             root_cause=getattr(args, "root_cause", "") or "",
+            resolution=getattr(args, "resolution", "") or "",
+            resolution_evidence_ids=getattr(args, "resolution_evidence_ids", None) or None,
         )
     except ValueError as e:
         print(f"Review record blocked: {e}", file=sys.stderr)
@@ -686,6 +707,34 @@ def _cmd_record_meta_critique(args: argparse.Namespace) -> None:
     from ..core.state_ops import record_meta_critique
     record_meta_critique(str(Path.cwd()), args.summary, recorded_by="planner")
     print("Planner meta-critique recorded.")
+
+
+def _cmd_record_architecture_review(args: argparse.Namespace) -> None:
+    from ..core.state_ops import record_architecture_review
+    issues = []
+    for raw in args.issue or []:
+        parts = raw.split(":::", 1)
+        if len(parts) != 2:
+            print("Architecture review blocked: --issue requires SEVERITY:::DESCRIPTION", file=sys.stderr)
+            raise SystemExit(1)
+        issues.append({"severity": parts[0].strip(), "description": parts[1].strip()})
+    try:
+        result = record_architecture_review(
+            str(Path.cwd()),
+            task_id=args.task_id,
+            status=args.status,
+            issues=issues,
+            summary=args.summary or "",
+            resolution=args.resolution or "",
+            resolution_evidence_ids=args.resolution_evidence_ids or None,
+            resolved_task_ids=args.resolved_task_ids or None,
+        )
+    except ValueError as exc:
+        print(f"Architecture review blocked: {exc}", file=sys.stderr)
+        raise SystemExit(1)
+    print(f"Periodic architecture review recorded: {result['status']}")
+    if result["issues"]:
+        print(f"  Open issues: {len(result['issues'])}")
 
 
 def _cmd_set_workflow_mode(args: argparse.Namespace) -> None:

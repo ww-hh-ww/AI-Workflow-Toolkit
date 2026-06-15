@@ -470,16 +470,24 @@ def should_trigger_architecture_review(base_dir: str) -> Dict[str, Any]:
     if expansion:
         reasons.append(f"surface expansion: {expansion['message'][:100]}")
 
-    # ── Check if recently done (within last 5 closed tasks) ──
-    # Avoid triggering every prompt once conditions are met
-    last_architect_task = None
-    for t in reversed(tasks):
-        if t.get("title", "").lower().startswith("[architect]") or t.get("id", "").startswith("ARCH-"):
-            last_architect_task = t
-            break
+    # ── Check if a machine-recorded intact review was recently completed ──
+    # Closing an ARCH-* task by name is not enough: findings must be recorded.
+    architecture_review = _read(
+        root / ".aiwf" / "artifacts" / "quality" / "architecture-review.json",
+        {},
+    )
+    review_task_id = architecture_review.get("task_id", "")
+    last_architect_task = next(
+        (t for t in reversed(tasks) if t.get("id") == review_task_id),
+        None,
+    )
 
     recently_done = False
-    if last_architect_task and len(tasks) > 0:
+    if (
+        architecture_review.get("status") == "intact"
+        and last_architect_task
+        and len(tasks) > 0
+    ):
         last_idx = tasks.index(last_architect_task) if last_architect_task in tasks else -1
         if last_idx >= 0 and (len(tasks) - last_idx) < (cadence // 2):
             recently_done = True

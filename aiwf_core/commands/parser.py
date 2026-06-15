@@ -54,7 +54,8 @@ from .research_commands import (
 from .state_commands import (
     _cmd_cleanup_check, _cmd_disposition_adversarial, _cmd_mark_cleanup_fresh,
     _cmd_mark_cleanup_stale, _cmd_prepare_close, _cmd_cancel_close,
-    _cmd_record_meta_critique, _cmd_record_review, _cmd_record_role_evidence,
+    _cmd_record_architecture_review, _cmd_record_meta_critique,
+    _cmd_record_review, _cmd_record_role_evidence,
     _cmd_set_goal_confirmed, _cmd_set_planner_inline, _cmd_set_workflow_mode,
     _cmd_record_quality_brief, _cmd_record_quality_policy, _cmd_record_testing,
     _cmd_start_context, _cmd_state_help,
@@ -207,7 +208,9 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
     p_rrv.add_argument("--accepted-evidence-id", action="append", default=[], dest="accepted_evidence_ids", help="repeatable accepted evidence ID")
     p_rrv.add_argument("--rejected-evidence-id", action="append", default=[], dest="rejected_evidence_ids", help="repeatable rejected evidence ID")
     p_rrv.add_argument("--blocker", action="append", default=[], dest="blockers", help="repeatable blocker")
-    p_rrv.add_argument("--adversarial-observation", action="append", default=[], dest="adversarial_observations", help="repeatable adversarial observation message")
+    p_rrv.add_argument("--adversarial-observation", action="append", default=[], dest="adversarial_observations", help="repeatable SEVERITY:::KIND:::MESSAGE (plain text remains warn)")
+    p_rrv.add_argument("--resolution", default="", help="required when clearing a prior REVISE/REJECT review")
+    p_rrv.add_argument("--resolution-evidence-id", action="append", default=[], dest="resolution_evidence_ids", help="repeatable evidence proving review blockers were fixed")
     p_rrv.add_argument("--cleanup-status", default="", choices=["","fresh","needs_attention","stale","unknown"], help="cleanup status")
     p_rrv.add_argument("--structure-status", default="", choices=["","accepted","needs_attention","unknown"], help="structure status")
     p_rrv.add_argument("--cleanup-code", default="", choices=["","clean","needs_work","not_applicable"], help="code cleanliness check")
@@ -257,13 +260,22 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
     p_pi.set_defaults(func=_cmd_set_planner_inline)
     p_da = p_state_sub.add_parser("disposition-adversarial", help="disposition a single adversarial observation")
     p_da.add_argument("--id", required=True, dest="adv_id", help="adversarial observation ID (e.g. ADV-001)")
-    p_da.add_argument("--disposition", required=True, choices=["ignored","accepted","deferred","brief_updated"], help="disposition")
+    p_da.add_argument("--disposition", required=True, choices=["ignored","accepted","deferred","brief_updated","resolved"], help="disposition")
     p_da.add_argument("--reason", required=True, help="disposition reason")
     p_da.add_argument("--disposed-by", default="planner", dest="disposed_by", help="who is disposing")
     p_da.set_defaults(func=_cmd_disposition_adversarial)
     p_mc = p_state_sub.add_parser("record-meta-critique", help="record structured Planner meta-critique")
     p_mc.add_argument("--summary", required=True, help="what the Planner concluded after reviewing adversarial observations")
     p_mc.set_defaults(func=_cmd_record_meta_critique)
+    p_ar = p_state_sub.add_parser("record-architecture-review", help="record periodic architecture review outcome")
+    p_ar.add_argument("--task-id", required=True, help="active ARCH-* review task")
+    p_ar.add_argument("--status", required=True, choices=["intact", "issues_found"])
+    p_ar.add_argument("--issue", action="append", default=[], help="repeatable SEVERITY:::DESCRIPTION")
+    p_ar.add_argument("--summary", default="", help="architecture review summary")
+    p_ar.add_argument("--resolution", default="", help="required when clearing prior issues")
+    p_ar.add_argument("--resolution-evidence-id", action="append", default=[], dest="resolution_evidence_ids")
+    p_ar.add_argument("--resolved-task-id", action="append", default=[], dest="resolved_task_ids")
+    p_ar.set_defaults(func=_cmd_record_architecture_review)
     p_swm = p_state_sub.add_parser("set-workflow-mode", help="record uncertainty routing mode/pattern")
     p_swm.add_argument("--request-mode", required=True, choices=["discussion","clarification","research","spike","execution"], help="current request mode")
     p_swm.add_argument("--workflow-pattern", default="", choices=["","linear","clarification_first","research_first","spike_first","adversarial_early"], help="uncertainty handling pattern")
@@ -488,6 +500,16 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
     p_msi.add_argument("--summary", default="", help="test summary")
     p_msi.add_argument("--failed-point", action="append", default=[], dest="failed_point",
                        help="repeatable failed integration point names")
+    p_msi.add_argument("--coverage-mode", choices=["function_reverse_trace"], default="",
+                       help="required for passed: exhaustive per-function reverse trace")
+    p_msi.add_argument("--main-path-status", choices=["passed","failed","not_run"], default="",
+                       help="actual end-to-end main path result")
+    p_msi.add_argument("--source-file", action="append", default=[],
+                       help="repeatable source file in the audited universe")
+    p_msi.add_argument("--accounted-file", action="append", default=[],
+                       help="repeatable source file with no callable functions or otherwise accounted for")
+    p_msi.add_argument("--function-trace", action="append", default=[],
+                       help="repeatable FILE::FUNCTION::CALLERS::STATUS[::REASON]")
     p_msi.set_defaults(func=_cmd_milestone_integration_test)
     p_msr = p_ms_sub.add_parser("arch-review", help="record milestone architecture review")
     p_msr.add_argument("milestone_id", help="milestone ID")
@@ -495,8 +517,12 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
     p_msr.add_argument("--interface", action="append", default=[], dest="interface",
                        help="repeatable: 'FROM_GOAL→TO_GOAL'")
     p_msr.add_argument("--issue", action="append", default=[], dest="issue",
-                       help="repeatable cross-goal issues")
+                       help="repeatable SEVERITY:::DESCRIPTION (critical|high|medium|low)")
     p_msr.add_argument("--notes", default="", help="review notes")
+    p_msr.add_argument("--resolution", default="",
+                       help="required when clearing a prior issues_found review")
+    p_msr.add_argument("--resolution-evidence-id", action="append", default=[],
+                       help="repeatable evidence ID supporting the architecture fix")
     p_msr.set_defaults(func=_cmd_milestone_arch_review)
     p_msl = p_ms_sub.add_parser("close", help="close milestone after assessment")
     p_msl.add_argument("milestone_id", help="milestone ID")

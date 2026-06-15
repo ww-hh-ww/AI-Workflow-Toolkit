@@ -401,6 +401,10 @@ def _print_status_debug(root, state, goal, evidence, testing, review, fix_loop,
     except Exception:
         gravity = {"history_weight": 0.0, "hard_constraints": [], "soft_warnings": []}
         architect_trigger = {"should_trigger": False, "reasons": []}
+    architecture_review = _read_json(
+        root / ".aiwf" / "artifacts" / "quality" / "architecture-review.json",
+        {},
+    )
     report_exists = (root / ".aiwf" / "artifacts" / "reports" / "闭合报告.md").exists()
     drift_path = root / ".aiwf" / "runtime" / "internal" / "workspace-drift.json"
     drift_exists = drift_path.exists()
@@ -414,6 +418,8 @@ def _print_status_debug(root, state, goal, evidence, testing, review, fix_loop,
         blockers.append("scope violation")
     if review.get("result") not in ("accepted", "unknown"):
         blockers.append(f"review {review['result']}")
+    if architecture_review.get("status") == "issues_found":
+        blockers.append("periodic architecture issues")
 
     drift_pending = False
     if drift_exists:
@@ -494,6 +500,10 @@ def _print_status_debug(root, state, goal, evidence, testing, review, fix_loop,
     arch = brief.get("architecture_brief", {})
     has_arch = arch and any(v for v in arch.values() if v and v != "" and v != [])
     print(f"  Architecture: {'brief present' if has_arch else 'missing'}")
+    print(
+        "  Periodic architecture review: "
+        f"{architecture_review.get('status', 'not_run')}"
+    )
     surfaces = brief.get("surface_types", [])
     print(f"  Surfaces: {', '.join(surfaces) if surfaces else 'none'}")
     acrs = fix_loop.get("architecture_change_requests", [])

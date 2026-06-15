@@ -55,9 +55,15 @@ Use full V2 Quality Verdict when the route is L2/L3, the review template is `sta
 
 For blocking review, use `--verdict REVISE` or `--verdict REJECT`, add `--blocker "..."`, and mark at least one review basis as `gap` with a `--basis-note`.
 
+Record observations with
+`--adversarial-observation "critical:::main_path:::authentication rejects the real entrypoint"`.
+CRITICAL/HIGH findings require REVISE/REJECT. After implementation changes,
+Tester must rerun validation. The follow-up review must include
+`--resolution "..." --resolution-evidence-id <ID>`; review history is retained.
+
 Use verdicts as engineering quality outcomes:
 - `PASS`: all quality dimensions are PASS.
-- `PASS_WITH_RISK`: no FAIL dimensions, at least one RISK dimension, and every RISK has a `--dimension-note`.
+- `PASS_WITH_RISK`: no FAIL dimensions, no CRITICAL/HIGH observation, at least one RISK dimension, and every RISK has a `--dimension-note`.
 - `REVISE`: implementation can likely be corrected in the fix-loop. Requires at least one `--blocker`; if dimensions are scored, at least one must be RISK or FAIL.
 - `REJECT`: wrong direction, unsafe structure, or not a real solution. Requires at least one `--blocker`; if dimensions are scored, at least one must be FAIL.
 

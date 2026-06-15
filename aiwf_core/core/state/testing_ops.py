@@ -80,6 +80,7 @@ def record_testing(
     if invalidated_evidence_ids is not None: testing["invalidated_evidence_ids"] = invalidated_evidence_ids
     if supports_plan: testing["supports_plan"] = supports_plan
     if supports_goal: testing["supports_goal"] = supports_goal
+    testing["recorded_at"] = datetime.now(timezone.utc).isoformat()
 
     _write(testing_path, testing)
 

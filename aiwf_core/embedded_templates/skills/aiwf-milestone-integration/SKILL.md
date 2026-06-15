@@ -96,6 +96,11 @@ Collect all subagent outputs. Build two sets:
 - **Reachable**: every file/function touched by ANY subagent
 - **All files**: the full project file list from STEP 1
 
+This is a **reverse call-site audit**, not merely entrypoint reachability.
+For every function/method in every source file, name its caller(s), or classify
+it as an entrypoint, intentionally unused with a reason, untraced, or
+disconnected. A file being touched once does not account for every function in it.
+
 Files in `All files` but NOT in `Reachable` → **dead code candidates**.
 
 For each reachable function: did it actually connect to main or a branch?
@@ -149,10 +154,18 @@ Generate `.aiwf/artifacts/reports/里程碑-<MILESTONE-ID>-描述.md`:
 ```
 aiwf milestone integration-test <MILESTONE-ID> \
   --status passed|failed \
+  --coverage-mode function_reverse_trace \
+  --main-path-status passed|failed \
+  --source-file "<every source file, repeat>" \
+  --accounted-file "<file with no callable functions, repeat>" \
+  --function-trace "FILE::FUNCTION::CALLER1,CALLER2::entrypoint|connected|intentionally_unused|untraced|disconnected[::REASON]" \
   --command "main path: <actual-cmd> ::: <actual-output>" \
   --summary "Main path passes. <N> branches, <M> isolated, <K> unreachable files."
 ```
 
 - Main path broken → status=failed
 - Unreachable file without documented reason → status=failed
-- Main path passes, all files accounted for → status=passed
+- Any untraced or disconnected function → status=failed and return to fix-loop
+- Intentionally unused requires a concrete reason; otherwise it is untraced
+- Main path passes, every source file and function accounted for → status=passed
+- The CLI rejects `passed` without the reverse trace inventory. A prose summary cannot satisfy the gate.

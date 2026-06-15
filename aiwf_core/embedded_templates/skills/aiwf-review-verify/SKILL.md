@@ -39,6 +39,16 @@ Read scope: entire project. Find contract gaps, cross-module inconsistencies, bl
 
 Kinds: `contract_gap`, `pattern_fragility`, `hotspot_warning`, `missing_surface`, `cross_module`, `mechanism_gap`.
 
+Record each observation as `SEVERITY:::KIND:::MESSAGE`.
+
+- `critical`: broken main path, security/data exposure, corrupt state, or closure contract bypass.
+- `high`: required behavior or an architecture boundary is materially broken.
+- `warn` / `low`: useful follow-up that does not invalidate the current delivery.
+
+CRITICAL/HIGH findings are not deferrable observations. Record `REVISE` or
+`REJECT`, fix them, rerun testing, then rerun review with `--resolution` and
+`--resolution-evidence-id`. They cannot pass as `PASS_WITH_RISK`.
+
 Example:
 ```json
 {"id":"ADV-001", "severity":"warn", "kind":"contract_gap",

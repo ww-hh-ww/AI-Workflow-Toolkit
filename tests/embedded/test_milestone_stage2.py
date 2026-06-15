@@ -192,6 +192,16 @@ class TestMilestoneStage2(unittest.TestCase):
         record_milestone_integration(
             str(self.tmp), "MS-001", status="passed",
             summary="Integration tests passed",
+            coverage_mode="function_reverse_trace",
+            main_path_status="passed",
+            source_files=["src/main.py"],
+            function_traces=[{
+                "file": "src/main.py",
+                "function": "main",
+                "callers": [],
+                "status": "entrypoint",
+                "reason": "",
+            }],
         )
         record_milestone_arch_review(
             str(self.tmp), "MS-001", status="intact",
@@ -384,6 +394,16 @@ class TestMissionIntegration(unittest.TestCase):
         record_milestone_integration(
             str(self.tmp), "MS-001", status="passed",
             summary="Integration tests passed",
+            coverage_mode="function_reverse_trace",
+            main_path_status="passed",
+            source_files=["src/main.py"],
+            function_traces=[{
+                "file": "src/main.py",
+                "function": "main",
+                "callers": [],
+                "status": "entrypoint",
+                "reason": "",
+            }],
         )
         record_milestone_arch_review(
             str(self.tmp), "MS-001", status="intact",
@@ -392,6 +412,143 @@ class TestMissionIntegration(unittest.TestCase):
 
         result = close_milestone(str(self.tmp), "MS-001")
         self.assertTrue(result["closed"], result.get("blockers", []))
+
+    def test_integration_pass_requires_function_reverse_trace(self):
+        from aiwf_core.core.state.milestone_ops import (
+            record_milestone_integration, upsert_milestone,
+        )
+
+        upsert_milestone(str(self.tmp), "MS-TRACE", status="active")
+        with self.assertRaisesRegex(ValueError, "exhaustive reverse trace"):
+            record_milestone_integration(
+                str(self.tmp), "MS-TRACE", status="passed",
+                summary="All entrypoints touched",
+            )
+
+    def test_integration_pass_rejects_untraced_function(self):
+        from aiwf_core.core.state.milestone_ops import (
+            record_milestone_integration, upsert_milestone,
+        )
+
+        upsert_milestone(str(self.tmp), "MS-TRACE", status="active")
+        with self.assertRaisesRegex(ValueError, "unresolved function traces"):
+            record_milestone_integration(
+                str(self.tmp), "MS-TRACE", status="passed",
+                coverage_mode="function_reverse_trace",
+                main_path_status="passed",
+                source_files=["src/crypto.py"],
+                function_traces=[{
+                    "file": "src/crypto.py",
+                    "function": "crypto_sign_register",
+                    "callers": [],
+                    "status": "untraced",
+                    "reason": "",
+                }],
+            )
+
+    def test_architecture_issues_block_pass_with_risk_close_until_rereviewed(self):
+        from aiwf_core.core.state.milestone_ops import (
+            close_milestone, get_milestone, record_milestone_arch_review,
+            record_milestone_assessment, record_milestone_integration,
+            upsert_milestone,
+        )
+
+        upsert_milestone(str(self.tmp), "MS-ARCH", status="active")
+        record_milestone_assessment(
+            str(self.tmp), "MS-ARCH", verdict="PASS_WITH_RISK",
+            summary="Attempted deferral", residual_risks=["auth path broken"],
+        )
+        record_milestone_integration(
+            str(self.tmp), "MS-ARCH", status="passed",
+            coverage_mode="function_reverse_trace",
+            main_path_status="passed",
+            source_files=["src/main.py"],
+            function_traces=[{
+                "file": "src/main.py", "function": "main", "callers": [],
+                "status": "entrypoint", "reason": "",
+            }],
+        )
+        record_milestone_arch_review(
+            str(self.tmp), "MS-ARCH", status="issues_found",
+            cross_goal_issues=[{
+                "severity": "critical",
+                "description": "signaling registration omits authentication",
+                "disposition": "open",
+            }],
+        )
+
+        blocked = close_milestone(str(self.tmp), "MS-ARCH")
+        self.assertFalse(blocked["closed"])
+        self.assertTrue(any("CRITICAL" in item for item in blocked["blockers"]))
+        self.assertEqual(
+            get_milestone(str(self.tmp), "MS-ARCH")["stage_synthesis"]["verdict"],
+            "REVISE",
+        )
+
+        record_milestone_integration(
+            str(self.tmp), "MS-ARCH", status="passed",
+            coverage_mode="function_reverse_trace",
+            main_path_status="passed",
+            source_files=["src/main.py"],
+            function_traces=[{
+                "file": "src/main.py", "function": "main", "callers": [],
+                "status": "entrypoint", "reason": "",
+            }],
+            summary="Authentication repair verified end to end",
+        )
+        record_milestone_arch_review(
+            str(self.tmp), "MS-ARCH", status="intact",
+            notes="Authentication fixed and verified",
+            resolution="Added signaling authentication and reran registration path",
+        )
+        record_milestone_assessment(
+            str(self.tmp), "MS-ARCH", verdict="PASS",
+            summary="Authentication issue repaired and reverified",
+        )
+        closed = close_milestone(str(self.tmp), "MS-ARCH")
+        self.assertTrue(closed["closed"], closed["blockers"])
+        history = get_milestone(str(self.tmp), "MS-ARCH")["architecture_review"]["review_history"]
+        self.assertEqual(history[-1]["status"], "issues_found")
+
+    def test_architecture_review_rejects_intact_with_issue(self):
+        from aiwf_core.core.state.milestone_ops import (
+            record_milestone_arch_review, upsert_milestone,
+        )
+
+        upsert_milestone(str(self.tmp), "MS-CONTRADICT", status="active")
+        with self.assertRaisesRegex(ValueError, "cannot be intact"):
+            record_milestone_arch_review(
+                str(self.tmp), "MS-CONTRADICT", status="intact",
+                cross_goal_issues=[{
+                    "severity": "critical",
+                    "description": "main path is broken",
+                    "disposition": "open",
+                }],
+            )
+
+    def test_architecture_issue_cannot_be_cleared_without_retest_and_resolution(self):
+        from aiwf_core.core.state.milestone_ops import (
+            record_milestone_arch_review, upsert_milestone,
+        )
+
+        upsert_milestone(str(self.tmp), "MS-REWORK", status="active")
+        record_milestone_arch_review(
+            str(self.tmp), "MS-REWORK", status="issues_found",
+            cross_goal_issues=[{
+                "severity": "critical",
+                "description": "main path rejected by server",
+                "disposition": "open",
+            }],
+        )
+        with self.assertRaisesRegex(ValueError, "resolution summary"):
+            record_milestone_arch_review(
+                str(self.tmp), "MS-REWORK", status="intact",
+            )
+        with self.assertRaisesRegex(ValueError, "integration to be rerun"):
+            record_milestone_arch_review(
+                str(self.tmp), "MS-REWORK", status="intact",
+                resolution="Claimed fixed without retesting",
+            )
 
     def test_mission_attach_milestone(self):
         self._run_ok("mission", "update", "--statement", "Test mission")

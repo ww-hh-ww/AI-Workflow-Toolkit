@@ -41,6 +41,9 @@ from .state.closure_ops import (
 from .state.review_ops import (
     record_review,
 )
+from .state.architecture_review_ops import (
+    record_architecture_review,
+)
 
 # ── Adversarial ──
 from .state.adversarial_ops import (

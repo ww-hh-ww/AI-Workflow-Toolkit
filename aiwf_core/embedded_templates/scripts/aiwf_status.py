@@ -26,6 +26,7 @@ SOURCE_FILES = [
     "artifacts/evidence/records.json",
     "artifacts/quality/testing.json",
     "artifacts/quality/review.json",
+    "artifacts/quality/architecture-review.json",
     "runtime/history/task-history.json",
     "runtime/history/task-ledger.json",
 ]
@@ -34,6 +35,10 @@ def gravity_summary_lines(cwd):
     """Gravity: historical pressure — hotspots, fix-loop trend, drift, pending ADV."""
     history = rj(cwd / ".aiwf" / "runtime" / "history" / "task-history.json", {"tasks": []})
     review = rj(cwd / ".aiwf" / "artifacts" / "quality" / "review.json", {})
+    architecture_review = rj(
+        cwd / ".aiwf" / "artifacts" / "quality" / "architecture-review.json",
+        {},
+    )
     state = rj(cwd / ".aiwf" / "state" / "state.json", {})
     tasks = history.get("tasks", []) if isinstance(history.get("tasks"), list) else []
     recent = tasks[-5:]
@@ -69,6 +74,16 @@ def gravity_summary_lines(cwd):
     pending_adv = [o for o in adv_obs if isinstance(o, dict) and o.get("disposition") == "pending"]
     if pending_adv:
         lines.append(f"Gravity: {len(pending_adv)} adversarial observation(s) pending disposition")
+    if architecture_review.get("status") == "issues_found":
+        issues = architecture_review.get("issues", []) or []
+        severities = ", ".join(
+            str(issue.get("severity", "")).upper()
+            for issue in issues[:3] if isinstance(issue, dict)
+        )
+        lines.insert(0,
+            "PERIODIC ARCHITECTURE BLOCKED"
+            + (f": {severities}" if severities else "")
+        )
     return lines[:5]
 
 
@@ -392,14 +407,26 @@ def _milestone_signals(cwd, active_milestone_id):
             it = ms.get("integration_test", {}) or {}
             if it.get("status") != "passed":
                 blockers.append("integration test not passed")
+            else:
+                if it.get("coverage_mode") != "function_reverse_trace":
+                    blockers.append("integration test missing function reverse trace")
+                if it.get("main_path_status") != "passed":
+                    blockers.append("integration test main path not passed")
+                traces = it.get("function_traces", []) or []
+                if not traces:
+                    blockers.append("integration test function inventory missing")
+                elif any(t.get("status") in ("untraced", "disconnected") for t in traces):
+                    blockers.append("integration test has unresolved function traces")
             ar = ms.get("architecture_review", {}) or {}
-            if ar.get("status") not in ("intact",):
+            if ar.get("status") == "issues_found":
+                blockers.append("architecture review has unresolved issues")
+            elif ar.get("status") not in ("intact",):
                 blockers.append("architecture review not done")
             ar_blocked = any("architecture review" in b.lower() for b in blockers)
             it_blocked = any("integration test" in b.lower() for b in blockers)
             other_blocked = [b for b in blockers
                              if "integration test" not in b.lower()
-                             and "architecture review" not in b.lower()]
+                             and "architecture review not done" not in b.lower()]
 
             if not other_blocked and (it_blocked or ar_blocked):
                 missing = []
