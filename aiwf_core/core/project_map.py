@@ -22,8 +22,10 @@ DEFAULT_MAP = """# Project Map
 - Planner TODO: describe the important directories/modules and their responsibilities.
 
 ## Capability to Module Map
-- Machine-readable source: `.aiwf/assets/project-map.json` → `goal_bindings`.
-- Use `aiwf project-map relations` to inspect it. Do not duplicate the full file tree here.
+- Machine authority: `.aiwf/assets/project-map.json` → `goal_bindings`.
+- Human projection: this file (`.aiwf/artifacts/reports/项目地图.md`) explains the map.
+- User/agent entrypoints: `aiwf project-map relations`, `aiwf project-map validate`, and `aiwf project-map show`.
+- Do not duplicate the full file tree here.
 
 ## Architecture Layers
 - Planner TODO: explain the major layers, entry points, data flow, and boundary rules.

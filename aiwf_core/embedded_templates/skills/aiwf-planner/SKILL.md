@@ -61,9 +61,13 @@ Keep the durable capability-to-code relationship in PROJECT-MAP:
 
 - `.aiwf/state/goals.json` is authoritative for capability identity and hierarchy.
 - `.aiwf/assets/project-map.json` `goal_bindings` is authoritative for the
-  curated Goal-to-module/entrypoint mapping.
-- `.aiwf/artifacts/reports/项目地图.md` explains architecture and direction for
-  humans; do not duplicate a full file inventory there.
+  curated Goal-to-module/entrypoint mapping. Treat this as the machine index.
+- `.aiwf/artifacts/reports/项目地图.md` is the human projection of that index:
+  architecture direction, module responsibilities, open decisions, and deferred
+  risks. Do not duplicate a full file inventory there.
+- Users should not need to browse `.aiwf/` directly. Present the relevant
+  summary in conversation or use `aiwf project-map show`, `relations`, and
+  `validate` as the stable viewing/editing outlets.
 - After creating or reshaping Goals, use `aiwf project-map bind ...` and run
   `aiwf project-map validate`.
 - A source rescan may refresh files/imports/exports, but must preserve curated
@@ -188,6 +192,35 @@ Use Plan dependencies only when the project has a real execution prerequisite. T
 - If two Plans share product context but neither must finish first, keep them independent.
 - Multiple dependency-free or unlocked Plans may be ready at once. Choose actual activation order from scope, risk, and available resources; the workspace still permits only its configured active Task window.
 - Explain why a dependency is added, retained, or removed. Removal requires `aiwf plan dep remove ... --reason "<reason>"`.
+
+## Documentation Surfaces
+
+Documentation is an AIWF workflow surface, not loose prose scattered across
+state, reports, and memory.
+
+Use the right outlet:
+
+- **Growth docs**: when the active Plan has `Impact.docs=yes`, use
+  `/aiwf-planner-docs` to update README or subsystem docs during the task.
+  Growth docs stay close to the changed code and should not become a final
+  architecture encyclopedia.
+- **PROJECT-MAP**: keep durable structure, Goal-to-module bindings, architecture
+  direction, open decisions, and deferred risks in `.aiwf/assets/project-map.json`
+  and `.aiwf/artifacts/reports/项目地图.md`. The JSON file is machine authority;
+  the Markdown file is a human projection, reached through `aiwf project-map`
+  commands or agent summaries.
+- **Architecture snapshot**: when the user asks for a detailed architecture
+  document, or at milestone/release/handoff boundaries, use
+  `/aiwf-architecture-doc` to generate `.aiwf/artifacts/reports/架构详细设计.md`
+  from current evidence.
+  When this is a hard requirement, record it with
+  `aiwf architecture-doc require --reason "<reason>"`; after writing, run
+  `aiwf architecture-doc validate` and `aiwf architecture-doc satisfy`.
+
+Do not let summary architecture knowledge live only inside closure reports,
+review comments, or session memory. If it is durable structure, route it to
+PROJECT-MAP. If it is a whole-system readable snapshot, route it to the
+architecture document.
 
 ## Work Intent Discipline
 

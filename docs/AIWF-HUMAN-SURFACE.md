@@ -1,14 +1,22 @@
 # AIWF Human Surface Contract
 
-AIWF has many machine state files. Humans should not read them all.
+AIWF has many machine state files. Humans should not read them all, and users
+should not have to browse `.aiwf/` during ordinary work. The default human
+surface is commands plus the agent's summary. File paths are audit and handoff
+references, not the primary UI.
 
-## Three human-facing entries
+## Human-facing entries
 
 | Entry | When | Purpose |
 |-------|------|---------|
 | `aiwf status` | Anytime, most frequent | Project control panel |
+| `aiwf project-map show` | Architecture orientation | Human projection of durable structure |
+| `aiwf project-map relations` | Goal/code traceability | Goal-to-module bindings without opening JSON |
+| `aiwf project-map validate` | Structure health check | Binding drift and missing paths |
 | `.aiwf/artifacts/reports/当前状态.md` | Next task start | Planner carry-forward summary; status reports stale when source JSON/report changed after it |
 | `.aiwf/artifacts/reports/闭合报告.md` | Closure review | Human-readable closure basis |
+| `.aiwf/artifacts/reports/项目地图.md` | Architecture audit/handoff | Human projection backing `aiwf project-map show` |
+| `.aiwf/artifacts/reports/架构详细设计.md` | Milestone/release/handoff or user request | Whole-system architecture snapshot |
 | `.aiwf/runtime/history/task-history.json` | Trend/debug only | Lightweight closed-task trend source for report/status; not a default human reading surface |
 | `.aiwf/artifacts/reports/质量摘要.md` | Next task/review/test | Compact cross-task quality signals for Planner, Tester, and Reviewer |
 | `.aiwf/runtime/history/task-ledger.json` | Planner/task debug | Candidate/ready/active/closed task graph and execution window |
@@ -24,7 +32,13 @@ Read them only when verifying details, resolving contradictions, or debugging.
 Task plan Markdown is deliberately not a source of truth. It is useful for long-horizon continuity and resumption, similar to `plan.md`, but closure, scope, testing, review, and routing are enforced only by machine-readable AIWF contracts.
 
 PROJECT-MAP and task plans do not conflict:
-- PROJECT-MAP describes durable project structure, module boundaries, and architecture direction.
+- `.aiwf/assets/project-map.json` is the machine authority for files, imports,
+  and curated `goal_bindings`.
+- `.aiwf/artifacts/reports/项目地图.md` is the human projection: durable project
+  structure, module boundaries, architecture direction, open decisions, and
+  deferred risks.
+- Use `aiwf project-map show/relations/validate` instead of asking users to
+  inspect those files manually.
 - Task plans describe one task's evolving intent, accepted decisions, validation strategy, and handoff notes.
 
 ## Before adding a new .aiwf file

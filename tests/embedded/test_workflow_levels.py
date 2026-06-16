@@ -1,4 +1,5 @@
 import unittest
+from pathlib import Path
 
 class TestWorkflowLevels(unittest.TestCase):
 
@@ -61,6 +62,25 @@ class TestWorkflowLevels(unittest.TestCase):
         from aiwf_core.core.routing import LEVELS
         l = LEVELS["L1_review_light"]
         self.assertFalse(l["tester"]); self.assertTrue(l["reviewer_light"])
+
+    def test_L1_light_review_is_combined_verifier_not_executor_self_review(self):
+        root = Path(__file__).resolve().parent.parent.parent
+        process_contract = (root / "aiwf_core" / "core" / "process_contract.py").read_text()
+        planner_execute = (
+            root / "aiwf_core" / "embedded_templates" / "skills" / "aiwf-planner-execute" / "SKILL.md"
+        ).read_text()
+        init_skill = (
+            root / "aiwf_core" / "embedded_templates" / "skills" / "aiwf-init" / "SKILL.md"
+        ).read_text()
+        tester_skill = (
+            root / "aiwf_core" / "embedded_templates" / "skills" / "aiwf-test" / "SKILL.md"
+        ).read_text()
+
+        self.assertIn("reviewer-light subagent combines targeted testing and light review", process_contract)
+        self.assertIn("reviewer-light combines targeted testing + light review", planner_execute)
+        self.assertIn("reviewer-light combines targeted testing + light review", init_skill)
+        self.assertIn("The reviewer-light subagent handles both testing AND review", tester_skill)
+        self.assertNotIn("same agent may do light review", process_contract)
 
     def test_L2_has_tester_and_reviewer(self):
         from aiwf_core.core.routing import LEVELS

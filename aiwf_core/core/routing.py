@@ -87,7 +87,7 @@ TOPOLOGY_TO_LEVEL = {
 
 REVIEW_NEEDS = [
     "none",                    # self-review ok
-    "optional_light_review",   # light review if useful
+    "optional_light_review",   # reviewer-light combines targeted testing + light review
     "required_review",         # independent review required
     "adversarial_review",      # adversarial multi-lens review required
 ]

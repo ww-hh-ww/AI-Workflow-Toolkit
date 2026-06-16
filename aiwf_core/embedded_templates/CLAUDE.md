@@ -48,3 +48,4 @@ The Write Guard and Bash Guard enforce this mechanically.
 | closing | `/aiwf-close` + `/aiwf-planner-docs` |
 | milestone verification | `/aiwf-milestone-integration` → `/aiwf-milestone-arch-review` |
 | architecture review | `/aiwf-architect` (periodic, never blocks current task close) |
+| architecture snapshot | `/aiwf-architecture-doc` (user request, milestone, release, handoff) |

@@ -109,7 +109,7 @@ At every transition, trust `.aiwf/*.json` over conversational memory.
 | Level | When | Team |
 |-------|------|------|
 | L0 | typo, label, simple script | Planner inline |
-| L1 | small feature, 1-2 files | single agent + light review |
+| L1 | small feature, 1-2 files | Executor + reviewer-light; reviewer-light combines targeted testing + light review |
 | L2 | API, multi-module, refactor | independent Tester + Reviewer |
 | L3 | security, migration, destructive | full team + checkpoint + user decision |
 

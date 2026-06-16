@@ -132,6 +132,13 @@ def _print_status_human(root, state, goal, evidence, testing, review, fix_loop):
                    if a.get("status") == "proposed"]
         if pending:
             risks.append(f"{len(pending)} pending ACR(s)")
+    try:
+        from ..core.architecture_doc import load_architecture_doc_state
+        arch_doc = load_architecture_doc_state(str(root))
+        if arch_doc.get("required") and arch_doc.get("status") != "satisfied":
+            risks.append("architecture snapshot required")
+    except Exception:
+        pass
     if risks:
         print(f"Risk: {', '.join(risks)}")
 
@@ -228,6 +235,14 @@ def _print_status_prompt(root, state, goal, testing, review, fix_loop):
     if active_milestone_id:
         parts.append(f"milestone={active_milestone_id}")
     print("  ".join(parts))
+    try:
+        from ..core.architecture_doc import load_architecture_doc_state
+        arch_doc = load_architecture_doc_state(str(root))
+        if arch_doc.get("required") and arch_doc.get("status") != "satisfied":
+            print("[ATTN] /aiwf-architecture-doc — architecture snapshot required")
+            print("REQUIRED DOC: run aiwf architecture-doc status; write/validate/satisfy snapshot")
+    except Exception:
+        pass
     topo_short = {
         "single_agent": "1-agent",
         "single_agent_with_machine_evidence": "1-agent+machine-evidence",

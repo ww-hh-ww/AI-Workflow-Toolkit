@@ -255,6 +255,7 @@ SKILL_TEMPLATES = {
     "aiwf-review-output": "skills/aiwf-review-output/SKILL.md",
     "aiwf-close": "skills/aiwf-close/SKILL.md",
     "aiwf-architect": "skills/aiwf-architect/SKILL.md",
+    "aiwf-architecture-doc": "skills/aiwf-architecture-doc/SKILL.md",
     "aiwf-explore": "skills/aiwf-explore/SKILL.md",
     "aiwf-curate": "skills/aiwf-curate/SKILL.md",
     "aiwf-milestone-integration": "skills/aiwf-milestone-integration/SKILL.md",
@@ -739,7 +740,7 @@ def doctor(mode: str | None = None) -> Dict[str, Any]:
         "scripts": {},
     }
 
-    for skill in ["aiwf-planner", "aiwf-planner-docs", "aiwf-planner-contracts", "aiwf-planner-execute", "aiwf-planner-meta", "aiwf-implement", "aiwf-test", "aiwf-review", "aiwf-review-trace", "aiwf-review-verify", "aiwf-review-output", "aiwf-close", "aiwf-architect", "aiwf-explore", "aiwf-curate", "aiwf-milestone-integration", "aiwf-milestone-arch-review"]:
+    for skill in ["aiwf-planner", "aiwf-planner-docs", "aiwf-planner-contracts", "aiwf-planner-execute", "aiwf-planner-meta", "aiwf-implement", "aiwf-test", "aiwf-review", "aiwf-review-trace", "aiwf-review-verify", "aiwf-review-output", "aiwf-close", "aiwf-architect", "aiwf-architecture-doc", "aiwf-explore", "aiwf-curate", "aiwf-milestone-integration", "aiwf-milestone-arch-review"]:
         path = root / target.config_dir / "skills" / skill / "SKILL.md"
         exists = path.exists()
         has_frontmatter = False

@@ -201,6 +201,12 @@ COMMAND_MANIFEST: Dict[str, Dict] = {
         "keep": "quality surfaces and digest — review-time only",
         "note": "long-term: merge quality digest into close gate; surfaces into review skill",
     },
+    "architecture-doc": {
+        "tier": ADVANCED, "core": "verification",
+        "caller": "planner/architect/user", "trigger": "milestone/release/handoff/user-request",
+        "visible": False, "tested": "yes", "in_status_prompt": True,
+        "keep": "architecture snapshot requirement — prevents milestone/handoff docs from being forgotten",
+    },
 
     "next": {
         "tier": INTERNAL, "core": "infra",

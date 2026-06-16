@@ -425,7 +425,7 @@ def build_activation_summary(base_dir: str) -> str:
 
     topo = {
         "L0_direct": "planner inline with machine evidence",
-        "L1_review_light": "executor subagent + reviewer-light",
+        "L1_review_light": "executor subagent + reviewer-light (combined testing + review)",
         "L2_standard_team": "independent executor, tester, and reviewer",
         "L3_full_power": "independent executor, tester, and adversarial reviewer",
     }.get(level, "selected workflow topology")
@@ -484,8 +484,10 @@ def _topology_dispatch_guidance(
             "Run deterministic validation commands (grep/diff/test suite) that a machine can verify."
         ),
         "light_review": (
-            "Topology light_review: executor + reviewer-light (same agent may do light review). "
-            "Testing is targeted; review checks scope + evidence + goal match."
+            "Topology light_review: executor subagent, then one reviewer-light subagent. "
+            "The reviewer-light subagent combines targeted testing and light review; "
+            "do not let the executor self-approve unless routing explicitly chose "
+            "single_agent_with_machine_evidence."
         ),
         "standard_team": (
             "Topology standard_team: executor → tester → reviewer as separate subagents. "
@@ -528,8 +530,9 @@ def _topology_dispatch_guidance(
     review_hints = {
         "none": "Review none: self-review is acceptable for this change.",
         "optional_light_review": (
-            "Review optional_light_review: light review if useful. "
-            "Check scope, goal match, and basic evidence. Do not expand to full review."
+            "Review optional_light_review: reviewer-light checks scope, goal match, "
+            "targeted test evidence, and basic correctness. It may be skipped only "
+            "when routing explicitly chose single_agent_with_machine_evidence."
         ),
         "required_review": (
             "Review required_review: independent review required. "

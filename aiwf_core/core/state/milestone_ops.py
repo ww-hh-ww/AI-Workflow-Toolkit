@@ -747,6 +747,12 @@ def confirm_milestone_acceptance(
     if not milestone:
         return {"confirmed": False, "milestone": None, "blockers": [f"milestone not found: {milestone_id}"]}
     blockers = check_milestone_technical_readiness(base_dir, milestone_id)
+    if not blockers:
+        try:
+            from ..architecture_doc import architecture_doc_blockers
+            blockers.extend(architecture_doc_blockers(base_dir))
+        except Exception as exc:
+            blockers.append(f"architecture snapshot check failed: {exc}")
     if blockers:
         return {"confirmed": False, "milestone": milestone, "blockers": blockers}
     synthesis = milestone.get("stage_synthesis", {}) or {}
@@ -775,6 +781,13 @@ def confirm_milestone_acceptance(
 def check_milestone_readiness(base_dir: str, milestone_id: str) -> List[str]:
     """Return all blockers preventing final milestone close."""
     blockers = check_milestone_technical_readiness(base_dir, milestone_id)
+    if blockers:
+        return blockers
+    try:
+        from ..architecture_doc import architecture_doc_blockers
+        blockers.extend(architecture_doc_blockers(base_dir))
+    except Exception as exc:
+        blockers.append(f"architecture snapshot check failed: {exc}")
     if blockers:
         return blockers
     milestone = get_milestone(base_dir, milestone_id)

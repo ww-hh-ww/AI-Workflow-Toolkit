@@ -48,7 +48,7 @@ Your work is shaped by two layers. Read both — they tell you WHAT to do and WH
 |-------|----------|---------|
 | `work_intent` | plans.json | Your behavioral discipline — what you may and may NOT do |
 | `plan_kind` | plans.json | Structural role: implementation/structural/migration/verification/exploration |
-| `execution_topology` | state.json | `single_agent` (inline) / `light_review` (you+reviewer-light) / `standard_team` (independent tester ahead) |
+| `execution_topology` | state.json | `single_agent` (inline) / `light_review` (you, then reviewer-light does targeted testing + light review) / `standard_team` (independent tester ahead) |
 | `routing_factors` | state.json | Why the router chose this level: `cross_module`, `prior_fix_loop`, `semantic_change`, etc. |
 | `constraints` | plans.json | Boundaries the Planner explicitly declared for this Plan |
 | `interfaces` | plans.json | Interface contracts this Plan must preserve |

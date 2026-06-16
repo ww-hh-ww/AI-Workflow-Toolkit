@@ -115,6 +115,29 @@ With reviewer signals as your starting point, verify and extend:
 - Testing patterns: are tests keeping pace with implementation?
 - Naming/structural conventions: are they holding?
 
+## Step 6: Architecture Snapshot Trigger
+
+Decide whether the project needs a summary architecture snapshot now.
+
+Trigger `/aiwf-architecture-doc` when:
+
+- the user explicitly asks for a detailed architecture document
+- a milestone, release, or handoff needs a current whole-system explanation
+- PROJECT-MAP, Goal Tree, and implementation have converged after a major
+  refactor or migration
+- the existing architecture document is stale relative to current entrypoints,
+  module boundaries, or Goal bindings
+
+Do not generate a snapshot for every architecture review. If only local
+subsystem docs changed, route the work to `/aiwf-planner-docs` through a Plan
+with `Impact.docs=yes`.
+
+When the recommendation is a hard milestone/release/handoff requirement, run:
+
+```bash
+aiwf architecture-doc require --reason "<why this boundary needs a snapshot>"
+```
+
 ## Machine Outcome
 
 Record the machine outcome before closing the `ARCH-*` review task:
@@ -180,6 +203,11 @@ periodic review. The machine record is authoritative.
 - Error handling patterns: consistent or diverging?
 - Testing patterns: are tests keeping pace with implementation?
 - Naming/structural conventions: are they holding?
+
+### 7. Architecture snapshot recommendation
+- Is `.aiwf/artifacts/reports/架构详细设计.md` needed now?
+- If yes, explain the trigger and dispatch `/aiwf-architecture-doc`.
+- If no, explain why growth docs or PROJECT-MAP are sufficient for this cycle.
 
 ## Output
 

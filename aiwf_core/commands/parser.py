@@ -26,6 +26,11 @@ from .project_memory_commands import (
 from .admission_commands import (
     _cmd_change_admit, _cmd_change_help, _cmd_change_prepare, _cmd_change_validate_decision,
 )
+from .architecture_doc_commands import (
+    _cmd_architecture_doc_help, _cmd_architecture_doc_require,
+    _cmd_architecture_doc_satisfy, _cmd_architecture_doc_status,
+    _cmd_architecture_doc_validate, _cmd_architecture_doc_waive,
+)
 from .foundation_commands import (
     _cmd_foundation_validate,
 )
@@ -113,6 +118,25 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
     p_next = sub.add_parser("next", help="show machine-readable next-action directive for current phase")
     p_next.add_argument("--role", help="frame output for a specific role (planner|executor|tester|reviewer)", default="")
     p_next.set_defaults(func=cmd_next)
+
+    # ── architecture snapshot ──
+    p_arch_doc = sub.add_parser("architecture-doc", help="architecture snapshot requirement contract")
+    p_arch_doc_sub = p_arch_doc.add_subparsers(dest="architecture_doc_cmd")
+    p_adr = p_arch_doc_sub.add_parser("require", help="mark architecture snapshot as required")
+    p_adr.add_argument("--reason", required=True, help="why the snapshot is required")
+    p_adr.add_argument("--path", default=".aiwf/artifacts/reports/架构详细设计.md", help="snapshot path")
+    p_adr.set_defaults(func=_cmd_architecture_doc_require)
+    p_arch_doc_sub.add_parser("status", help="show architecture snapshot status").set_defaults(func=_cmd_architecture_doc_status)
+    p_adv = p_arch_doc_sub.add_parser("validate", help="validate architecture snapshot structure")
+    p_adv.add_argument("--path", default="", help="snapshot path override")
+    p_adv.set_defaults(func=_cmd_architecture_doc_validate)
+    p_ads = p_arch_doc_sub.add_parser("satisfy", help="validate and mark snapshot requirement satisfied")
+    p_ads.add_argument("--path", default="", help="snapshot path override")
+    p_ads.set_defaults(func=_cmd_architecture_doc_satisfy)
+    p_adw = p_arch_doc_sub.add_parser("waive", help="waive snapshot requirement with reason")
+    p_adw.add_argument("--reason", required=True, help="why the snapshot is not required now")
+    p_adw.set_defaults(func=_cmd_architecture_doc_waive)
+    p_arch_doc.set_defaults(func=_cmd_architecture_doc_help)
 
     p_state = sub.add_parser("state", help="AIWF state operations (record-quality-policy)")
     p_state_sub = p_state.add_subparsers(dest="state_cmd")

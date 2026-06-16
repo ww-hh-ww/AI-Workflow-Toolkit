@@ -268,8 +268,10 @@ Goal 不能按文件路径、目录、纯技术分层、实施批次或 Mileston
 Goal 与代码结构通过 PROJECT-MAP 集中连接：
 
 - `goals.json`：能力身份与父子结构的权威来源。
-- `.aiwf/assets/project-map.json`：文件、依赖，以及人工确认的 `goal_bindings`。
-- `项目地图.md`：面向人的架构说明和长期方向，不复制完整文件清单。
+- `.aiwf/assets/project-map.json`：机器权威索引，保存文件、依赖和人工确认的 `goal_bindings`。
+- `.aiwf/artifacts/reports/项目地图.md`：人类投影，解释架构方向、模块职责、开放决策和延迟风险，不复制完整文件清单。
+
+用户不需要日常进入 `.aiwf/` 翻文件。稳定入口是命令和 agent 摘要：
 
 ```bash
 aiwf project-map bind GOAL-NOTES \
@@ -278,7 +280,39 @@ aiwf project-map bind GOAL-NOTES \
   --interface "note repository"
 aiwf project-map relations
 aiwf project-map validate
+aiwf project-map show
 ```
+
+### 文档出口：生长文档与架构快照
+
+AIWF 同时保留两种文档能力，但出口不同：
+
+- **生长性文档**：普通任务中，当 Plan 的 `Impact.docs=yes` 时更新 README
+  或 `docs/` 子系统文档。它随着代码生长，服务当前改动，不承担整套系统总结。
+- **总结性文档 / 架构快照**：在用户明确要求、Milestone/Release/Handoff
+  边界，或 Architect 判断系统结构已经稳定时，使用 `aiwf-architecture-doc`
+  生成 `.aiwf/artifacts/reports/架构详细设计.md`。
+
+PROJECT-MAP 是两者之间的结构索引：它保存 Goal-to-module 绑定、架构方向、
+开放决策和延迟风险；架构快照从 PROJECT-MAP、Goal Tree、Plan/Task 证据、
+测试、审查和源码入口汇总生成。不要把长期架构真相只散落在闭合报告、
+review 评论或模型记忆里。
+
+`.aiwf/` 中的报告是治理与接力产物，不是要求用户手工浏览的 UI。需要给人读时，
+Planner 应在对话中总结，或在 Plan scope 允许时把稳定版本镜像到 `docs/`。
+
+架构快照有轻量机器契约，用来防止交付/交接时被模型漏掉：
+
+```bash
+aiwf architecture-doc require --reason "milestone handoff"
+aiwf architecture-doc status
+aiwf architecture-doc validate
+aiwf architecture-doc satisfy
+aiwf architecture-doc waive --reason "project still changing; PROJECT-MAP is enough"
+```
+
+`require` 不会自动生成文档；它只让 `aiwf status --prompt` 提醒模型，并在
+Milestone confirm/close 前检查快照是否已经 validate + satisfy。
 
 ### Plan：实践脚手架
 
@@ -634,6 +668,7 @@ aiwf project-map --help
 - `aiwf-review`
 - `aiwf-close`
 - `aiwf-architect`
+- `aiwf-architecture-doc`
 - `aiwf-milestone-integration`
 - `aiwf-milestone-arch-review`
 

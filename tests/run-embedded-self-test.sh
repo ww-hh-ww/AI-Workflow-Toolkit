@@ -23,6 +23,8 @@ TESTS=(
   "tests/embedded/test_state_ops.py"
   "tests/embedded/test_planner_decision_contract.py"
   "tests/embedded/test_planner_first_flow.py"
+  "tests/embedded/test_architecture_doc_contract.py"
+  "tests/embedded/test_architecture_documentation_surface.py"
   "tests/embedded/test_complexity_routing.py"
   "tests/embedded/test_lessons_contract.py"
   "tests/embedded/test_workflow_levels.py"
