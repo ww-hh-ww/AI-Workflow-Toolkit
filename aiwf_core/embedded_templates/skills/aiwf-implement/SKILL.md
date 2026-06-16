@@ -5,33 +5,45 @@ description: Scoped implementation within Plan scope boundaries
 
 # AIWF Implement
 
-## STOP — Check topology BEFORE any other action
+> **L1+ = Agent tool. L0 = scroll down. Implementing inline at L1+ is a GATE VIOLATION — review will reject it because no independent executor evidence exists.**
 
-Read `.aiwf/state/state.json` → `workflow_level`. Derive execution topology:
+## DISPATCH GATE — READ FIRST, ACT NOW
 
-| workflow_level | topology |
-|---|---|
-| L0_direct | single_agent (inline OK) |
-| L1_review_light | light_review (subagent required) |
-| L2_standard_team | standard_team (subagent required) |
-| L3_full_power | fanout_merge (subagent required) |
+Read `.aiwf/state/state.json` → `workflow_level`.
 
-**If workflow_level is NOT "L0_direct":**
-You are planner-main (or the wrong agent). You do NOT write code.
+### L0_direct → skip to "L0 Implementation" section at bottom of this file
 
-```
-Agent({subagent_type: "aiwf-executor", prompt: "..."})
-```
+### L1_review_light / L2_standard_team / L3_full_power → CALL AGENT TOOL NOW
 
-You do not Write. You do not Edit. You do not implement. The executor does.
+You are planner-main. Writing code yourself is a gate violation. The review phase checks that an independent executor produced the evidence — if you wrote it, review REJECTS it.
 
-**Only continue below if workflow_level IS "L0_direct".**
+**Step 1 — Read state to build the prompt:**
+
+1. `.aiwf/state/state.json` — `active_task_id`, `workflow_level`, `execution_topology`
+2. `.aiwf/state/plans.json` — active Plan: `allowed_write`, `forbidden_write`, `work_intent`, `plan_kind`, `purpose`, `interfaces`, `constraints`, `active_phase`
+3. `.aiwf/state/goal.json` — `quality_brief.architecture_brief` (especially `protected_files`, `forbidden_restructures`)
+
+**Step 2 — Call Agent({...}) with:**
+
+| Parameter | Value |
+|-----------|-------|
+| subagent_type | `"aiwf-executor"` |
+| description | `"Implement TASK-XXX"` |
+| prompt | Task ID + plan ID + `purpose` + `allowed_write` + `forbidden_write` + `work_intent` + `plan_kind` + `active_phase` + `protected_files` + `forbidden_restructures` + `"Read .aiwf/state/ for full context. Stay within boundaries. Record evidence with aiwf state record-role-evidence when done. Report changed files and commands run."` |
+
+**Step 3 — Wait for executor to finish.** Then forward its output to the next phase (testing).
 
 ---
 
+**>>> STOP HERE IF NOT L0_direct. Content below is L0 only. <<<**
+
+---
+
+## L0 Implementation (inline, self-review OK)
+
 **Surgical change rule:** Every changed line must trace to the active plan's Scope or Verification. Do not refactor, restructure, or improve adjacent code unless the task explicitly requires it. Minimal implementation beats speculative abstraction.
 
-## Before Starting (pull what you need)
+### Before Starting (pull what you need)
 
 1. **Plan scope**: Read `.aiwf/state/plans.json` → active Plan: `allowed_write`, `forbidden_write`, `purpose`, `non_goals`, `dependencies`, `interface_contract`.
 2. **Goal Tree**: Read `.aiwf/state/goals.json` → parent Goal: `module_boundaries`, `architecture_invariants`, `non_goals` propagate from Goal.
@@ -39,7 +51,7 @@ You do not Write. You do not Edit. You do not implement. The executor does.
 4. **Architecture Brief**: Read `.aiwf/state/goal.json` → `quality_brief.architecture_brief`: `protected_files`, `forbidden_restructures`, `allowed_files`, `integration_points`.
 5. **State**: Read `.aiwf/state/state.json` → `workflow_level` (topology derives from this).
 
-## Work Intent Discipline
+### Work Intent Discipline
 
 Your Plan's `work_intent` governs how you work:
 - **feature**: implement target capability, document interfaces, do not refactor unrelated code.
@@ -53,7 +65,7 @@ Your Plan's `work_intent` governs how you work:
 - **integration**: do NOT change interfaces. Integrate completed branches, check convergence.
 - **release**: do NOT change behavior during packaging. Release hygiene only.
 
-## Implementation Rules
+### Implementation Rules
 
 - Stay within `allowed_write`. Treat `forbidden_write`, `protected_files`, and `forbidden_restructures` as hard boundaries.
 - Do NOT modify the Goal Tree — no graft, prune, or restructure — unless the active Plan explicitly assigns structural change.
@@ -63,11 +75,7 @@ Your Plan's `work_intent` governs how you work:
 - For lightweight patches: work inside existing Plan, attach evidence to that Plan.
 - If Impact says docs/assets=yes, update `.aiwf/artifacts/reports/项目地图.md`. If no, skip.
 
-## Reading Strategy
-
-Locate first with grep/Glob, then read selectively with offset/limit. Tests show expected behavior more concisely than implementation.
-
-## During Implementation
+### During Implementation
 
 - Respect `architecture_brief.allowed_files`, `protected_files`, `forbidden_restructures`.
 - Respect the active Plan's `plan_kind`, `active_phase`, `interfaces`, and `constraints`. Do not work outside them.
@@ -78,7 +86,7 @@ Locate first with grep/Glob, then read selectively with offset/limit. Tests show
 - If the plan says Docs/Assets impact=yes for project-map, update `.aiwf/artifacts/reports/项目地图.md` with new files/directories/renamed modules. If impact=no, skip.
 - Follow existing code patterns. Keep changes minimal and focused.
 
-## Architecture Change
+### Architecture Change
 
 If the architecture brief is insufficient, stop and report the gap. Do NOT silently expand architecture. Request changes via:
 ```
@@ -87,15 +95,17 @@ aiwf arch-change request --source executor --reason "..." --proposed-change "...
   --scope-impact "..." --risk "..."
 ```
 
-## After Implementation
+### After Implementation
 
-Report to planner-main: changed files, commands run with exit codes, scope/architecture concerns. For each piece of evidence, state which Plan and Goal it supports. Evidence is captured automatically by hooks; if missing, use `aiwf state record-role-evidence --role executor --summary "..." --changed-file <path> --scan-git --supports-plan <PLAN-ID> --supports-goal <GOAL-ID>`.
+Report: changed files, commands run with exit codes, scope/architecture concerns. For each piece of evidence, state which Plan and Goal it supports. Evidence is captured automatically by hooks; if missing, use `aiwf state record-role-evidence --role executor --summary "..." --changed-file <path> --scan-git --supports-plan <PLAN-ID> --supports-goal <GOAL-ID>`. If the Plan's scope was insufficient: report what was needed vs what the Plan allowed. Do not silently normalize drift.
 
-If the Plan's scope was insufficient: report what was needed vs what the Plan allowed. Do not silently normalize drift.
-
-## Scope Rules
+### Scope Rules
 
 - `allowed_write`: paths you may modify.
 - `forbidden_write`: paths you must NEVER touch.
 - `architecture_brief.allowed_files` / `protected_files` / `forbidden_restructures`: additional hard boundaries.
 - If unsure about a boundary, ASK planner-main.
+
+### Reading Strategy
+
+Locate first with grep/Glob, then read selectively with offset/limit. Tests show expected behavior more concisely than implementation.

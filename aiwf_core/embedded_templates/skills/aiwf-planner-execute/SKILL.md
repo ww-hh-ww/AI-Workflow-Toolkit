@@ -68,16 +68,19 @@ discussing → planned → implementing → testing → reviewing → closing �
 ```
 
 1. **Orient** — run `aiwf status`; read state, goal, fix-loop, task ledger.
-2. **Activate** — `aiwf task activate <ID>`. Activation mechanically recomputes routing.
-3. **Implement** — Executor works within `allowed_write`. L0 may be inline; L1+ follow execution topology.
-4. **Test** — Tester validates at selected `test_template`. Commands + results, not prose. L2/L3 require independent Tester.
-5. **Cleanup before review** — `aiwf cleanup check`; resolve stale items; `aiwf state mark-cleanup-fresh`.
-6. **Review** — Reviewer critiques against contracts. L2/L3 require independent Reviewer.
-7. **Fix loop when needed** — route failures, repeat affected stages, re-test/re-clean/re-review.
-8. **Meta-critique** — Planner dispositions adversarial observations.
-9. **Closure gate** — `aiwf state prepare-close` while task is still active.
-10. **Task close** — `aiwf task close <ID>` after prepare-close passes.
-11. **Carry forward** — current-state.md tells next cycle what changed and what remains risky.
+2. **Confirm start** — briefly tell the user the task scope, risk, and verification route; then record it with `aiwf task confirm-start <ID> --summary "..."`. If the user explicitly said not to report, record `aiwf task confirm-start <ID> --skip --reason "user asked to proceed without start report"`.
+3. **Activate** — `aiwf task activate <ID>`. Activation mechanically recomputes routing.
+4. **Implement** — Load `/aiwf-implement`. For L0: implement inline. For L1+: the skill's DISPATCH GATE will instruct you to call `Agent({subagent_type: "aiwf-executor", ...})`. **Call the Agent tool. Do NOT Write/Edit yourself.**
+5. **Test** — Load `/aiwf-test`. For L0: test inline. For L1: dispatch reviewer-light (one agent tests+reviews). For L2/L3: dispatch `Agent({subagent_type: "aiwf-tester", ...})`. **Call the Agent tool. Do NOT run tests yourself.**
+6. **Cleanup before review** — `aiwf cleanup check`; resolve stale items; `aiwf state mark-cleanup-fresh`.
+7. **Review** — Load `/aiwf-review`. For L0: self-review inline. For L1: review already done by reviewer-light. For L2/L3: dispatch `Agent({subagent_type: "aiwf-reviewer", ...})`. **Call the Agent tool. Do NOT review yourself.**
+8. **Fix loop when needed** — route failures, repeat affected stages, re-test/re-clean/re-review.
+9. **Meta-critique** — Planner dispositions adversarial observations.
+10. **Closure gate** — `aiwf state prepare-close` while task is still active.
+11. **Task close** — `aiwf task close <ID>` after prepare-close passes.
+12. **Carry forward** — current-state.md tells next cycle what changed and what remains risky.
+
+**Sub-agent dispatch rule: L1+ means the Agent tool is MANDATORY at implement/test/review phases. Never do L1+ work inline. The sub-agent prompt must include task scope from state files, not just an ellipsis.**
 
 At every transition, trust `.aiwf/*.json` over conversational memory.
 
@@ -88,15 +91,23 @@ At every transition, trust `.aiwf/*.json` over conversational memory.
 ### L0 (trivial: <=5 files, linear, self-review ok)
 
 1. `aiwf state record-quality-policy --task-type small_function --workflow-level L0_direct`
-2. `aiwf task activate TASK-001`
-3. Implement → self-test → cleanup → self-review → prepare-close → task close
+2. Tell the user the one-line task start summary unless they explicitly waived reports.
+3. `aiwf task confirm-start TASK-001 --summary "scope: ...; verify: ..."`
+4. `aiwf task activate TASK-001`
+5. Implement → self-test → cleanup → self-review → prepare-close → task close
 
 ### L1+ (standard: cross-module, >5 files, refactor, API)
 
 1. `aiwf state record-quality-policy --task-type <T> --workflow-level <L> --risk-flag <F>`
-2. `aiwf task activate TASK-001`
-3. `aiwf status`
-4. Executor → Tester → cleanup → Reviewer → fix-loop if needed → meta-critique → prepare-close → task close → carry-forward
+2. Tell the user the one-line task start summary unless they explicitly waived reports.
+3. `aiwf task confirm-start TASK-001 --summary "scope: ...; risk: ...; verify: ..."`
+4. `aiwf task activate TASK-001`
+5. `aiwf status`
+6. Load `/aiwf-implement` → dispatch `aiwf-executor` via Agent tool → wait for result
+7. Load `/aiwf-test` → dispatch `aiwf-tester` (L2/L3) or `aiwf-reviewer` (L1) via Agent tool → wait for result
+8. Cleanup → `aiwf cleanup check`; `aiwf state mark-cleanup-fresh`
+9. Load `/aiwf-review` → for L2/L3: dispatch `aiwf-reviewer` via Agent tool; for L1: review already done by reviewer-light → wait for result
+10. Fix-loop if needed → meta-critique → prepare-close → task close → carry-forward
 
 ### Forced L3 (mechanical — cannot override)
 
@@ -119,6 +130,23 @@ Route→L3 on: destructive, security, data_migration (mechanical).
 
 Task activation computes routing from file breadth, cross-module scope,
 Architecture Brief, risk flags, fix-loop history, and Gravity.
+The computed recommended minimum workflow level is a floor, not a warning:
+activation raises `workflow_level` to that minimum before work starts. If it
+becomes L2/L3, independent Tester/Reviewer gates apply.
+
+Downgrades are explicit exceptions, not silent Planner discretion. Before using
+one, explain the tradeoff to the user. Then record a task-scoped, confirmed
+override:
+
+```
+aiwf route downgrade --task-id TASK-001 --to light_review \
+  --reason "scope is mechanical and fully command-verifiable" \
+  --substitute "embedded self-test + release audit" \
+  --user-confirmed
+```
+
+If the user does not confirm, or hard constraints are present, activation must
+stay at the mechanically recommended level.
 
 ## Plan Drift During Execution
 

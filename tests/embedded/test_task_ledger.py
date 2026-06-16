@@ -380,7 +380,7 @@ class TestTaskLedger(unittest.TestCase):
         # Routing respects the pre-set L2 level (downgrade_allowed path)
         self.assertEqual(state["workflow_level"], "L2_standard_team")
 
-    def test_advisory_routing_gap_requires_user_decision(self):
+    def test_routing_minimum_auto_escalates_before_activation(self):
         from aiwf_core.core.task_ledger import activate_task, upsert_task
 
         state_path = self.tmp / ".aiwf" / "state" / "state.json"
@@ -394,9 +394,135 @@ class TestTaskLedger(unittest.TestCase):
 
         self.assertTrue(result["activated"], result["blockers"])
         state = json.loads(state_path.read_text())
-        self.assertTrue(state["quality_escalation_required"])
-        self.assertTrue(state["requires_user_decision"])
-        self.assertNotEqual(state["recommended_minimum_level"], state["workflow_level"])
+        self.assertEqual(state["recommended_minimum_level"], "L1_review_light")
+        self.assertEqual(state["workflow_level"], "L1_review_light")
+        self.assertFalse(state["quality_escalation_required"])
+        self.assertFalse(state["requires_user_decision"])
+        self.assertIn("escalated:L0_direct→L1_review_light", state["routing_factors"])
+
+    def test_l2_minimum_auto_escalates_and_enforces_l2_contracts(self):
+        from aiwf_core.core.task_ledger import activate_task, upsert_task
+
+        state_path = self.tmp / ".aiwf" / "state" / "state.json"
+        state = json.loads(state_path.read_text())
+        state["workflow_level"] = "L1_review_light"
+        state_path.write_text(json.dumps(state, indent=2) + "\n")
+        self._seed_l2_contracts()
+        upsert_task(str(self.tmp), "TASK-001", "Cross-module work", status="ready")
+        self._seed_plan("TASK-001", allowed_write=["src/api.py", "tests/test_api.py"])
+
+        result = activate_task(str(self.tmp), "TASK-001")
+
+        self.assertTrue(result["activated"], result["blockers"])
+        state = json.loads(state_path.read_text())
+        self.assertEqual(state["recommended_minimum_level"], "L2_standard_team")
+        self.assertEqual(state["workflow_level"], "L2_standard_team")
+        self.assertIn("escalated:L1_review_light→L2_standard_team", state["routing_factors"])
+
+    def test_user_confirmed_downgrade_can_override_l2_floor(self):
+        from aiwf_core.core.task_ledger import activate_task, upsert_task
+
+        state_path = self.tmp / ".aiwf" / "state" / "state.json"
+        state = json.loads(state_path.read_text())
+        state["workflow_level"] = "L1_review_light"
+        state["substitution_records"] = [{
+            "type": "downgrade",
+            "task_id": "TASK-001",
+            "from_level": "L2_standard_team",
+            "to_level": "L1_review_light",
+            "from_topology": "standard_team",
+            "to_topology": "light_review",
+            "reason": "fully command-verifiable and user accepted lower topology",
+            "substitute_verification": "embedded self-test + release audit",
+            "user_confirmed": True,
+        }]
+        state_path.write_text(json.dumps(state, indent=2) + "\n")
+        self._seed_l2_contracts()
+        upsert_task(str(self.tmp), "TASK-001", "Cross-module work", status="ready")
+        self._seed_plan("TASK-001", allowed_write=["src/api.py", "tests/test_api.py"])
+
+        result = activate_task(str(self.tmp), "TASK-001")
+
+        self.assertTrue(result["activated"], result["blockers"])
+        state = json.loads(state_path.read_text())
+        self.assertEqual(state["recommended_minimum_level"], "L2_standard_team")
+        self.assertEqual(state["workflow_level"], "L1_review_light")
+        self.assertEqual(state["verification_need"], "standard")
+        self.assertEqual(state["review_need"], "optional_light_review")
+        self.assertEqual(state["active_routing_override"]["task_id"], "TASK-001")
+        self.assertIn("explicit_downgrade:L2_standard_team→L1_review_light", state["routing_factors"])
+
+    def test_unconfirmed_downgrade_does_not_override_l2_floor(self):
+        from aiwf_core.core.task_ledger import activate_task, upsert_task
+
+        state_path = self.tmp / ".aiwf" / "state" / "state.json"
+        state = json.loads(state_path.read_text())
+        state["workflow_level"] = "L1_review_light"
+        state["substitution_records"] = [{
+            "type": "downgrade",
+            "task_id": "TASK-001",
+            "to_level": "L1_review_light",
+            "reason": "not enough",
+            "user_confirmed": False,
+        }]
+        state_path.write_text(json.dumps(state, indent=2) + "\n")
+        self._seed_l2_contracts()
+        upsert_task(str(self.tmp), "TASK-001", "Cross-module work", status="ready")
+        self._seed_plan("TASK-001", allowed_write=["src/api.py", "tests/test_api.py"])
+
+        result = activate_task(str(self.tmp), "TASK-001")
+
+        self.assertTrue(result["activated"], result["blockers"])
+        state = json.loads(state_path.read_text())
+        self.assertEqual(state["workflow_level"], "L2_standard_team")
+        self.assertEqual(state["active_routing_override"], {})
+
+    def test_confirmed_downgrade_cannot_override_hard_constraints(self):
+        from aiwf_core.core.task_ledger import activate_task, upsert_task
+
+        state_path = self.tmp / ".aiwf" / "state" / "state.json"
+        state = json.loads(state_path.read_text())
+        state["workflow_level"] = "L1_review_light"
+        state["substitution_records"] = [{
+            "type": "downgrade",
+            "task_id": "TASK-001",
+            "to_level": "L1_review_light",
+            "reason": "user accepted lower topology",
+            "substitute_verification": "targeted test",
+            "user_confirmed": True,
+        }]
+        state_path.write_text(json.dumps(state, indent=2) + "\n")
+        self._seed_l2_contracts()
+        upsert_task(str(self.tmp), "TASK-001", "Core gate work", status="ready")
+        self._seed_plan("TASK-001", allowed_write=["aiwf_core/core/task_ledger.py"])
+
+        result = activate_task(str(self.tmp), "TASK-001")
+
+        self.assertTrue(result["activated"], result["blockers"])
+        state = json.loads(state_path.read_text())
+        self.assertEqual(state["workflow_level"], "L2_standard_team")
+        self.assertIn("semantic_core_gate", state["hard_constraints"])
+        self.assertEqual(state["active_routing_override"], {})
+
+    def test_quality_policy_minimum_auto_escalates_before_activation(self):
+        from aiwf_core.core.task_ledger import activate_task, upsert_task
+
+        state_path = self.tmp / ".aiwf" / "state" / "state.json"
+        state = json.loads(state_path.read_text())
+        state["workflow_level"] = "L0_direct"
+        state["task_type"] = "security_sensitive"
+        state_path.write_text(json.dumps(state, indent=2) + "\n")
+        upsert_task(str(self.tmp), "TASK-001", "Security-sensitive work", status="ready")
+        self._seed_plan("TASK-001", allowed_write=["src/auth.py"])
+
+        result = activate_task(str(self.tmp), "TASK-001")
+
+        self.assertFalse(result["activated"])
+        state = json.loads(state_path.read_text())
+        self.assertEqual(state["recommended_minimum_level"], "L3_full_power")
+        self.assertEqual(state["workflow_level"], "L3_full_power")
+        self.assertIn("policy_escalated:L1_review_light→L3_full_power", state["routing_factors"])
+        self.assertTrue(any("L3 task requires a checkpoint" in b or "L2/L3 requires" in b for b in result["blockers"]))
 
     def test_suspend_task_saves_and_restore_state_snapshot(self):
         from aiwf_core.core.task_ledger import activate_task, suspend_task, upsert_task
@@ -434,6 +560,7 @@ class TestTaskLedger(unittest.TestCase):
             "- capabilities: no — test\n- quality_summary: no — test\n")
         self._run("task", "plan", "--task-id", "TASK-001", "--title", "Hot", "--status", "ready",
                   "--allowed-write", "src/shared.py", "--plan", "PLAN-TASK-001", "--goal", "GOAL-001")
+        self._run("task", "confirm-start", "TASK-001", "--summary", "scope: hotspot prompt test; verify: status hook")
         self._run("task", "activate", "TASK-001")
         (self.tmp / ".aiwf" / "runtime" / "history" / "task-history.json").write_text(json.dumps({
             "tasks": [
@@ -480,6 +607,23 @@ class TestTaskLedger(unittest.TestCase):
         self.assertIn("Task recorded: TASK-POS", r.stdout)
         status = self._run("task", "status")
         self.assertIn("ready: 1", status.stdout)
+
+    def test_cli_task_activate_requires_start_confirmation(self):
+        self._run("plan", "create", "PLAN-TASK-001", "--goal-id", "GOAL-001", "--task", "TASK-001",
+                  "--allowed-write", "src/", "--purpose", "Test plan", "--work-intent", "feature")
+        self._run("task", "plan", "TASK-001", "--title", "Needs confirmation", "--status", "ready",
+                  "--plan", "PLAN-TASK-001", "--goal", "GOAL-001")
+
+        blocked = self._run("task", "activate", "TASK-001")
+
+        self.assertNotEqual(blocked.returncode, 0)
+        self.assertIn("Start confirmation required", blocked.stdout)
+
+        confirmed = self._run("task", "confirm-start", "TASK-001",
+                              "--summary", "scope: test; risk: low; verify: status")
+        self.assertEqual(confirmed.returncode, 0, confirmed.stderr)
+        activated = self._run("task", "activate", "TASK-001")
+        self.assertEqual(activated.returncode, 0, activated.stderr)
 
     # ── P0-2: Task activation requires plan for the same task ID ──
 

@@ -71,7 +71,16 @@ def _cmd_task_plan(args: argparse.Namespace) -> None:
 
 
 def _cmd_task_activate(args: argparse.Namespace) -> None:
-    from ..core.task_ledger import activate_task
+    from ..core.task_ledger import activate_task, task_start_confirmation_blockers
+    if not getattr(args, "skip_start_gate", False):
+        blockers = task_start_confirmation_blockers(str(Path.cwd()), args.task_id)
+        if blockers:
+            print(f"Task activation: {args.task_id} activated=False")
+            print("  Start confirmation required:")
+            for blocker in blockers[:5]:
+                print(f"    - {blocker}")
+            print("  Keep it short: scope, risk, verification, then confirm.")
+            raise SystemExit(1)
     result = activate_task(str(Path.cwd()), args.task_id)
     print(f"Task activation: {args.task_id} activated={result['activated']}")
     if result["blockers"]:
@@ -81,6 +90,26 @@ def _cmd_task_activate(args: argparse.Namespace) -> None:
         raise SystemExit(1)
     else:
         print("  Execution window updated.")
+
+
+def _cmd_task_confirm_start(args: argparse.Namespace) -> None:
+    from ..core.task_ledger import record_task_start_confirmation
+    result = record_task_start_confirmation(
+        str(Path.cwd()),
+        args.task_id,
+        summary=args.summary or "",
+        confirmed_by=args.confirmed_by or "user",
+        skip=bool(args.skip),
+        reason=args.reason or "",
+    )
+    if not result.get("recorded"):
+        print(f"Task start confirmation blocked: {args.task_id}", file=sys.stderr)
+        for blocker in result.get("blockers", [])[:5]:
+            print(f"  - {blocker}", file=sys.stderr)
+        raise SystemExit(1)
+    task = result.get("task") or {}
+    conf = task.get("start_confirmation", {}) or {}
+    print(f"Task start confirmation recorded: {args.task_id} status={conf.get('status')}")
 
 
 def _cmd_task_close(args: argparse.Namespace) -> None:
@@ -156,6 +185,7 @@ def _cmd_task_help(args: argparse.Namespace) -> None:
     print()
     print("Available subcommands:")
     print("  aiwf task plan      — create/update a candidate or ready task")
+    print("  aiwf task confirm-start — record brief user-visible start confirmation")
     print("  aiwf task activate  — mark one task active if gates pass")
     print("  aiwf task suspend   — suspend an active task with state snapshot")
     print("  aiwf task close     — mark a ledger task closed")

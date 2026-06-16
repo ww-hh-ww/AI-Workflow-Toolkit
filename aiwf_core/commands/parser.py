@@ -89,7 +89,7 @@ from .route_commands import (
     _cmd_route_substitute,
 )
 from .task_commands import (
-    _cmd_task_activate, _cmd_task_close, _cmd_task_help, _cmd_task_plan,
+    _cmd_task_activate, _cmd_task_close, _cmd_task_confirm_start, _cmd_task_help, _cmd_task_plan,
     _cmd_task_status, _cmd_task_suspend,
 )
 from ..constants import VERSION
@@ -317,17 +317,23 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
                       choices=["single_agent", "single_agent_with_machine_evidence",
                                "light_review", "standard_team", "fanout_merge"],
                       help="target execution topology")
+    p_rd.add_argument("--task-id", default="", help="task this downgrade applies to")
     p_rd.add_argument("--reason", required=True, help="why downgrade is safe for this task")
     p_rd.add_argument("--substitute", default="", help="alternative verification that replaces the waived topology")
+    p_rd.add_argument("--user-confirmed", action="store_true",
+                      help="user explicitly approved this downgrade after seeing the tradeoff")
     p_rd.set_defaults(func=_cmd_route_downgrade)
     p_rs = p_route_sub.add_parser("substitute", help="waive topology requirement with alternative verification")
     p_rs.add_argument("--use", required=True,
                       choices=["single_agent", "single_agent_with_machine_evidence",
                                "light_review", "standard_team", "fanout_merge"],
                       help="alternative execution topology to use")
+    p_rs.add_argument("--task-id", default="", help="task this substitution applies to")
     p_rs.add_argument("--waive", required=True, help="what topology requirement is being waived")
     p_rs.add_argument("--reason", required=True, help="why the alternative is sufficient")
     p_rs.add_argument("--substitute", required=True, help="alternative verification that replaces the waived requirement")
+    p_rs.add_argument("--user-confirmed", action="store_true",
+                      help="user explicitly approved this substitution after seeing the tradeoff")
     p_rs.set_defaults(func=_cmd_route_substitute)
     p_route.set_defaults(func=_cmd_route_help)
     # ── claim-evidence alignment ──
@@ -650,7 +656,16 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
     p_tp.set_defaults(func=_cmd_task_plan)
     p_ta = p_task_sub.add_parser("activate", help="activate a task if execution-window gates pass")
     p_ta.add_argument("task_id", help="task ID")
+    p_ta.add_argument("--skip-start-gate", action="store_true",
+                      help="internal/test escape hatch; prefer task confirm-start or skip with reason")
     p_ta.set_defaults(func=_cmd_task_activate)
+    p_tcs = p_task_sub.add_parser("confirm-start", help="record brief user-visible start confirmation before activation")
+    p_tcs.add_argument("task_id", help="task ID")
+    p_tcs.add_argument("--summary", default="", help="brief scope/risk/verification summary shown to the user")
+    p_tcs.add_argument("--confirmed-by", default="user", help="who confirmed the start")
+    p_tcs.add_argument("--skip", action="store_true", help="user explicitly asked not to receive a start report")
+    p_tcs.add_argument("--reason", default="", help="required with --skip")
+    p_tcs.set_defaults(func=_cmd_task_confirm_start)
     p_tc = p_task_sub.add_parser("close", help="mark a ledger task closed")
     p_tc.add_argument("task_id", help="task ID")
     p_tc.add_argument("--note", default="", help="closure note")

@@ -389,27 +389,52 @@ def _apply_mechanical_routing(base_dir: str, task: Dict[str, Any]) -> Dict[str, 
     current = state.get("workflow_level", "L1_review_light")
     if current not in WORKFLOW_LEVELS:
         current = "L1_review_light"
-    # If downgrade is allowed (no hard constraints like security/destructive),
-    # respect the current level. Routing is advisory — the Planner may accept
-    # a lower level with open eyes. Only force upgrade when downgrade is
-    # FORBIDDEN (hard constraints present).
-    # When recommended > current, flag for user confirmation. The Planner
-    # must explain the downgrade and get user approval — cannot silently drop.
+    # Mechanical routing is a floor, not a suggestion. Earlier versions allowed
+    # the current lower workflow level to remain active when downgrade_allowed
+    # was true, which meant an L2 recommendation could still execute as L1 and
+    # bypass independent Tester/Reviewer gates. Always raise to the recommended
+    # minimum; explicit topology substitutions must be recorded separately and
+    # must not silently defeat this activation boundary.
     downgrade_gap = (
         WORKFLOW_LEVELS.index(recommended) > WORKFLOW_LEVELS.index(current)
     )
-    if decision.get("downgrade_allowed", True):
-        final_level = current
-        if downgrade_gap:
-            decision["routing_factors"].append(
-                f"downgrade:{current}→{recommended}"
-            )
-    else:
-        final_level = max((current, recommended), key=WORKFLOW_LEVELS.index)
+    final_level = max((current, recommended), key=WORKFLOW_LEVELS.index)
+    if downgrade_gap:
+        decision["routing_factors"].append(
+            f"escalated:{current}→{recommended}"
+        )
     from .quality_policy import select_quality_policy
     task_type = state.get("task_type") or "feature"
     policy = select_quality_policy(task_type, final_level, state.get("risk_flags", []) or [],
                                    "mechanical routing at task activation")
+    policy_recommended = policy.get("recommended_minimum_level", "")
+    if (
+        policy_recommended in WORKFLOW_LEVELS
+        and WORKFLOW_LEVELS.index(policy_recommended) > WORKFLOW_LEVELS.index(final_level)
+    ):
+        previous_level = final_level
+        recommended = policy_recommended
+        final_level = policy_recommended
+        decision["routing_factors"].append(
+            f"policy_escalated:{previous_level}→{policy_recommended}"
+        )
+        policy = select_quality_policy(task_type, final_level, state.get("risk_flags", []) or [],
+                                       "mechanical routing at task activation")
+    override = _find_confirmed_routing_override(
+        state=state,
+        task=task,
+        recommended_level=recommended,
+        decision=decision,
+    )
+    if override.get("allowed"):
+        previous_level = final_level
+        final_level = override["level"]
+        decision["routing_factors"].append(
+            f"explicit_downgrade:{previous_level}→{final_level}"
+        )
+        _apply_level_dimensions(decision, final_level)
+        policy = select_quality_policy(task_type, final_level, state.get("risk_flags", []) or [],
+                                       "explicit user-confirmed routing override")
     state.update({
         "workflow_level": final_level,
         "routing_score": decision["routing_score"],
@@ -424,14 +449,15 @@ def _apply_mechanical_routing(base_dir: str, task: Dict[str, Any]) -> Dict[str, 
         "cleanup_policy": policy["cleanup_policy"],
         "git_policy": policy["git_policy"],
         "recommended_minimum_level": recommended,
-        "quality_escalation_required": WORKFLOW_LEVELS.index(recommended) > WORKFLOW_LEVELS.index(current),
-        "requires_user_decision": downgrade_gap,
+        "quality_escalation_required": False,
+        "requires_user_decision": False,
         # V2-A topology dimensions
         "verification_need": decision.get("verification_need", "standard"),
         "review_need": decision.get("review_need", "optional_light_review"),
         "downgrade_allowed": decision.get("downgrade_allowed", True),
         "substitution_allowed": decision.get("substitution_allowed", False),
         "hard_constraints": decision.get("hard_constraints", []),
+        "active_routing_override": override.get("record", {}) if override.get("allowed") else {},
     })
     state["complexity"] = {
         "L0_direct": "simple",
@@ -441,6 +467,127 @@ def _apply_mechanical_routing(base_dir: str, task: Dict[str, Any]) -> Dict[str, 
     }[final_level]
     _write(state_path, state)
     return {"decision": decision, "recommended": recommended, "final_level": final_level, "state": state}
+
+
+def _apply_level_dimensions(decision: Dict[str, Any], level: str) -> None:
+    from .routing import LEVEL_TO_TOPOLOGY
+
+    decision["execution_topology"] = LEVEL_TO_TOPOLOGY.get(level, "light_review")
+    decision["verification_need"] = {
+        "L0_direct": "deterministic",
+        "L1_review_light": "standard",
+        "L2_standard_team": "broad",
+        "L3_full_power": "adversarial",
+    }.get(level, "standard")
+    decision["review_need"] = {
+        "L0_direct": "none",
+        "L1_review_light": "optional_light_review",
+        "L2_standard_team": "required_review",
+        "L3_full_power": "adversarial_review",
+    }.get(level, "optional_light_review")
+
+
+def _find_confirmed_routing_override(
+    state: Dict[str, Any],
+    task: Dict[str, Any],
+    recommended_level: str,
+    decision: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Return the latest valid, user-confirmed routing override for a task.
+
+    Mechanical routing remains the default floor. This helper only recognizes
+    explicit downgrade/substitution records that are tied to the current task
+    (or intentionally global), carry a reason, and were user-confirmed.
+    """
+    if recommended_level not in WORKFLOW_LEVELS:
+        return {"allowed": False}
+    if decision.get("hard_constraints"):
+        return {"allowed": False}
+    if not decision.get("downgrade_allowed", True):
+        return {"allowed": False}
+    task_id = str(task.get("id") or "")
+    records = state.get("substitution_records", []) or []
+    from .routing import TOPOLOGY_TO_LEVEL
+
+    for record in reversed(records):
+        if not isinstance(record, dict):
+            continue
+        if record.get("type") not in ("downgrade", "substitution"):
+            continue
+        if not record.get("user_confirmed"):
+            continue
+        record_task_id = str(record.get("task_id") or "")
+        if record_task_id and record_task_id != task_id:
+            continue
+        if not str(record.get("reason") or "").strip():
+            continue
+        level = str(record.get("to_level") or "") or TOPOLOGY_TO_LEVEL.get(str(record.get("to_topology") or ""), "")
+        if level not in WORKFLOW_LEVELS:
+            continue
+        if WORKFLOW_LEVELS.index(level) >= WORKFLOW_LEVELS.index(recommended_level):
+            continue
+        return {"allowed": True, "level": level, "record": record}
+    return {"allowed": False}
+
+
+def _task_start_confirmation(task: Dict[str, Any]) -> Dict[str, Any]:
+    conf = task.get("start_confirmation") or {}
+    return conf if isinstance(conf, dict) else {}
+
+
+def task_start_confirmation_blockers(base_dir: str, task_id: str) -> List[str]:
+    """CLI-facing start gate: explain work before activation unless skipped."""
+    state = _read(Path(base_dir) / ".aiwf" / "state" / "state.json", {})
+    if state.get("workflow_level", "L1_review_light") == "L0_direct":
+        return []
+    task = _find(load_ledger(base_dir).get("tasks", []), task_id)
+    if not task:
+        return [f"task not found: {task_id}"]
+    conf = _task_start_confirmation(task)
+    status = conf.get("status")
+    if status == "confirmed":
+        return []
+    if status == "skipped" and str(conf.get("reason") or "").strip():
+        return []
+    return [
+        "Task start not confirmed. Briefly explain scope/risk/verification to the user, then run "
+        f"aiwf task confirm-start {task_id} --summary '<one-line plan>'"
+    ]
+
+
+def record_task_start_confirmation(
+    base_dir: str,
+    task_id: str,
+    summary: str = "",
+    confirmed_by: str = "user",
+    skip: bool = False,
+    reason: str = "",
+) -> Dict[str, Any]:
+    ledger = load_ledger(base_dir)
+    task = _find(ledger.get("tasks", []), task_id)
+    if not task:
+        return {"recorded": False, "blockers": [f"task not found: {task_id}"], "task": None}
+    if skip:
+        if not str(reason or "").strip():
+            return {"recorded": False, "blockers": ["skip reason is required"], "task": task}
+        task["start_confirmation"] = {
+            "status": "skipped",
+            "reason": str(reason).strip(),
+            "confirmed_by": str(confirmed_by or "user").strip() or "user",
+            "confirmed_at": _now(),
+        }
+    else:
+        if not str(summary or "").strip():
+            return {"recorded": False, "blockers": ["summary is required"], "task": task}
+        task["start_confirmation"] = {
+            "status": "confirmed",
+            "summary": str(summary).strip(),
+            "confirmed_by": str(confirmed_by or "user").strip() or "user",
+            "confirmed_at": _now(),
+        }
+    task["updated_at"] = _now()
+    save_ledger(base_dir, ledger)
+    return {"recorded": True, "blockers": [], "task": task}
 
 
 def _refresh_mechanical_assets(base_dir: str) -> None:

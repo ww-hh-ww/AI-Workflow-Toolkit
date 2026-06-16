@@ -97,26 +97,29 @@ def _cmd_route_downgrade(args: argparse.Namespace) -> None:
             print(f"  ! {w}")
         raise SystemExit(1)
 
+    # workflow_level is the canonical stored field — topology derives from it
+    new_level = TOPOLOGY_TO_LEVEL.get(result["effective_topology"])
+
     # Record the substitution
     record = {
         "timestamp": _now(),
         "from_topology": current_topo,
         "to_topology": result["effective_topology"],
         "from_level": current_level,
+        "to_level": new_level or "",
+        "task_id": args.task_id or "",
         "reason": args.reason,
         "substitute_verification": args.substitute or "",
+        "user_confirmed": bool(args.user_confirmed),
         "type": "downgrade",
     }
     subs = state.setdefault("substitution_records", [])
     subs.append(record)
 
-    # workflow_level is the canonical stored field — topology derives from it
-    new_level = TOPOLOGY_TO_LEVEL.get(result["effective_topology"])
-    old_level = current_level
     if new_level:
         state["workflow_level"] = new_level
-    # Downgrades require explicit user confirmation — never silent
-    if result.get("is_downgrade"):
+    # Downgrades require explicit user confirmation — never silent.
+    if result.get("is_downgrade") and not args.user_confirmed:
         state["requires_user_decision"] = True
         state["quality_escalation_required"] = True
         state["quality_escalation_reason"] = (
@@ -127,8 +130,10 @@ def _cmd_route_downgrade(args: argparse.Namespace) -> None:
     _write_state(root, state)
 
     print(f"Workflow downgraded: {current_level} ({current_topo}) -> {new_level} ({result['effective_topology']})")
-    if state.get("requires_user_decision"):
-        print("  USER DECISION REQUIRED — confirm or reject this downgrade")
+    if not args.user_confirmed and result.get("is_downgrade"):
+        print("  USER DECISION REQUIRED — rerun with --user-confirmed after user approves")
+    if args.task_id:
+        print(f"  Task: {args.task_id}")
     print(f"  Reason: {args.reason[:120]}")
     if args.substitute:
         print(f"  Substitute verification: {args.substitute[:120]}")
@@ -167,26 +172,30 @@ def _cmd_route_substitute(args: argparse.Namespace) -> None:
             print(f"  ! {w}")
         raise SystemExit(1)
 
+    # workflow_level is canonical — topology derives from it
+    new_level = TOPOLOGY_TO_LEVEL.get(result["effective_topology"])
+
     # Record the substitution with alternative verification
     record = {
         "timestamp": _now(),
         "from_topology": current_topo,
         "to_topology": result["effective_topology"],
         "from_level": current_level,
+        "to_level": new_level or "",
+        "task_id": args.task_id or "",
         "reason": args.reason,
         "waived": args.waive or "",
         "substitute_verification": args.substitute or "",
+        "user_confirmed": bool(args.user_confirmed),
         "type": "substitution",
     }
     subs = state.setdefault("substitution_records", [])
     subs.append(record)
 
-    # workflow_level is canonical — topology derives from it
-    new_level = TOPOLOGY_TO_LEVEL.get(result["effective_topology"])
     if new_level:
         state["workflow_level"] = new_level
-    # Downgrades require explicit user confirmation
-    if result.get("is_downgrade"):
+    # Downgrades require explicit user confirmation.
+    if result.get("is_downgrade") and not args.user_confirmed:
         state["requires_user_decision"] = True
         state["quality_escalation_required"] = True
         state["quality_escalation_reason"] = (
@@ -199,8 +208,10 @@ def _cmd_route_substitute(args: argparse.Namespace) -> None:
     _write_state(root, state)
 
     print(f"Workflow substituted: {current_level} ({current_topo}) -> {new_level} ({result['effective_topology']})")
-    if state.get("requires_user_decision"):
-        print("  USER DECISION REQUIRED — confirm or reject this substitution")
+    if not args.user_confirmed and result.get("is_downgrade"):
+        print("  USER DECISION REQUIRED — rerun with --user-confirmed after user approves")
+    if args.task_id:
+        print(f"  Task: {args.task_id}")
     print(f"  Reason: {args.reason[:120]}")
     if args.waive:
         print(f"  Waived: {args.waive}")
