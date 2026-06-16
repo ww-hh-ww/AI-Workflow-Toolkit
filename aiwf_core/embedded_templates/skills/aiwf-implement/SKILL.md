@@ -5,7 +5,7 @@ description: Scoped implementation within Plan scope boundaries
 
 # AIWF Implement
 
-> **L1+ = Agent tool. L0 = scroll down. Implementing inline at L1+ is a GATE VIOLATION — review will reject it because no independent executor evidence exists.**
+> **L1+ = dispatch OR downgrade. L0 = scroll down. If the change is mechanical (add config key, fix typo, copy-paste pattern, <=3 lines with no logic change), downgrade first: `aiwf route downgrade --task-id <ID> --to single_agent --reason "mechanical change: <why>" --user-confirmed`. Then work inline. Otherwise dispatch.**
 
 ## DISPATCH GATE — READ FIRST, ACT NOW
 
@@ -13,9 +13,24 @@ Read `.aiwf/state/state.json` → `workflow_level`.
 
 ### L0_direct → skip to "L0 Implementation" section at bottom of this file
 
-### L1_review_light / L2_standard_team / L3_full_power → CALL AGENT TOOL NOW
+### L1_review_light / L2_standard_team / L3_full_power → EVALUATE FIRST
 
-You are planner-main. Writing code yourself is a gate violation. The review phase checks that an independent executor produced the evidence — if you wrote it, review REJECTS it.
+**Before dispatching, judge the change complexity.** Read the task's `allowed_write` paths and `purpose` from `.aiwf/state/plans.json`.
+
+**Mechanical change? Downgrade and work inline:**
+- Adding a key to a dict/config/mapping that follows existing pattern exactly
+- Changing a string constant, label, or message
+- Fixing a typo or whitespace
+- Adding <=3 lines in a single file with zero logic change
+- Copy-pasting an existing pattern to a new entry
+
+If mechanical: run `aiwf route downgrade --task-id <ID> --to single_agent --reason "mechanical change: <specific reason>" --user-confirmed`. Then skip to the L0 section and implement inline.
+
+**Not sure? Dispatch.** Better to over-escalate than under-escalate.
+
+**Non-mechanical (logic change, new function, API change, multi-file, refactor) → dispatch:**
+
+You are planner-main. Writing code yourself is a gate violation.
 
 **Step 1 — Read state to build the prompt:**
 

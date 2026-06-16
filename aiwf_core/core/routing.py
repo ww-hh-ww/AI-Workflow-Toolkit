@@ -141,12 +141,16 @@ HARD_UPGRADES = {
     "cross_module_semantic": "L2_standard_team",
 }
 
-# V2-A hard upgrades (downgrade_forbidden for these)
+# V2-A hard upgrades (downgrade forbidden for these).
+# prior_fix_loop_same_file is deliberately NOT a hard upgrade — it contributes
+# +2 to the routing score but does not force L2. A file having been fixed in a
+# prior task is a warning, not a gate. Mechanical changes (add config key, fix
+# typo, add dict entry matching existing pattern) on hotspot files should stay
+# at their natural level; the Planner can always escalate if needed.
 HARD_UPGRADES_V2 = dict(HARD_UPGRADES)
 HARD_UPGRADES_V2.update({
     "prior_fix_loop_active": "L2_standard_team",
     "prior_fix_loop_same_task": "L2_standard_team",
-    "prior_fix_loop_same_file": "L2_standard_team",
     "semantic_core_gate": "L2_standard_team",
 })
 
@@ -570,19 +574,22 @@ def compute_topology_override(
 
     # Check substitution validity
     if requested_order < current_order:
-        # Single-step limit: downgrade one level at a time
-        if current_order - requested_order > 1:
+        is_mechanical = reason.strip().lower().startswith("mechanical change")
+        # Single-step limit: downgrade one level at a time, unless the
+        # downgrade is for a mechanical change (explicitly scoped by Planner).
+        if current_order - requested_order > 1 and not is_mechanical:
             allowed = False
             warnings.append(
                 f"Topology downgrade from '{current_topology}' to "
                 f"'{requested_topology}' skips {current_order - requested_order} levels. "
-                "Downgrade ONE level at a time."
+                "Downgrade ONE level at a time, or prefix reason with "
+                "'mechanical change:' for trivial changes that don't need the routed level."
             )
         has_substitution_grounds = any(
             flag and factor in SUBSTITUTION_ALLOWED_FACTORS
             for factor, flag in factors.items()
         )
-        if not has_substitution_grounds:
+        if not has_substitution_grounds and not is_mechanical:
             warnings.append(
                 f"Topology downgrade from '{current_topology}' to "
                 f"'{requested_topology}' requires at least one substitution-grounds "

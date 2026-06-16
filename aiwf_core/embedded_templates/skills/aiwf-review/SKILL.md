@@ -5,7 +5,7 @@ description: Independent review — dispatch reviewer subagent, load sub-skills 
 
 # AIWF Review
 
-> **L1+ = Agent tool or check. L0 = scroll down. Reviewing inline at L2+ is a GATE VIOLATION — close gate checks that an independent reviewer recorded the verdict.**
+> **L1+ = dispatch or check downgrade. L0 = scroll down. If implement phase downgraded, follow the downgraded level. If still L2+, dispatch — reviewing inline at L2+ is a GATE VIOLATION.**
 
 ## DISPATCH GATE — READ FIRST, ACT NOW
 
@@ -128,7 +128,7 @@ Do NOT expand depth unilaterally. Request escalation if template too weak. When 
 
 ### Evidence-First Testing Boundary
 
-Do not default to rerunning the Tester full suite or real-usage matrix. Audit testing evidence first; run only small spot-check commands unless evidence is missing, stale, contradictory, unusually high-risk, or appears fabricated. Request Tester rerun for missing/stale full validation and record why any broad rerun was necessary.
+do not default to rerunning the Tester full suite or real-usage matrix. Audit testing evidence first; run only small spot-check commands unless evidence is missing, stale, contradictory, unusually high-risk, or appears fabricated. Request Tester rerun for missing/stale full validation and record why any broad rerun was necessary.
 
 ### Sub-Skills (load in order)
 

@@ -5,7 +5,7 @@ description: Template-guided testing based on planner-selected test_template
 
 # AIWF Test
 
-> **L1+ = Agent tool. L0 = scroll down. Testing inline at L2+ is a GATE VIOLATION — review will reject it because no independent tester evidence exists.**
+> **L1+ = dispatch. L0 = scroll down. If implement phase downgraded to L0, follow L0 path. If still L1+, dispatch — testing inline at L2+ is a GATE VIOLATION.**
 
 ## DISPATCH GATE — READ FIRST, ACT NOW
 
@@ -43,7 +43,7 @@ L1 uses ONE sub-agent for both testing AND review.
 | description | `"Test + review TASK-XXX"` |
 | prompt | Task ID + `test_template=targeted_plus_small_regression` + `verification_need=standard` + `allowed_write` + `work_intent` + `plan_kind` + changed files from evidence + `"You are reviewer-light for this L1 task. Do TWO jobs: (1) Test first — write new tests, run them, record with aiwf state record-testing --supports-plan <PLAN-ID> --supports-goal <GOAL-ID>. (2) Then review — check scope, goal match, test adequacy, overengineering. Record review with aiwf state record-review --verdict PASS (or REVISE/REJECT). Read .aiwf/state/ for full context."` |
 
-This ONE agent handles both phases. Do NOT spawn a separate tester or reviewer after this.
+The reviewer-light subagent handles both testing AND review. Do NOT spawn a separate tester or reviewer after this.
 
 ---
 
