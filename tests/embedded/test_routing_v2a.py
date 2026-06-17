@@ -618,6 +618,28 @@ class TestRoutingV2CLISmoke(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
+    def _run_route(self, *args):
+        env = os.environ.copy()
+        env["PYTHONPATH"] = str(Path(__file__).resolve().parent.parent.parent)
+        return subprocess.run(
+            [sys.executable, "-m", "aiwf_core.cli", "route", *args],
+            capture_output=True, text=True, cwd=str(self.tmp), env=env, timeout=15,
+        )
+
+    def _state(self):
+        return json.loads((self.tmp / ".aiwf" / "state" / "state.json").read_text())
+
+    def _write_state(self, state):
+        _write(self.tmp / ".aiwf" / "state" / "state.json", state)
+
+    def _seed_downgrade_grounds(self):
+        state = self._state()
+        state["routing_factors"] = ["semantic_mechanical", "machine_verifiable"]
+        state["downgrade_allowed"] = True
+        state["substitution_allowed"] = False
+        state["hard_constraints"] = []
+        self._write_state(state)
+
     def test_route_help_is_reachable(self):
         """aiwf route --help must succeed — guards against known-whitelist drift."""
         env = os.environ.copy()
@@ -639,6 +661,67 @@ class TestRoutingV2CLISmoke(unittest.TestCase):
         )
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("Routing:", r.stdout)
+
+    def test_unconfirmed_downgrade_records_pending_without_changing_level(self):
+        """Downgrade requests must not mutate workflow_level before user confirmation."""
+        self._seed_downgrade_grounds()
+        before = self._state()
+        self.assertEqual(before["workflow_level"], "L1_review_light")
+
+        r = self._run_route(
+            "downgrade",
+            "--to", "single_agent",
+            "--reason", "mechanical change: user wants a lighter flow for a trivial docs tweak",
+        )
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("pending user confirmation", r.stdout)
+
+        after = self._state()
+        self.assertEqual(after["workflow_level"], "L1_review_light")
+        self.assertTrue(after["requires_user_decision"])
+        self.assertTrue(after["quality_escalation_required"])
+        self.assertIn("downgrade requested", after["quality_escalation_reason"])
+        record = after["substitution_records"][-1]
+        self.assertEqual(record["type"], "downgrade")
+        self.assertFalse(record["user_confirmed"])
+        self.assertEqual(record["status"], "pending_user_confirmation")
+
+    def test_user_confirmed_downgrade_changes_level(self):
+        self._seed_downgrade_grounds()
+        r = self._run_route(
+            "downgrade",
+            "--to", "single_agent",
+            "--reason", "mechanical change: user approved lower topology with machine checks",
+            "--user-confirmed",
+        )
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("Workflow downgraded", r.stdout)
+
+        state = self._state()
+        self.assertEqual(state["workflow_level"], "L0_direct")
+        record = state["substitution_records"][-1]
+        self.assertTrue(record["user_confirmed"])
+        self.assertEqual(record["status"], "confirmed")
+
+    def test_unconfirmed_substitution_records_pending_without_changing_level(self):
+        self._seed_downgrade_grounds()
+        r = self._run_route(
+            "substitute",
+            "--use", "single_agent",
+            "--waive", "standard-team topology",
+            "--reason", "mechanical change: user wants a temporary lightweight path",
+            "--substitute", "run embedded self-test and release audit",
+        )
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("pending user confirmation", r.stdout)
+
+        state = self._state()
+        self.assertEqual(state["workflow_level"], "L1_review_light")
+        self.assertFalse(state["substitution_allowed"])
+        record = state["substitution_records"][-1]
+        self.assertEqual(record["type"], "substitution")
+        self.assertFalse(record["user_confirmed"])
+        self.assertEqual(record["status"], "pending_user_confirmation")
 
 
 if __name__ == "__main__":

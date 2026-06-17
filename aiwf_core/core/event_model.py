@@ -29,6 +29,7 @@ class NormalizedEvent:
 class ScopeResult:
     """Result of checking a tool action against active scope."""
     allowed: bool = True
+    soft_drift: bool = False
     file_path: str = ""
     active_context_id: str = ""
     allowed_write: List[str] = field(default_factory=list)

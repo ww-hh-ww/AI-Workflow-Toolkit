@@ -111,25 +111,22 @@ def check_scope(
                 reason=f"matched '{p}'",
             )
 
-    # File is outside allowed_write — stop and file an architecture change request.
-    # Do NOT close the task and recreate (destroys evidence). Let Planner decide.
-    # Scope boundaries are defined by the Plan; context is advisory only.
-    fix_guidance = (
-        f" Fix: stop and file an architecture change request — "
-        f"'aiwf arch-change request --source executor"
-        f" --reason \"need to write {normalized}\""
-        f" --proposed-change \"expand plan scope to cover {normalized}\""
-        f" --affected-file {normalized}'. "
-        f"Planner will approve, deny, or redirect. Do NOT close the task."
-    )
-
+    # File is outside allowed_write. This is scope drift, not a hard stop.
+    # AIWF should make the drift visible to review/close without interrupting
+    # reasonable engineering flow. Explicit forbidden/protected paths are still
+    # hard-denied above and by the architecture brief guard.
     return ScopeResult(
-        allowed=False,
+        allowed=True,
+        soft_drift=True,
         file_path=normalized,
         active_context_id=ctx_id,
         allowed_write=allowed_write,
         forbidden_write=forbidden_write,
-        reason=f"'{normalized}' is outside task scope. {fix_guidance}",
+        reason=(
+            f"scope drift: '{normalized}' is outside task allowed_write. "
+            "Review should confirm why this file changed and whether a future "
+            "Plan scope update is needed."
+        ),
     )
 
 

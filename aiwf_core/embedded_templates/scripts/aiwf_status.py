@@ -189,11 +189,11 @@ def planner_process_lines(cwd, state, goal, review, fix_loop):
         if missing:
             lines.append("REQUIRED NEXT: complete Evaluation Contract: " + ", ".join(missing))
         elif rj(cwd / ".aiwf" / "artifacts" / "quality" / "testing.json", {}).get("status") not in ("adequate", "passed"):
-            lines.append(f"REQUIRED NEXT: dispatch independent Tester ({state.get('test_template') or 'selected depth'})")
+            lines.append(f"REQUIRED NEXT: call native Agent/Task tool with subagent_type=aiwf-tester ({state.get('test_template') or 'selected depth'}); planner-main must not test inline")
         elif not review.get("cleanup_verified_at"):
             lines.append("REQUIRED NEXT: verify cleanup before Reviewer")
         elif review.get("result") != "accepted":
-            lines.append(f"REQUIRED NEXT: dispatch independent Reviewer ({state.get('review_template') or 'selected depth'})")
+            lines.append(f"REQUIRED NEXT: call native Agent/Task tool with subagent_type=aiwf-reviewer ({state.get('review_template') or 'selected depth'}); planner-main must not review inline")
         else:
             lines.append("REQUIRED NEXT: Planner meta-critique and adversarial disposition")
     return lines[:5]
@@ -285,18 +285,14 @@ def recovery_lines(cwd, state, goal, review, fix_loop):
                            user=True)
         testing = rj(cwd / ".aiwf" / "artifacts" / "quality" / "testing.json", {})
         if testing.get("status") not in ("adequate", "passed"):
-            return blocked("missing_step", "tester", "dispatch independent Tester",
-                           "closure recovery: do not re-dispatch Executor for already-completed work; record post-hoc provenance if needed, then use aiwf-tester. Do not dispatch Reviewer first or in parallel")
-        if testing.get("full_suite_status", "not_run") == "not_run" or testing.get("real_usage_status", "not_run") == "not_run":
-            return blocked("quality_gap", "tester", "disposition full suite and real usage validation",
-                           "run/disposition both layers; ask user before accepting residual risk",
-                           user=True)
+            return blocked("missing_step", "tester", "call native Agent/Task tool with subagent_type=aiwf-tester",
+                           "closure recovery: do not re-dispatch Executor for already-completed work; record post-hoc provenance if needed, then use native subagent_type=aiwf-tester. Do not dispatch Reviewer first or in parallel")
         if not review.get("cleanup_verified_at"):
             return blocked("wrong_order", "planner", "verify cleanup before Reviewer",
                            "run cleanup checks and mark cleanup fresh before review")
         if review.get("result") != "accepted":
-            return blocked("missing_step", "reviewer", "dispatch independent Reviewer",
-                           "use aiwf-reviewer after testing and cleanup; do not roleplay Reviewer or run Tester/Reviewer in parallel")
+            return blocked("missing_step", "reviewer", "call native Agent/Task tool with subagent_type=aiwf-reviewer",
+                           "use native subagent_type=aiwf-reviewer after testing and cleanup; do not roleplay Reviewer or run Tester/Reviewer in parallel")
         pending = [o for o in review.get("adversarial_observations", []) if isinstance(o, dict) and o.get("disposition") == "pending"]
         if pending:
             return blocked("missing_step", "planner", "disposition adversarial observations",

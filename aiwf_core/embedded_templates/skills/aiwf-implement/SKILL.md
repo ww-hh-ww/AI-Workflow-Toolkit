@@ -5,7 +5,7 @@ description: Scoped implementation within Plan scope boundaries
 
 # AIWF Implement
 
-> **L1+ = dispatch OR downgrade. L0 = scroll down. If the change is mechanical (add config key, fix typo, copy-paste pattern, <=3 lines with no logic change), downgrade first: `aiwf route downgrade --task-id <ID> --to single_agent --reason "mechanical change: <why>" --user-confirmed`. Then work inline. Otherwise dispatch.**
+> **L1+ = native subagent dispatch. L0 = inline. Do not downgrade just to avoid dispatch. A downgrade is allowed only when the user explicitly approved that tradeoff in the current conversation and the command is recorded with `--user-confirmed`.**
 
 ## DISPATCH GATE — READ FIRST, ACT NOW
 
@@ -13,22 +13,12 @@ Read `.aiwf/state/state.json` → `workflow_level`.
 
 ### L0_direct → skip to "L0 Implementation" section at bottom of this file
 
-### L1_review_light / L2_standard_team / L3_full_power → EVALUATE FIRST
+### L1_review_light / L2_standard_team / L3_full_power → CALL NATIVE SUBAGENT TOOL NOW
 
-**Before dispatching, judge the change complexity.** Read the task's `allowed_write` paths and `purpose` from `.aiwf/state/plans.json`.
-
-**Mechanical change? Downgrade and work inline:**
-- Adding a key to a dict/config/mapping that follows existing pattern exactly
-- Changing a string constant, label, or message
-- Fixing a typo or whitespace
-- Adding <=3 lines in a single file with zero logic change
-- Copy-pasting an existing pattern to a new entry
-
-If mechanical: run `aiwf route downgrade --task-id <ID> --to single_agent --reason "mechanical change: <specific reason>" --user-confirmed`. Then skip to the L0 section and implement inline.
-
-**Not sure? Dispatch.** Better to over-escalate than under-escalate.
-
-**Non-mechanical (logic change, new function, API change, multi-file, refactor) → dispatch:**
+**Do not self-downgrade here.** If the task is truly mechanical, Planner must
+first get explicit user approval and record `aiwf route downgrade ... --user-confirmed`.
+If that confirmed downgrade is not already reflected in `workflow_level=L0_direct`,
+dispatch.
 
 You are planner-main. Writing code yourself is a gate violation.
 
@@ -38,13 +28,15 @@ You are planner-main. Writing code yourself is a gate violation.
 2. `.aiwf/state/plans.json` — active Plan: `allowed_write`, `forbidden_write`, `work_intent`, `plan_kind`, `purpose`, `interfaces`, `constraints`, `active_phase`
 3. `.aiwf/state/goal.json` — `quality_brief.architecture_brief` (especially `protected_files`, `forbidden_restructures`)
 
-**Step 2 — Call Agent({...}) with:**
+**Step 2 — Call Claude Code's native subagent tool (`Agent`/`Task`) with:**
 
 | Parameter | Value |
 |-----------|-------|
 | subagent_type | `"aiwf-executor"` |
 | description | `"Implement TASK-XXX"` |
 | prompt | Task ID + plan ID + `purpose` + `allowed_write` + `forbidden_write` + `work_intent` + `plan_kind` + `active_phase` + `protected_files` + `forbidden_restructures` + `"Read .aiwf/state/ for full context. Stay within boundaries. Record fallback evidence with aiwf state record-role-evidence --task-id <TASK-ID> when hook evidence is missing. Report changed files and commands run."` |
+
+Do not replace this with shell commands, a checklist, or planner-main roleplay.
 
 **Step 3 — Wait for executor to finish.** Then forward its output to the next phase (testing).
 

@@ -5,7 +5,7 @@ description: Template-guided testing based on planner-selected test_template
 
 # AIWF Test
 
-> **L1+ = dispatch. L0 = scroll down. If implement phase downgraded to L0, follow L0 path. If still L1+, dispatch — testing inline at L2+ is a GATE VIOLATION.**
+> **L1+ = native subagent dispatch. L0 = inline. If implement phase was explicitly user-confirmed down to L0, follow L0. Otherwise call the native Agent/Task tool — testing inline at L2+ is a GATE VIOLATION.**
 
 ## DISPATCH GATE — READ FIRST, ACT NOW
 
@@ -13,7 +13,7 @@ Read `.aiwf/state/state.json` → `workflow_level`.
 
 ### L0_direct → skip to "L0 Testing" section at bottom of this file
 
-### L2_standard_team / L3_full_power → CALL AGENT TOOL NOW (aiwf-tester)
+### L2_standard_team / L3_full_power → CALL NATIVE SUBAGENT TOOL NOW (aiwf-tester)
 
 You are planner-main. Running tests yourself is a gate violation. The review phase checks that an independent tester produced the evidence.
 
@@ -23,7 +23,7 @@ You are planner-main. Running tests yourself is a gate violation. The review pha
 2. `.aiwf/state/plans.json` — active Plan: `allowed_write`, `test_focus`, `work_intent`, `plan_kind`, `active_phase`
 3. `.aiwf/artifacts/evidence/records.json` — executor's changed files
 
-**Step 2 — Call Agent({...}) with:**
+**Step 2 — Call Claude Code's native subagent tool (`Agent`/`Task`) with:**
 
 | Parameter | Value |
 |-----------|-------|
@@ -31,9 +31,11 @@ You are planner-main. Running tests yourself is a gate violation. The review pha
 | description | `"Test TASK-XXX"` |
 | prompt | Task ID + `test_template` + `verification_need` + `allowed_write` + `work_intent` + `plan_kind` + `test_focus` + changed files from evidence + `"Run aiwf status first. Read .aiwf/state/ for full context. Write NEW tests covering changed behavior AND uncovered paths — do NOT just run existing tests. Record with aiwf state record-testing --supports-plan <PLAN-ID> --supports-goal <GOAL-ID>. If fallback role evidence is needed, use aiwf state record-role-evidence --role tester --task-id <TASK-ID>. Recording is REQUIRED."` |
 
+Do not replace this with shell commands, a checklist, or planner-main roleplay.
+
 **Step 3 — Wait for tester to finish.** Forward results to the review phase.
 
-### L1_review_light → CALL AGENT TOOL NOW (aiwf-reviewer as reviewer-light)
+### L1_review_light → CALL NATIVE SUBAGENT TOOL NOW (aiwf-reviewer as reviewer-light)
 
 L1 uses ONE sub-agent for both testing AND review.
 

@@ -333,6 +333,11 @@ def _print_status_prompt(root, state, goal, testing, review, fix_loop):
             reasons = [f for f in factors if not f.startswith("downgrade:")]
             print(f"DOWNGRADE: routing recommends {rec_level} (current {level}). "
                   f"User must confirm. Reasons: {', '.join(reasons[:3])}")
+            print(
+                "  Use: aiwf route downgrade --task-id "
+                f"{task_id} --to <topology> --reason '<why this task is safe>' --user-confirmed"
+            )
+            print("  Do not edit .aiwf/state/state.json to lower gravity or workflow level.")
 
     # Technical debt summary: one compact line of what needs attention
     debt_items = []

@@ -8,6 +8,33 @@ from pathlib import Path
 
 from ..constants import VERSION
 
+
+def _has_hook_observed_role(records, expected_role: str) -> bool:
+    """Return true when evidence contains real tool work from the expected role.
+
+    Claude Code subagents may share a parent session ID in some environments, so
+    session diversity is not a reliable independence signal. The durable signal
+    is hook-observed tool work attributed to the native subagent role. Explicit
+    AIWFRoleEvidence backfills are useful provenance, but do not satisfy this
+    gate by themselves.
+    """
+    needle = expected_role.lower()
+    for record in records or []:
+        if not isinstance(record, dict):
+            continue
+        if record.get("trust") != "machine_observed":
+            continue
+        if str(record.get("tool_name") or "") == "AIWFRoleEvidence":
+            continue
+        role_blob = " ".join(
+            str(record.get(key, "") or "").lower()
+            for key in ("agent_type", "agent_id", "role")
+        )
+        if needle in role_blob:
+            return True
+    return False
+
+
 def _cmd_record_quality_brief(args: argparse.Namespace) -> None:
     """aiwf state record-quality-brief — write task-specific quality brief to goal.json."""
     from ..core.state_ops import record_quality_brief
@@ -117,7 +144,7 @@ def _cmd_record_testing(args: argparse.Namespace) -> None:
     from ..core.state_ops import record_testing
     import json as _json
 
-    # Guard: L2/L3 must use independent tester session unless forced
+    # Guard: L2/L3 must use native tester subagent role unless forced.
     cwd = Path.cwd()
     state_path = cwd / ".aiwf" / "state" / "state.json"
     if state_path.exists():
@@ -128,43 +155,22 @@ def _cmd_record_testing(args: argparse.Namespace) -> None:
             evidence = _json.loads(evidence_path.read_text(encoding="utf-8")) if evidence_path.exists() else {"records": []}
             records = evidence.get("records", []) or []
 
-            executor_session = set()
-            tester_session = set()
-            for r in records:
-                if not isinstance(r, dict):
-                    continue
-                role = (r.get("agent_type") or r.get("role") or "").lower()
-                sid = r.get("session_id") or ""
-                if "executor" in role and sid:
-                    executor_session.add(sid)
-                if "tester" in role and sid:
-                    tester_session.add(sid)
-
-            # Tester is independent when they have evidence from a session
-            # the executor did NOT work in. If all tester sessions are also
-            # executor sessions (or tester has no evidence), block.
-            if tester_session.issubset(executor_session):
+            if not _has_hook_observed_role(records, "aiwf-tester"):
                 # L2/L3: always block, --force is NOT honored. Must spawn subagent.
                 if level in ("L2_standard_team", "L3_full_power"):
-                    detail = ""
-                    if tester_session:
-                        detail = (
-                            f"  Tester evidence ONLY from executor session(s): {sorted(tester_session)}.\n"
-                            "  The Tester must run in a DIFFERENT session from the Executor.\n"
-                        )
                     print(
-                        f"Testing blocked: workflow level is {level}, which requires an independent Tester session.\n"
-                        f"{detail}"
-                        f"  Fix: Use Agent tool to spawn aiwf-tester subagent. Run tests\n"
-                        f"  in the subagent session, then call aiwf state record-testing.\n"
-                        f"  --force is NOT honored at L2/L3 — spawn the subagent.",
+                        f"Testing blocked: workflow level is {level}, which requires hook-observed aiwf-tester work.\n"
+                        f"  Fix: call Claude Code's native Agent/Task tool with subagent_type=aiwf-tester.\n"
+                        f"  Run tests in that subagent role, then call aiwf state record-testing.\n"
+                        f"  CLI role-evidence backfills do not satisfy this gate by themselves.\n"
+                        f"  --force is NOT honored at L2/L3 — use the subagent role.",
                         file=sys.stderr,
                     )
                     raise SystemExit(1)
                 elif not args.force:
                     print(
-                        f"Testing blocked: workflow level is {level}, which requires an independent Tester session.\n"
-                        f"  Fix: Use Agent tool (subagent_type=aiwf-tester) to spawn tester.\n"
+                        f"Testing blocked: workflow level is {level}, which requires hook-observed aiwf-tester work.\n"
+                        f"  Fix: Use native Agent/Task tool (subagent_type=aiwf-tester) to spawn tester.\n"
                         f"  Or use --force if L0 inline execution.",
                         file=sys.stderr,
                     )
@@ -227,7 +233,7 @@ def _cmd_record_review(args: argparse.Namespace) -> None:
     from ..core.state_ops import record_review
     import json as _json
 
-    # Guard: L2/L3 must use independent reviewer session unless forced
+    # Guard: L2/L3 must use native reviewer subagent role unless forced.
     cwd = Path.cwd()
     state_path = cwd / ".aiwf" / "state" / "state.json"
     level = "L1_review_light"
@@ -239,42 +245,23 @@ def _cmd_record_review(args: argparse.Namespace) -> None:
             evidence = _json.loads(evidence_path.read_text(encoding="utf-8")) if evidence_path.exists() else {"records": []}
             records = evidence.get("records", []) or []
 
-            executor_session = set()
-            reviewer_session = set()
-            for r in records:
-                if not isinstance(r, dict):
-                    continue
-                role = (r.get("agent_type") or r.get("role") or "").lower()
-                sid = r.get("session_id") or ""
-                if "executor" in role and sid:
-                    executor_session.add(sid)
-                if "reviewer" in role and sid:
-                    reviewer_session.add(sid)
-
-            if reviewer_session.issubset(executor_session):
+            if not _has_hook_observed_role(records, "aiwf-reviewer"):
                 # L2/L3: always block, --force is NOT honored. Must spawn subagent.
                 if level in ("L2_standard_team", "L3_full_power"):
-                    detail = ""
-                    if reviewer_session:
-                        detail = (
-                            f"  Reviewer evidence ONLY from executor session(s): {sorted(reviewer_session)}.\n"
-                            "  The Reviewer must run in a DIFFERENT session from the Executor.\n"
-                        )
                     print(
-                        f"Review blocked: workflow level is {level}, which requires an independent Reviewer session.\n"
-                        f"{detail}"
-                        f"  Fix: Use Agent tool to spawn aiwf-reviewer subagent. Run review\n"
-                        f"  in the subagent session, then call aiwf state record-review.\n"
-                        f"  Do NOT run record-review from the executor's session.",
+                        f"Review blocked: workflow level is {level}, which requires hook-observed aiwf-reviewer work.\n"
+                        f"  Fix: call Claude Code's native Agent/Task tool with subagent_type=aiwf-reviewer.\n"
+                        f"  Run review in that subagent role, then call aiwf state record-review.\n"
+                        f"  CLI role-evidence backfills do not satisfy this gate by themselves.\n"
+                        f"  Do NOT run record-review from planner-main or executor.",
                         file=sys.stderr,
                     )
                     raise SystemExit(1)
                 elif not args.force:
                     print(
-                        f"Review blocked: workflow level is {level}, which requires an independent Reviewer session.\n"
-                        f"  Reviewer must produce evidence from a session different from the Executor.\n"
+                        f"Review blocked: workflow level is {level}, which requires hook-observed aiwf-reviewer work.\n"
                         f"  Actions:\n"
-                        f"    - Dispatch the aiwf-reviewer subagent from a new session and run record-review there, or\n"
+                        f"    - Dispatch native subagent_type=aiwf-reviewer and run record-review there, or\n"
                         f"    - If this is a legitimate Planner inline execution (L0 task), use --force to override.",
                         file=sys.stderr,
                     )

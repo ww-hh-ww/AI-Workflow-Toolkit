@@ -168,6 +168,20 @@ class TestHooks(unittest.TestCase):
         self.assertEqual(out.get("hookSpecificOutput", {}).get("permissionDecision"), "deny")
         self.assertIn("aiwf-executor subagent", out["hookSpecificOutput"]["permissionDecisionReason"])
 
+    def test_l1_plus_planner_main_project_write_is_blocked_mid_task_testing(self):
+        state = json.loads((self.tmp / ".aiwf" / "state" / "state.json").read_text())
+        state["workflow_level"] = "L2_standard_team"
+        state["phase"] = "testing"
+        self._write_state("state/state.json", state)
+
+        r = self._scope("Write", "src/lib.rs", allowed_write=["src/"])
+        out = json.loads(r.stdout.strip())
+
+        self.assertEqual(out.get("hookSpecificOutput", {}).get("permissionDecision"), "deny")
+        reason = out["hookSpecificOutput"]["permissionDecisionReason"]
+        self.assertIn("L1+ project writes", reason)
+        self.assertIn("mid-task bug fixes", reason)
+
     def test_l1_plus_executor_subagent_project_write_is_allowed(self):
         state = json.loads((self.tmp / ".aiwf" / "state" / "state.json").read_text())
         state["workflow_level"] = "L2_standard_team"
@@ -188,6 +202,28 @@ class TestHooks(unittest.TestCase):
 
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(r.stdout.strip(), "")
+
+    def test_l1_plus_fix_loop_project_repair_requires_executor_subagent(self):
+        state = json.loads((self.tmp / ".aiwf" / "state" / "state.json").read_text())
+        state["workflow_level"] = "L2_standard_team"
+        state["phase"] = "testing"
+        self._write_state("state/state.json", state)
+        self._write_state("state/fix-loop.json", {
+            "status": "open",
+            "route": "executor",
+            "required_fixes": ["src/lib.rs"],
+            "required_verification": ["cargo test"],
+        })
+
+        r = self._scope("Write", "src/lib.rs", allowed_write=["src/"])
+        out = json.loads(r.stdout.strip())
+
+        self.assertEqual(out.get("hookSpecificOutput", {}).get("permissionDecision"), "deny")
+        self.assertIn("fix-loop repair", out["hookSpecificOutput"]["permissionDecisionReason"])
+
+        allowed = self._scope("Write", "src/lib.rs", allowed_write=["src/"], agent_type="aiwf-executor")
+        self.assertEqual(allowed.returncode, 0, allowed.stderr)
+        self.assertEqual(allowed.stdout.strip(), "")
 
     def test_no_close_attempt_passed_false_empty_blockers_does_not_block(self):
         state = json.loads((self.tmp / ".aiwf" / "state" / "state.json").read_text())
@@ -260,24 +296,54 @@ class TestHooks(unittest.TestCase):
 
     # ── Scope check ──
 
-    def test_write_outside_scope_denied(self):
-        r = self._scope("Write", "danger/x.py", allowed_write=["src/"])
-        out = json.loads(r.stdout.strip())
-        self.assertEqual(out["hookSpecificOutput"]["permissionDecision"], "deny")
+    def test_write_outside_scope_allowed_as_soft_drift(self):
+        r = self._scope("Write", "danger/x.py", allowed_write=["src/"], agent_type="aiwf-executor")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout.strip(), "")
 
     def test_write_inside_scope_allowed(self):
-        r = self._scope("Write", "src/main.py", allowed_write=["src/"])
+        r = self._scope("Write", "src/main.py", allowed_write=["src/"], agent_type="aiwf-executor")
         self.assertNotIn("deny", r.stdout)
 
     def test_forbidden_write_always_denied(self):
         r = self._scope("Write", ".env", allowed_write=["src/"], forbidden_write=[".env"])
         self.assertIn("deny", r.stdout)
 
-    def test_no_scope_denies_project_writes(self):
+    def test_no_scope_denies_project_writes_without_active_task(self):
         r = self._scope("Write", "anywhere.py")
         self.assertEqual(r.returncode, 0)
         out = json.loads(r.stdout.strip())
         self.assertEqual(out["hookSpecificOutput"]["permissionDecision"], "deny")
+
+    def test_post_tool_scope_drift_records_review_event_without_fixloop(self):
+        from aiwf_core.hooks.common.evidence_writer import check_and_record_scope_violations
+
+        state = json.loads((self.tmp / ".aiwf" / "state" / "state.json").read_text())
+        state["active_context_id"] = "CTX-001"
+        state["active_task_id"] = "TASK-001"
+        (self.tmp / ".aiwf" / "state" / "state.json").write_text(json.dumps(state, indent=2))
+        (self.tmp / ".aiwf" / "state" / "plans.json").write_text(json.dumps({
+            "plans": [{"plan_id": "PLAN-001", "allowed_write": ["src/"],
+                       "goal_id": "GOAL-001", "target_goal_id": "GOAL-001"}],
+        }, indent=2))
+        ledger_path = self.tmp / ".aiwf" / "runtime" / "history" / "task-ledger.json"
+        ledger_path.parent.mkdir(parents=True, exist_ok=True)
+        ledger_path.write_text(json.dumps({
+            "tasks": [{"id": "TASK-001", "status": "active", "plan_id": "PLAN-001"}],
+            "execution_window": {"active_task_ids": ["TASK-001"]},
+        }, indent=2))
+
+        violations = check_and_record_scope_violations(
+            ["danger/x.py"], {"id": "CTX-001", "forbidden_write": []}, self.tmp
+        )
+
+        self.assertEqual(violations, [])
+        state_after = json.loads((self.tmp / ".aiwf" / "state" / "state.json").read_text())
+        self.assertFalse(state_after.get("scope_violation"))
+        fix_loop = json.loads((self.tmp / ".aiwf" / "state" / "fix-loop.json").read_text())
+        self.assertNotEqual(fix_loop.get("status"), "open")
+        review = json.loads((self.tmp / ".aiwf" / "artifacts" / "quality" / "review.json").read_text())
+        self.assertEqual(review["scope_drift_events"][0]["path"], "danger/x.py")
 
     # ── Bash guard ──
 

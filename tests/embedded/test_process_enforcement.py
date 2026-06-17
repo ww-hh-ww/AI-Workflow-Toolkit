@@ -511,6 +511,118 @@ class TestProcessEnforcement(unittest.TestCase):
         result = close_task(str(self.tmp), "TASK-L3")
         self.assertTrue(result["closed"], result["blockers"])
 
+    def test_l3_task_close_accepts_shared_parent_session_with_distinct_hook_roles(self):
+        from aiwf_core.core.state_ops import (
+            mark_cleanup_fresh,
+            prepare_close,
+            record_meta_critique,
+            record_review,
+            record_role_evidence,
+            record_testing,
+        )
+        from aiwf_core.core.task_ledger import activate_task, close_task, upsert_task
+        self._set_l2()
+        state_path = self.tmp / ".aiwf" / "state" / "state.json"
+        state = json.loads(state_path.read_text())
+        state["workflow_level"] = "L3_full_power"
+        _write(state_path, state)
+        (self.tmp / ".aiwf" / "runtime" / "checkpoints").mkdir(parents=True, exist_ok=True)
+        (self.tmp / ".aiwf" / "runtime" / "checkpoints" / "TASK-L3-SINGLE.json").write_text("{}\n", encoding="utf-8")
+
+        upsert_task(str(self.tmp), "TASK-L3-SINGLE", "L3 single session", status="ready")
+        self._seed_plan("TASK-L3-SINGLE")
+        self.assertTrue(activate_task(str(self.tmp), "TASK-L3-SINGLE")["activated"])
+
+        self._inject_hook_evidence(
+            ("shared-parent-session", "aiwf-executor", "Write"),
+            ("shared-parent-session", "aiwf-tester", "Bash"),
+            ("shared-parent-session", "aiwf-reviewer", "Bash"),
+        )
+        exec_ev = record_role_evidence(
+            str(self.tmp),
+            "executor",
+            summary="implemented with subagent role evidence",
+            session_id="shared-parent-session",
+            agent_id="aiwf-executor",
+            agent_type="aiwf-executor",
+        )
+        record_testing(
+            str(self.tmp),
+            status="adequate",
+            commands=["pytest tests/embedded/test_process_enforcement.py"],
+        )
+        mark_cleanup_fresh(str(self.tmp), ["cleanup checked"])
+        record_review(
+            str(self.tmp),
+            verdict="PASS",
+            result="accepted",
+            quality_dimensions=self._full_review_dimensions(),
+            review_basis=self._full_review_basis(),
+            closure_allowed=True,
+            accepted_evidence_ids=[exec_ev["id"]],
+            cleanup_status="fresh",
+            structure_status="accepted",
+            summary="review accepted with distinct hook-observed roles sharing a parent session",
+        )
+        record_meta_critique(str(self.tmp), "Review accepted; no adversarial blockers remain")
+
+        prepared = prepare_close(str(self.tmp))
+        self.assertTrue(prepared["passed"], prepared["blockers"])
+        result = close_task(str(self.tmp), "TASK-L3-SINGLE")
+        self.assertTrue(result["closed"], result["blockers"])
+
+    def test_l3_task_close_rejects_cli_roleplay_without_hook_roles(self):
+        from aiwf_core.core.state_ops import (
+            mark_cleanup_fresh,
+            prepare_close,
+            record_meta_critique,
+            record_review,
+            record_role_evidence,
+            record_testing,
+        )
+        from aiwf_core.core.task_ledger import activate_task, close_task, upsert_task
+        self._set_l2()
+        state_path = self.tmp / ".aiwf" / "state" / "state.json"
+        state = json.loads(state_path.read_text())
+        state["workflow_level"] = "L3_full_power"
+        _write(state_path, state)
+        (self.tmp / ".aiwf" / "runtime" / "checkpoints").mkdir(parents=True, exist_ok=True)
+        (self.tmp / ".aiwf" / "runtime" / "checkpoints" / "TASK-L3-ROLEPLAY.json").write_text("{}\n", encoding="utf-8")
+
+        upsert_task(str(self.tmp), "TASK-L3-ROLEPLAY", "L3 roleplay blocked", status="ready")
+        self._seed_plan("TASK-L3-ROLEPLAY")
+        self.assertTrue(activate_task(str(self.tmp), "TASK-L3-ROLEPLAY")["activated"])
+
+        exec_ev = record_role_evidence(
+            str(self.tmp),
+            "executor",
+            summary="main session claims implementation",
+            session_id="shared-parent-session",
+            agent_id="planner-main",
+            agent_type="planner-main",
+        )
+        record_testing(str(self.tmp), status="adequate", commands=["pytest"])
+        mark_cleanup_fresh(str(self.tmp), ["cleanup checked"])
+        record_review(
+            str(self.tmp),
+            verdict="PASS",
+            result="accepted",
+            quality_dimensions=self._full_review_dimensions(),
+            review_basis=self._full_review_basis(),
+            closure_allowed=True,
+            accepted_evidence_ids=[exec_ev["id"]],
+            cleanup_status="fresh",
+            structure_status="accepted",
+            summary="roleplay review should not satisfy hook role gate",
+        )
+        record_meta_critique(str(self.tmp), "Review accepted; role evidence still lacks hook-observed roles")
+
+        prepared = prepare_close(str(self.tmp))
+        self.assertTrue(prepared["passed"], prepared["blockers"])
+        result = close_task(str(self.tmp), "TASK-L3-ROLEPLAY")
+        self.assertFalse(result["closed"])
+        self.assertTrue(any("hook-observed independent role work" in b for b in result["blockers"]))
+
     def test_architecture_migration_task_closes_with_migration_evidence(self):
         from aiwf_core.core.task_ledger import activate_task, close_task, upsert_task
         self._set_l2()

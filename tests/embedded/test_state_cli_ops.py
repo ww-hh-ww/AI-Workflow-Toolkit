@@ -44,6 +44,18 @@ class TestStateCliOps(unittest.TestCase):
         (self.tmp/".aiwf" / "artifacts" / "quality" / "testing.json").write_text(json.dumps(
             {"status": "adequate", "commands": ["pytest"]}, indent=2))
 
+    def _set_l2(self):
+        state_path = self.tmp / ".aiwf" / "state" / "state.json"
+        state = json.loads(state_path.read_text())
+        state["workflow_level"] = "L2_standard_team"
+        state["phase"] = "testing"
+        state_path.write_text(json.dumps(state, indent=2) + "\n")
+
+    def _write_hook_records(self, records):
+        path = self.tmp / ".aiwf" / "artifacts" / "evidence" / "records.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"records": records}, indent=2) + "\n")
+
     def _seed_close_ready(self):
         s = json.loads((self.tmp/".aiwf" / "state" / "state.json").read_text())
         s["phase"] = "reviewing"
@@ -100,6 +112,47 @@ class TestStateCliOps(unittest.TestCase):
         self.assertEqual(ev["records"][-1]["command"], "npm test")
         self.assertEqual(ev["records"][-1]["supports_plan"], "PLAN-001")
         self.assertEqual(ev["records"][-1]["supports_goal"], "GOAL-001")
+
+    def test_l2_record_testing_accepts_shared_session_hook_observed_tester(self):
+        self._set_l2()
+        self._write_hook_records([
+            {"id": "EV-EXEC", "status": "accepted", "trust": "machine_observed",
+             "tool_name": "Write", "session_id": "shared-parent", "agent_type": "aiwf-executor"},
+            {"id": "EV-TEST", "status": "accepted", "trust": "machine_observed",
+             "tool_name": "Bash", "session_id": "shared-parent", "agent_type": "aiwf-tester"},
+        ])
+
+        r = self._run("state", "record-testing", "--status", "adequate",
+                      "--command", "pytest", "--supports-plan", "PLAN-001",
+                      "--supports-goal", "GOAL-001")
+
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("Testing recorded", r.stdout)
+
+    def test_l2_record_review_rejects_without_hook_observed_reviewer(self):
+        self._set_l2()
+        self._seed_review_ready()
+        self._write_hook_records([
+            {"id": "EV-EXEC", "status": "accepted", "trust": "machine_observed",
+             "tool_name": "Write", "session_id": "shared-parent", "agent_type": "aiwf-executor"},
+            {"id": "EV-ROLE", "status": "accepted", "trust": "machine_observed",
+             "tool_name": "AIWFRoleEvidence", "session_id": "shared-parent",
+             "agent_type": "aiwf-reviewer"},
+        ])
+
+        r = self._run("state", "record-review",
+                      "--verdict", "PASS",
+                      "--result", "accepted",
+                      "--closure-allowed",
+                      "--accepted-evidence-id", "EV-EXEC",
+                      "--cleanup-status", "fresh",
+                      "--structure-status", "accepted",
+                      "--summary", "reviewed evidence",
+                      *self._dimension_args(),
+                      *self._basis_args())
+
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("hook-observed aiwf-reviewer work", r.stderr)
 
     def test_record_role_evidence_writes_executor_record(self):
         r = self._run("state", "record-role-evidence",

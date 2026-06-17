@@ -206,7 +206,7 @@ def check_and_record_scope_violations(
     active_context: Dict,
     base: Path,
 ) -> list:
-    """Check changed files against scope, record violations.
+    """Check changed files against scope, record hard violations and soft drift.
 
     Only checks project files (AIWF internal paths filtered).
     Uses operation-level changed_files, not working tree.
@@ -221,10 +221,13 @@ def check_and_record_scope_violations(
     project_files = filter_internal(changed_files, cwd=base)
 
     violations = []
+    drifts = []
     for f in project_files:
         result = check_scope(f, active_context, state=state, project_root=str(base))
         if not result.allowed:
             violations.append(f)
+        elif getattr(result, "soft_drift", False):
+            drifts.append({"path": f, "reason": result.reason})
 
     if violations:
         from datetime import datetime, timezone
@@ -281,11 +284,34 @@ def check_and_record_scope_violations(
             fixes.append(msg)
         _write_json(fl_path, fix_loop)
 
+    if drifts:
+        from datetime import datetime, timezone
+        review_path = base / ".aiwf" / "artifacts" / "quality" / "review.json"
+        from ...core.state_schema import default_review
+        review = _read_json(review_path, default_review())
+        events = review.setdefault("scope_drift_events", [])
+        for drift in drifts:
+            event = {
+                "path": drift["path"],
+                "context_id": active_context.get("id", "unknown"),
+                "reason": drift["reason"],
+                "recorded_at": datetime.now(timezone.utc).isoformat(),
+                "status": "recorded",
+            }
+            if not any(
+                isinstance(old, dict)
+                and old.get("path") == event["path"]
+                and old.get("context_id") == event["context_id"]
+                for old in events
+            ):
+                events.append(event)
+        _write_json(review_path, review)
+
     return violations
 
 
 def check_and_record_missing_active_task(changed_files: list, base: Path) -> list:
-    """Record project mutation without an active task as a workflow violation."""
+    """Record project mutation without an active task as a hard protocol violation."""
     project_files = filter_internal(changed_files, cwd=base)
     if not project_files:
         return []

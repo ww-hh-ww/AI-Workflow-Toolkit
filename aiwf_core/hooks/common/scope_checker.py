@@ -98,6 +98,24 @@ def check_file_write(event: NormalizedEvent) -> ScopeResult:
                 p_clean = p.lstrip("./")
                 candidates = {p_clean, "." + p_clean}
                 if normalized in candidates or any(normalized.endswith("/" + c) for c in candidates):
+                    level = state.get("workflow_level", "L1_review_light")
+                    role = str(event.agent_type or "").lower()
+                    active_task_id = state.get("active_task_id")
+                    if (
+                        not _is_governance_file(normalized)
+                        and level != "L0_direct"
+                        and (not active_task_id or "executor" not in role)
+                    ):
+                        return ScopeResult(
+                            file_path=normalized,
+                            allowed=False,
+                            active_context_id=state.get("active_context_id") or "(none)",
+                            reason=(
+                                f"L1+ fix-loop repair for project file '{normalized}' must be performed by an "
+                                "aiwf-executor subagent. Planner/main or unknown-role Write/Edit is denied; "
+                                "dispatch aiwf-executor for the bug fix instead of repairing inline."
+                            ),
+                        )
                     return ScopeResult(
                         file_path=file_path,
                         allowed=True,
@@ -111,14 +129,16 @@ def check_file_write(event: NormalizedEvent) -> ScopeResult:
                 file_path=normalized,
                 allowed=False,
                 active_context_id=state.get("active_context_id") or "(none)",
-                reason=f"no active task — run 'aiwf task activate <TASK-ID>' before writing to '{normalized}'",
+                reason=(
+                    f"no active task — run 'aiwf task activate <TASK-ID>' before writing to '{normalized}'. "
+                    "This is a role/protocol gate, not an allowed_write scope judgment."
+                ),
             )
         role = str(event.agent_type or "").lower()
         phase = state.get("phase", "")
         if (
             level != "L0_direct"
             and state.get("active_task_id")
-            and phase == "implementing"
             and "executor" not in role
         ):
             return ScopeResult(
@@ -126,11 +146,10 @@ def check_file_write(event: NormalizedEvent) -> ScopeResult:
                 allowed=False,
                 active_context_id=state.get("active_context_id") or "(none)",
                 reason=(
-                    f"L1+ implementation must be performed by an aiwf-executor subagent before writing '{normalized}'. "
+                    f"L1+ project writes must be performed by an aiwf-executor subagent before writing '{normalized}'. "
                     "Planner/main or unknown-role Write/Edit is denied before it can create code. "
-                    "Fix: dispatch Agent(subagent_type=aiwf-executor) with the active task scope, "
-                    "or explicitly downgrade to L0 first with aiwf route downgrade --task-id "
-                    f"{state.get('active_task_id')} --to single_agent --reason '<mechanical change>' --user-confirmed."
+                    "This includes mid-task bug fixes found during testing/review. "
+                    "Dispatch aiwf-executor or use a user-confirmed downgrade recorded through aiwf route."
                 ),
             )
 
@@ -154,7 +173,10 @@ def check_file_write(event: NormalizedEvent) -> ScopeResult:
             return ScopeResult(
                 file_path=file_path, allowed=False,
                 active_context_id=state.get("active_context_id") or "(none)",
-                reason="plan_only_drift: a plan exists but no task is activated. Activate the planned task before writing project files."
+                reason=(
+                    "plan_only_drift: a plan exists but no task is activated. "
+                    "Activate the planned task before writing project files."
+                )
             )
 
     # Architecture brief constraints: protected_files and forbidden_restructures

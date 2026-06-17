@@ -374,9 +374,9 @@ class TestCancelClose(unittest.TestCase):
 
 
 class TestEvidenceTrustLevel(unittest.TestCase):
-    """L2/L3 must require adequate evidence trust_level."""
+    """Task prepare-close warns on weak provenance; close gates enforce roles."""
 
-    def test_l2_blocks_claimed_evidence(self):
+    def test_l2_warns_on_claimed_evidence(self):
         from aiwf_core.core.state_ops import prepare_close
         base = _make_state_dir(tempfile.mkdtemp(),
             state={"phase": "reviewing", "workflow_level": "L2_standard_team",
@@ -393,8 +393,8 @@ class TestEvidenceTrustLevel(unittest.TestCase):
             ]},
         )
         result = prepare_close(base)
-        self.assertFalse(result["passed"],
-                         "L2 must block when all evidence is only 'claimed'")
+        self.assertTrue(result["passed"], result["blockers"])
+        self.assertTrue(any("trust level" in w for w in result["post_hoc_warnings"]))
 
     def test_l2_passes_command_observed_evidence(self):
         from aiwf_core.core.state_ops import prepare_close
@@ -491,7 +491,7 @@ class TestEvidenceTrustLevel(unittest.TestCase):
         self.assertTrue(result["passed"],
                         f"L1 should pass with 2-session evidence: {result['blockers']}")
 
-    def test_evidence_without_trust_level_defaults_to_claimed(self):
+    def test_evidence_without_trust_level_defaults_to_claimed_warning(self):
         """Hook-style evidence missing trust_level is treated as 'claimed'."""
         from aiwf_core.core.state_ops import prepare_close
         base = _make_state_dir(tempfile.mkdtemp(),
@@ -512,8 +512,8 @@ class TestEvidenceTrustLevel(unittest.TestCase):
             ]},
         )
         result = prepare_close(base)
-        self.assertFalse(result["passed"],
-                         "L2 must block hook evidence without trust_level (defaults to claimed)")
+        self.assertTrue(result["passed"], result["blockers"])
+        self.assertTrue(any("trust level" in w for w in result["post_hoc_warnings"]))
 
 
 if __name__ == "__main__":

@@ -5,7 +5,7 @@ description: Independent review — dispatch reviewer subagent, load sub-skills 
 
 # AIWF Review
 
-> **L1+ = dispatch or check downgrade. L0 = scroll down. If implement phase downgraded, follow the downgraded level. If still L2+, dispatch — reviewing inline at L2+ is a GATE VIOLATION.**
+> **L1+ = native subagent dispatch/check. L0 = inline. If a user-confirmed downgrade already changed the level to L0, follow L0. Otherwise call the native Agent/Task tool — reviewing inline at L2+ is a GATE VIOLATION.**
 
 ## DISPATCH GATE — READ FIRST, ACT NOW
 
@@ -20,7 +20,7 @@ The testing phase already spawned an `aiwf-reviewer` sub-agent that handled BOTH
 - **Verdict exists (PASS / PASS_WITH_RISK / REVISE / REJECT):** review is complete. Proceed to meta-critique or close.
 - **No verdict recorded:** the reviewer-light didn't complete its job. Report to planner: "Reviewer-light did not record review — re-run testing phase." Do NOT review inline and do NOT spawn a new agent.
 
-### L2_standard_team / L3_full_power → CALL AGENT TOOL NOW (aiwf-reviewer)
+### L2_standard_team / L3_full_power → CALL NATIVE SUBAGENT TOOL NOW (aiwf-reviewer)
 
 You are planner-main. Reviewing yourself is a gate violation. The close gate checks review.json for an independent reviewer verdict — if YOU recorded it, close REJECTS it.
 
@@ -32,13 +32,15 @@ You are planner-main. Reviewing yourself is a gate violation. The close gate che
 4. `.aiwf/artifacts/quality/testing.json` — testing results to audit
 5. `.aiwf/artifacts/evidence/records.json` — executor evidence
 
-**Step 2 — Call Agent({...}) with:**
+**Step 2 — Call Claude Code's native subagent tool (`Agent`/`Task`) with:**
 
 | Parameter | Value |
 |-----------|-------|
 | subagent_type | `"aiwf-reviewer"` |
 | description | `"Review TASK-XXX"` |
 | prompt | Task ID + plan ID + `review_template` + `review_need` + `work_intent` + `plan_kind` + `allowed_write` + `review_focus` + `protected_files` + `forbidden_restructures` + `integration_points` + `"Run aiwf status first. Read .aiwf/state/ for full context. You are an INDEPENDENT reviewer — you must NOT be the executor. Audit testing evidence before re-running tests. Load sub-skills in order: aiwf-review-trace → aiwf-review-verify → aiwf-review-output. Record review with aiwf state record-review --verdict PASS (or REVISE/REJECT). If fallback reviewer role evidence is needed, use aiwf state record-role-evidence --role reviewer --task-id <TASK-ID>. Include all 6 review basis items (goal, plan, scope, evidence, testing, impact). CRITICAL/HIGH findings require REVISE/REJECT, not PASS_WITH_RISK. Record adversarial observations."` |
+
+Do not replace this with shell commands, a checklist, or planner-main roleplay.
 
 **Step 3 — Wait for reviewer to finish.** Forward the verdict to meta-critique or close.
 

@@ -243,6 +243,8 @@ def _quality_activation_blockers(base_dir: str, task: Dict[str, Any]) -> List[st
     blockers: List[str] = []
     for c in gravity.get("hard_constraints", []):
         kind = c.get("kind", "")
+        if _active_override_allows_gravity_constraint(base_dir, task, kind):
+            continue
         if kind == "repeated_change_hotspot":
             label = "repeated-change hotspot"
         elif kind == "fix_loop_trend":
@@ -251,6 +253,28 @@ def _quality_activation_blockers(base_dir: str, task: Dict[str, Any]) -> List[st
             label = kind
         blockers.append(f"[gravity] {label}: {c['message']}")
     return blockers
+
+
+def _active_override_allows_gravity_constraint(base_dir: str, task: Dict[str, Any], kind: str) -> bool:
+    """Return true when a user-confirmed routing override may absorb a gravity warning.
+
+    Historical trends are real and must remain visible, but they are not the
+    same as active hazards. A task-scoped, user-confirmed downgrade can accept
+    the residual risk for `fix_loop_trend`; active fix-loops, same-task
+    recurrence, security/data risks, and core-gate changes are still handled by
+    routing hard constraints and cannot be softened here.
+    """
+    if kind != "fix_loop_trend":
+        return False
+    state = _read(Path(base_dir) / ".aiwf" / "state" / "state.json", {})
+    override = state.get("active_routing_override", {}) or {}
+    if not isinstance(override, dict) or not override.get("user_confirmed"):
+        return False
+    override_task = str(override.get("task_id") or "")
+    if override_task and override_task != str(task.get("id") or ""):
+        return False
+    reason = str(override.get("reason") or "").strip()
+    return bool(reason)
 
 
 def _is_architecture_review_task(task: Dict[str, Any]) -> bool:
@@ -501,8 +525,18 @@ def _find_confirmed_routing_override(
     """
     if recommended_level not in WORKFLOW_LEVELS:
         return {"allowed": False}
-    if decision.get("hard_constraints"):
-        return {"allowed": False}
+    try:
+        from .routing import DOWNGRADE_FORBIDDEN_FACTORS
+        forbidden_hard = [
+            str(item)
+            for item in (decision.get("hard_constraints", []) or [])
+            if str(item) in DOWNGRADE_FORBIDDEN_FACTORS
+        ]
+        if forbidden_hard:
+            return {"allowed": False}
+    except Exception:
+        if decision.get("hard_constraints"):
+            return {"allowed": False}
     if not decision.get("downgrade_allowed", True):
         return {"allowed": False}
     task_id = str(task.get("id") or "")
@@ -1002,36 +1036,6 @@ def _l2_l3_completion_blockers(base_dir: str, task: Dict[str, Any]) -> List[str]
         blockers.append("L2/L3 task requires adequate independent testing before close")
     if not testing.get("commands"):
         blockers.append("L2/L3 task requires recorded test commands before close")
-    layers = set(testing.get("validation_layers", []) or [])
-    if "targeted" not in layers:
-        blockers.append("L2/L3 Tester must record a targeted validation layer")
-    if testing.get("full_suite_status", "not_run") == "not_run":
-        blockers.append(
-            "L2/L3 Tester must run the full project suite or explicitly record not_available/not_feasible with a reason"
-        )
-    if (
-        testing.get("full_suite_status") in ("not_available", "not_feasible")
-        and not testing.get("full_suite_reason")
-    ):
-        blockers.append("L2/L3 full-suite deferral requires full_suite_reason")
-    if testing.get("full_suite_status") == "passed" and "full_regression" not in layers:
-        blockers.append("L2/L3 passed full suite must record validation_layer=full_regression")
-    if testing.get("real_usage_status", "not_run") == "not_run":
-        blockers.append(
-            "L2/L3 Tester must exercise a real user-facing entrypoint or explicitly record not_available/not_feasible with a reason"
-        )
-    if (
-        testing.get("real_usage_status") in ("not_available", "not_feasible")
-        and not testing.get("real_usage_reason")
-    ):
-        blockers.append("L2/L3 real-usage deferral requires real_usage_reason")
-    if testing.get("real_usage_status") == "passed" and "real_usage" not in layers:
-        blockers.append("L2/L3 passed real usage must record validation_layer=real_usage")
-    if (
-        testing.get("full_suite_status") in ("not_available", "not_feasible")
-        or testing.get("real_usage_status") in ("not_available", "not_feasible")
-    ) and not testing.get("untested_risks"):
-        blockers.append("L2/L3 validation deferral requires an explicit untested_risk")
     if testing.get("full_suite_status") == "failed":
         blockers.append("L2/L3 full project suite failed")
     if testing.get("real_usage_status") == "failed":
@@ -1043,9 +1047,6 @@ def _l2_l3_completion_blockers(base_dir: str, task: Dict[str, Any]) -> List[str]
     if review.get("structure_status") != "accepted" or review.get("structure_blockers"):
         blockers.append("L2/L3 task requires accepted structure review before close")
     cleanup_at = str(review.get("cleanup_verified_at", "") or "")
-    if not cleanup_at:
-        blockers.append("L2/L3 task requires a mechanical cleanup verification before review")
-
     from .review_contract import has_pending_adversarial_observations
     if has_pending_adversarial_observations(review):
         blockers.append("L2/L3 task has pending adversarial observations")
@@ -1084,7 +1085,6 @@ def _l2_l3_completion_blockers(base_dir: str, task: Dict[str, Any]) -> List[str]
         and record.get("status") == "accepted"
         and str(record.get("id", ""))
     )
-    sessions = set()
     roles = set()
     reviewer_timestamps: List[str] = []
     for record in evidence.get("records", []) or []:
@@ -1095,38 +1095,33 @@ def _l2_l3_completion_blockers(base_dir: str, task: Dict[str, Any]) -> List[str]
             continue
         if record.get("trust") != "machine_observed":
             continue
-        session_id = str(record.get("session_id", "") or "").strip()
-        agent_id = str(record.get("agent_id", "") or "").strip()
-        if session_id:
-            sessions.add(f"{session_id}::{agent_id}" if agent_id else session_id)
+        # Role evidence produced by `record-role-evidence` is useful as a note,
+        # but it can be filled by the main agent after the fact. The hard gate
+        # needs hook-observed role work: actual Write/Edit/Bash/etc. from the
+        # corresponding aiwf subagent. Do not require distinct session IDs here:
+        # some runtimes give subagents the same parent session.
+        if str(record.get("tool_name") or "") == "AIWFRoleEvidence":
+            continue
         role_text = " ".join([
             str(record.get("agent_type", "")),
-            agent_id,
-            session_id,
+            str(record.get("agent_id", "")),
         ]).lower()
         for role in ("executor", "tester", "reviewer"):
             if role in role_text:
                 roles.add(role)
                 if role == "reviewer" and record.get("timestamp"):
                     reviewer_timestamps.append(str(record["timestamp"]))
-    if len(sessions) < 3:
-        blockers.append(
-            f"L2/L3 task requires accepted machine evidence from at least 3 distinct sessions; found {len(sessions)}. "
-            "Fix: spawn aiwf-executor, aiwf-tester, and aiwf-reviewer as separate Agent tool subagents. "
-            "Each subagent's Write/Edit/Bash calls generate hook evidence with a distinct session_id. "
-            "Running record-role-evidence from the main session does NOT count."
-        )
     missing_roles = [r for r in ("executor", "tester", "reviewer") if r not in roles]
     if missing_roles:
         blockers.append(
-            f"L2/L3 task requires role-bound evidence; missing: {', '.join(missing_roles)}. "
-            f"Fix: for each missing role, spawn a subagent via Agent tool "
-            f"(subagent_type=aiwf-<role>) and have it do real work (Write/Edit/Bash)."
+            f"L2/L3 task requires hook-observed independent role work; missing: {', '.join(missing_roles)}. "
+            "Spawn aiwf-executor, aiwf-tester, and aiwf-reviewer subagents and have each perform real tool work. "
+            "CLI role-evidence backfill does not satisfy this hard gate."
         )
     if cleanup_at and reviewer_timestamps and min(reviewer_timestamps) <= cleanup_at:
         blockers.append("L2/L3 cleanup must be verified before Reviewer evidence")
-    if cleanup_at and not reviewer_timestamps:
-        blockers.append("L2/L3 task requires Reviewer evidence after cleanup verification")
+    if cleanup_at and "reviewer" not in roles:
+        blockers.append("L2/L3 task requires hook-observed Reviewer evidence after cleanup verification")
 
     blockers.extend(_architecture_migration_blockers(goal, evidence, accepted_ids))
 

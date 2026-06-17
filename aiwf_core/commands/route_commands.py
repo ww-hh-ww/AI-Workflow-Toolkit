@@ -100,7 +100,10 @@ def _cmd_route_downgrade(args: argparse.Namespace) -> None:
     # workflow_level is the canonical stored field — topology derives from it
     new_level = TOPOLOGY_TO_LEVEL.get(result["effective_topology"])
 
-    # Record the substitution
+    pending_user_confirmation = bool(result.get("is_downgrade") and not args.user_confirmed)
+
+    # Record the downgrade request. Unconfirmed downgrades are audit records only;
+    # they must not mutate the active workflow truth before user approval.
     record = {
         "timestamp": _now(),
         "from_topology": current_topo,
@@ -111,27 +114,34 @@ def _cmd_route_downgrade(args: argparse.Namespace) -> None:
         "reason": args.reason,
         "substitute_verification": args.substitute or "",
         "user_confirmed": bool(args.user_confirmed),
+        "status": "pending_user_confirmation" if pending_user_confirmation else "confirmed",
         "type": "downgrade",
     }
     subs = state.setdefault("substitution_records", [])
     subs.append(record)
 
-    if new_level:
-        state["workflow_level"] = new_level
-    # Downgrades require explicit user confirmation — never silent.
-    if result.get("is_downgrade") and not args.user_confirmed:
+    # Downgrades require explicit user confirmation — never silent, never applied early.
+    if pending_user_confirmation:
         state["requires_user_decision"] = True
         state["quality_escalation_required"] = True
         state["quality_escalation_reason"] = (
-            f"Workflow downgraded from {current_level} ({current_topo}) to "
+            f"Workflow downgrade requested from {current_level} ({current_topo}) to "
             f"{new_level} ({result['effective_topology']}) "
-            f"(reason: {args.reason[:120]})"
+            f"(reason: {args.reason[:120]}); rerun with --user-confirmed to apply"
         )
+    elif new_level:
+        state["workflow_level"] = new_level
     _write_state(root, state)
 
-    print(f"Workflow downgraded: {current_level} ({current_topo}) -> {new_level} ({result['effective_topology']})")
-    if not args.user_confirmed and result.get("is_downgrade"):
+    if pending_user_confirmation:
+        print(
+            f"Workflow downgrade pending user confirmation: {current_level} ({current_topo}) -> "
+            f"{new_level} ({result['effective_topology']})"
+        )
+        print(f"  Current workflow remains: {current_level} ({current_topo})")
         print("  USER DECISION REQUIRED — rerun with --user-confirmed after user approves")
+    else:
+        print(f"Workflow downgraded: {current_level} ({current_topo}) -> {new_level} ({result['effective_topology']})")
     if args.task_id:
         print(f"  Task: {args.task_id}")
     print(f"  Reason: {args.reason[:120]}")
@@ -175,7 +185,10 @@ def _cmd_route_substitute(args: argparse.Namespace) -> None:
     # workflow_level is canonical — topology derives from it
     new_level = TOPOLOGY_TO_LEVEL.get(result["effective_topology"])
 
-    # Record the substitution with alternative verification
+    pending_user_confirmation = bool(result.get("is_downgrade") and not args.user_confirmed)
+
+    # Record the substitution with alternative verification. Unconfirmed downgrade
+    # substitutions are audit records only; they must not change the active level.
     record = {
         "timestamp": _now(),
         "from_topology": current_topo,
@@ -187,29 +200,36 @@ def _cmd_route_substitute(args: argparse.Namespace) -> None:
         "waived": args.waive or "",
         "substitute_verification": args.substitute or "",
         "user_confirmed": bool(args.user_confirmed),
+        "status": "pending_user_confirmation" if pending_user_confirmation else "confirmed",
         "type": "substitution",
     }
     subs = state.setdefault("substitution_records", [])
     subs.append(record)
 
-    if new_level:
-        state["workflow_level"] = new_level
-    # Downgrades require explicit user confirmation.
-    if result.get("is_downgrade") and not args.user_confirmed:
+    # Downgrade substitutions require explicit user confirmation before applying.
+    if pending_user_confirmation:
         state["requires_user_decision"] = True
         state["quality_escalation_required"] = True
         state["quality_escalation_reason"] = (
-            f"Workflow substituted from {current_level} ({current_topo}) to "
+            f"Workflow substitution requested from {current_level} ({current_topo}) to "
             f"{new_level} ({result['effective_topology']}) "
-            f"(reason: {args.reason[:120]})"
+            f"(reason: {args.reason[:120]}); rerun with --user-confirmed to apply"
         )
-    if args.substitute:
+    elif new_level:
+        state["workflow_level"] = new_level
+    if args.substitute and not pending_user_confirmation:
         state["substitution_allowed"] = True
     _write_state(root, state)
 
-    print(f"Workflow substituted: {current_level} ({current_topo}) -> {new_level} ({result['effective_topology']})")
-    if not args.user_confirmed and result.get("is_downgrade"):
+    if pending_user_confirmation:
+        print(
+            f"Workflow substitution pending user confirmation: {current_level} ({current_topo}) -> "
+            f"{new_level} ({result['effective_topology']})"
+        )
+        print(f"  Current workflow remains: {current_level} ({current_topo})")
         print("  USER DECISION REQUIRED — rerun with --user-confirmed after user approves")
+    else:
+        print(f"Workflow substituted: {current_level} ({current_topo}) -> {new_level} ({result['effective_topology']})")
     if args.task_id:
         print(f"  Task: {args.task_id}")
     print(f"  Reason: {args.reason[:120]}")
@@ -230,6 +250,7 @@ def _cmd_route_help(args: argparse.Namespace) -> None:
     print("  aiwf route explain       — explain the current routing decision")
     print("  aiwf route downgrade     — request a topology downgrade with recorded reason")
     print("  aiwf route substitute    — waive a topology requirement with alternative verification")
+    print("  Never hand-edit .aiwf/state/state.json to bypass routing or gravity.")
     print()
     print("Execution topologies (least to most intensive):")
     print("  single_agent                         — one agent, self-review ok")

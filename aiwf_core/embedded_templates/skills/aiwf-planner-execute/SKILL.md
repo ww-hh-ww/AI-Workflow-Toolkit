@@ -70,8 +70,8 @@ discussing → planned → implementing → testing → reviewing → closing �
 1. **Orient** — run `aiwf status`; read state, goal, fix-loop, task ledger.
 2. **Confirm start** — briefly tell the user the task scope, risk, and verification route; then record it with `aiwf task confirm-start <ID> --summary "..."`. If the user explicitly said not to report, record `aiwf task confirm-start <ID> --skip --reason "user asked to proceed without start report"`.
 3. **Activate** — `aiwf task activate <ID>`. Activation mechanically recomputes routing.
-4. **Evaluate routing** — Read `workflow_level` from state. If L2/L3 but the task scope is mechanical (add config key, fix typo, add dict entry matching existing pattern, string constant change, <=3 lines in a single file with no logic change), run `aiwf route downgrade --task-id <ID> --to single_agent --reason "mechanical change: <specific>" --user-confirmed`. This reduces the level so subsequent phases proceed inline. If unsure, keep the original level.
-5. **Implement** — Load `/aiwf-implement`. The skill's DISPATCH GATE will route based on current `workflow_level`. If downgraded to L0: work inline. If still L1+: call `Agent({subagent_type: "aiwf-executor", ...})`. **Do NOT Write/Edit yourself at L1+.**
+4. **Evaluate routing** — Read `workflow_level` from state. Treat the activated level as binding. Do not downgrade just to avoid subagents. A downgrade is allowed only after the user explicitly approves the tradeoff in the current conversation; then record it with `aiwf route downgrade ... --user-confirmed`. If unsure, keep the original level.
+5. **Implement** — Load `/aiwf-implement`. The skill's DISPATCH GATE will route based on current `workflow_level`. If downgraded to L0 by an explicit user-confirmed command: work inline. If still L1+: call Claude Code's native subagent tool (`Agent`/`Task` tool) with `subagent_type: "aiwf-executor"`. **Do NOT Write/Edit yourself at L1+.**
 6. **Test** — Load `/aiwf-test`. Follow the DISPATCH GATE based on current `workflow_level`.
 7. **Cleanup before review** — `aiwf cleanup check`; resolve stale items; `aiwf state mark-cleanup-fresh`.
 8. **Review** — Load `/aiwf-review`. Follow the DISPATCH GATE based on current `workflow_level`.
@@ -81,7 +81,7 @@ discussing → planned → implementing → testing → reviewing → closing �
 11. **Task close** — `aiwf task close <ID>` after prepare-close passes.
 12. **Carry forward** — current-state.md tells next cycle what changed and what remains risky.
 
-**Sub-agent dispatch rule: L1+ means the Agent tool is MANDATORY at implement/test/review phases. Never do L1+ work inline. The sub-agent prompt must include task scope from state files, not just an ellipsis.**
+**Sub-agent dispatch rule: L1+ means Claude Code's native subagent tool (`Agent`/`Task`) is MANDATORY at implement/test/review phases. Never do L1+ work inline. Do not simulate this with a shell command, checklist, or planner-main roleplay. The sub-agent prompt must include task scope from state files, not just an ellipsis.**
 
 At every transition, trust `.aiwf/*.json` over conversational memory.
 
@@ -104,8 +104,8 @@ At every transition, trust `.aiwf/*.json` over conversational memory.
 3. `aiwf task confirm-start TASK-001 --summary "scope: ...; risk: ...; verify: ..."`
 4. `aiwf task activate TASK-001`
 5. `aiwf status`
-6. Load `/aiwf-implement` → dispatch `aiwf-executor` via Agent tool → wait for result
-7. Load `/aiwf-test` → dispatch `aiwf-tester` (L2/L3) or `aiwf-reviewer` (L1) via Agent tool → wait for result
+6. Load `/aiwf-implement` → call native Agent/Task tool with `subagent_type="aiwf-executor"` → wait for result
+7. Load `/aiwf-test` → call native Agent/Task tool with `subagent_type="aiwf-tester"` (L2/L3) or `subagent_type="aiwf-reviewer"` (L1) → wait for result
 8. Cleanup → `aiwf cleanup check`; `aiwf state mark-cleanup-fresh`
 9. Load `/aiwf-review` → for L2/L3: dispatch `aiwf-reviewer` via Agent tool; for L1: review already done by reviewer-light → wait for result
 10. Fix-loop if needed → meta-critique → prepare-close → task close → carry-forward
@@ -135,9 +135,10 @@ The computed recommended minimum workflow level is a floor, not a warning:
 activation raises `workflow_level` to that minimum before work starts. If it
 becomes L2/L3, independent Tester/Reviewer gates apply.
 
-Downgrades are explicit exceptions, not silent Planner discretion. Before using
-one, explain the tradeoff to the user. Then record a task-scoped, confirmed
-override:
+Downgrades are explicit user decisions, not Planner discretion and not a
+recovery tactic for flow friction. Before using one, explain the tradeoff to
+the user and wait for approval in the current conversation. Then record a
+task-scoped, confirmed override:
 
 ```
 aiwf route downgrade --task-id TASK-001 --to light_review \
@@ -148,6 +149,13 @@ aiwf route downgrade --task-id TASK-001 --to light_review \
 
 If the user does not confirm, or hard constraints are present, activation must
 stay at the mechanically recommended level.
+
+Never tell the user to edit `.aiwf/state/state.json` to lower gravity,
+`cross_task_quality_escalation_required`, or `workflow_level`. Gravity is a
+recorded fact. A user-approved exception must be recorded through
+`aiwf route downgrade ... --user-confirmed` or `aiwf route substitute ...`; if
+that command is blocked, explain the hard constraint instead of mutating
+mechanical truth.
 
 ## Plan Drift During Execution
 

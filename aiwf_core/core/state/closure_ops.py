@@ -161,16 +161,19 @@ def prepare_close(base_dir: str) -> Dict[str, Any]:
             "to produce machine-observed evidence."
         )
 
+    post_hoc_warnings: List[str] = []
+
     # 2b. Trust level: L2+ requires minimum trust tier
     workflow_level = state.get("workflow_level", "L1_review_light")
     from ..evidence_schema import MIN_TRUST_FOR_CLOSURE, MIN_INDEPENDENT_SESSIONS, meets_trust_threshold
     min_trust = MIN_TRUST_FOR_CLOSURE.get(workflow_level, "role_recorded")
     trusted = [r for r in accepted if meets_trust_threshold(r.get("trust_level", "claimed"), min_trust)]
     if min_trust != "claimed" and not trusted:
-        blockers.append(
+        post_hoc_warnings.append(
             f"workflow level {workflow_level} requires at least one accepted evidence "
             f"at trust level {min_trust} or above; highest found: "
-            f"{max((r.get('trust_level', 'claimed') for r in accepted), key=trust_level_rank, default='none')}"
+            f"{max((r.get('trust_level', 'claimed') for r in accepted), key=trust_level_rank, default='none')}. "
+            "This no longer blocks ordinary task closure; milestone/release probes remain the hard truth gate."
         )
 
     # 2c. Session diversity: L2+ requires evidence from independent sessions
@@ -183,9 +186,10 @@ def prepare_close(base_dir: str) -> Dict[str, Any]:
             if sid:
                 session_keys.add(f"{sid}::{aid}" if aid else sid)
         if len(session_keys) < min_sessions:
-            blockers.append(
+            post_hoc_warnings.append(
                 f"workflow level {workflow_level} requires evidence from at least "
-                f"{min_sessions} independent sessions; found {len(session_keys)}"
+                f"{min_sessions} independent sessions; found {len(session_keys)}. "
+                "This is advisory for task closure to avoid subagent/session deadlocks."
             )
 
     # 3. Testing passed — did the Tester run AND pass?
@@ -263,7 +267,6 @@ def prepare_close(base_dir: str) -> Dict[str, Any]:
     # 7. Post-hoc evidence cross-validation — did the work actually happen?
     # These are AFTER the pre-action gates. They verify that recorded claims
     # are traceable to actual machine evidence, not just filled-in fields.
-    post_hoc_warnings: List[str] = []
     all_records = evidence.get("records", []) or []
     record_by_id = {str(r.get("id", "")): r for r in all_records if isinstance(r, dict) and r.get("id")}
 

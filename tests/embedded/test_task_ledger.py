@@ -588,6 +588,48 @@ class TestTaskLedger(unittest.TestCase):
         self.assertEqual(state["workflow_level"], "L2_standard_team")
         self.assertEqual(state["active_routing_override"], {})
 
+    def test_user_confirmed_downgrade_can_override_historical_fix_loop_trend(self):
+        from aiwf_core.core.task_ledger import activate_task, upsert_task
+
+        (self.tmp / ".aiwf" / "runtime" / "history").mkdir(parents=True, exist_ok=True)
+        (self.tmp / ".aiwf" / "runtime" / "history" / "task-history.json").write_text(json.dumps({
+            "tasks": [
+                {"id": "t1", "changed_files": ["scripts/a.sh"], "fix_loop_attempt_count": 3, "untested_risk_count": 0},
+                {"id": "t2", "changed_files": ["scripts/b.sh"], "fix_loop_attempt_count": 3, "untested_risk_count": 0},
+                {"id": "t3", "changed_files": ["scripts/c.sh"], "fix_loop_attempt_count": 3, "untested_risk_count": 0},
+            ]
+        }, indent=2))
+        state_path = self.tmp / ".aiwf" / "state" / "state.json"
+        state = json.loads(state_path.read_text())
+        state["workflow_level"] = "L0_direct"
+        state["cross_task_quality_escalation_required"] = True
+        state["cross_task_quality_escalation_reason"] = "fix-loop trend: 9 recent attempts"
+        state["substitution_records"] = [{
+            "type": "downgrade",
+            "task_id": "TASK-SCRIPTS",
+            "from_level": "L2_standard_team",
+            "to_level": "L0_direct",
+            "from_topology": "standard_team",
+            "to_topology": "single_agent",
+            "reason": "mechanical script repair; user accepts historical fix-loop trend risk",
+            "substitute_verification": "run script smoke and embedded self-test",
+            "user_confirmed": True,
+        }]
+        state_path.write_text(json.dumps(state, indent=2) + "\n")
+        self._seed_l2_contracts()
+        upsert_task(str(self.tmp), "TASK-SCRIPTS", "Mechanical scripts", status="ready")
+        self._seed_plan("TASK-SCRIPTS", allowed_write=["scripts/a.sh", "scripts/b.sh"])
+
+        result = activate_task(str(self.tmp), "TASK-SCRIPTS")
+
+        self.assertTrue(result["activated"], result["blockers"])
+        state = json.loads(state_path.read_text())
+        self.assertEqual(state["recommended_minimum_level"], "L2_standard_team")
+        self.assertEqual(state["workflow_level"], "L0_direct")
+        self.assertEqual(state["active_routing_override"]["task_id"], "TASK-SCRIPTS")
+        self.assertTrue(state.get("cross_task_quality_escalation_required"))
+        self.assertIn("explicit_downgrade:L2_standard_team→L0_direct", state["routing_factors"])
+
     def test_confirmed_downgrade_cannot_override_hard_constraints(self):
         from aiwf_core.core.task_ledger import activate_task, upsert_task
 

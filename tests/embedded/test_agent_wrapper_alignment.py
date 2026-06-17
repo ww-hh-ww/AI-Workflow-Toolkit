@@ -105,11 +105,11 @@ class TestAgentWrapperAlignment(unittest.TestCase):
         self.assertFalse((self.tmp / ".reasonix" / "agents" / "aiwf-reviewer.md").exists())
         for skill_name, required in {
             "aiwf-implement": ["architecture_brief", "forbidden_restructures", "aiwf arch-change request"],
-            "aiwf-test": ["validation_layers", "full_regression", "real_usage"],
+            "aiwf-test": ["Validation Layers", "full_regression", "real_usage"],
             "aiwf-review": [
                 "cleanup_verified_at",
                 "review_template",
-                "accepted_evidence_ids",
+                "accepted-evidence-id",
                 "Evidence-First Testing Boundary",
                 "do not default to rerunning the Tester full suite",
             ],
@@ -126,7 +126,7 @@ class TestAgentWrapperAlignment(unittest.TestCase):
         }.items():
             content = self._claude_skill(skill_name)
             self.assertIn("STOP", content)
-            self.assertIn("Check topology", content)
+            self.assertIn("DISPATCH GATE", content)
             self.assertIn("planner-main", content.lower())
             self.assertIn(role, content.lower())
 
@@ -134,14 +134,14 @@ class TestAgentWrapperAlignment(unittest.TestCase):
             self.assertIn("STOP", reasonix_content)
             self.assertIn("planner-main", reasonix_content.lower())
 
-    def test_claude_agents_declare_separate_subagent_session(self):
+    def test_claude_agents_declare_separate_subagent_role(self):
         for agent_name, role in {
             "aiwf-executor": "Executor",
             "aiwf-tester": "Tester",
             "aiwf-reviewer": "Reviewer",
         }.items():
             content = self._claude_agent(agent_name)
-            self.assertIn(f"separate AIWF {role} subagent session", content)
+            self.assertIn(f"separate AIWF {role} subagent role", content)
             self.assertIn("not planner-main roleplaying", content)
 
     def test_claude_agents_do_not_conflict_with_shared_skills(self):

@@ -294,7 +294,7 @@ def _recovery_guidance(
                 [
                     "do not re-dispatch Executor just to replay completed work",
                     "if executor evidence is missing, record post-hoc provenance from the existing diff/commit with aiwf state record-role-evidence --role executor --scan-git",
-                    "dispatch aiwf-tester as a separate subagent/session",
+                    "dispatch aiwf-tester as a separate subagent role",
                     "record testing only after real tester evidence and commands exist",
                 ],
                 [
@@ -303,20 +303,6 @@ def _recovery_guidance(
                     "do not dispatch Tester and Reviewer in parallel as final closure evidence",
                     "do not hand-edit testing.json as proof",
                 ],
-            )
-        if testing.get("full_suite_status", "not_run") == "not_run" or testing.get("real_usage_status", "not_run") == "not_run":
-            return _blocked(
-                "quality_gap",
-                "tester",
-                "disposition full suite and real usage validation",
-                "For L2/L3, unit tests alone are insufficient without full-suite and user-facing entrypoint disposition.",
-                [
-                    "run or explicitly disposition the full project suite",
-                    "run or explicitly disposition an actual user-facing entrypoint",
-                    "if impossible, record the reason and ask the user before accepting residual risk",
-                ],
-                ["do not proceed to review with undispositioned validation layers"],
-                user_decision_required=True,
             )
         if not review.get("cleanup_verified_at"):
             return _blocked(
@@ -338,7 +324,7 @@ def _recovery_guidance(
                 "dispatch independent Reviewer",
                 "L2/L3 requires adversarial review after testing and cleanup.",
                 [
-                    "dispatch aiwf-reviewer as a separate subagent/session",
+                    "dispatch aiwf-reviewer as a separate subagent role",
                     "record accepted review only after evidence-first contract critique",
                 ],
                 [
@@ -660,14 +646,6 @@ def planner_process_guidance(base_dir: str) -> Dict[str, Any]:
                 f"Closure recovery: if implementation already exists, do not re-dispatch Executor; "
                 f"record post-hoc provenance if needed, then dispatch independent Tester using "
                 f"{state.get('test_template') or 'selected test template'}"
-            )
-        if active_task and (
-            testing.get("full_suite_status", "not_run") == "not_run"
-            or testing.get("real_usage_status", "not_run") == "not_run"
-        ):
-            required.append(
-                "Tester must disposition the full project suite and an actual user-facing entrypoint; "
-                "unit tests alone are insufficient"
             )
         if testing.get("status") in ("adequate", "passed") and not review.get("cleanup_verified_at"):
             required.append("Verify cleanup before dispatching Reviewer: aiwf cleanup check; aiwf state mark-cleanup-fresh")
