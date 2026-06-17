@@ -286,7 +286,7 @@ def recovery_lines(cwd, state, goal, review, fix_loop):
         testing = rj(cwd / ".aiwf" / "artifacts" / "quality" / "testing.json", {})
         if testing.get("status") not in ("adequate", "passed"):
             return blocked("missing_step", "tester", "dispatch independent Tester",
-                           "use aiwf-tester; do not roleplay Tester or dispatch Reviewer first")
+                           "closure recovery: do not re-dispatch Executor for already-completed work; record post-hoc provenance if needed, then use aiwf-tester. Do not dispatch Reviewer first or in parallel")
         if testing.get("full_suite_status", "not_run") == "not_run" or testing.get("real_usage_status", "not_run") == "not_run":
             return blocked("quality_gap", "tester", "disposition full suite and real usage validation",
                            "run/disposition both layers; ask user before accepting residual risk",
@@ -296,7 +296,7 @@ def recovery_lines(cwd, state, goal, review, fix_loop):
                            "run cleanup checks and mark cleanup fresh before review")
         if review.get("result") != "accepted":
             return blocked("missing_step", "reviewer", "dispatch independent Reviewer",
-                           "use aiwf-reviewer; do not roleplay Reviewer")
+                           "use aiwf-reviewer after testing and cleanup; do not roleplay Reviewer or run Tester/Reviewer in parallel")
         pending = [o for o in review.get("adversarial_observations", []) if isinstance(o, dict) and o.get("disposition") == "pending"]
         if pending:
             return blocked("missing_step", "planner", "disposition adversarial observations",

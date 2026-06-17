@@ -44,7 +44,7 @@ You are planner-main. Writing code yourself is a gate violation.
 |-----------|-------|
 | subagent_type | `"aiwf-executor"` |
 | description | `"Implement TASK-XXX"` |
-| prompt | Task ID + plan ID + `purpose` + `allowed_write` + `forbidden_write` + `work_intent` + `plan_kind` + `active_phase` + `protected_files` + `forbidden_restructures` + `"Read .aiwf/state/ for full context. Stay within boundaries. Record evidence with aiwf state record-role-evidence when done. Report changed files and commands run."` |
+| prompt | Task ID + plan ID + `purpose` + `allowed_write` + `forbidden_write` + `work_intent` + `plan_kind` + `active_phase` + `protected_files` + `forbidden_restructures` + `"Read .aiwf/state/ for full context. Stay within boundaries. Record fallback evidence with aiwf state record-role-evidence --task-id <TASK-ID> when hook evidence is missing. Report changed files and commands run."` |
 
 **Step 3 — Wait for executor to finish.** Then forward its output to the next phase (testing).
 
@@ -112,7 +112,7 @@ aiwf arch-change request --source executor --reason "..." --proposed-change "...
 
 ### After Implementation
 
-Report: changed files, commands run with exit codes, scope/architecture concerns. For each piece of evidence, state which Plan and Goal it supports. Evidence is captured automatically by hooks; if missing, use `aiwf state record-role-evidence --role executor --summary "..." --changed-file <path> --scan-git --supports-plan <PLAN-ID> --supports-goal <GOAL-ID>`. If the Plan's scope was insufficient: report what was needed vs what the Plan allowed. Do not silently normalize drift.
+Report: changed files, commands run with exit codes, scope/architecture concerns. For each piece of evidence, state which Plan and Goal it supports. Evidence is captured automatically by hooks; if missing or post-hoc, use `aiwf state record-role-evidence --role executor --task-id <TASK-ID> --summary "..." --changed-file <path> --scan-git --supports-plan <PLAN-ID> --supports-goal <GOAL-ID>`. If the Plan's scope was insufficient: report what was needed vs what the Plan allowed. Do not silently normalize drift.
 
 ### Scope Rules
 

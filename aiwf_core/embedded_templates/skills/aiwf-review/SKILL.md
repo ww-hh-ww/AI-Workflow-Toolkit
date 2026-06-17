@@ -38,7 +38,7 @@ You are planner-main. Reviewing yourself is a gate violation. The close gate che
 |-----------|-------|
 | subagent_type | `"aiwf-reviewer"` |
 | description | `"Review TASK-XXX"` |
-| prompt | Task ID + plan ID + `review_template` + `review_need` + `work_intent` + `plan_kind` + `allowed_write` + `review_focus` + `protected_files` + `forbidden_restructures` + `integration_points` + `"Run aiwf status first. Read .aiwf/state/ for full context. You are an INDEPENDENT reviewer — you must NOT be the executor. Audit testing evidence before re-running tests. Load sub-skills in order: aiwf-review-trace → aiwf-review-verify → aiwf-review-output. Record review with aiwf state record-review --verdict PASS (or REVISE/REJECT). Include all 6 review basis items (goal, plan, scope, evidence, testing, impact). CRITICAL/HIGH findings require REVISE/REJECT, not PASS_WITH_RISK. Record adversarial observations."` |
+| prompt | Task ID + plan ID + `review_template` + `review_need` + `work_intent` + `plan_kind` + `allowed_write` + `review_focus` + `protected_files` + `forbidden_restructures` + `integration_points` + `"Run aiwf status first. Read .aiwf/state/ for full context. You are an INDEPENDENT reviewer — you must NOT be the executor. Audit testing evidence before re-running tests. Load sub-skills in order: aiwf-review-trace → aiwf-review-verify → aiwf-review-output. Record review with aiwf state record-review --verdict PASS (or REVISE/REJECT). If fallback reviewer role evidence is needed, use aiwf state record-role-evidence --role reviewer --task-id <TASK-ID>. Include all 6 review basis items (goal, plan, scope, evidence, testing, impact). CRITICAL/HIGH findings require REVISE/REJECT, not PASS_WITH_RISK. Record adversarial observations."` |
 
 **Step 3 — Wait for reviewer to finish.** Forward the verdict to meta-critique or close.
 
@@ -169,6 +169,10 @@ Score each dimension from evidence, not intuition:
 - `human_trust`: would a human reviewer trust the evidence chain and explanation enough to rely on this result?
 
 ### Recording Review (REQUIRED — gate will block closure without this)
+
+If machine evidence is missing or attribution is unclear, add role evidence with
+`aiwf state record-role-evidence --role reviewer --scan-git ...`; this records
+an `AIWFRoleEvidence` entry. Do not hand-edit evidence or review JSON.
 
 Full V2 example for standard_review / full_review / L2/L3:
 ```bash

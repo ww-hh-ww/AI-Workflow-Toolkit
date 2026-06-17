@@ -10,6 +10,33 @@ from ._common import _execution_contract_frozen, _freeze_explanation, _read, _wr
 from .context_ops import record_role_evidence
 from ..evidence_schema import trust_level_rank
 
+def _effective_closure_evidence_ids(testing: Dict[str, Any], review: Dict[str, Any]) -> set[str]:
+    """Evidence IDs that are accepted for closure even if the record is pending.
+
+    `record-testing` and `record-review` create role evidence records. Those
+    records may remain pending until review promotion, but the testing/review
+    artifacts are the authoritative links for closure-level role evidence.
+    """
+    ids: set[str] = set()
+
+    if testing.get("status") in ("adequate", "passed"):
+        if testing.get("evidence_id"):
+            ids.add(str(testing.get("evidence_id")))
+        ids.update(str(eid) for eid in (testing.get("evidence_ids", []) or []) if str(eid))
+        ids.update(str(eid) for eid in (testing.get("reused_evidence_ids", []) or []) if str(eid))
+        ids.difference_update(
+            str(eid) for eid in (testing.get("invalidated_evidence_ids", []) or []) if str(eid)
+        )
+
+    if review.get("result") == "accepted" or review.get("verdict") in ("PASS", "PASS_WITH_RISK"):
+        ids.update(str(eid) for eid in (review.get("accepted_evidence_ids", []) or []) if str(eid))
+        if review.get("reviewer_evidence_id"):
+            ids.add(str(review.get("reviewer_evidence_id")))
+
+    ids.discard("")
+    return ids
+
+
 def mark_cleanup_fresh(
     base_dir: str,
     resolved_notes: Optional[List[str]] = None,
@@ -113,7 +140,11 @@ def prepare_close(base_dir: str) -> Dict[str, Any]:
 
     # 2. Evidence exists — was any work actually done and captured?
     active_task_id = str(state.get("active_task_id") or "")
-    all_accepted = [r for r in evidence.get("records", []) or [] if r.get("status") == "accepted"]
+    effective_closure_ids = _effective_closure_evidence_ids(testing, review)
+    all_accepted = [
+        r for r in evidence.get("records", []) or []
+        if r.get("status") == "accepted" or str(r.get("id") or "") in effective_closure_ids
+    ]
     # Filter: include evidence from current task OR with no task_id (old/legacy).
     # Exclude evidence that belongs to a different task to prevent historical
     # pollution from satisfying session diversity and trust checks.

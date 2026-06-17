@@ -165,6 +165,23 @@ def _cmd_plan_dep_show(args: argparse.Namespace) -> None:
         print(f"  Blocked: {blocker}")
 
 
+def _cmd_plan_rebase(args: argparse.Namespace) -> None:
+    from ..core.state.plan_ops import rebase_plan_registry
+    try:
+        result = rebase_plan_registry(str(Path.cwd()), fix=args.fix)
+    except ValueError as e:
+        print(f"Plan rebase blocked: {e}", file=sys.stderr)
+        raise SystemExit(1)
+    print(f"Plan registry rebase: changed={result['changed']}")
+    for change in result.get("changes", [])[:12]:
+        if change.get("kind") == "plan_goal_rebased":
+            print(f"  Plan {change['plan_id']}: goal_id {change.get('from') or '(empty)'} -> {change['to']}")
+        elif change.get("kind") == "task_goal_rebased":
+            print(f"  Task {change['task_id']}: goal {change.get('from') or '(empty)'} -> {change['to']}")
+    if len(result.get("changes", []) or []) > 12:
+        print(f"  ... {len(result['changes']) - 12} more")
+
+
 def _cmd_plan_attach(args: argparse.Namespace) -> None:
     """Attach a task to an existing Plan."""
     from ..core.state.plan_ops import attach_task_to_plan
@@ -210,6 +227,7 @@ def _cmd_plan_help(args: argparse.Namespace) -> None:
     print("  aiwf plan list       — list task plans")
     print("  aiwf plan activate   — activate a plan (set active_plan_id)")
     print("  aiwf plan deactivate — deactivate the active plan")
+    print("  aiwf plan rebase     — repair legacy plan registry drift")
     print("  aiwf plan dep        — add, remove, or show Plan dependencies")
 
 

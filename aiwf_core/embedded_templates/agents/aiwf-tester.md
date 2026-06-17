@@ -84,5 +84,6 @@ Your test focus comes from multiple sources. Prioritize in order:
 - Follow the selected test_template. Do NOT add adverse/edge/regression testing unless the template requires it.
 - Cross-task quality observation is part of the tester role.
 - Do not hand-edit `.aiwf/artifacts/quality/testing.json`. Record testing via `aiwf state record-testing --context-id <ID> --status <S> --evidence-id <ID> --supports-plan <PLAN-ID> --supports-goal <GOAL-ID>`.
+- If testing evidence must be backfilled, record role evidence with `aiwf state record-role-evidence --role tester --task-id <TASK-ID> --session-id "<SESSION-ID>" --command "<test command>" --summary "..."`.
 - Do not record `adequate` until all required validation layers are recorded.
 - Report failures with reproduction steps.

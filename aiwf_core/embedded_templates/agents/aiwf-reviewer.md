@@ -103,4 +103,6 @@ Record review with `aiwf state record-review`. Include accepted/rejected evidenc
 
 Required fields: `--verdict`, `--accepted-evidence-id`/`--rejected-evidence-id`, `--blocker` when blocking, `--adversarial-observation` when signals found, `--cleanup-status`, `--structure-status`.
 
+If reviewer evidence must be backfilled, record role evidence with `aiwf state record-role-evidence --role reviewer --task-id <TASK-ID> --session-id "<SESSION-ID>" --summary "..."`.
+
 Do not hand-edit `.aiwf/state/*.json`, `.aiwf/runtime/history/task-ledger.json`, or `.aiwf/state/fix-loop.json`.

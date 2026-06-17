@@ -419,6 +419,60 @@ class TestEvidenceTrustLevel(unittest.TestCase):
         self.assertTrue(result["passed"],
                         f"L2 should pass with command_observed evidence: {result['blockers']}")
 
+    def test_l2_counts_testing_and_review_role_evidence_ids_for_session_diversity(self):
+        """CLI-recorded Tester/Reviewer evidence must satisfy the close gate.
+
+        record-testing creates testing.evidence_id and record-review links the
+        reviewer evidence ID. These role records may still be pending, but once
+        testing/review are accepted they are closure evidence and should not
+        require extra file writes just to create hook-captured sessions.
+        """
+        from aiwf_core.core.state_ops import prepare_close
+        review = {
+            "verdict": "PASS",
+            "result": "accepted",
+            "closure_allowed": True,
+            "cleanup_status": "fresh",
+            "cleanup_verified_at": "2026-01-02T00:00:00+00:00",
+            "blockers": [],
+            "stale_items": [],
+            "accepted_evidence_ids": ["EV-EXEC", "EV-REVIEW"],
+            "reviewer_evidence_id": "EV-REVIEW",
+            "quality_dimensions": _full_quality_dimensions(),
+            "review_basis": _full_review_basis(),
+        }
+        testing = {
+            "status": "adequate",
+            "commands": ["pytest tests/embedded -q"],
+            "evidence_id": "EV-TEST",
+            "full_suite_status": "passed",
+            "real_usage_status": "passed",
+        }
+        evidence = {"records": [
+            {"id": "EV-EXEC", "status": "accepted", "trust": "machine_observed",
+             "tool_name": "Write", "trust_level": "command_observed",
+             "session_id": "s-exec", "agent_type": "aiwf-executor", "task_id": "TASK-001"},
+            {"id": "EV-TEST", "status": "pending", "trust": "role_recorded",
+             "tool_name": "Bash", "trust_level": "command_observed",
+             "session_id": "s-test", "agent_type": "aiwf-tester", "task_id": "TASK-001"},
+            {"id": "EV-REVIEW", "status": "pending", "trust": "role_recorded",
+             "tool_name": "Bash", "trust_level": "command_observed",
+             "session_id": "s-review", "agent_type": "aiwf-reviewer", "task_id": "TASK-001"},
+        ]}
+        base = _make_state_dir(tempfile.mkdtemp(),
+            state={"phase": "reviewing", "workflow_level": "L2_standard_team",
+                   "active_context_id": "c1", "active_task_id": "",
+                   "close_attempt": False, "closure_allowed": False,
+                   "scope_violation": False},
+            testing=testing,
+            review=review,
+            evidence=evidence,
+        )
+
+        result = prepare_close(base)
+
+        self.assertTrue(result["passed"], result["blockers"])
+
     def test_l1_passes_two_session_evidence(self):
         from aiwf_core.core.state_ops import prepare_close
         base = _make_state_dir(tempfile.mkdtemp(),

@@ -82,6 +82,28 @@ def check_file_write(event: NormalizedEvent) -> ScopeResult:
                     active_context_id=state.get("active_context_id") or "(none)",
                     reason="cleanup must be mechanically verified before L2/L3 review.json is written",
                 )
+
+    # Fix-loop repair window: allow explicit repair targets before active-task
+    # and role gates. This prevents governance repair deadlocks such as needing
+    # to fix plans.json before a task can be activated.
+    fix_loop = _read_json(cwd / ".aiwf" / "state" / "fix-loop.json", {})
+    if fix_loop.get("status") == "open":
+        import re
+        required_fixes = fix_loop.get("required_fixes", []) or []
+        for rf in required_fixes:
+            if not isinstance(rf, str):
+                continue
+            paths = re.findall(r'([\w./-]+\.[\w]+)', rf)
+            for p in paths:
+                p_clean = p.lstrip("./")
+                candidates = {p_clean, "." + p_clean}
+                if normalized in candidates or any(normalized.endswith("/" + c) for c in candidates):
+                    return ScopeResult(
+                        file_path=file_path,
+                        allowed=True,
+                        reason=f"fix-loop repair window: '{normalized}' is a required_fix target"
+                    )
+
     if not _is_governance_file(normalized):
         level = state.get("workflow_level", "L1_review_light")
         if level != "L0_direct" and not state.get("active_task_id"):
@@ -90,6 +112,26 @@ def check_file_write(event: NormalizedEvent) -> ScopeResult:
                 allowed=False,
                 active_context_id=state.get("active_context_id") or "(none)",
                 reason=f"no active task — run 'aiwf task activate <TASK-ID>' before writing to '{normalized}'",
+            )
+        role = str(event.agent_type or "").lower()
+        phase = state.get("phase", "")
+        if (
+            level != "L0_direct"
+            and state.get("active_task_id")
+            and phase == "implementing"
+            and "executor" not in role
+        ):
+            return ScopeResult(
+                file_path=normalized,
+                allowed=False,
+                active_context_id=state.get("active_context_id") or "(none)",
+                reason=(
+                    f"L1+ implementation must be performed by an aiwf-executor subagent before writing '{normalized}'. "
+                    "Planner/main or unknown-role Write/Edit is denied before it can create code. "
+                    "Fix: dispatch Agent(subagent_type=aiwf-executor) with the active task scope, "
+                    "or explicitly downgrade to L0 first with aiwf route downgrade --task-id "
+                    f"{state.get('active_task_id')} --to single_agent --reason '<mechanical change>' --user-confirmed."
+                ),
             )
 
     # Context is advisory (purpose, test_focus, review_focus). Scope enforcement
@@ -157,26 +199,6 @@ def check_file_write(event: NormalizedEvent) -> ScopeResult:
     if _is_gitignored(file_path, cwd):
         return ScopeResult(file_path=file_path, allowed=True,
                           reason="gitignored file — allowed")
-
-    # Fix-loop repair window: when a fix-loop is open, allow minimal writes
-    # to files referenced in required_fixes. This breaks the deadlock where
-    # fix-loop says "fix file X" but scope guard says "can't write file X".
-    fix_loop = _read_json(cwd / ".aiwf" / "state" / "fix-loop.json", {})
-    if fix_loop.get("status") == "open":
-        import re
-        required_fixes = fix_loop.get("required_fixes", []) or []
-        for rf in required_fixes:
-            if not isinstance(rf, str):
-                continue
-            # Extract file paths from the fix description
-            paths = re.findall(r'([\w./-]+\.[\w]+)', rf)
-            for p in paths:
-                p_clean = p.lstrip("./")
-                if normalized == p_clean or normalized.endswith("/" + p_clean):
-                    return ScopeResult(
-                        file_path=file_path, allowed=True,
-                        reason=f"fix-loop repair window: '{normalized}' is a required_fix target"
-                    )
 
     # Protocol precondition checks (P0): run AFTER repair window so fix targets aren't blocked.
     # These check phase prerequisites — not quality (contracts, testing, review).

@@ -565,6 +565,7 @@ def _cmd_record_role_evidence(args: argparse.Namespace) -> None:
             scan_git=bool(getattr(args, "scan_git", False)),
             supports_plan=getattr(args, "supports_plan", "") or "",
             supports_goal=getattr(args, "supports_goal", "") or "",
+            task_id=getattr(args, "task_id", "") or "",
         )
     except ValueError as e:
         print(f"Role evidence blocked: {e}", file=sys.stderr)

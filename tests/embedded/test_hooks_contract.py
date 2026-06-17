@@ -46,7 +46,7 @@ class TestHooks(unittest.TestCase):
             p.parent.mkdir(parents=True, exist_ok=True)
             p.write_text(json.dumps(dfn(), indent=2) + "\n")
 
-    def _scope(self, tool, file_path, allowed_write=None, forbidden_write=None):
+    def _scope(self, tool, file_path, allowed_write=None, forbidden_write=None, agent_type=""):
         if allowed_write is not None:
             s = json.loads((self.tmp / ".aiwf" / "state" / "state.json").read_text())
             s["active_context_id"] = "CTX-001"
@@ -65,7 +65,8 @@ class TestHooks(unittest.TestCase):
                 {"tasks": [{"id": "TASK-001", "status": "active", "plan_id": "PLAN-001"}],
                  "execution_window": {"active_task_ids": ["TASK-001"]}}, indent=2))
         inp = json.dumps({"session_id": "t", "cwd": str(self.tmp),
-                          "tool_name": tool, "tool_input": {"file_path": file_path}})
+                          "tool_name": tool, "tool_input": {"file_path": file_path},
+                          "agent_type": agent_type})
         return _run_script(self.tmp / "scripts" / "aiwf_scope_check.py", inp, self.tmp)
 
     def _bash(self, cmd):
@@ -143,6 +144,49 @@ class TestHooks(unittest.TestCase):
         r = self._stop()
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertNotIn('"decision": "block"', r.stdout)
+        self.assertEqual(r.stdout.strip(), "")
+
+    def test_l1_plus_planner_main_project_write_is_blocked_before_implementation(self):
+        state = json.loads((self.tmp / ".aiwf" / "state" / "state.json").read_text())
+        state["workflow_level"] = "L2_standard_team"
+        state["phase"] = "implementing"
+        state["active_context_id"] = "CTX-001"
+        state["active_task_id"] = "TASK-001"
+        self._write_state("state/state.json", state)
+        self._write_state("state/plans.json", {
+            "plans": [{"plan_id": "PLAN-001", "allowed_write": ["src/"],
+                       "goal_id": "GOAL-001", "target_goal_id": "GOAL-001"}],
+        })
+        self._write_state("runtime/history/task-ledger.json", {
+            "tasks": [{"id": "TASK-001", "status": "active", "plan_id": "PLAN-001"}],
+            "execution_window": {"active_task_ids": ["TASK-001"]},
+        })
+
+        r = self._scope("Write", "src/lib.rs", allowed_write=["src/"])
+        out = json.loads(r.stdout.strip())
+
+        self.assertEqual(out.get("hookSpecificOutput", {}).get("permissionDecision"), "deny")
+        self.assertIn("aiwf-executor subagent", out["hookSpecificOutput"]["permissionDecisionReason"])
+
+    def test_l1_plus_executor_subagent_project_write_is_allowed(self):
+        state = json.loads((self.tmp / ".aiwf" / "state" / "state.json").read_text())
+        state["workflow_level"] = "L2_standard_team"
+        state["phase"] = "implementing"
+        state["active_context_id"] = "CTX-001"
+        state["active_task_id"] = "TASK-001"
+        self._write_state("state/state.json", state)
+        self._write_state("state/plans.json", {
+            "plans": [{"plan_id": "PLAN-001", "allowed_write": ["src/"],
+                       "goal_id": "GOAL-001", "target_goal_id": "GOAL-001"}],
+        })
+        self._write_state("runtime/history/task-ledger.json", {
+            "tasks": [{"id": "TASK-001", "status": "active", "plan_id": "PLAN-001"}],
+            "execution_window": {"active_task_ids": ["TASK-001"]},
+        })
+
+        r = self._scope("Write", "src/lib.rs", allowed_write=["src/"], agent_type="aiwf-executor")
+
+        self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(r.stdout.strip(), "")
 
     def test_no_close_attempt_passed_false_empty_blockers_does_not_block(self):

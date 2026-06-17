@@ -655,3 +655,67 @@ def reconcile_task_to_plan(base_dir: str, task: Dict[str, Any]) -> Dict[str, Any
         "milestone_progress": milestone_progress,
         "goal_progress": goal_progress,
     }
+
+
+def rebase_plan_registry(base_dir: str, fix: str = "legacy-goal-id") -> Dict[str, Any]:
+    """Repair mechanical Plan registry drift without hand-editing plans.json."""
+    if fix != "legacy-goal-id":
+        raise ValueError(f"unknown plan rebase fix: {fix}")
+
+    plans = load_plans(base_dir)
+    ledger_path = Path(base_dir) / ".aiwf" / "runtime" / "history" / "task-ledger.json"
+    ledger = _read(ledger_path, {"tasks": [], "execution_window": {"active_task_ids": []}})
+    task_by_id = {
+        str(t.get("id", "")): t
+        for t in ledger.get("tasks", []) or []
+        if isinstance(t, dict) and t.get("id")
+    }
+    changes: List[Dict[str, Any]] = []
+
+    for plan in plans.get("plans", []) or []:
+        if not isinstance(plan, dict):
+            continue
+        plan_id = str(plan.get("plan_id") or plan.get("id") or "")
+        target_goal = str(plan.get("target_goal_id") or "")
+        old_goal = str(plan.get("goal_id") or "")
+        if target_goal and old_goal != target_goal:
+            plan["goal_id"] = target_goal
+            changes.append({
+                "kind": "plan_goal_rebased",
+                "plan_id": plan_id,
+                "from": old_goal,
+                "to": target_goal,
+            })
+        task_status = plan.setdefault("task_status", {})
+        task_ids = list(dict.fromkeys(plan.get("task_ids", []) or []))
+        for task_id in task_ids:
+            task = task_by_id.get(str(task_id))
+            if not task:
+                continue
+            if target_goal and (task.get("goal_id") != target_goal or task.get("parent_goal") != target_goal):
+                before = task.get("goal_id") or task.get("parent_goal") or ""
+                task["goal_id"] = target_goal
+                task["parent_goal"] = target_goal
+                changes.append({
+                    "kind": "task_goal_rebased",
+                    "task_id": task_id,
+                    "plan_id": plan_id,
+                    "from": before,
+                    "to": target_goal,
+                })
+            task["plan_id"] = plan_id
+            task["parent_plan"] = plan_id
+            task_status[str(task_id)] = str(task.get("status", "unknown") or "unknown")
+        closed = [tid for tid in task_ids if task_status.get(tid) == "closed"]
+        remaining = [
+            tid for tid in task_ids
+            if task_status.get(tid) not in ("closed", "rejected")
+        ]
+        plan["closed_task_ids"] = closed
+        plan["remaining_task_ids"] = remaining
+        plan["updated_at"] = _now()
+
+    save_plans(base_dir, plans)
+    if ledger_path.exists():
+        _write(ledger_path, ledger)
+    return {"changed": bool(changes), "changes": changes, "plans": plans, "ledger": ledger}

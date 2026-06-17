@@ -118,6 +118,37 @@ class TestStateCliOps(unittest.TestCase):
         self.assertEqual(rec["supports_plan"], "PLAN-001")
         self.assertEqual(rec["supports_goal"], "GOAL-001")
 
+    def test_record_role_evidence_can_bind_explicit_task_id(self):
+        r = self._run("state", "record-role-evidence",
+                      "--role", "tester",
+                      "--summary", "post-hoc tester evidence",
+                      "--task-id", "TASK-EXPLICIT",
+                      "--session-id", "tester-session",
+                      "--agent-id", "aiwf-tester",
+                      "--agent-type", "aiwf-tester",
+                      "--command", "pytest")
+
+        self.assertEqual(r.returncode, 0, r.stderr)
+        ev = json.loads((self.tmp/".aiwf" / "artifacts" / "evidence" / "records.json").read_text())
+        rec = ev["records"][-1]
+        self.assertEqual(rec["task_id"], "TASK-EXPLICIT")
+        self.assertEqual(rec["agent_type"], "aiwf-tester")
+        self.assertEqual(rec["session_id"], "tester-session")
+
+    def test_governance_repair_opens_narrow_plan_registry_window(self):
+        r = self._run(
+            "governance", "repair",
+            "--target", "plan-registry",
+            "--reason", "legacy goal_id mismatch blocks activation",
+        )
+
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("Governance repair opened", r.stdout)
+        fl = json.loads((self.tmp/".aiwf" / "state" / "fix-loop.json").read_text())
+        self.assertEqual(fl["status"], "open")
+        self.assertTrue(any(".aiwf/state/plans.json" in x for x in fl.get("required_fixes", [])))
+        self.assertTrue(any(rp.get("target") == ".aiwf/state/plans.json" for rp in fl.get("active_repairs", [])))
+
     def test_record_role_evidence_scan_git_corroborates_working_tree(self):
         subprocess.run(["git", "init", "-b", "main"], cwd=str(self.tmp), capture_output=True, text=True, timeout=TIMEOUT)
         subprocess.run(["git", "config", "user.email", "a@b.c"], cwd=str(self.tmp), capture_output=True, text=True, timeout=TIMEOUT)

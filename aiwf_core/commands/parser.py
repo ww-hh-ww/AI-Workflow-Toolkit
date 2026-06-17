@@ -10,7 +10,7 @@ from .ops_commands import (
     _cmd_checkpoint_list, _cmd_checkpoint_restore, _cmd_checkpoint_restore_plan,
     _cmd_checkpoint_show, _cmd_doctor, _cmd_fix_loop_help, _cmd_fix_loop_open,
     _cmd_fix_loop_repair, _cmd_fix_loop_resolve, _cmd_fix_loop_revalidate,
-    _cmd_fix_loop_status, _cmd_git_commit,
+    _cmd_fix_loop_status, _cmd_git_commit, _cmd_governance_repair,
     _cmd_git_suggest, _cmd_git_summary, _cmd_install,
 )
 from .project_memory_commands import (
@@ -40,7 +40,7 @@ from .frontier_commands import (
 from .plan_commands import (
     _cmd_plan_activate, _cmd_plan_attach, _cmd_plan_create, _cmd_plan_deactivate,
     _cmd_plan_dep_add, _cmd_plan_dep_remove, _cmd_plan_dep_show,
-    _cmd_plan_detach, _cmd_plan_help, _cmd_plan_list, _cmd_plan_show,
+    _cmd_plan_detach, _cmd_plan_help, _cmd_plan_list, _cmd_plan_rebase, _cmd_plan_show,
     _cmd_plan_summarize, _cmd_plan_update,
 )
 from .layout_commands import _cmd_workspace_migrate_layout
@@ -90,7 +90,7 @@ from .route_commands import (
 )
 from .task_commands import (
     _cmd_task_activate, _cmd_task_close, _cmd_task_confirm_start, _cmd_task_help, _cmd_task_plan,
-    _cmd_task_status, _cmd_task_suspend,
+    _cmd_task_status, _cmd_task_suspend, _cmd_task_void,
 )
 from ..constants import VERSION
 
@@ -254,6 +254,7 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
     p_re.add_argument("--agent-id", default="", help="subagent id, if available")
     p_re.add_argument("--agent-type", default="", help="agent type, if available")
     p_re.add_argument("--context-id", default="", help="context ID")
+    p_re.add_argument("--task-id", default="", help="task ID this role evidence supports; defaults to active_task_id")
     p_re.add_argument("--status", default="pending", choices=["pending","accepted","rejected"], help="initial evidence status")
     p_re.add_argument("--exit-code", default=0, type=int, help="command exit code")
     p_re.add_argument("--scan-git", action="store_true", help="attach current git working-tree changed files as corroborating evidence")
@@ -453,6 +454,10 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
     p_pla_act.set_defaults(func=_cmd_plan_activate)
     p_pla_de = p_plan_sub.add_parser("deactivate", help="deactivate the active plan")
     p_pla_de.set_defaults(func=_cmd_plan_deactivate)
+    p_plr = p_plan_sub.add_parser("rebase", help="repair legacy plan registry drift")
+    p_plr.add_argument("--fix", default="legacy-goal-id", choices=["legacy-goal-id"],
+                       help="repair kind (default: legacy-goal-id)")
+    p_plr.set_defaults(func=_cmd_plan_rebase)
     p_pldep = p_plan_sub.add_parser("dep", help="manage Plan execution dependencies")
     p_pldep_sub = p_pldep.add_subparsers(dest="plan_dep_cmd", required=True)
     p_pldep_add = p_pldep_sub.add_parser("add", help="add a Plan dependency")
@@ -674,6 +679,11 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
     p_ts.add_argument("task_id", help="task ID")
     p_ts.add_argument("--note", default="", help="suspension note")
     p_ts.set_defaults(func=_cmd_task_suspend)
+    p_tv = p_task_sub.add_parser("void", help="reject a duplicate/obsolete non-active task")
+    p_tv.add_argument("task_id", help="task ID")
+    p_tv.add_argument("--reason", required=True, help="why this task should not run")
+    p_tv.add_argument("--superseded-by", default="", help="task ID that supersedes this task")
+    p_tv.set_defaults(func=_cmd_task_void)
     p_task_sub.add_parser("status", help="show task ledger summary").set_defaults(func=_cmd_task_status)
     p_task.set_defaults(func=_cmd_task_help)
     # ── fix-loop ──
@@ -705,6 +715,18 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
     p_fl_reval.add_argument("--force", action="store_true", help="skip diff-unavailable checks")
     p_fl_reval.set_defaults(func=_cmd_fix_loop_revalidate)
     p_fixloop.set_defaults(func=_cmd_fix_loop_help)
+    # ── governance repair ──
+    p_gov = sub.add_parser("governance", help="governance maintenance windows")
+    p_gov_sub = p_gov.add_subparsers(dest="governance_cmd")
+    p_gov_rep = p_gov_sub.add_parser("repair", help="open a narrow governance repair window")
+    p_gov_rep.add_argument("--target", required=True,
+                           choices=["plan-registry", "milestone-registry", "project-map", "custom"],
+                           help="governance target to repair")
+    p_gov_rep.add_argument("--target-path", default="", help="required when --target custom")
+    p_gov_rep.add_argument("--reason", required=True, help="why this governance repair is needed")
+    p_gov_rep.add_argument("--verify", default="", help="verification to run after repair")
+    p_gov_rep.add_argument("--source", default="planner", help="who declared the repair")
+    p_gov_rep.set_defaults(func=_cmd_governance_repair)
     # ── arch-change ──
     p_ac = sub.add_parser("arch-change", help="architecture change requests (request, list, decide)")
     p_ac_sub = p_ac.add_subparsers(dest="arch_change_cmd")

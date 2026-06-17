@@ -290,14 +290,17 @@ def _recovery_guidance(
                 "missing_step",
                 "tester",
                 "dispatch independent Tester",
-                "L2/L3 requires distinct testing evidence before cleanup/review.",
+                "L2/L3 requires distinct testing evidence before cleanup/review. If implementation already exists, treat this as closure recovery: record post-hoc implementation provenance if needed, then verify current results.",
                 [
+                    "do not re-dispatch Executor just to replay completed work",
+                    "if executor evidence is missing, record post-hoc provenance from the existing diff/commit with aiwf state record-role-evidence --role executor --scan-git",
                     "dispatch aiwf-tester as a separate subagent/session",
                     "record testing only after real tester evidence and commands exist",
                 ],
                 [
                     "do not let planner-main roleplay Tester",
                     "do not dispatch Reviewer before testing is adequate",
+                    "do not dispatch Tester and Reviewer in parallel as final closure evidence",
                     "do not hand-edit testing.json as proof",
                 ],
             )
@@ -551,6 +554,21 @@ def _topology_dispatch_guidance(
     return guidance
 
 
+def _needs_topology_dispatch_guidance(testing: Dict[str, Any], review: Dict[str, Any]) -> bool:
+    """Show dispatch topology only while role dispatch is still actionable."""
+    testing_done = testing.get("status") in ("adequate", "passed")
+    cleanup_done = bool(review.get("cleanup_verified_at"))
+    review_done = review.get("result") == "accepted"
+
+    if not testing_done:
+        return True
+    if testing_done and not cleanup_done:
+        return False
+    if cleanup_done and not review_done:
+        return True
+    return False
+
+
 def planner_process_guidance(base_dir: str) -> Dict[str, Any]:
     """Explain current gates, why they apply, and what Planner should do next."""
     root = Path(base_dir)
@@ -638,7 +656,11 @@ def planner_process_guidance(base_dir: str) -> Dict[str, Any]:
         )):
             required.append("Record a structural Architecture Brief before activation")
         if active_task and testing.get("status") not in ("adequate", "passed"):
-            required.append(f"Dispatch independent Tester using {state.get('test_template') or 'selected test template'}")
+            required.append(
+                f"Closure recovery: if implementation already exists, do not re-dispatch Executor; "
+                f"record post-hoc provenance if needed, then dispatch independent Tester using "
+                f"{state.get('test_template') or 'selected test template'}"
+            )
         if active_task and (
             testing.get("full_suite_status", "not_run") == "not_run"
             or testing.get("real_usage_status", "not_run") == "not_run"
@@ -650,7 +672,10 @@ def planner_process_guidance(base_dir: str) -> Dict[str, Any]:
         if testing.get("status") in ("adequate", "passed") and not review.get("cleanup_verified_at"):
             required.append("Verify cleanup before dispatching Reviewer: aiwf cleanup check; aiwf state mark-cleanup-fresh")
         if review.get("cleanup_verified_at") and review.get("result") != "accepted":
-            required.append(f"Dispatch independent Reviewer using {state.get('review_template') or 'selected review template'}")
+            required.append(
+                f"Dispatch independent Reviewer using {state.get('review_template') or 'selected review template'} "
+                "after Tester evidence and cleanup; do not run Tester/Reviewer in parallel for closure"
+            )
         if review.get("result") == "accepted":
             pending = [
                 o for o in (review.get("adversarial_observations", []) or [])
@@ -697,8 +722,9 @@ def planner_process_guidance(base_dir: str) -> Dict[str, Any]:
     topology = LEVEL_TO_TOPOLOGY.get(level, "light_review")
     verif_need = state.get("verification_need", "standard")
     rev_need = state.get("review_need", "optional_light_review")
-    _topo_guidance = _topology_dispatch_guidance(topology, verif_need, rev_need, level, active_task)
-    required.extend(_topo_guidance)
+    if _needs_topology_dispatch_guidance(testing, review):
+        _topo_guidance = _topology_dispatch_guidance(topology, verif_need, rev_need, level, active_task)
+        required.extend(_topo_guidance)
 
     # E-class: asset staleness, missing env/cap, and generic tool advice are
     # silenced from default guidance. They remain available via --debug.

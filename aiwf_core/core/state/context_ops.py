@@ -203,6 +203,7 @@ def record_role_evidence(
     scan_git: bool = False,
     supports_plan: str = "",
     supports_goal: str = "",
+    task_id: str = "",
 ) -> Dict[str, Any]:
     """Append machine-recorded role evidence for subagent/hook coverage gaps."""
     role = role.strip().lower()
@@ -215,7 +216,7 @@ def record_role_evidence(
     evidence_path = base / ".aiwf" / "artifacts" / "evidence" / "records.json"
     state = _read(base / ".aiwf" / "state" / "state.json")
     active_context = context_id or state.get("active_context_id") or ""
-    active_task_id = str(state.get("active_task_id") or "")
+    active_task_id = str(task_id or state.get("active_task_id") or "")
     inferred_plan = ""
     inferred_goal = ""
     if active_task_id:
@@ -294,6 +295,7 @@ def record_role_evidence(
             "stderr_summary": "",
             "status": status,
             "trust": "machine_observed",
+            "task_id": active_task_id,
             "supports_plan": effective_plan,
             "supports_goal": effective_goal,
         }

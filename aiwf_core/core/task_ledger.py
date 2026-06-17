@@ -826,11 +826,12 @@ def _active_plan_blockers(base_dir: str, task: Dict[str, Any]) -> List[str]:
                 f"aiwf plan create PLAN-001 --goal-id GOAL-001 && aiwf plan attach PLAN-001 {task_id}"
             ]
         return [f"task.plan_id references missing plan registry entry: {plan_id}"]
-    if not plan.get("goal_id"):
-        return [f"Plan {plan_id} is missing goal_id"]
+    effective_plan_goal = str(plan.get("target_goal_id") or plan.get("goal_id") or "")
+    if not effective_plan_goal:
+        return [f"Plan {plan_id} is missing target_goal_id/goal_id"]
     task_goal = task.get("goal_id") or ""
-    if task_goal and task_goal != plan.get("goal_id"):
-        return [f"task.goal_id {task_goal} does not match plan.goal_id {plan.get('goal_id')}"]
+    if task_goal and task_goal != effective_plan_goal:
+        return [f"task.goal_id {task_goal} does not match plan target goal {effective_plan_goal}"]
     plan_milestone = str(plan.get("milestone_id") or "")
     task_milestone = str(task.get("milestone_id") or "")
     if plan_milestone or task_milestone:
@@ -887,9 +888,10 @@ def activate_task(base_dir: str, task_id: str) -> Dict[str, Any]:
         try:
             from .state.plan_ops import get_plan
             plan = get_plan(base_dir, task["plan_id"], migrate=False)
-            if plan.get("goal_id") and not task.get("goal_id"):
-                task["goal_id"] = plan["goal_id"]
-                task["parent_goal"] = plan["goal_id"]
+            plan_goal = plan.get("target_goal_id") or plan.get("goal_id")
+            if plan_goal and not task.get("goal_id"):
+                task["goal_id"] = plan_goal
+                task["parent_goal"] = plan_goal
             if plan.get("milestone_id") and not task.get("milestone_id"):
                 task["milestone_id"] = plan["milestone_id"]
         except Exception:
@@ -940,6 +942,46 @@ def suspend_task(base_dir: str, task_id: str, note: str = "") -> Dict[str, Any]:
     _sync_active_ids(ledger)
     save_ledger(base_dir, ledger)
     return {"suspended": True, "task": task, "ledger": ledger, "blockers": []}
+
+
+def void_task(base_dir: str, task_id: str, reason: str, superseded_by: str = "") -> Dict[str, Any]:
+    """Mark a non-active duplicate/obsolete task rejected without closure gates."""
+    if not reason.strip():
+        return {"voided": False, "task": None, "ledger": load_ledger(base_dir), "blockers": ["reason is required"]}
+    ledger = load_ledger(base_dir)
+    task = _find(ledger["tasks"], task_id)
+    if not task:
+        return {"voided": False, "task": None, "ledger": ledger, "blockers": [f"task not found: {task_id}"]}
+    if task.get("status") == "active":
+        return {
+            "voided": False,
+            "task": task,
+            "ledger": ledger,
+            "blockers": ["active task cannot be voided; suspend or close it through normal gates"],
+        }
+    if task.get("status") == "closed":
+        return {
+            "voided": False,
+            "task": task,
+            "ledger": ledger,
+            "blockers": ["closed task cannot be voided"],
+        }
+    task["status"] = "rejected"
+    task["state_reason"] = "superseded" if superseded_by else "not_planned"
+    task["voided_at"] = _now()
+    task["updated_at"] = _now()
+    task.setdefault("notes", []).append(f"voided: {reason.strip()}")
+    if superseded_by:
+        task["superseded_by"] = superseded_by
+    _sync_active_ids(ledger)
+    save_ledger(base_dir, ledger)
+    if task.get("plan_id") or task.get("parent_plan"):
+        try:
+            from .state.plan_ops import reconcile_task_to_plan
+            reconcile_task_to_plan(base_dir, task)
+        except Exception:
+            pass
+    return {"voided": True, "task": task, "ledger": ledger, "blockers": []}
 
 
 def _l2_l3_completion_blockers(base_dir: str, task: Dict[str, Any]) -> List[str]:
@@ -1027,11 +1069,29 @@ def _l2_l3_completion_blockers(base_dir: str, task: Dict[str, Any]) -> List[str]
     accepted_ids = {
         str(eid) for eid in (review.get("accepted_evidence_ids", []) or []) if str(eid)
     }
+    if testing.get("status") in ("adequate", "passed"):
+        if testing.get("evidence_id"):
+            accepted_ids.add(str(testing.get("evidence_id")))
+        accepted_ids.update(str(eid) for eid in (testing.get("evidence_ids", []) or []) if str(eid))
+        accepted_ids.update(str(eid) for eid in (testing.get("reused_evidence_ids", []) or []) if str(eid))
+        accepted_ids.difference_update(
+            str(eid) for eid in (testing.get("invalidated_evidence_ids", []) or []) if str(eid)
+        )
+    accepted_ids.update(
+        str(record.get("id", ""))
+        for record in (evidence.get("records", []) or [])
+        if isinstance(record, dict)
+        and record.get("status") == "accepted"
+        and str(record.get("id", ""))
+    )
     sessions = set()
     roles = set()
     reviewer_timestamps: List[str] = []
     for record in evidence.get("records", []) or []:
         if not isinstance(record, dict) or str(record.get("id", "")) not in accepted_ids:
+            continue
+        record_task = str(record.get("task_id", "") or "")
+        if record_task and record_task != str(task.get("id", "") or ""):
             continue
         if record.get("trust") != "machine_observed":
             continue

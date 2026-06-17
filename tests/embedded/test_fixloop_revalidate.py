@@ -218,6 +218,37 @@ class TestScopeGuardRepairWindow(unittest.TestCase):
                         f"repair window must allow writes to required_fix targets: {result.reason}")
         self.assertIn("repair window", result.reason.lower())
 
+    def test_repair_window_allows_plan_registry_repair_without_active_task(self):
+        from aiwf_core.hooks.common.scope_checker import check_file_write
+        from aiwf_core.core.event_model import NormalizedEvent
+        import tempfile
+        base = tempfile.mkdtemp()
+        for d in [".aiwf/state", ".aiwf/artifacts/quality"]:
+            (Path(base) / d).mkdir(parents=True, exist_ok=True)
+        (Path(base) / ".aiwf/state/state.json").write_text(json.dumps({
+            "phase": "planned", "workflow_level": "L2_standard_team",
+            "active_context_id": "ctx-1", "active_plan_id": "PLAN-KM-SENSOR",
+            "active_task_id": None, "request_mode": "execution",
+        }))
+        (Path(base) / ".aiwf/state/fix-loop.json").write_text(json.dumps({
+            "status": "open", "route": "planner",
+            "required_fixes": [
+                "Repair legacy goal_id mismatch in .aiwf/state/plans.json"
+            ],
+        }))
+        (Path(base) / ".aiwf/state/contexts.json").write_text(json.dumps({"contexts": []}))
+        (Path(base) / ".aiwf/state/goal.json").write_text(json.dumps({"quality_brief": {}}))
+
+        event = NormalizedEvent(
+            tool_name="Edit",
+            tool_input={"file_path": ".aiwf/state/plans.json"},
+            cwd=base,
+        )
+        result = check_file_write(event)
+
+        self.assertTrue(result.allowed, result.reason)
+        self.assertIn("repair window", result.reason.lower())
+
     def test_repair_window_blocks_non_fix_target(self):
         from aiwf_core.hooks.common.scope_checker import check_file_write
         from aiwf_core.core.event_model import NormalizedEvent

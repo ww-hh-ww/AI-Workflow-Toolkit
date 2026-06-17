@@ -150,6 +150,117 @@ class TestTaskLedger(unittest.TestCase):
         self.assertFalse(second["activated"])
         self.assertTrue(any("active execution window" in b for b in second["blockers"]))
 
+    def test_activation_accepts_legacy_goal_id_when_target_goal_matches_task(self):
+        """Legacy plans may keep goal_id=GOAL-001 while target_goal_id is real."""
+        from aiwf_core.core.state.plan_ops import upsert_plan
+        from aiwf_core.core.state.goal_tree_ops import add_child_goal, init_root
+        from aiwf_core.core.task_ledger import activate_task, upsert_task
+
+        init_root(str(self.tmp), "GOAL-001", root_type="main", title="Root")
+        add_child_goal(str(self.tmp), "GOAL-001", "GOAL-KM-CALLBACKS", title="Kernel callbacks")
+        plan_dir = self.tmp / ".aiwf" / "artifacts" / "plans"
+        plan_dir.mkdir(parents=True, exist_ok=True)
+        (plan_dir / "PLAN-KM-SENSOR.md").write_text(
+            "# PLAN-KM-SENSOR\n\n"
+            "## Impact\n"
+            "- docs: no — test\n"
+            "- project_map: no — test\n"
+            "- environment: no — test\n"
+            "- capabilities: no — test\n"
+            "- quality_summary: no — test\n",
+            encoding="utf-8",
+        )
+        upsert_plan(
+            str(self.tmp),
+            "PLAN-KM-SENSOR",
+            goal_id="GOAL-001",
+            target_goal_id="GOAL-KM-CALLBACKS",
+            task_ids=["TASK-KM-SENSOR"],
+            plan_kind="implementation",
+            work_intent="feature",
+            allowed_write=["km-sensor/"],
+            purpose="Kernel callbacks",
+        )
+        upsert_task(
+            str(self.tmp),
+            "TASK-KM-SENSOR",
+            "Kernel sensor",
+            status="ready",
+            plan_id="PLAN-KM-SENSOR",
+            goal_id="GOAL-KM-CALLBACKS",
+        )
+
+        result = activate_task(str(self.tmp), "TASK-KM-SENSOR")
+
+        self.assertTrue(result["activated"], result["blockers"])
+
+    def test_plan_rebase_repairs_legacy_goal_id_and_task_goal(self):
+        from aiwf_core.core.state.goal_tree_ops import add_child_goal, init_root
+        from aiwf_core.core.state.plan_ops import get_plan, upsert_plan
+        from aiwf_core.core.task_ledger import load_ledger, upsert_task
+
+        init_root(str(self.tmp), "GOAL-001", root_type="main", title="Root")
+        add_child_goal(str(self.tmp), "GOAL-001", "GOAL-KM-CALLBACKS", title="Kernel callbacks")
+        upsert_plan(
+            str(self.tmp),
+            "PLAN-KM-SENSOR",
+            goal_id="GOAL-001",
+            target_goal_id="GOAL-KM-CALLBACKS",
+            task_ids=["TASK-KM-SENSOR"],
+            plan_kind="implementation",
+            work_intent="feature",
+            allowed_write=["km-sensor/"],
+            purpose="Kernel callbacks",
+        )
+        upsert_task(
+            str(self.tmp),
+            "TASK-KM-SENSOR",
+            "Kernel sensor",
+            status="ready",
+            plan_id="PLAN-KM-SENSOR",
+            goal_id="GOAL-001",
+        )
+
+        r = self._run("plan", "rebase", "--fix", "legacy-goal-id")
+
+        self.assertEqual(r.returncode, 0, r.stderr)
+        plan = get_plan(str(self.tmp), "PLAN-KM-SENSOR")
+        self.assertEqual(plan["goal_id"], "GOAL-KM-CALLBACKS")
+        task = next(t for t in load_ledger(str(self.tmp))["tasks"] if t["id"] == "TASK-KM-SENSOR")
+        self.assertEqual(task["goal_id"], "GOAL-KM-CALLBACKS")
+        self.assertIn("changed=True", r.stdout)
+
+    def test_task_void_rejects_duplicate_non_active_task_without_close_gates(self):
+        from aiwf_core.core.state.plan_ops import get_plan, upsert_plan
+        from aiwf_core.core.task_ledger import load_ledger, upsert_task
+
+        upsert_plan(
+            str(self.tmp),
+            "PLAN-COMMON",
+            goal_id="GOAL-001",
+            target_goal_id="GOAL-001",
+            task_ids=["TASK-COMMON", "TASK-COMMON-M1"],
+            plan_kind="implementation",
+            work_intent="feature",
+            allowed_write=["crates/edr-common/"],
+            purpose="Common types",
+        )
+        upsert_task(str(self.tmp), "TASK-COMMON", "Common", status="closed", plan_id="PLAN-COMMON")
+        upsert_task(str(self.tmp), "TASK-COMMON-M1", "Common duplicate", status="ready", plan_id="PLAN-COMMON")
+
+        r = self._run(
+            "task", "void", "TASK-COMMON-M1",
+            "--reason", "duplicate shell task already covered by TASK-COMMON",
+            "--superseded-by", "TASK-COMMON",
+        )
+
+        self.assertEqual(r.returncode, 0, r.stderr)
+        task = next(t for t in load_ledger(str(self.tmp))["tasks"] if t["id"] == "TASK-COMMON-M1")
+        self.assertEqual(task["status"], "rejected")
+        self.assertEqual(task["superseded_by"], "TASK-COMMON")
+        plan = get_plan(str(self.tmp), "PLAN-COMMON")
+        self.assertNotIn("TASK-COMMON-M1", plan.get("remaining_task_ids", []))
+
     def test_parallel_safe_allows_non_overlapping_active_tasks(self):
         from aiwf_core.core.task_ledger import activate_task, upsert_task
 

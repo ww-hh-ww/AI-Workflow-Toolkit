@@ -166,6 +166,25 @@ def _cmd_task_suspend(args: argparse.Namespace) -> None:
         raise SystemExit(1)
 
 
+def _cmd_task_void(args: argparse.Namespace) -> None:
+    from ..core.task_ledger import void_task
+    result = void_task(
+        str(Path.cwd()),
+        args.task_id,
+        reason=args.reason or "",
+        superseded_by=getattr(args, "superseded_by", "") or "",
+    )
+    print(f"Task void: {args.task_id} voided={result['voided']}")
+    if result["blockers"]:
+        for blocker in result["blockers"][:5]:
+            print(f"  - {blocker}")
+        raise SystemExit(1)
+    task = result.get("task") or {}
+    print(f"  Reason: {task.get('state_reason', '')}")
+    if task.get("superseded_by"):
+        print(f"  Superseded by: {task['superseded_by']}")
+
+
 def _cmd_task_status(args: argparse.Namespace) -> None:
     from ..core.task_ledger import ledger_summary
     summary = ledger_summary(str(Path.cwd()))
@@ -189,4 +208,5 @@ def _cmd_task_help(args: argparse.Namespace) -> None:
     print("  aiwf task activate  — mark one task active if gates pass")
     print("  aiwf task suspend   — suspend an active task with state snapshot")
     print("  aiwf task close     — mark a ledger task closed")
+    print("  aiwf task void      — reject a duplicate/obsolete non-active task")
     print("  aiwf task status    — show ledger summary")

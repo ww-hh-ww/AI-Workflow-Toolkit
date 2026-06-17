@@ -175,6 +175,53 @@ def _cmd_fix_loop_revalidate(args: argparse.Namespace) -> None:
     else:
         print("  All fixes resolved — ready for fixloop resolve.")
 
+
+def _cmd_governance_repair(args: argparse.Namespace) -> None:
+    """aiwf governance repair — open a narrow governance repair window."""
+    from ..core.state_ops import open_fix_loop, _read, _write
+    from pathlib import Path as _P
+    from datetime import datetime, timezone
+    target_map = {
+        "plan-registry": ".aiwf/state/plans.json",
+        "milestone-registry": ".aiwf/state/milestones.json",
+        "project-map": ".aiwf/artifacts/reports/项目地图.md",
+    }
+    target = args.target_path or target_map.get(args.target, "")
+    if not target:
+        print(f"Governance repair blocked: unknown target {args.target}", file=sys.stderr)
+        raise SystemExit(1)
+    reason = args.reason or f"governance repair: {args.target}"
+    base = _P.cwd()
+    fl_path = base / ".aiwf" / "state" / "fix-loop.json"
+    fl = _read(fl_path)
+    if fl.get("status") != "open":
+        fl = open_fix_loop(
+            str(base),
+            route="planner",
+            reason=reason,
+            required_fixes=[f"Repair governance target: {target}"],
+            required_verification=[args.verify or f"validate governance target {target}"],
+            source=args.source or "planner",
+        )
+    else:
+        fixes = fl.setdefault("required_fixes", [])
+        fix = f"Repair governance target: {target}"
+        if fix not in fixes:
+            fixes.append(fix)
+    repairs = fl.setdefault("active_repairs", [])
+    repairs.append({
+        "target": target,
+        "reason": reason,
+        "declared_at": datetime.now(timezone.utc).isoformat(),
+        "source": args.source or "planner",
+    })
+    _write(fl_path, fl)
+    print(f"Governance repair opened: {args.target}")
+    print(f"  Target: {target}")
+    print(f"  Reason: {reason[:160]}")
+    print("  This is a narrow repair window, not general write permission.")
+
+
 def _cmd_arch_change_request(args: argparse.Namespace) -> None:
     """aiwf arch-change request — append an architecture change request."""
     from ..core.state_ops import request_architecture_change

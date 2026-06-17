@@ -113,6 +113,14 @@ class TestProcessEnforcement(unittest.TestCase):
         ab["validators"] = ["scripts/validate.sh"]
         _write(goal_path, goal)
 
+    def _full_review_dimensions(self):
+        from aiwf_core.core.state_schema import QUALITY_DIMENSIONS
+        return {dim: {"score": "PASS", "note": ""} for dim in QUALITY_DIMENSIONS}
+
+    def _full_review_basis(self):
+        from aiwf_core.core.state_schema import REVIEW_BASIS
+        return {name: {"status": "covered", "note": ""} for name in REVIEW_BASIS}
+
     def _inject_hook_evidence(self, *session_specs):
         """Inject hook-validated evidence records for session diversity.
 
@@ -323,7 +331,9 @@ class TestProcessEnforcement(unittest.TestCase):
         self.assertEqual(recovery["owner"], "tester")
         self.assertEqual(recovery["primary"], "dispatch independent Tester")
         self.assertFalse(recovery["user_decision_required"])
+        self.assertTrue(any("post-hoc provenance" in item for item in recovery["legal_options"]))
         self.assertTrue(any("roleplay Tester" in item for item in recovery["forbidden"]))
+        self.assertTrue(any("parallel" in item for item in recovery["forbidden"]))
 
     def test_recovery_guidance_for_review_before_cleanup(self):
         from aiwf_core.core.process_contract import planner_process_guidance
@@ -366,6 +376,22 @@ class TestProcessEnforcement(unittest.TestCase):
         self.assertEqual(recovery["primary"], "disposition adversarial observations")
         self.assertTrue(any("prepare-close" in item for item in recovery["forbidden"]))
 
+    def test_planner_guidance_stops_dispatch_hints_after_review_acceptance(self):
+        from aiwf_core.core.process_contract import planner_process_guidance
+        from aiwf_core.core.task_ledger import activate_task, upsert_task
+        self._set_l2()
+        self._seed_complete_quality_chain()
+        upsert_task(str(self.tmp), "TASK-DONE", "Done chain", status="ready")
+        self._seed_plan("TASK-DONE")
+        self.assertTrue(activate_task(str(self.tmp), "TASK-DONE")["activated"])
+
+        guidance = planner_process_guidance(str(self.tmp))
+
+        required = "\n".join(guidance["required_now"])
+        self.assertIn("prepare-close", required)
+        self.assertNotIn("executor → tester → reviewer", required)
+        self.assertNotIn("Dispatch independent Reviewer", required)
+
     def test_l2_task_closes_with_cli_role_delivery_evidence(self):
         from aiwf_core.core.state_ops import (
             mark_cleanup_fresh,
@@ -390,6 +416,7 @@ class TestProcessEnforcement(unittest.TestCase):
             changed_files=["src/a.py"],
             session_id="sub-exec", agent_id="aiwf-executor",
         )
+        self.assertEqual(exec_ev.get("task_id"), "TASK-ROLE")
         testing = record_testing(
             str(self.tmp),
             status="adequate",
@@ -402,9 +429,12 @@ class TestProcessEnforcement(unittest.TestCase):
         mark_cleanup_fresh(str(self.tmp), ["cleanup checked"])
         record_review(
             str(self.tmp),
+            verdict="PASS",
             result="accepted",
+            quality_dimensions=self._full_review_dimensions(),
+            review_basis=self._full_review_basis(),
             closure_allowed=True,
-            accepted_evidence_ids=[exec_ev["id"], testing["evidence_id"]] + hook_ids,
+            accepted_evidence_ids=[exec_ev["id"]],
             cleanup_status="fresh",
             structure_status="accepted",
             summary="reviewed role delivery evidence",
@@ -414,6 +444,71 @@ class TestProcessEnforcement(unittest.TestCase):
 
         result = close_task(str(self.tmp), "TASK-ROLE")
 
+        self.assertTrue(result["closed"], result["blockers"])
+
+    def test_l3_prepare_close_then_task_close_uses_same_effective_evidence(self):
+        from aiwf_core.core.state_ops import (
+            mark_cleanup_fresh,
+            prepare_close,
+            record_meta_critique,
+            record_review,
+            record_role_evidence,
+            record_testing,
+        )
+        from aiwf_core.core.task_ledger import activate_task, close_task, upsert_task
+        self._set_l2()
+        state_path = self.tmp / ".aiwf" / "state" / "state.json"
+        state = json.loads(state_path.read_text())
+        state["workflow_level"] = "L3_full_power"
+        _write(state_path, state)
+        (self.tmp / ".aiwf" / "runtime" / "checkpoints").mkdir(parents=True, exist_ok=True)
+        (self.tmp / ".aiwf" / "runtime" / "checkpoints" / "TASK-L3.json").write_text("{}\n", encoding="utf-8")
+
+        upsert_task(str(self.tmp), "TASK-L3", "L3 close chain", status="ready")
+        self._seed_plan("TASK-L3")
+        self.assertTrue(activate_task(str(self.tmp), "TASK-L3")["activated"])
+
+        self._inject_hook_evidence(
+            ("sub-exec", "aiwf-executor", "Write"),
+            ("sub-test", "aiwf-tester", "Bash"),
+            ("sub-review", "aiwf-reviewer", "Bash"),
+        )
+        exec_ev = record_role_evidence(
+            str(self.tmp),
+            "executor",
+            summary="implemented scoped change",
+            session_id="sub-exec",
+            agent_id="aiwf-executor",
+            agent_type="aiwf-executor",
+        )
+        testing = record_testing(
+            str(self.tmp),
+            status="adequate",
+            commands=["pytest"],
+            validation_layers=["targeted", "full_regression", "real_usage"],
+            full_suite_status="passed",
+            real_usage_status="passed",
+            real_usage_reason="pytest exercised CLI entrypoint",
+        )
+        mark_cleanup_fresh(str(self.tmp), ["cleanup checked"])
+        record_review(
+            str(self.tmp),
+            verdict="PASS",
+            result="accepted",
+            quality_dimensions=self._full_review_dimensions(),
+            review_basis=self._full_review_basis(),
+            closure_allowed=True,
+            accepted_evidence_ids=[exec_ev["id"]],
+            cleanup_status="fresh",
+            structure_status="accepted",
+            summary="reviewed completed L3 chain",
+        )
+        record_meta_critique(str(self.tmp), "Review accepted after adversarial disposition")
+
+        prepared = prepare_close(str(self.tmp))
+        self.assertTrue(prepared["passed"], prepared["blockers"])
+
+        result = close_task(str(self.tmp), "TASK-L3")
         self.assertTrue(result["closed"], result["blockers"])
 
     def test_architecture_migration_task_closes_with_migration_evidence(self):

@@ -108,6 +108,13 @@ COMMAND_MANIFEST: Dict[str, Dict] = {
         "in_status_prompt": True,
         "keep": "fix-loop recovery — open/resolve/revalidate repair cycles",
     },
+    "governance": {
+        "tier": ADVANCED, "core": "recovery",
+        "caller": "planner", "trigger": "on-governance-drift",
+        "visible": False, "tested": "yes",
+        "in_status_prompt": False,
+        "keep": "narrow repair windows for AIWF registry drift, not project implementation",
+    },
     "route": {
         "tier": PRIMARY, "core": "active_plan",
         "caller": "planner", "trigger": "on-planning",

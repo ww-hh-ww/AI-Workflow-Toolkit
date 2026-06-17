@@ -150,6 +150,12 @@ fixloop   workspace
 aiwf --help --all
 ```
 
+如果你是第一次用 AIWF，建议先读一遍面向使用者的教程：
+
+- [AIWF 使用教程：从会用到用好](docs/AIWF-USAGE-TUTORIAL.md)
+
+教程分别覆盖两种常见情况：从零开始的新项目，以及已经做了一部分、需要把现有能力纳入 Goal Tree 和 PROJECT-MAP 的项目。
+
 建议从 Planner 开始，而不是手工拼接整条 CLI 流程。CLI 是 Skills 和 Hooks 共享的机器状态接口，也可以用于诊断和恢复。
 
 ## 两层工作模型

@@ -29,7 +29,7 @@ You are planner-main. Running tests yourself is a gate violation. The review pha
 |-----------|-------|
 | subagent_type | `"aiwf-tester"` |
 | description | `"Test TASK-XXX"` |
-| prompt | Task ID + `test_template` + `verification_need` + `allowed_write` + `work_intent` + `plan_kind` + `test_focus` + changed files from evidence + `"Run aiwf status first. Read .aiwf/state/ for full context. Write NEW tests covering changed behavior AND uncovered paths — do NOT just run existing tests. Record with aiwf state record-testing --supports-plan <PLAN-ID> --supports-goal <GOAL-ID>. Recording is REQUIRED."` |
+| prompt | Task ID + `test_template` + `verification_need` + `allowed_write` + `work_intent` + `plan_kind` + `test_focus` + changed files from evidence + `"Run aiwf status first. Read .aiwf/state/ for full context. Write NEW tests covering changed behavior AND uncovered paths — do NOT just run existing tests. Record with aiwf state record-testing --supports-plan <PLAN-ID> --supports-goal <GOAL-ID>. If fallback role evidence is needed, use aiwf state record-role-evidence --role tester --task-id <TASK-ID>. Recording is REQUIRED."` |
 
 **Step 3 — Wait for tester to finish.** Forward results to the review phase.
 
@@ -41,7 +41,7 @@ L1 uses ONE sub-agent for both testing AND review.
 |-----------|-------|
 | subagent_type | `"aiwf-reviewer"` |
 | description | `"Test + review TASK-XXX"` |
-| prompt | Task ID + `test_template=targeted_plus_small_regression` + `verification_need=standard` + `allowed_write` + `work_intent` + `plan_kind` + changed files from evidence + `"You are reviewer-light for this L1 task. Do TWO jobs: (1) Test first — write new tests, run them, record with aiwf state record-testing --supports-plan <PLAN-ID> --supports-goal <GOAL-ID>. (2) Then review — check scope, goal match, test adequacy, overengineering. Record review with aiwf state record-review --verdict PASS (or REVISE/REJECT). Read .aiwf/state/ for full context."` |
+| prompt | Task ID + `test_template=targeted_plus_small_regression` + `verification_need=standard` + `allowed_write` + `work_intent` + `plan_kind` + changed files from evidence + `"You are reviewer-light for this L1 task. Do TWO jobs: (1) Test first — write new tests, run them, record with aiwf state record-testing --supports-plan <PLAN-ID> --supports-goal <GOAL-ID>. (2) Then review — check scope, goal match, test adequacy, overengineering. Record review with aiwf state record-review --verdict PASS (or REVISE/REJECT). If fallback role evidence is needed, include --task-id <TASK-ID>. Read .aiwf/state/ for full context."` |
 
 The reviewer-light subagent handles both testing AND review. Do NOT spawn a separate tester or reviewer after this.
 
