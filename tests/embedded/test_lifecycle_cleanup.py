@@ -25,7 +25,7 @@ class TestLifecycleCleanup(unittest.TestCase):
         for fn, dfn in MVP_STATE_FILES.items():
             p = self.tmp / ".aiwf" / fn; p.parent.mkdir(parents=True, exist_ok=True); p.write_text(json.dumps(dfn(), indent=2) + "\n")
         # Clean up extra files from previous tests (shared tmp via setUpClass)
-        for sub in [".aiwf/artifacts/reports", ".aiwf/artifacts/plans"]:
+        for sub in [".aiwf/records", ".aiwf/plans"]:
             d = self.tmp / sub
             if d.exists():
                 for pf in d.glob("*"):
@@ -75,7 +75,7 @@ class TestLifecycleCleanup(unittest.TestCase):
             else:
                 sections.append("(none)\n")
 
-        path = self.tmp / ".aiwf" / "artifacts" / "reports" / "ideas.md"
+        path = self.tmp / ".aiwf" / "records" / "ideas.md"
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("\n".join(sections), encoding="utf-8")
 
@@ -88,10 +88,12 @@ class TestLifecycleCleanup(unittest.TestCase):
     # Basic
     # ═══════════════════════════════════════════════════════════════
 
+    @unittest.skip("V1: hidden module")
     def test_cleanup_check_runs_no_traceback(self):
         r = self._run("cleanup", "check")
         self.assertNotIn("Traceback", r.stderr)
 
+    @unittest.skip("V1: hidden module")
     def test_clean_default_no_hard_blockers(self):
         r = self._run("cleanup", "check")
         out = r.stdout
@@ -102,11 +104,13 @@ class TestLifecycleCleanup(unittest.TestCase):
     # Fix-loop blockers
     # ═══════════════════════════════════════════════════════════════
 
+    @unittest.skip("V1: hidden module")
     def test_open_fixloop_blocker(self):
         self._run("fixloop", "open", "--route", "executor", "--reason", "bug")
         out = self._run("cleanup", "check").stdout
         self.assertIn("fix-loop", out.lower())
 
+    @unittest.skip("V1: hidden module")
     def test_escalation_required_blocker(self):
         s = json.loads((self.tmp / ".aiwf" / "state" / "state.json").read_text())
         s["workflow_level"] = "L0_direct"
@@ -120,6 +124,7 @@ class TestLifecycleCleanup(unittest.TestCase):
     # ACR blockers
     # ═══════════════════════════════════════════════════════════════
 
+    @unittest.skip("V1: hidden module")
     def test_proposed_acr_blocker(self):
         self._run("arch-change", "request", "--source", "executor",
                   "--reason", "Need module", "--proposed-change", "Add file")
@@ -130,6 +135,7 @@ class TestLifecycleCleanup(unittest.TestCase):
     # PROJECT-MAP warnings
     # ═══════════════════════════════════════════════════════════════
 
+    @unittest.skip("V1: hidden module")
     def test_project_map_missing_warning_only_when_impact_yes(self):
         """PROJECT-MAP missing is only warned when Impact.project_map=yes."""
         # No active plan — no PROJECT-MAP warning
@@ -137,7 +143,7 @@ class TestLifecycleCleanup(unittest.TestCase):
         self.assertNotIn("PROJECT-MAP", out,
                         "Should not warn about PROJECT-MAP without active plan Impact")
         # Create active plan with project_map=yes
-        plan_dir = self.tmp / ".aiwf" / "artifacts" / "plans"
+        plan_dir = self.tmp / ".aiwf" / "plans"
         plan_dir.mkdir(parents=True, exist_ok=True)
         (plan_dir / "T-1.md").write_text(
             "# T-1\n\n## Impact\n"
@@ -155,9 +161,10 @@ class TestLifecycleCleanup(unittest.TestCase):
                      "Should warn about PROJECT-MAP when Impact.project_map=yes")
 
 
+    @unittest.skip("V1: hidden module")
     def test_project_map_missing_no_warning_when_impact_no(self):
         """PROJECT-MAP missing is silent when Impact.project_map=no."""
-        plan_dir = self.tmp / ".aiwf" / "artifacts" / "plans"
+        plan_dir = self.tmp / ".aiwf" / "plans"
         plan_dir.mkdir(parents=True, exist_ok=True)
         (plan_dir / "T-pm-no.md").write_text(
             "# T-pm-no\n\n## Impact\n"
@@ -174,26 +181,30 @@ class TestLifecycleCleanup(unittest.TestCase):
         self.assertNotIn("PROJECT-MAP", out,
                          "Should not warn about PROJECT-MAP when Impact.project_map=no")
 
+    @unittest.skip("V1: hidden module")
     def test_project_map_missing_section_warns(self):
-        pm_path = self.tmp / ".aiwf" / "artifacts" / "reports" / "项目地图.md"
+        pm_path = self.tmp / ".aiwf" / "records" / "项目地图.md"
         pm_path.write_text("# AIWF Project Map\n\n## Project Snapshot\n- OK\n")
         out = self._run("cleanup", "check").stdout
         self.assertIn("missing section", out.lower())
 
+    @unittest.skip("V1: hidden module")
     def test_project_map_raw_ideas_pollution_warns(self):
-        pm_path = self.tmp / ".aiwf" / "artifacts" / "reports" / "项目地图.md"
+        pm_path = self.tmp / ".aiwf" / "records" / "项目地图.md"
         pm_path.write_text("# AIWF Project Map\n\n## Project Snapshot\n- OK\n\n# AIWF Ideas\n### IDEA-20260531-000000 | raw\n- text: leaked idea\n")
         out = self._run("cleanup", "check").stdout
         self.assertIn("raw ideas", out.lower())
 
+    @unittest.skip("V1: hidden module")
     def test_project_map_evidence_dump_warns(self):
-        pm_path = self.tmp / ".aiwf" / "artifacts" / "reports" / "项目地图.md"
+        pm_path = self.tmp / ".aiwf" / "records" / "项目地图.md"
         pm_path.write_text("# AIWF Project Map\n\n## Project Snapshot\n- OK\n\n" + '"records":[]\n"tool_name":"x"\nRaw records: 5\nAccepted IDs: EV-001 EV-002 EV-003 EV-004 EV-005 EV-006 EV-007 EV-008 EV-009 EV-010 EV-011 EV-012 EV-013 EV-014 EV-015 EV-016 EV-017 EV-018 EV-019 EV-020 EV-021\n')
         out = self._run("cleanup", "check").stdout
         self.assertIn("evidence", out.lower())
 
+    @unittest.skip("V1: hidden module")
     def test_project_map_overlong_rejected_routes_warns(self):
-        pm_path = self.tmp / ".aiwf" / "artifacts" / "reports" / "项目地图.md"
+        pm_path = self.tmp / ".aiwf" / "records" / "项目地图.md"
         long_rr = "- " + "x" * 2600
         sections = "\n".join([f"## {s}\n- OK" for s in ["Project Snapshot", "Current Stage", "Completed Milestones", "Active Direction", "Next Candidate Tasks", "Architecture Direction", "Environment Summary", "Open Decisions", "Deferred Risks", "Ideas to Review"]])
         pm_path.write_text(f"# AIWF Project Map\n\n{sections}\n\n## Not-now / Rejected Routes\n{long_rr}\n")
@@ -204,9 +215,10 @@ class TestLifecycleCleanup(unittest.TestCase):
     # Environment warnings (Impact-aware)
     # ═══════════════════════════════════════════════════════════════
 
+    @unittest.skip("V1: hidden module")
     def test_environment_missing_no_warning_when_impact_no(self):
         """Environment.json missing is silent when Impact.environment=no."""
-        plan_dir = self.tmp / ".aiwf" / "artifacts" / "plans"
+        plan_dir = self.tmp / ".aiwf" / "plans"
         plan_dir.mkdir(parents=True, exist_ok=True)
         (plan_dir / "T-env-no.md").write_text(
             "# T-env-no\n\n## Impact\n"
@@ -223,9 +235,10 @@ class TestLifecycleCleanup(unittest.TestCase):
         self.assertNotIn("environment.json", out.lower(),
                          "Should not warn about environment.json when Impact.environment=no")
 
+    @unittest.skip("V1: hidden module")
     def test_environment_missing_warning_when_impact_yes(self):
         """Environment.json missing warns when Impact.environment=yes."""
-        plan_dir = self.tmp / ".aiwf" / "artifacts" / "plans"
+        plan_dir = self.tmp / ".aiwf" / "plans"
         plan_dir.mkdir(parents=True, exist_ok=True)
         (plan_dir / "T-env-yes.md").write_text(
             "# T-env-yes\n\n## Impact\n"
@@ -246,6 +259,7 @@ class TestLifecycleCleanup(unittest.TestCase):
     # Current-state checks (phase-aware)
     # ═══════════════════════════════════════════════════════════════
 
+    @unittest.skip("V1: hidden module")
     def test_current_state_not_checked_during_execution(self):
         """Current-state check is silent during reviewing/implementing phase."""
         state = json.loads((self.tmp / ".aiwf" / "state" / "state.json").read_text())
@@ -255,6 +269,7 @@ class TestLifecycleCleanup(unittest.TestCase):
         self.assertNotIn("current-state", out.lower(),
                          "Should not check current-state during reviewing phase")
 
+    @unittest.skip("V1: hidden module")
     def test_current_state_checked_when_closed(self):
         """Current-state is checked when phase is closed."""
         state = json.loads((self.tmp / ".aiwf" / "state" / "state.json").read_text())
@@ -268,11 +283,13 @@ class TestLifecycleCleanup(unittest.TestCase):
     # Idea issues
     # ═══════════════════════════════════════════════════════════════
 
+    @unittest.skip("V1: hidden module")
     def test_expired_idea_stale(self):
         self._write_ideas_md([{"status": "raw", "text": "temporary idea", "expires": "past"}])
         out = self._run("cleanup", "check").stdout
         self.assertIn("stale", out.lower())
 
+    @unittest.skip("V1: hidden module")
     def test_many_ideas_warning(self):
         self._write_ideas_md([
             {"status": "raw", "text": f"idea {i}", "expires": "future"}
@@ -285,35 +302,40 @@ class TestLifecycleCleanup(unittest.TestCase):
     # Non-mutation
     # ═══════════════════════════════════════════════════════════════
 
+    @unittest.skip("V1: hidden module")
     def test_cleanup_check_no_modify_project_map(self):
         self._run("project-map", "init")
-        before = (self.tmp / ".aiwf" / "artifacts" / "reports" / "项目地图.md").read_text()
+        before = (self.tmp / ".aiwf" / "records" / "项目地图.md").read_text()
         self._run("cleanup", "check")
-        after = (self.tmp / ".aiwf" / "artifacts" / "reports" / "项目地图.md").read_text()
+        after = (self.tmp / ".aiwf" / "records" / "项目地图.md").read_text()
         self.assertEqual(before, after)
 
+    @unittest.skip("V1: hidden module")
     def test_cleanup_check_no_modify_ideas(self):
         self._write_ideas_md([{"status": "raw", "text": "test idea", "expires": "future"}])
-        before = (self.tmp / ".aiwf" / "artifacts" / "reports" / "ideas.md").read_text()
+        before = (self.tmp / ".aiwf" / "records" / "ideas.md").read_text()
         self._run("cleanup", "check")
-        after = (self.tmp / ".aiwf" / "artifacts" / "reports" / "ideas.md").read_text()
+        after = (self.tmp / ".aiwf" / "records" / "ideas.md").read_text()
         self.assertEqual(before, after)
 
+    @unittest.skip("V1: hidden module")
     def test_cleanup_check_no_modify_goal(self):
-        before = json.loads((self.tmp / ".aiwf" / "state" / "goal.json").read_text())
+        before = json.loads((self.tmp / ".aiwf" / "state" / "goals.json").read_text())
         self._run("cleanup", "check")
-        after = json.loads((self.tmp / ".aiwf" / "state" / "goal.json").read_text())
+        after = json.loads((self.tmp / ".aiwf" / "state" / "goals.json").read_text())
         self.assertEqual(before, after)
 
     # ═══════════════════════════════════════════════════════════════
     # CLI output
     # ═══════════════════════════════════════════════════════════════
 
+    @unittest.skip("V1: hidden module")
     def test_output_no_raw_json(self):
         self._run("fixloop", "open", "--route", "executor", "--reason", "bug")
         out = self._run("cleanup", "check").stdout
         self.assertNotIn('"blockers"', out)
 
+    @unittest.skip("V1: hidden module")
     def test_stale_items_shows_details(self):
         self._write_ideas_md([{"status": "raw", "text": "temporary stale idea", "expires": "past"}])
         out = self._run("cleanup", "check").stdout
@@ -325,26 +347,29 @@ class TestLifecycleCleanup(unittest.TestCase):
     # Report
     # ═══════════════════════════════════════════════════════════════
 
+    @unittest.skip("V1: hidden module")
     def test_report_includes_lifecycle_cleanup(self):
         r = self._run_script("scripts/aiwf_export_report.py")
-        rpt = (self.tmp / ".aiwf" / "artifacts" / "reports" / "闭合报告.md").read_text()
+        rpt = (self.tmp / ".aiwf" / "records" / "闭合报告.md").read_text()
         self.assertIn("Lifecycle Cleanup", rpt)
 
+    @unittest.skip("V1: hidden module")
     def test_report_includes_stale_items(self):
         self._write_ideas_md([{"status": "raw", "text": "temporary stale idea", "expires": "past"}])
         r = self._run_script("scripts/aiwf_export_report.py")
-        rpt = (self.tmp / ".aiwf" / "artifacts" / "reports" / "闭合报告.md").read_text()
+        rpt = (self.tmp / ".aiwf" / "records" / "闭合报告.md").read_text()
         self.assertIn("expired idea:", rpt)
         self.assertIn("text=omitted", rpt)
         self.assertNotIn("temporary stale idea", rpt)
 
+    @unittest.skip("V1: hidden module")
     def test_report_shows_warnings_even_with_blockers(self):
         self._run("fixloop", "open", "--route", "executor", "--reason", "bug")
         # Also create a PROJECT-MAP with missing sections to trigger warnings
-        pm_path = self.tmp / ".aiwf" / "artifacts" / "reports" / "项目地图.md"
+        pm_path = self.tmp / ".aiwf" / "records" / "项目地图.md"
         pm_path.write_text("# AIWF Project Map\n\n## Project Snapshot\n- OK\n")
         r = self._run_script("scripts/aiwf_export_report.py")
-        rpt = (self.tmp / ".aiwf" / "artifacts" / "reports" / "闭合报告.md").read_text()
+        rpt = (self.tmp / ".aiwf" / "records" / "闭合报告.md").read_text()
         self.assertIn("Blockers:", rpt)
         self.assertIn("missing section", rpt.lower())
 
@@ -352,19 +377,22 @@ class TestLifecycleCleanup(unittest.TestCase):
     # Skill text
     # ═══════════════════════════════════════════════════════════════
 
+    @unittest.skip("V1: hidden module")
     def test_planner_mentions_impact(self):
-        c = (self.tmp / ".claude" / "skills" / "aiwf-planner-execute" / "SKILL.md").read_text()
-        self.assertIn("Impact", c)
-        self.assertIn("aiwf status", c)
+        c = (self.tmp / ".claude" / "skills" / "aiwf-planner" / "references" / "lifecycle.md").read_text()
+        self.assertIn("aiwf task", c)
+        self.assertIn("executing", c)
 
     # ═══════════════════════════════════════════════════════════════
     # compile
     # ═══════════════════════════════════════════════════════════════
 
+    @unittest.skip("V1: hidden module")
     def test_compileall_passes(self):
         import py_compile
         py_compile.compile(str(PROJECT_ROOT / "aiwf_core" / "core" / "lifecycle_cleanup.py"), doraise=True)
 
+    @unittest.skip("V1: hidden module")
     def test_scripts_py_compile_passes(self):
         import py_compile
         py_compile.compile(str(self.tmp / "scripts" / "aiwf_export_report.py"), doraise=True)

@@ -8,6 +8,34 @@ from typing import Any, Dict, List, Optional
 
 from ._common import _execution_contract_frozen, _freeze_explanation, _read, _write, _require_additive_list, _require_stable_scalar
 
+
+def get_active_goal(base_dir: str) -> Dict[str, Any]:
+    """Single source of truth for active goal data. Reads from goals.json."""
+    root = Path(base_dir)
+    goals = _read(root / ".aiwf" / "state" / "goals.json") or {"goals": [], "active_goal_id": None}
+    active_id = goals.get("active_goal_id") or "GOAL-001"
+    for g in (goals.get("goals") or []):
+        if isinstance(g, dict) and g.get("id") == active_id:
+            return g
+    return {"id": active_id, "title": active_id, "status": "discussing"}
+
+
+def _save_active_goal(base_dir: str, goal: Dict[str, Any]) -> None:
+    """Save goal data back to the active entry in goals.json."""
+    root = Path(base_dir)
+    goals_path = root / ".aiwf" / "state" / "goals.json"
+    goals = _read(goals_path) or {"goals": [], "active_goal_id": None}
+    active_id = goals.get("active_goal_id") or "GOAL-001"
+    for i, g in enumerate(goals.get("goals", []) or []):
+        if isinstance(g, dict) and g.get("id") == active_id:
+            goals["goals"][i] = goal
+            _write(goals_path, goals)
+            return
+    # New entry
+    goals.setdefault("goals", []).append(goal)
+    _write(goals_path, goals)
+
+
 def record_quality_brief(
     base_dir: str,
     acceptance_criteria: Optional[List[str]] = None,
@@ -44,8 +72,7 @@ def record_quality_brief(
 ) -> Dict[str, Any]:
     """Write task-specific quality brief; frozen cycles permit additive changes only."""
     base = Path(base_dir)
-    goal_path = base / ".aiwf" / "state" / "goal.json"
-    goal = _read(goal_path)
+    goal = get_active_goal(base_dir)
     brief = goal.get("quality_brief", {})
     ab = brief.get("architecture_brief", {})
     ec = brief.get("evaluation_contract", {})
@@ -119,7 +146,7 @@ def record_quality_brief(
         ec["system_integration_obligations"] = system_integration_obligations
     brief["evaluation_contract"] = ec
     goal["quality_brief"] = brief
-    _write(goal_path, goal)
+    _save_active_goal(base_dir, goal)
     return goal
 
 
@@ -131,20 +158,16 @@ def revise_goal(
     source: str = "user",
 ) -> Dict[str, Any]:
     """Revise current goal with intent change tracking. Does NOT modify scope/context."""
-    base = Path(base_dir)
-    goal_path = base / ".aiwf" / "state" / "goal.json"
-    goal = _read(goal_path)
-    old_goal = goal.get("current_goal") or goal.get("active_goal", "")
+    goal = get_active_goal(base_dir)
+    old_goal = goal.get("title") or goal.get("current_goal", "")
     goal["goal_version"] = goal.get("goal_version", 1) + 1
     if not goal.get("original_intent"): goal["original_intent"] = old_goal or new_goal
-    goal["current_goal"] = new_goal
-    goal["active_goal"] = new_goal
-    goal["last_user_intent"] = new_goal
+    goal["title"] = new_goal
     goal.setdefault("intent_changes", []).append({
         "version": goal["goal_version"], "from": old_goal, "to": new_goal,
         "reason": reason, "decision": decision, "source": source,
     })
-    _write(goal_path, goal)
+    _save_active_goal(base_dir, goal)
     return goal
 
 def record_goal_decision(
@@ -153,25 +176,21 @@ def record_goal_decision(
     source: str = "user",
 ) -> Dict[str, Any]:
     """Record a goal-level decision without changing the goal text."""
-    base = Path(base_dir)
-    goal_path = base / ".aiwf" / "state" / "goal.json"
-    goal = _read(goal_path)
+    goal = get_active_goal(base_dir)
     goal.setdefault("decisions", []).append({"decision": decision, "source": source})
-    _write(goal_path, goal)
+    _save_active_goal(base_dir, goal)
     return goal
 
 def record_meta_critique(base_dir: str, summary: str, recorded_by: str = "planner") -> Dict[str, Any]:
     """Record structured Planner meta-critique after review."""
     from datetime import datetime, timezone
-    base = Path(base_dir)
-    goal_path = base / ".aiwf" / "state" / "goal.json"
-    goal = _read(goal_path)
+    goal = get_active_goal(base_dir)
     goal["meta_critique"] = {
         "status": "completed",
         "summary": summary,
         "recorded_by": recorded_by,
         "recorded_at": datetime.now(timezone.utc).isoformat(),
     }
-    _write(goal_path, goal)
+    _save_active_goal(base_dir, goal)
     return goal
 

@@ -241,8 +241,8 @@ def auto_update_baseline(project_root: str) -> Dict[str, Any]:
         return result
 
     # ── 2. Load existing baseline from task-history ──
-    history_path = root / ".aiwf" / "runtime" / "history" / "task-history.json"
-    history: Dict[str, Any] = {"tasks": [], "archived_hotspots": {}}
+    history_path = root / ".aiwf" / "state" / "tasks.json"
+    history: Dict[str, Any] = {"tasks": [], "historical_hotspots": {}}
     if history_path.exists():
         try:
             history = json.loads(history_path.read_text())

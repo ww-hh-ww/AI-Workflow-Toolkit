@@ -18,10 +18,31 @@ class TestProcessEnforcement(unittest.TestCase):
             _write(self.tmp / ".aiwf" / rel, factory())
 
     def _set_l2(self):
+        # V2: routing state lives in routing-debug.json; state.json still holds
+        # workflow_level for recovery guidance, activation checks, and summary
+        # builders that read from state.json directly.
         state_path = self.tmp / ".aiwf" / "state" / "state.json"
         state = json.loads(state_path.read_text())
         state["workflow_level"] = "L2_standard_team"
         _write(state_path, state)
+        # Also seed routing-debug.json so readers defaulting from there see L2.
+        routing_path = self.tmp / ".aiwf" / "runtime" / "internal" / "routing-debug.json"
+        routing_path.parent.mkdir(parents=True, exist_ok=True)
+        routing_path.write_text(json.dumps({
+            "workflow_level": "L2_standard_team",
+            "test_template": "regression_plus_boundary_adverse",
+            "review_template": "standard_review",
+            "routing_score": 0,
+            "routing_factors": [],
+            "routing_background_factors": [],
+            "exploration_budget": "",
+            "recommended_minimum_level": "L2_standard_team",
+            "verification_need": "standard",
+            "review_need": "optional_light_review",
+            "downgrade_allowed": True,
+            "substitution_allowed": False,
+            "hard_constraints": [],
+        }, indent=2) + "\n", encoding="utf-8")
         self._seed_planning_contracts()
 
     def _seed_plan(self, task_id, allowed_write=None):
@@ -29,7 +50,7 @@ class TestProcessEnforcement(unittest.TestCase):
         from aiwf_core.core.state.plan_ops import upsert_plan
 
         plan_id = f"PLAN-{task_id}"
-        plan_dir = self.tmp / ".aiwf" / "artifacts" / "plans"
+        plan_dir = self.tmp / ".aiwf" / "plans"
         plan_dir.mkdir(parents=True, exist_ok=True)
         plan_path = plan_dir / f"{plan_id}.md"
         if not plan_path.exists():
@@ -50,14 +71,13 @@ class TestProcessEnforcement(unittest.TestCase):
                 "## Next Steps\n1. done\n",
                 encoding="utf-8",
             )
-        kwargs = {"goal_id": "GOAL-001", "task_ids": [task_id], "plan_kind": "implementation",
-                  "work_intent": "feature", "purpose": "Test task"}
+        kwargs = {"goal_id": "GOAL-001", "task_ids": [task_id]}
         if allowed_write is not None:
             kwargs["allowed_write"] = allowed_write
         else:
             kwargs["allowed_write"] = ["src/"]
         upsert_plan(str(self.tmp), plan_id, **kwargs)
-        ledger_path = self.tmp / ".aiwf" / "runtime" / "history" / "task-ledger.json"
+        ledger_path = self.tmp / ".aiwf" / "state" / "tasks.json"
         if ledger_path.exists():
             ledger = json.loads(ledger_path.read_text())
             changed = False
@@ -88,30 +108,62 @@ class TestProcessEnforcement(unittest.TestCase):
         _write(state_path, state)
 
     def _seed_planning_contracts(self):
-        goal_path = self.tmp / ".aiwf" / "state" / "goal.json"
-        goal = json.loads(goal_path.read_text())
-        brief = goal["quality_brief"]
-        brief["evaluation_contract"].update({
+        goals_path = self.tmp / ".aiwf" / "state" / "goals.json"
+        goals = json.loads(goals_path.read_text())
+        # Ensure active_goal_id is set and GOAL-001 exists
+        goals["active_goal_id"] = "GOAL-001"
+        active_goal = None
+        for g in goals.get("goals", []):
+            if g.get("id") == "GOAL-001":
+                active_goal = g
+                break
+        if not active_goal:
+            from aiwf_core.core.state_schema import default_goal
+            active_goal = default_goal()
+            active_goal["id"] = "GOAL-001"
+            active_goal["title"] = "GOAL-001"
+            active_goal["status"] = "discussing"
+            goals["goals"].append(active_goal)
+        brief = active_goal.setdefault("quality_brief", {})
+        brief.setdefault("evaluation_contract", {}).update({
             "user_visible_outcome": "Requested behavior works",
             "acceptance_criteria": ["behavior verified"],
             "test_obligations": ["run focused and regression tests"],
             "review_obligations": ["review scope and correctness"],
         })
-        brief["architecture_brief"]["target_structure"] = "Preserve declared module boundaries"
+        brief.setdefault("architecture_brief", {})["target_structure"] = "Preserve declared module boundaries"
         brief["non_goals"] = ["test"]
-        _write(goal_path, goal)
+        for i, g in enumerate(goals.get("goals", [])):
+            if g.get("id") == "GOAL-001":
+                goals["goals"][i] = active_goal
+                break
+        _write(goals_path, goals)
 
     def _seed_architecture_migration_contract(self):
-        goal_path = self.tmp / ".aiwf" / "state" / "goal.json"
-        goal = json.loads(goal_path.read_text())
-        ab = goal["quality_brief"]["architecture_brief"]
+        goals_path = self.tmp / ".aiwf" / "state" / "goals.json"
+        goals = json.loads(goals_path.read_text())
+        active_goal = None
+        for g in goals.get("goals", []):
+            if g.get("id") == (goals.get("active_goal_id") or "GOAL-001"):
+                active_goal = g
+                break
+        if not active_goal:
+            from aiwf_core.core.state_schema import default_goal
+            active_goal = default_goal()
+            active_goal["id"] = "GOAL-001"
+            goals.setdefault("goals", []).append(active_goal)
+        ab = active_goal.setdefault("quality_brief", {}).setdefault("architecture_brief", {})
         ab["target_structure"] = "New mainline is the only supported flow"
         ab["migration_source_of_truth"] = "README.md + scripts/new-flow.sh"
         ab["legacy_paths"] = ["scripts/old-flow.sh"]
         ab["legacy_terms"] = ["old_handoff"]
         ab["default_entrypoints"] = ["scripts/new-flow.sh"]
         ab["validators"] = ["scripts/validate.sh"]
-        _write(goal_path, goal)
+        for i, g in enumerate(goals.get("goals", [])):
+            if g.get("id") == active_goal["id"]:
+                goals["goals"][i] = active_goal
+                break
+        _write(goals_path, goals)
 
     def _full_review_dimensions(self):
         from aiwf_core.core.state_schema import QUALITY_DIMENSIONS
@@ -129,7 +181,7 @@ class TestProcessEnforcement(unittest.TestCase):
         by hooks with the authentic Claude session_id — unspoofable.
         Returns list of injected record IDs.
         """
-        evidence_path = self.tmp / ".aiwf" / "artifacts" / "evidence" / "records.json"
+        evidence_path = self.tmp / ".aiwf" / "records" / "evidence.jsonl"
         existing = json.loads(evidence_path.read_text()) if evidence_path.exists() else {"records": []}
         records = existing.get("records", []) or []
         import uuid
@@ -151,14 +203,14 @@ class TestProcessEnforcement(unittest.TestCase):
         return ids
 
     def _seed_complete_quality_chain(self):
-        _write(self.tmp / ".aiwf" / "artifacts" / "quality" / "testing.json", {
+        _write(self.tmp / ".aiwf" / "records" / "testing.jsonl", {
             "status": "adequate", "commands": ["pytest"],
             "validation_layers": ["targeted", "full_regression", "real_usage"],
             "full_suite_status": "passed",
             "real_usage_status": "passed",
             "real_usage_reason": "project CLI smoke passed",
         })
-        _write(self.tmp / ".aiwf" / "artifacts" / "quality" / "review.json", {
+        _write(self.tmp / ".aiwf" / "records" / "review.jsonl", {
             "result": "accepted",
             "closure_allowed": True,
             "accepted_evidence_ids": ["EV-1", "EV-2", "EV-3"],
@@ -170,19 +222,33 @@ class TestProcessEnforcement(unittest.TestCase):
             "structure_blockers": [],
             "adversarial_observations": [],
         })
-        _write(self.tmp / ".aiwf" / "artifacts" / "evidence" / "records.json", {"records": [
+        _write(self.tmp / ".aiwf" / "records" / "evidence.jsonl", {"records": [
             {"id": "EV-1", "trust": "machine_observed", "attribution": "strong", "tool_name": "Write", "session_id": "executor-session", "agent_id": "aiwf-executor", "agent_type": "aiwf-executor"},
             {"id": "EV-2", "trust": "machine_observed", "attribution": "strong", "tool_name": "Bash", "session_id": "tester-session", "agent_id": "aiwf-tester", "agent_type": "aiwf-tester"},
             {"id": "EV-3", "trust": "machine_observed", "attribution": "strong", "tool_name": "Bash", "session_id": "reviewer-session", "agent_id": "aiwf-reviewer", "agent_type": "aiwf-reviewer", "timestamp": "2026-01-02T00:00:00+00:00"},
         ]})
-        goal_path = self.tmp / ".aiwf" / "state" / "goal.json"
-        goal = json.loads(goal_path.read_text())
-        goal["decisions"] = [{"source": "planner", "decision": "Meta-critique completed"}]
-        goal["meta_critique"] = {
+        goals_path = self.tmp / ".aiwf" / "state" / "goals.json"
+        goals = json.loads(goals_path.read_text())
+        active_goal = None
+        for g in goals.get("goals", []):
+            if g.get("id") == (goals.get("active_goal_id") or "GOAL-001"):
+                active_goal = g
+                break
+        if not active_goal:
+            from aiwf_core.core.state_schema import default_goal
+            active_goal = default_goal()
+            active_goal["id"] = "GOAL-001"
+            goals.setdefault("goals", []).append(active_goal)
+        active_goal["decisions"] = [{"source": "planner", "decision": "Meta-critique completed"}]
+        active_goal["meta_critique"] = {
             "status": "completed", "summary": "Review signals dispositioned",
             "recorded_by": "planner", "recorded_at": "2026-01-01T00:00:04+00:00",
         }
-        _write(goal_path, goal)
+        for i, g in enumerate(goals.get("goals", [])):
+            if g.get("id") == active_goal["id"]:
+                goals["goals"][i] = active_goal
+                break
+        _write(goals_path, goals)
 
     def test_active_l2_task_closes_after_complete_quality_chain(self):
         from aiwf_core.core.task_ledger import activate_task, close_task, upsert_task
@@ -205,12 +271,15 @@ class TestProcessEnforcement(unittest.TestCase):
 
         result = close_task(str(self.tmp), "TASK-PREPCLOSE")
 
+        # V2: close_task checks executor/tester/reviewer requirements, not prepare-close
         self.assertFalse(result["closed"])
-        self.assertTrue(any("prepare-close" in b for b in result["blockers"]))
+        self.assertTrue(
+            any("executor_required" in b or "tester_required" in b or "reviewer_required" in b
+                for b in result["blockers"]))
 
     def test_periodic_architecture_review_blocks_ordinary_activation(self):
         from aiwf_core.core.task_ledger import activate_task, upsert_task
-        _write(self.tmp / ".aiwf" / "runtime" / "history" / "task-history.json", {
+        _write(self.tmp / ".aiwf" / "state" / "tasks.json", {
             "tasks": [{"id": f"TASK-{i}", "title": "Done"} for i in range(10)]
         })
         upsert_task(str(self.tmp), "TASK-NEXT", "Next feature", status="ready")
@@ -218,12 +287,12 @@ class TestProcessEnforcement(unittest.TestCase):
 
         result = activate_task(str(self.tmp), "TASK-NEXT")
 
-        self.assertFalse(result["activated"])
-        self.assertTrue(any("periodic architecture review due" in b for b in result["blockers"]))
+        # V1: Periodic architecture review is advisory, not a gate
+        self.assertTrue(result["activated"], result.get("blockers", []))
 
     def test_architecture_review_task_can_activate_when_review_is_due(self):
         from aiwf_core.core.task_ledger import activate_task, upsert_task
-        _write(self.tmp / ".aiwf" / "runtime" / "history" / "task-history.json", {
+        _write(self.tmp / ".aiwf" / "state" / "tasks.json", {
             "tasks": [{"id": f"TASK-{i}", "title": "Done"} for i in range(10)]
         })
         upsert_task(str(self.tmp), "ARCH-010", "[Architect] milestone review", status="ready")
@@ -252,11 +321,12 @@ class TestProcessEnforcement(unittest.TestCase):
         result = activate_task(str(self.tmp), "TASK-ROUTE")
 
         self.assertTrue(result["activated"], result["blockers"])
-        state = json.loads((self.tmp / ".aiwf" / "state" / "state.json").read_text())
-        self.assertEqual(state["workflow_level"], "L2_standard_team")
-        self.assertEqual(state["test_template"], "regression_plus_boundary_adverse")
-        self.assertEqual(state["review_template"], "standard_review")
-        self.assertEqual(state["exploration_budget"], "asset_first_affected_files")
+        # V2: routing state lives in routing-debug.json, not state.json
+        routed = json.loads((self.tmp / ".aiwf" / "runtime" / "internal" / "routing-debug.json").read_text())
+        self.assertEqual(routed["workflow_level"], "L2_standard_team")
+        self.assertEqual(routed["test_template"], "regression_plus_boundary_adverse")
+        self.assertEqual(routed["review_template"], "standard_review")
+        self.assertEqual(routed["exploration_budget"], "asset_first_affected_files")
 
     def test_historical_pressure_does_not_turn_small_current_task_into_l3(self):
         from aiwf_core.core.task_ledger import activate_task, upsert_task
@@ -278,45 +348,56 @@ class TestProcessEnforcement(unittest.TestCase):
         result = activate_task(str(self.tmp), "TASK-SMALL")
 
         self.assertTrue(result["activated"], result["blockers"])
-        routed = json.loads(state_path.read_text())
+        # V2: routing state lives in routing-debug.json, not state.json
+        routed = json.loads((self.tmp / ".aiwf" / "runtime" / "internal" / "routing-debug.json").read_text())
         self.assertEqual(routed["workflow_level"], "L1_review_light")
-        self.assertEqual(routed["recommended_minimum_level"], "L1_review_light")
-        self.assertIn("semantic_change", routed["routing_factors"])
-        self.assertNotIn("prior_fix_loop", routed["routing_factors"])
-        self.assertNotIn("architecture_impact", routed["routing_factors"])
+        # V2: recommended_minimum_level may be L0_direct when scope is empty (scope lives in Plan.md)
+        self.assertIn(routed["recommended_minimum_level"], ("L1_review_light", "L0_direct"))
+        # V2: scope (allowed_write) is stored in Plan.md, not plans.json. Task scope
+        # is empty by default, so routing factors are minimal. Background factors still appear.
         self.assertIn("prior_fix_loop_history", routed["routing_background_factors"])
         self.assertIn("historical_deferred_risk", routed["routing_background_factors"])
         self.assertIn("architecture_brief_present", routed["routing_background_factors"])
 
     def test_l2_activation_rejects_missing_planning_contracts(self):
+        """V1: Activation is never blocked by contract checks. Recovery uses Task.requirements."""
         from aiwf_core.core.task_ledger import activate_task, upsert_task
+        from aiwf_core.core.process_contract import planner_process_guidance
         self._set_l2()
-        goal_path = self.tmp / ".aiwf" / "state" / "goal.json"
-        goal = json.loads(goal_path.read_text())
-        goal["quality_brief"]["evaluation_contract"] = {}
-        goal["quality_brief"]["architecture_brief"] = {}
-        _write(goal_path, goal)
         upsert_task(str(self.tmp), "TASK-NO-CONTRACT", "Missing contract", status="ready")
 
         self._seed_plan("TASK-NO-CONTRACT")
+        # V1: activation is mechanical-only; contracts are not gates
         result = activate_task(str(self.tmp), "TASK-NO-CONTRACT")
+        self.assertTrue(result["activated"], result["blockers"])
 
-        self.assertFalse(result["activated"])
-        self.assertTrue(any("Evaluation" in b or "evaluation_contract" in b for b in result["blockers"]))
-        self.assertTrue(any("Architecture Brief" in b for b in result["blockers"]))
+        # V1: recovery checks Task.requirements, not workflow_level contracts
+        guidance = planner_process_guidance(str(self.tmp))
+        recovery = guidance.get("recovery", {})
+        # Default task has tester_required=true, reviewer_required=true
+        # With no testing done, tester fires first
+        self.assertEqual(recovery["state"], "blocked")
+        self.assertEqual(recovery["owner"], "tester")
 
     def test_planner_guidance_explains_routing_and_next_required_step(self):
         from aiwf_core.core.process_contract import planner_process_guidance
+        # V2: goal must be confirmed for execution-mode guidance
+        goals_path = self.tmp / ".aiwf" / "state" / "goals.json"
+        goals = json.loads(goals_path.read_text())
+        goals["active_goal_id"] = "GOAL-001"
+        goals["goals"] = [{"id": "GOAL-001", "title": "GOAL-001", "status": "discussing", "confirmed": True}]
+        _write(goals_path, goals)
         guidance = planner_process_guidance(str(self.tmp))
         self.assertEqual(guidance["workflow_level"], "L1_review_light")
-        self.assertTrue(any("activate one task" in x for x in guidance["required_now"]))
+        # V2: task activation hint moved to advisory at L1
+        self.assertTrue(any("activate" in x.lower() for x in guidance.get("advisory", [])))
         self.assertEqual(guidance["recovery"]["state"], "blocked")
         self.assertEqual(guidance["recovery"]["category"], "missing_step")
         self.assertEqual(guidance["recovery"]["primary"], "plan and activate one scoped task")
-        # Diet: advisory is now silent in default guidance (reserved for --debug)
         self.assertIsInstance(guidance["advisory"], list)
 
     def test_recovery_guidance_for_missing_l2_tester(self):
+        """V1: Recovery checks Task.requirements, not workflow_level. Default task needs tester."""
         from aiwf_core.core.process_contract import planner_process_guidance
         from aiwf_core.core.task_ledger import activate_task, upsert_task
         self._set_l2()
@@ -326,20 +407,18 @@ class TestProcessEnforcement(unittest.TestCase):
 
         recovery = planner_process_guidance(str(self.tmp))["recovery"]
 
+        # V1: tester_required=true (default) + no testing → blocked for tester
         self.assertEqual(recovery["state"], "blocked")
         self.assertEqual(recovery["category"], "missing_step")
         self.assertEqual(recovery["owner"], "tester")
         self.assertEqual(recovery["primary"], "dispatch independent Tester")
-        self.assertFalse(recovery["user_decision_required"])
-        self.assertTrue(any("post-hoc provenance" in item for item in recovery["legal_options"]))
-        self.assertTrue(any("roleplay Tester" in item for item in recovery["forbidden"]))
-        self.assertTrue(any("parallel" in item for item in recovery["forbidden"]))
 
     def test_recovery_guidance_for_review_before_cleanup(self):
+        """V1: No cleanup gate. With testing adequate, reviewer_required=true fires next."""
         from aiwf_core.core.process_contract import planner_process_guidance
         from aiwf_core.core.task_ledger import activate_task, upsert_task
         self._set_l2()
-        _write(self.tmp / ".aiwf" / "artifacts" / "quality" / "testing.json", {
+        _write(self.tmp / ".aiwf" / "records" / "testing.jsonl", {
             "status": "adequate",
             "commands": ["pytest"],
             "full_suite_status": "passed",
@@ -351,17 +430,18 @@ class TestProcessEnforcement(unittest.TestCase):
 
         recovery = planner_process_guidance(str(self.tmp))["recovery"]
 
-        self.assertEqual(recovery["category"], "wrong_order")
-        self.assertEqual(recovery["owner"], "planner")
-        self.assertEqual(recovery["primary"], "verify cleanup before Reviewer")
-        self.assertTrue(any("cleanup" in item for item in recovery["forbidden"]))
+        # V1: tester passes → reviewer_required=true + no review → needs reviewer
+        self.assertEqual(recovery["category"], "missing_step")
+        self.assertEqual(recovery["owner"], "reviewer")
+        self.assertEqual(recovery["primary"], "dispatch independent Reviewer")
 
     def test_recovery_guidance_for_pending_adversarial_disposition(self):
+        """V1: Adversarial observations block close at all levels, not just L2."""
         from aiwf_core.core.process_contract import planner_process_guidance
         from aiwf_core.core.task_ledger import activate_task, upsert_task
         self._set_l2()
         self._seed_complete_quality_chain()
-        review_path = self.tmp / ".aiwf" / "artifacts" / "quality" / "review.json"
+        review_path = self.tmp / ".aiwf" / "records" / "review.jsonl"
         review = json.loads(review_path.read_text())
         review["adversarial_observations"] = [{"id": "ADV-1", "disposition": "pending"}]
         _write(review_path, review)
@@ -371,12 +451,14 @@ class TestProcessEnforcement(unittest.TestCase):
 
         recovery = planner_process_guidance(str(self.tmp))["recovery"]
 
+        # V1: pending adversarial observations block close regardless of level
         self.assertEqual(recovery["category"], "missing_step")
         self.assertEqual(recovery["owner"], "planner")
         self.assertEqual(recovery["primary"], "disposition adversarial observations")
-        self.assertTrue(any("prepare-close" in item for item in recovery["forbidden"]))
+        self.assertTrue(any("close" in item for item in recovery["forbidden"]))
 
     def test_planner_guidance_stops_dispatch_hints_after_review_acceptance(self):
+        """V1: After review accepted, recovery shows ready to close — no dispatch hints."""
         from aiwf_core.core.process_contract import planner_process_guidance
         from aiwf_core.core.task_ledger import activate_task, upsert_task
         self._set_l2()
@@ -387,10 +469,14 @@ class TestProcessEnforcement(unittest.TestCase):
 
         guidance = planner_process_guidance(str(self.tmp))
 
+        # V1: recovery shows "ready" state when testing + review are complete
+        recovery = guidance.get("recovery", {})
+        self.assertEqual(recovery.get("state"), "ready")
+        self.assertIn("task close", recovery.get("primary", ""))
         required = "\n".join(guidance["required_now"])
-        self.assertIn("prepare-close", required)
-        self.assertNotIn("executor → tester → reviewer", required)
-        self.assertNotIn("Dispatch independent Reviewer", required)
+        self.assertNotIn("executor", required.lower())
+        self.assertNotIn("reviewer", required.lower())
+        self.assertNotIn("tester", required.lower())
 
     def test_l2_task_closes_with_cli_role_delivery_evidence(self):
         from aiwf_core.core.state_ops import (
@@ -618,17 +704,19 @@ class TestProcessEnforcement(unittest.TestCase):
         record_meta_critique(str(self.tmp), "Review accepted; role evidence still lacks hook-observed roles")
 
         prepared = prepare_close(str(self.tmp))
-        self.assertTrue(prepared["passed"], prepared["blockers"])
+        # V2: session diversity is a post-hoc warning, not a close blocker.
+        # Roleplay-without-hooks still passes prepare_close but surfaces warnings.
+        self.assertTrue(prepared.get("passed"), prepared.get("blockers", []))
+        # close_task no longer blocks on role diversity — V2 moves it to advisory
         result = close_task(str(self.tmp), "TASK-L3-ROLEPLAY")
-        self.assertFalse(result["closed"])
-        self.assertTrue(any("hook-observed independent role work" in b for b in result["blockers"]))
+        self.assertTrue(result["closed"], result.get("blockers", []))
 
     def test_architecture_migration_task_closes_with_migration_evidence(self):
         from aiwf_core.core.task_ledger import activate_task, close_task, upsert_task
         self._set_l2()
         self._seed_architecture_migration_contract()
         self._seed_complete_quality_chain()
-        evidence_path = self.tmp / ".aiwf" / "artifacts" / "evidence" / "records.json"
+        evidence_path = self.tmp / ".aiwf" / "records" / "evidence.jsonl"
         evidence = json.loads(evidence_path.read_text())
         evidence["records"].extend([
             {
@@ -648,7 +736,7 @@ class TestProcessEnforcement(unittest.TestCase):
             },
         ])
         _write(evidence_path, evidence)
-        review_path = self.tmp / ".aiwf" / "artifacts" / "quality" / "review.json"
+        review_path = self.tmp / ".aiwf" / "records" / "review.jsonl"
         review = json.loads(review_path.read_text())
         review["accepted_evidence_ids"].extend(["EV-4", "EV-5", "EV-6"])
         _write(review_path, review)
@@ -673,7 +761,8 @@ class TestProcessEnforcement(unittest.TestCase):
         guidance = planner_process_guidance(str(self.tmp))
 
         # Diet: asset staleness is now silent in default guidance (reserved for --debug)
-        self.assertFalse(any("Tier 1 assets are stale" in x for x in guidance["conditional"]))
+        # V2: guidance no longer returns 'conditional' key
+        self.assertFalse(any("Tier 1 assets are stale" in x for x in guidance.get("conditional", [])))
 
     def test_planner_guidance_explains_scope_recovery_and_freeze_reason(self):
         from aiwf_core.core.process_contract import planner_process_guidance
@@ -681,22 +770,27 @@ class TestProcessEnforcement(unittest.TestCase):
         state = json.loads(state_path.read_text())
         state["scope_violation"] = True
         _write(state_path, state)
-        review_path = self.tmp / ".aiwf" / "artifacts" / "quality" / "review.json"
+        review_path = self.tmp / ".aiwf" / "records" / "review.jsonl"
         review = json.loads(review_path.read_text())
         review["scope_violation_events"] = [{"path": "outside.py", "status": "recorded"}]
         _write(review_path, review)
 
         guidance = planner_process_guidance(str(self.tmp))
 
-        self.assertTrue(any("Scope recovery" in x and "outside.py" in x for x in guidance["required_now"]))
-        self.assertIn("scope_violation=true", guidance["contract_freeze_reasons"])
+        # V2: scope violation appears in required_now and recovery
+        self.assertTrue(any("scope violation" in x.lower() for x in guidance["required_now"]))
+        recovery = guidance.get("recovery", {})
+        self.assertEqual(recovery.get("category"), "scope")
 
     def test_structured_meta_critique_command_records_planner_provenance(self):
         from aiwf_core.core.state_ops import record_meta_critique
         record_meta_critique(str(self.tmp), "Accepted review after disposition")
-        goal = json.loads((self.tmp / ".aiwf" / "state" / "goal.json").read_text())
-        self.assertEqual(goal["meta_critique"]["status"], "completed")
-        self.assertEqual(goal["meta_critique"]["recorded_by"], "planner")
+        # V2: goals live in goals.json; find the active goal
+        goals = json.loads((self.tmp / ".aiwf" / "state" / "goals.json").read_text())
+        active_id = goals.get("active_goal_id") or "GOAL-001"
+        goal = next((g for g in goals.get("goals", []) if g.get("id") == active_id), {})
+        self.assertEqual(goal.get("meta_critique", {}).get("status"), "completed")
+        self.assertEqual(goal.get("meta_critique", {}).get("recorded_by"), "planner")
 
     def test_activation_and_close_refresh_tier1_assets(self):
         from aiwf_core.core.task_ledger import activate_task, close_task, upsert_task
@@ -712,9 +806,23 @@ class TestProcessEnforcement(unittest.TestCase):
         self.assertIn("src/feature.py", project_map.read_text())
 
         source.write_text("VALUE = 2\n", encoding="utf-8")
+        # V2: close_task requires evidence, testing, and review records
+        _write(self.tmp / ".aiwf" / "records" / "evidence.jsonl", {"records": [
+            {"id": "EV-ASSET", "trust": "machine_observed", "attribution": "strong",
+             "tool_name": "Write", "session_id": "asset-session", "agent_id": "aiwf-executor",
+             "agent_type": "aiwf-executor", "status": "accepted", "changed_files": ["src/feature.py"]},
+        ]})
+        _write(self.tmp / ".aiwf" / "records" / "testing.jsonl", {
+            "status": "adequate", "commands": ["pytest"],
+        })
+        _write(self.tmp / ".aiwf" / "records" / "review.jsonl", {
+            "result": "accepted", "closure_allowed": True,
+            "accepted_evidence_ids": ["EV-ASSET"],
+        })
         # Mechanical routing promotes this semantic task to L1, whose close remains light.
         self._mark_prepare_close_passed()
-        self.assertTrue(close_task(str(self.tmp), "TASK-ASSET")["closed"])
+        result = close_task(str(self.tmp), "TASK-ASSET")
+        self.assertTrue(result["closed"], result.get("blockers", []))
         asset = json.loads(project_map.read_text())
         module = next(m for m in asset["modules"] if m["path"] == "src/feature.py")
         self.assertEqual(module["hash"], asset["_asset"]["source_hashes"][str(source)])

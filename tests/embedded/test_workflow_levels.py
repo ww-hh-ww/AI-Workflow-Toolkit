@@ -64,23 +64,42 @@ class TestWorkflowLevels(unittest.TestCase):
         self.assertFalse(l["tester"]); self.assertTrue(l["reviewer_light"])
 
     def test_L1_light_review_is_combined_verifier_not_executor_self_review(self):
+        """V2: dispatch follows Task.requirements (tester_required/reviewer_required),
+        not a combined reviewer-light role that handles both testing and review."""
         root = Path(__file__).resolve().parent.parent.parent
+
+        # V2 process_contract no longer mentions the old combined reviewer-light pattern
         process_contract = (root / "aiwf_core" / "core" / "process_contract.py").read_text()
-        planner_execute = (
-            root / "aiwf_core" / "embedded_templates" / "skills" / "aiwf-planner-execute" / "SKILL.md"
+        self.assertNotIn("reviewer-light subagent combines targeted testing and light review", process_contract)
+        self.assertNotIn("same agent may do light review", process_contract)
+
+        # V1: planner SKILL.md covers Task.requirements and per-role required flags
+        planner_skill = (
+            root / "aiwf_core" / "embedded_templates" / "skills" / "aiwf-planner" / "SKILL.md"
         ).read_text()
-        init_skill = (
-            root / "aiwf_core" / "embedded_templates" / "skills" / "aiwf-init" / "SKILL.md"
-        ).read_text()
+        self.assertIn("Task", planner_skill)
+        self.assertIn("requirements", planner_skill.lower())
+        self.assertIn("task activate", planner_skill.lower())
+
+        # V2: test skill uses tester_required for dispatch, not reviewer-light
         tester_skill = (
             root / "aiwf_core" / "embedded_templates" / "skills" / "aiwf-test" / "SKILL.md"
         ).read_text()
+        self.assertIn("tester_required", tester_skill)
+        self.assertNotIn("reviewer-light", tester_skill)
 
-        self.assertIn("reviewer-light subagent combines targeted testing and light review", process_contract)
-        self.assertIn("reviewer-light combines targeted testing + light review", planner_execute)
-        self.assertIn("reviewer-light combines targeted testing + light review", init_skill)
-        self.assertIn("The reviewer-light subagent handles both testing AND review", tester_skill)
-        self.assertNotIn("same agent may do light review", process_contract)
+        # V2: review skill uses reviewer_required for dispatch
+        review_skill = (
+            root / "aiwf_core" / "embedded_templates" / "skills" / "aiwf-review" / "SKILL.md"
+        ).read_text()
+        self.assertIn("reviewer_required", review_skill)
+
+        # V2: implement skill uses executor_required for dispatch
+        implement_skill = (
+            root / "aiwf_core" / "embedded_templates" / "skills" / "aiwf-implement" / "SKILL.md"
+        ).read_text()
+        self.assertIn("executor_required", implement_skill)
+        self.assertIn("requirements", implement_skill)
 
     def test_L2_has_tester_and_reviewer(self):
         from aiwf_core.core.routing import LEVELS
@@ -108,14 +127,21 @@ class TestWorkflowLevels(unittest.TestCase):
 
     def test_state_has_workflow_level(self):
         from aiwf_core.core.state_schema import default_state, STATE_KEYS
+        # V2: workflow_level still in STATE_KEYS as legacy key for backward compat
         self.assertIn("workflow_level", STATE_KEYS)
-        self.assertEqual(default_state()["workflow_level"], "L1_review_light")
+        # V2: default_state() no longer includes workflow_level — it lives in routing-debug.json
+        self.assertNotIn("workflow_level", default_state())
 
     def test_state_has_routing_fields(self):
-        from aiwf_core.core.state_schema import default_state
-        self.assertIn("routing_score", default_state())
-        self.assertIn("routing_background_factors", default_state())
-        self.assertIn("escalation_history", default_state())
+        from aiwf_core.core.state_schema import default_state, STATE_KEYS
+        # V2: routing fields moved to routing-debug.json, no longer in default_state()
+        s = default_state()
+        self.assertNotIn("routing_score", s)
+        self.assertNotIn("routing_background_factors", s)
+        self.assertNotIn("escalation_history", s)
+        # But they remain in STATE_KEYS as legacy keys for backward compat
+        self.assertIn("routing_score", STATE_KEYS)
+        self.assertIn("routing_background_factors", STATE_KEYS)
 
     def test_cross_semantic_hard_upgrade(self):
         from aiwf_core.core.routing import compute_routing_score
@@ -141,16 +167,21 @@ class TestWorkflowLevels(unittest.TestCase):
         self.assertTrue(l3["asset_first"])
 
     def test_default_is_lowest_viable(self):
-        """Default workflow_level should be L1_review_light (lowest viable for most)."""
+        """V2: default_state() no longer includes workflow_level (moved to routing-debug.json).
+        The routing module still defaults to L1_review_light via score_to_level(2)."""
         from aiwf_core.core.state_schema import default_state
-        self.assertEqual(default_state()["workflow_level"], "L1_review_light")
+        from aiwf_core.core.routing import score_to_level
+        self.assertNotIn("workflow_level", default_state())
+        # Routing still defaults to L1_review_light as the lowest viable level
+        self.assertEqual(score_to_level(2), "L1_review_light")
 
     def test_escalation_history_in_state(self):
-        from aiwf_core.core.state_schema import default_state
+        """V2: escalation_history moved to routing-debug.json, not in default_state()."""
+        from aiwf_core.core.state_schema import default_state, STATE_KEYS
         s = default_state()
-        self.assertIn("escalation_history", s)
-        s["escalation_history"].append("L0_direct -> L1_review_light: test failure")
-        self.assertEqual(len(s["escalation_history"]), 1)
+        self.assertNotIn("escalation_history", s)
+        # STATE_KEYS preserves the legacy key for backward compat
+        self.assertIn("escalation_history", STATE_KEYS)
 
 
 if __name__ == "__main__":

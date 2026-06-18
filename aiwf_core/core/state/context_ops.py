@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from ._common import _execution_contract_frozen, _freeze_explanation, _locked_json_update, _read, _write
+from .goal_ops import get_active_goal
 
 
 def _resolve_tree_inheritance(
@@ -54,8 +55,8 @@ def _resolve_tree_inheritance(
                 goal = g
                 break
 
-    # ── Also read goal.json quality_brief for Architecture Brief inheritance ──
-    goal_json = _read(base / ".aiwf" / "state" / "goal.json", {})
+    # -- Also read goals.json quality_brief for Architecture Brief inheritance --
+    goal_json = get_active_goal(base_dir)
     quality_brief = goal_json.get("quality_brief", {}) or {}
     arch_brief = quality_brief.get("architecture_brief", {}) or {}
 
@@ -105,7 +106,7 @@ def _resolve_tree_inheritance(
                 "exploration must be isolated from stable structure"
             )
 
-    # ── Inherit from Architecture Brief (goal.json) ──
+    # -- Inherit from Architecture Brief (goals.json) --
     if arch_brief:
         parent_info["arch_brief"] = "present"
 
@@ -213,7 +214,7 @@ def record_role_evidence(
         raise ValueError(f"unknown role evidence status: {status}")
 
     base = Path(base_dir)
-    evidence_path = base / ".aiwf" / "artifacts" / "evidence" / "records.json"
+    evidence_path = base / ".aiwf" / "records" / "evidence.json"
     state = _read(base / ".aiwf" / "state" / "state.json")
     active_context = context_id or state.get("active_context_id") or ""
     active_task_id = str(task_id or state.get("active_task_id") or "")
@@ -320,7 +321,7 @@ def _ensure_critical_assets(base_dir: str) -> list:
     filled = []
 
     # 1. Environment profile
-    env_path = aiwf / "assets" / "environment.json"
+    env_path = aiwf / "records" / "events.json"
     if not env_path.exists():
         try:
             from ..environment import scan_environment, write_environment_profile
@@ -350,7 +351,7 @@ def _ensure_critical_assets(base_dir: str) -> list:
             pass
 
     # 2. Capabilities registry
-    cap_path = aiwf / "assets" / "capabilities.json"
+    cap_path = aiwf / "records" / "events.json"
     if not cap_path.exists():
         try:
             from ..capabilities import discover_capabilities, write_capabilities_registry
@@ -361,7 +362,7 @@ def _ensure_critical_assets(base_dir: str) -> list:
             pass
 
     # 3. PROJECT-MAP
-    pm_path = aiwf / "artifacts" / "reports" / "项目地图.md"
+    pm_path = aiwf / "records" / "events.json"
     if not pm_path.exists():
         try:
             from ..project_map import ensure_project_map
@@ -371,7 +372,7 @@ def _ensure_critical_assets(base_dir: str) -> list:
             pass
 
     # 4. Idea inbox
-    ideas_path = aiwf / "artifacts" / "reports" / "ideas.md"
+    ideas_path = aiwf / "records" / "events.json"
     if not ideas_path.exists():
         try:
             from ..ideas import ensure_ideas_file
@@ -381,7 +382,7 @@ def _ensure_critical_assets(base_dir: str) -> list:
             pass
 
     # 6. task-history baseline (if completely empty)
-    th_path = aiwf / "runtime" / "history" / "task-history.json"
+    th_path = aiwf / "state" / "tasks.json"
     if not th_path.exists():
         try:
             from ..workspace_drift import auto_update_baseline
@@ -417,7 +418,7 @@ def start_context(
     widening or swapping the active context.
     """
     base = Path(base_dir)
-    contexts_path = base / ".aiwf" / "state" / "contexts.json"
+    contexts_path = base / ".aiwf" / "state" / "state.json"
     state_path = base / ".aiwf" / "state" / "state.json"
 
     contexts = _read(contexts_path)
@@ -574,8 +575,8 @@ def start_context(
 
     # Set active context in state
     state["active_context_id"] = context_id
-    if state.get("phase") in ("discussing", "planned"):
-        state["phase"] = "implementing"
+    if state.get("phase") in ("discussing", "planned", "planning"):
+        state["phase"] = "executing"
     # Reset per-task flags
     state["planner_inline"] = False
 

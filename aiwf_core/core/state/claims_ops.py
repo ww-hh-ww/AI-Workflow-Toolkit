@@ -16,7 +16,7 @@ def _now() -> str:
 
 
 def _claims_path(base_dir: str) -> Path:
-    return Path(base_dir) / ".aiwf" / "artifacts" / "quality" / "claims.json"
+    return Path(base_dir) / ".aiwf" / "records" / "claims.json"
 
 
 def _read(path: Path, default: Optional[Dict] = None) -> Dict:
@@ -82,7 +82,7 @@ def verify_claims(base_dir: str, task_id: str = "") -> Dict[str, Any]:
     from ..state_schema import VALID_CLAIM_STATUSES
 
     claims_data = load_claims(base_dir)
-    evidence_path = Path(base_dir) / ".aiwf" / "artifacts" / "evidence" / "records.json"
+    evidence_path = Path(base_dir) / ".aiwf" / "records" / "evidence.json"
     evidence_data = _read(evidence_path, {"records": []})
     records = evidence_data.get("records", []) or []
 

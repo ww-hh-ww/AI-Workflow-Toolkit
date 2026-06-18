@@ -58,8 +58,8 @@ def execution_contract_freeze_reasons(base_dir: str, state: Optional[Dict] = Non
     """Explain why execution truth may only become stricter."""
     base = Path(base_dir)
     state = state if state is not None else _read(base / ".aiwf" / "state" / "state.json")
-    testing = _read(base / ".aiwf" / "artifacts" / "quality" / "testing.json")
-    review = _read(base / ".aiwf" / "artifacts" / "quality" / "review.json")
+    testing = _read(base / ".aiwf" / "records" / "testing.json")
+    review = _read(base / ".aiwf" / "records" / "review.json")
     fix_loop = _read(base / ".aiwf" / "state" / "fix-loop.json")
     reasons: List[str] = []
     if state.get("active_task_id"): reasons.append(f"active_task={state['active_task_id']}")

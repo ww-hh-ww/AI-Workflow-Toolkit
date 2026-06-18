@@ -20,7 +20,7 @@ def _scope_check(cwd, tool_name, file_path, allowed_write=None):
         s = json.loads((cwd / ".aiwf" / "state" / "state.json").read_text())
         s["active_context_id"] = "CTX-001"
         (cwd / ".aiwf" / "state" / "state.json").write_text(json.dumps(s, indent=2))
-        (cwd / ".aiwf" / "state" / "contexts.json").write_text(json.dumps(
+        (cwd / ".aiwf" / "state" / "state.json").write_text(json.dumps(
             {"contexts": [{"id": "CTX-001", "allowed_write": allowed_write,
              "forbidden_write": []}]}, indent=2))
 
@@ -101,7 +101,7 @@ class TestScopePathNormalization(unittest.TestCase):
     def test_direct_edits_to_context_and_fixloop_truth_denied(self):
         for rel in [
             ".aiwf/state/goal.json",
-            ".aiwf/state/contexts.json",
+            ".aiwf/state/state.json",
             ".aiwf/state/fix-loop.json",
             ".aiwf/runtime/history/task-ledger.json",
         ]:
@@ -154,7 +154,7 @@ class TestCoreScopePolicyNormalization(unittest.TestCase):
     def test_is_governance_file(self):
         from aiwf_core.core.scope_policy import _is_governance_file
         self.assertTrue(_is_governance_file(".aiwf/state/state.json"))
-        self.assertTrue(_is_governance_file(".aiwf/artifacts/quality/review.json"))
+        self.assertTrue(_is_governance_file(".aiwf/records/review.jsonl"))
         self.assertTrue(_is_governance_file(".aiwf/runtime/internal/baseline.json"))
         self.assertFalse(_is_governance_file("src/main.py"))
 

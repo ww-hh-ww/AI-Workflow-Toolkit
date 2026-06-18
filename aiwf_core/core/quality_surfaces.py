@@ -222,7 +222,7 @@ SURFACE_OBLIGATIONS = {
         "review_obligations": [
             "data loss risk explicit",
             "idempotency considered",
-            "backup/checkpoint recommendation",
+            "Git rollback strategy recommendation",
             "production safety boundary clear",
         ],
     },
@@ -316,15 +316,13 @@ SURFACE_OBLIGATIONS = {
             "check new schema does not force user-visible complexity",
         ],
     },
-    "git_or_checkpoint_command": {
-        "label": "Git or checkpoint command",
+    "git_command": {
+        "label": "Git command safety",
         "test_obligations": [
             "confirm required for destructive operation",
             "no push",
-            "HEAD guard or equivalent safety where relevant",
             "no false success on failure",
             "does not drop stash unless explicit",
-            "commit/checkpoint distinction preserved",
         ],
         "review_obligations": [
             "reject any automatic commit/push without explicit user confirmation",

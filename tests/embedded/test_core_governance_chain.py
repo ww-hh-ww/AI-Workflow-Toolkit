@@ -60,7 +60,7 @@ class TestCoreGovernanceChain(unittest.TestCase):
 
     def _seed_accepted_review_with_pending_evidence(self):
         _write_json(
-            self.tmp / ".aiwf" / "artifacts" / "evidence" / "records.json",
+            self.tmp / ".aiwf" / "records" / "evidence.jsonl",
             {
                 "records": [
                     {
@@ -73,7 +73,7 @@ class TestCoreGovernanceChain(unittest.TestCase):
             },
         )
         _write_json(
-            self.tmp / ".aiwf" / "artifacts" / "quality" / "review.json",
+            self.tmp / ".aiwf" / "records" / "review.jsonl",
             {
                 "result": "accepted",
                 "closure_allowed": True,
@@ -136,7 +136,8 @@ class TestCoreGovernanceChain(unittest.TestCase):
             timeout=TIMEOUT,
         )
 
-    def test_chain_breaks_when_cleanup_is_stale(self):
+    def test_close_proceeds_despite_stale_cleanup_v1(self):
+        """V1: cleanup freshness is advisory only; close does NOT block on stale cleanup."""
         from aiwf_core.core.state_ops import mark_cleanup_stale, record_testing
         from aiwf_core.hooks.common.gate_checker import eval_closure_gates
 
@@ -149,5 +150,7 @@ class TestCoreGovernanceChain(unittest.TestCase):
         _write_json(self.tmp / ".aiwf" / "state" / "state.json", state)
 
         gates = eval_closure_gates(self.tmp)
-        self.assertFalse(gates["passed"])
-        self.assertTrue(any("cleanup not fresh" in b for b in gates["blockers"]))
+        self.assertTrue(gates["passed"])
+        # Ensure no cleanup blocker leaks into gate evaluation
+        cleanup_blockers = [b for b in gates["blockers"] if "cleanup" in b.lower()]
+        self.assertEqual(cleanup_blockers, [])

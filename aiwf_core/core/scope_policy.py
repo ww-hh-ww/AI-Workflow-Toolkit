@@ -41,47 +41,13 @@ def check_scope(
     if not active_context:
         active_context = {}
 
-    # allowed_write lives only on the PLAN. Context is advisory. Tasks inherit
-    # from Plan on activation. Write Guard reads Plan directly via task.plan_id.
-    allowed_write: List[str] = []
+    # V2: project write permissions are decided by scope_checker.py.
+    # This function only handles governance bypass and forbidden_write.
+    # Plan.allowed_write is no longer a gate — the execution contract is Task.md.
     forbidden_write: List[str] = active_context.get("forbidden_write", []) or [] if active_context else []
     ctx_id = active_context.get("id", "") if active_context else ""
 
-    if state and state.get("active_task_id"):
-        try:
-            from pathlib import Path as _Path
-            root = _Path(project_root) if project_root else _Path.cwd()
-            # Read task's plan_id, then plan's allowed_write
-            ledger_path = root / ".aiwf" / "runtime" / "history" / "task-ledger.json"
-            if ledger_path.exists():
-                import json as _json
-                ledger = _json.loads(ledger_path.read_text(encoding="utf-8"))
-                plan_id = ""
-                for t in ledger.get("tasks", []) or []:
-                    if isinstance(t, dict) and t.get("id") == state["active_task_id"]:
-                        plan_id = t.get("plan_id") or t.get("parent_plan") or ""
-                        break
-                if plan_id:
-                    plans_path = root / ".aiwf" / "state" / "plans.json"
-                    if plans_path.exists():
-                        plans = _json.loads(plans_path.read_text(encoding="utf-8"))
-                        for p in plans.get("plans", []) or []:
-                            if isinstance(p, dict) and p.get("plan_id", p.get("id")) == plan_id:
-                                allowed_write = p.get("allowed_write", []) or []
-                                break
-        except Exception:
-            pass
-
-    if not allowed_write:
-        if state and state.get("phase") == "closed" and state.get("active_task_id"):
-            return ScopeResult(
-                file_path=normalized, allowed=False,
-                reason=f"prepare-close passed but task ledger still active ({state.get('active_task_id')}); run aiwf task close first",
-            )
-        if not state or not state.get("active_task_id"):
-            return ScopeResult(file_path=normalized, allowed=True, reason="no active task or context")
-
-    # Check forbidden first (explicit denies, for paths outside allowed_write)
+    # Check forbidden write patterns from Task.md
     for pattern in forbidden_write:
         p = str(pattern).strip()
         if not p:
@@ -91,43 +57,12 @@ def check_scope(
                 allowed=False,
                 file_path=normalized,
                 active_context_id=ctx_id,
-                allowed_write=allowed_write,
                 forbidden_write=forbidden_write,
-                reason=f"'{normalized}' matches forbidden_write pattern '{p}' for {ctx_id}",
+                reason=f"'{normalized}' matches Forbidden Write pattern '{p}' from active Task.md",
             )
 
-    # Check allowed against task's scope
-    for pattern in allowed_write:
-        p = str(pattern).strip()
-        if not p:
-            continue
-        if _matches(normalized, p):
-            return ScopeResult(
-                file_path=normalized,
-                active_context_id=ctx_id,
-                allowed_write=allowed_write,
-                forbidden_write=forbidden_write,
-                allowed=True,
-                reason=f"matched '{p}'",
-            )
-
-    # File is outside allowed_write. This is scope drift, not a hard stop.
-    # AIWF should make the drift visible to review/close without interrupting
-    # reasonable engineering flow. Explicit forbidden/protected paths are still
-    # hard-denied above and by the architecture brief guard.
-    return ScopeResult(
-        allowed=True,
-        soft_drift=True,
-        file_path=normalized,
-        active_context_id=ctx_id,
-        allowed_write=allowed_write,
-        forbidden_write=forbidden_write,
-        reason=(
-            f"scope drift: '{normalized}' is outside task allowed_write. "
-            "Review should confirm why this file changed and whether a future "
-            "Plan scope update is needed."
-        ),
-    )
+    # Governance files always allowed; project files allowed (checked by scope_checker.py)
+    return ScopeResult(file_path=normalized, allowed=True, reason="allowed")
 
 
 def check_changed_files_scope(
@@ -178,10 +113,10 @@ def check_bash_command(command: str) -> Dict:
     # boundary — the real boundary is constitutional compliance.
     _MECHANICAL_TRUTH_DIRS = [
         ".aiwf/state/",
-        ".aiwf/artifacts/quality/",
+        ".aiwf/records/",
     ]
     _MECHANICAL_TRUTH_FILES = [
-        ".aiwf/runtime/history/task-ledger.json",
+        ".aiwf/state/tasks.json",
     ]
     for prefix in _MECHANICAL_TRUTH_DIRS:
         if prefix in command:
@@ -234,6 +169,7 @@ def _normalize_path(file_path: str, project_root: str = "") -> str:
     """Normalize a file path to project-relative POSIX form.
 
     - Absolute paths are converted to relative using project_root.
+    - Symlinks are resolved (macOS /var → /private/var).
     - ./ prefix is stripped.
     - Backslashes converted to forward slashes.
     - Trailing slashes stripped.
@@ -247,7 +183,9 @@ def _normalize_path(file_path: str, project_root: str = "") -> str:
 
     # Convert absolute path to relative using project_root
     if os.path.isabs(fp) and project_root:
-        root = str(project_root).replace("\\", "/").rstrip("/")
+        # Resolve symlinks on absolute paths (macOS /var → /private/var)
+        fp = os.path.realpath(fp).replace("\\", "/")
+        root = os.path.realpath(str(project_root)).replace("\\", "/").rstrip("/")
         fp_norm = fp.rstrip("/")
         if fp_norm.startswith(root + "/"):
             fp = fp_norm[len(root) + 1:]
@@ -259,18 +197,18 @@ def _normalize_path(file_path: str, project_root: str = "") -> str:
 
 GOVERNANCE_ALLOWED_PREFIXES = [
     ".aiwf/state/state.json",
-    ".aiwf/state/goal.json",
-    ".aiwf/state/contexts.json",
-    ".aiwf/artifacts/evidence/records.json",
-    ".aiwf/artifacts/quality/testing.json",
-    ".aiwf/artifacts/quality/review.json",
+    ".aiwf/records/evidence.json",
+    ".aiwf/records/testing.json",
+    ".aiwf/records/review.json",
+    ".aiwf/records/architecture-review.json",
     ".aiwf/state/fix-loop.json",
-    ".aiwf/artifacts/plans/",
-    ".aiwf/artifacts/reports/",
-    ".aiwf/runtime/internal/baseline.json",
-    ".aiwf/assets/",
-    ".aiwf/experiment-artifacts/",
     ".aiwf/runtime/internal/",
+    # narrative/markdown governance directories
+    ".aiwf/goals/",
+    ".aiwf/plans/",
+    ".aiwf/tasks/",
+    ".aiwf/milestones/",
+    ".aiwf/config/",
 ]
 
 GOVERNANCE_UNKNOWN_POLICY = "deny"  # deny unknown .aiwf paths

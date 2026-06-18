@@ -28,27 +28,17 @@ class TestWorkflowRecipes(unittest.TestCase):
         return r
 
     def test_recipe_list_show_and_recommend(self):
-        listed = self._run_ok("recipe", "list").stdout
-        self.assertIn("requirements_grill", listed)
-        self.assertIn("tdd_vertical_slice", listed)
-        self.assertIn("architecture_migration", listed)
-
-        shown = self._run_ok("recipe", "show", "requirements_grill").stdout
-        self.assertIn("clarification_first", shown)
-        self.assertIn("Advisory only", shown)
-
-        rec = self._run_ok("recipe", "recommend", "--task-type", "bug_fix", "--risk-flag", "flaky").stdout
-        self.assertIn("bug_fix", rec)
-        self.assertIn("flaky_test_hunt", rec)
-
-        mig = self._run_ok("recipe", "recommend", "--task-type", "refactor", "--risk-flag", "architecture_migration").stdout
-        self.assertIn("architecture_migration", mig)
+        # V2: recipe CLI command removed; recipes replaced by routing/quality-policy
+        r = self._run("recipe", "list")
+        self.assertNotEqual(r.returncode, 0, "recipe command removed in V2")
+        self.assertIn("Unknown command", r.stderr)
 
     def test_recipe_recommend_does_not_modify_state(self):
+        # V2: recipe command removed; state is never modified by a missing command
         state_path = self.tmp / ".aiwf" / "state" / "state.json"
         before = json.loads(state_path.read_text())
 
-        self._run_ok("recipe", "recommend", "--task-type", "api_endpoint", "--risk-flag", "external")
+        self._run("recipe", "recommend", "--task-type", "api_endpoint", "--risk-flag", "external")
         after = json.loads(state_path.read_text())
 
         self.assertEqual(before, after)

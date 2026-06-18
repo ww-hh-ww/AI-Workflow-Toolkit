@@ -290,7 +290,7 @@ def write_capabilities_registry(project_root: str, registry: Dict) -> Path:
 def load_capabilities_registry(project_root: str) -> Dict:
     root = Path(project_root)
     path = root / CAPABILITIES_JSON
-    legacy_path = root / ".aiwf" / "assets" / "capabilities.json"
+    legacy_path = root / ".aiwf" / "records" / "events.json"
     if not path.exists() and legacy_path.exists():
         path = legacy_path
     if not path.exists(): return {"schema_version": 1, "capabilities": []}

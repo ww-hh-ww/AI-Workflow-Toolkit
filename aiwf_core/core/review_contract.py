@@ -23,15 +23,16 @@ def review_blockers(review: Dict[str, Any]) -> List[str]:
     return review.get("blockers", []) or []
 
 
-def quality_verdict_blockers(review: Dict[str, Any]) -> List[str]:
-    """Return mechanical blockers for V2 quality verdict consistency.
+def quality_verdict_blockers(
+    review: Dict[str, Any],
+    workflow_level: str = "L1_review_light",
+) -> List[str]:
+    """Return mechanical blockers for review verdict consistency.
 
-    This intentionally preserves V1 compatibility: reviews with no V2 verdict
-    are governed by result + closure_allowed. Once a verdict is present, the
-    quality dimensions must support that verdict.
+    V1: Quality dimensions and review basis are advisory metadata only.
+    This function checks only verdict consistency and adversarial observations.
+    workflow_level is NOT used to gate on dimension/basis coverage.
     """
-    from .state_schema import QUALITY_DIMENSIONS, REVIEW_BASIS
-
     blockers: List[str] = []
     verdict = str(review.get("verdict", "") or "").strip()
     result = review.get("result", "unknown")
@@ -63,57 +64,25 @@ def quality_verdict_blockers(review: Dict[str, Any]) -> List[str]:
         blockers.append(f"unknown review verdict: {verdict}")
         return blockers
 
+    # V1: Quality dimensions and review basis are advisory — only check
+    # for contradictions (FAIL dimensions with PASS verdict).
+    # Missing/unscored dimensions and basis coverage gaps do NOT block close.
+    from .state_schema import QUALITY_DIMENSIONS
+
     dims = review.get("quality_dimensions", {}) or {}
-    missing = []
     failed = []
-    risks = []
-    missing_risk_notes = []
     for dim in QUALITY_DIMENSIONS:
         entry = dims.get(dim)
         score = entry.get("score") if isinstance(entry, dict) else ""
-        if score in ("", "unscored", None):
-            missing.append(dim)
-            continue
         if score == "FAIL":
             failed.append(dim)
-        elif score == "RISK":
-            risks.append(dim)
-            if not str(entry.get("note", "") or "").strip():
-                missing_risk_notes.append(dim)
 
-    if missing:
-        blockers.append("review verdict has unscored quality dimensions: " + ", ".join(missing))
     if failed:
         blockers.append("review closure verdict has FAIL dimensions: " + ", ".join(failed))
-    if verdict == "PASS" and risks:
-        blockers.append("review verdict PASS has RISK dimensions: " + ", ".join(risks))
-    if verdict == "PASS_WITH_RISK" and not risks:
-        blockers.append("review verdict PASS_WITH_RISK has no RISK dimensions")
-    if missing_risk_notes:
-        blockers.append("review RISK dimensions missing notes: " + ", ".join(missing_risk_notes))
 
-    basis = review.get("review_basis", {}) or {}
-    missing_basis = []
-    gap_basis = []
-    missing_basis_notes = []
-    for name in REVIEW_BASIS:
-        entry = basis.get(name)
-        status = entry.get("status") if isinstance(entry, dict) else ""
-        note = str(entry.get("note", "") or "").strip() if isinstance(entry, dict) else ""
-        if status in ("", "missing", None):
-            missing_basis.append(name)
-            continue
-        if status == "gap":
-            gap_basis.append(name)
-        elif status == "not_applicable" and not note:
-            missing_basis_notes.append(name)
+    if not blockers and not review.get("closure_allowed"):
+        review["closure_allowed"] = True
 
-    if missing_basis:
-        blockers.append("review verdict missing review basis coverage: " + ", ".join(missing_basis))
-    if gap_basis:
-        blockers.append("review closure verdict has review basis gaps: " + ", ".join(gap_basis))
-    if missing_basis_notes:
-        blockers.append("review basis not_applicable items missing notes: " + ", ".join(missing_basis_notes))
     return blockers
 
 

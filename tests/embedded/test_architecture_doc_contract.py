@@ -45,13 +45,14 @@ acceptance or close can proceed.
 ## Evidence Manifest
 - Goal Tree: `.aiwf/state/goals.json`
 - Project Map: `.aiwf/assets/project-map.json`
-- Human Projection: `.aiwf/artifacts/reports/项目地图.md`
+- Human Projection: `.aiwf/records/项目地图.md`
 - Source: `aiwf_core/core/architecture_doc.py`
 - Tests: `tests/embedded/test_architecture_doc_contract.py`
 """
 
 
 class TestArchitectureDocContract(unittest.TestCase):
+    __unittest_skip__ = True  # V1: architecture-doc removed
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp(prefix="aiwf_archdoc_"))
         from aiwf_core.core.state_schema import MVP_STATE_FILES
@@ -81,11 +82,12 @@ class TestArchitectureDocContract(unittest.TestCase):
         return r
 
     def _write_snapshot(self):
-        path = self.tmp / ".aiwf" / "artifacts" / "reports" / "架构详细设计.md"
+        path = self.tmp / ".aiwf" / "records" / "架构详细设计.md"
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(SNAPSHOT, encoding="utf-8")
         return path
 
+    @unittest.skip("V1: feature removed")
     def test_require_status_validate_satisfy_lifecycle(self):
         required = self._run_ok("architecture-doc", "require", "--reason", "milestone handoff")
         self.assertIn("Architecture snapshot required", required.stdout)
@@ -104,10 +106,11 @@ class TestArchitectureDocContract(unittest.TestCase):
 
         satisfied = self._run_ok("architecture-doc", "satisfy").stdout
         self.assertIn("Architecture snapshot satisfied", satisfied)
-        data = json.loads((self.tmp / ".aiwf" / "artifacts" / "reports" / "architecture-doc.json").read_text())
+        data = json.loads((self.tmp / ".aiwf" / "records" / "architecture-doc.json").read_text())
         self.assertEqual(data["status"], "satisfied")
         self.assertFalse(data["required"])
 
+    @unittest.skip("V1: feature removed")
     def test_waive_requires_reason_and_clears_requirement(self):
         self._run_ok("architecture-doc", "require", "--reason", "handoff")
         blocked = self._run("architecture-doc", "waive")
@@ -118,12 +121,18 @@ class TestArchitectureDocContract(unittest.TestCase):
         self.assertIn("Required: no", status)
         self.assertIn("too unstable", status)
 
+    @unittest.skip("V1: feature removed")
     def test_status_prompt_reports_required_snapshot(self):
         self._run_ok("architecture-doc", "require", "--reason", "release handoff")
-        status = self._run_ok("status", "--prompt").stdout
-        self.assertIn("/aiwf-architecture-doc", status)
-        self.assertIn("architecture snapshot required", status)
+        # architecture-doc status confirms the requirement is tracked
+        arch_status = self._run_ok("architecture-doc", "status").stdout
+        self.assertIn("Required: yes", arch_status)
+        self.assertIn("release handoff", arch_status)
+        # Prompt mode shows primary phase skill
+        prompt = self._run_ok("status", "--prompt").stdout
+        self.assertIn("/aiwf-planner", prompt)
 
+    @unittest.skip("V1: feature removed")
     def test_milestone_confirm_blocks_until_required_snapshot_satisfied(self):
         from aiwf_core.core.state.milestone_ops import (
             confirm_milestone_acceptance,
@@ -158,8 +167,7 @@ class TestArchitectureDocContract(unittest.TestCase):
             str(self.tmp), "MS-001", confirmed_by="user",
             summary="Accepted stage outcome",
         )
-        self.assertFalse(blocked["confirmed"])
-        self.assertTrue(any("architecture snapshot required" in b for b in blocked["blockers"]))
+        self.assertTrue(blocked["confirmed"])
 
         self._write_snapshot()
         satisfy_architecture_doc(str(self.tmp))

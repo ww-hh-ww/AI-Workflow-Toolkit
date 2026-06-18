@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "phase_skills": {
+    "planning": ["aiwf-planner"],
+    "discussing": ["aiwf-planner"],
+    "planned": ["aiwf-planner"],
+    "executing": ["aiwf-implement"],
+    "implementing": ["aiwf-implement"],
+    "testing": ["aiwf-test"],
+    "reviewing": ["aiwf-review"],
+    "closing": ["aiwf-close"],
+    "closed": ["aiwf-planner"],
+    "blocked": ["aiwf-planner"],
+    "milestone_verification": ["aiwf-milestone"]
+  },
+  "signal_skills": {
+    "architect_due": ["aiwf-architect"],
+    "milestone_due": ["aiwf-milestone"]
+  }
+}

@@ -31,29 +31,33 @@ class TestInstall(unittest.TestCase):
 
     def test_v2_state_files_created_without_flat_runtime_state(self):
         expected = [
-            ".aiwf/state/contexts.json",
-            ".aiwf/artifacts/evidence/records.json",
+            ".aiwf/state/state.json",
+            ".aiwf/records/evidence.json",
             ".aiwf/state/fix-loop.json",
-            ".aiwf/state/goal.json",
-            ".aiwf/state/mission.json",
+            ".aiwf/state/goals.json",
             ".aiwf/state/milestones.json",
             ".aiwf/state/plans.json",
-            ".aiwf/artifacts/quality/review.json",
-            ".aiwf/state/state.json",
-            ".aiwf/artifacts/quality/testing.json",
+            ".aiwf/state/tasks.json",
+            ".aiwf/records/review.json",
+            ".aiwf/records/testing.json",
+            ".aiwf/records/architecture-review.json",
+            ".aiwf/records/events.json",
         ]
         for rel in expected:
             self.assertTrue((self.tmp / rel).exists(), f"Missing: {rel}")
         for old in ["contexts.json", "evidence.json", "fix-loop.json",
-                    "goal.json", "review.json", "state.json", "testing.json"]:
+                    "goals.json", "review.json", "state.json", "testing.json",
+                    "mission.json"]:
             self.assertFalse((self.tmp / ".aiwf" / old).exists(), f"Flat runtime file should not exist: {old}")
         self.assertFalse((self.tmp / ".aiwf" / "lessons.md").exists())
         self.assertFalse((self.tmp / ".aiwf" / "negative-memory.md").exists())
-        # Stage 4.7.3: v2 layout — 5-zone structure present alongside compat dirs
+        # V1 layout — state/, records/, goals/, plans/, tasks/, milestones/, config/, runtime/
         self.assertTrue((self.tmp / ".aiwf" / "README.md").exists())
-        self.assertTrue((self.tmp / ".aiwf" / "artifacts").is_dir())
+        self.assertTrue((self.tmp / ".aiwf" / "records").is_dir())
         self.assertTrue((self.tmp / ".aiwf" / "runtime").is_dir())
-        self.assertTrue((self.tmp / ".aiwf" / "archive").is_dir())
+        self.assertTrue((self.tmp / ".aiwf" / "config").is_dir())
+        self.assertFalse((self.tmp / ".aiwf" / "artifacts").is_dir(), "artifacts/ directory retired in V1")
+        self.assertFalse((self.tmp / ".aiwf" / "archive").is_dir(), "archive/ directory retired in V1")
 
     def test_settings_json_has_nested_hooks(self):
         s = self._j(".claude/settings.json")
@@ -73,41 +77,67 @@ class TestInstall(unittest.TestCase):
         self.assertIn("Write|Edit|MultiEdit|Bash|Agent|Task", post_matchers)
 
     def test_skills_exist_with_frontmatter(self):
+        """Exactly 7 top-level skills installed, with SKILL.md frontmatter."""
         for skill in ["aiwf-planner", "aiwf-implement", "aiwf-test",
-                      "aiwf-review", "aiwf-close", "aiwf-explore", "aiwf-curate"]:
+                      "aiwf-review", "aiwf-close", "aiwf-milestone",
+                      "aiwf-architect"]:
             path = self.tmp / ".claude" / "skills" / skill / "SKILL.md"
             self.assertTrue(path.exists(), f"Missing: {skill}")
             self.assertTrue(path.read_text().startswith("---"),
                           f"No frontmatter: {skill}")
 
+    def test_skill_references_exist(self):
+        """Reference files exist under their parent skill directories."""
+        refs = {
+            "aiwf-planner": ["references/task-contract.md", "references/lifecycle.md",
+                           "references/risk-and-rollback.md"],
+            "aiwf-review": ["references/review-output.md", "references/trace-checklist.md",
+                          "references/verify-checklist.md"],
+            "aiwf-milestone": ["references/integration.md", "references/architecture-review.md"],
+            "aiwf-architect": ["references/architecture-checklist.md"],
+        }
+        for skill, files in refs.items():
+            for ref in files:
+                path = self.tmp / ".claude" / "skills" / skill / ref
+                self.assertTrue(path.exists(), f"Missing reference: {skill}/{ref}")
+
+    def test_retired_skill_dirs_do_not_exist(self):
+        for retired in ["aiwf-init", "aiwf-planner-docs", "aiwf-architecture-doc",
+                       "aiwf-retro"]:
+            path = self.tmp / ".claude" / "skills" / retired
+            self.assertFalse(path.exists(), f"Retired skill should not exist: {retired}")
+
     def test_subagents_exist(self):
+        """Exactly 4 agents installed."""
         for agent in ["aiwf-explorer", "aiwf-executor", "aiwf-tester",
-                      "aiwf-reviewer", "aiwf-curator"]:
+                      "aiwf-reviewer"]:
             path = self.tmp / ".claude" / "agents" / f"{agent}.md"
             self.assertTrue(path.exists(), f"Missing: {agent}")
+        # Curator is retired
+        self.assertFalse((self.tmp / ".claude" / "agents" / "aiwf-curator.md").exists(),
+                        "aiwf-curator should not be installed")
 
     def test_claude_subagents_have_connection_recovery(self):
         for agent in ["aiwf-executor", "aiwf-tester", "aiwf-reviewer"]:
             content = (self.tmp / ".claude" / "agents" / f"{agent}.md").read_text()
             self.assertIn("Connection Recovery", content)
             self.assertIn("PAUSED_FOR_PLANNER", content)
-            self.assertIn("resume package", content)
-            self.assertNotIn("max-iters", content)
+            self.assertIn("re-dispatch", content)
+            self.assertIn("interrupted before completing", content)
         planner = (self.tmp / ".claude" / "skills" / "aiwf-planner" / "SKILL.md").read_text()
-        self.assertIn("Subagent Connection Recovery", planner)
-        self.assertIn("interrupted/resumable run", planner)
+        self.assertIn("Connection Recovery", planner)
+        self.assertIn("interrupted", planner.lower())
 
     def test_planner_and_reviewer_explain_governance_recovery_paths(self):
         planner = (self.tmp / ".claude" / "skills" / "aiwf-planner" / "SKILL.md").read_text()
         reviewer = (self.tmp / ".claude" / "skills" / "aiwf-review" / "SKILL.md").read_text()
         executor = (self.tmp / ".claude" / "agents" / "aiwf-executor.md").read_text()
-        self.assertIn("ask before switching to", planner.lower())
-        self.assertIn("project architect", planner.lower())
-        self.assertIn("do NOT hand-edit", planner)
-        self.assertIn("AIWFRoleEvidence", reviewer)
-        self.assertIn("--scan-git", reviewer)
-        self.assertIn("--scan-git", executor)
-        self.assertIn("--closure-allowed", reviewer)
+        self.assertIn("do not edit project source files", planner.lower())
+        self.assertIn("do not hand-edit `.aiwf/state/`", planner.lower())
+        self.assertIn("Connection Recovery", reviewer)
+        self.assertIn("PAUSED_FOR_PLANNER", reviewer)
+        self.assertIn("record evidence", executor.lower())
+        self.assertIn("Connection Recovery", executor)
 
     def test_status_shows_embedded_mode(self):
         r = _run([sys.executable, "-m", "aiwf_core.cli", "status"], self.tmp)
@@ -120,7 +150,7 @@ class TestInstall(unittest.TestCase):
     def test_scripts_are_executable(self):
         for s in ["aiwf_status.py", "aiwf_pre_snapshot.py", "aiwf_scope_check.py",
                   "aiwf_bash_guard.py", "aiwf_capture_evidence.py",
-                  "aiwf_review_gate.py", "aiwf_export_report.py"]:
+                  "aiwf_review_gate.py"]:
             p = self.tmp / "scripts" / s
             self.assertTrue(p.exists(), f"Missing: {s}")
             self.assertTrue(p.stat().st_mode & 0o111, f"Not executable: {s}")
@@ -139,15 +169,13 @@ class TestInstall(unittest.TestCase):
         self.assertIn("AIWF MANAGED BLOCK END", content)
 
     def test_claude_md_has_runtime_protocol(self):
-        """Generated CLAUDE.md is a slim constitution — references aiwf-init for details."""
+        """Generated CLAUDE.md is a slim constitution — starts with aiwf status --prompt."""
         content = (self.tmp / "CLAUDE.md").read_text()
         self.assertIn("aiwf status", content)
-        self.assertIn("PRIMARY", content)
-        self.assertIn("REQUIRED NEXT", content)
-        self.assertIn("aiwf-init", content)
+        self.assertNotIn("aiwf-init", content)
         self.assertIn("Mechanical truth", content)
         self.assertIn("Skill index", content)
-        self.assertIn("prepare-close` is the authoritative gate", content)
+        self.assertIn("authoritative close gate", content)
 
     def test_claude_md_managed_block_idempotent(self):
         """Second install does not duplicate managed block."""
@@ -239,11 +267,10 @@ class TestReasonixInstall(unittest.TestCase):
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
-    def test_reasonix_install_output_uses_init_then_conversation(self):
+    def test_reasonix_install_output_starts_with_status(self):
         self.assertIn("reasonix", self.result.stdout)
-        self.assertIn("/skill aiwf-init", self.result.stdout)
+        self.assertIn("aiwf status --prompt", self.result.stdout)
         self.assertIn("describing your goal or question naturally", self.result.stdout)
-        self.assertNotIn("/skill aiwf-planner", self.result.stdout)
 
     def test_reasonix_settings_use_reasonix_project_dir(self):
         settings = self._j(".reasonix/settings.json")
@@ -272,52 +299,35 @@ class TestReasonixInstall(unittest.TestCase):
             self.assertNotIn("Do not retry the same command", content)
             self.assertIn("Connection Recovery", content)
             self.assertIn("PAUSED_FOR_PLANNER", content)
-            self.assertTrue(
-                "last successful evidence" in content or "evidence reviewed" in content or "partial findings" in content,
-                f"{skill} should include resumable evidence context",
-            )
-            if skill != "aiwf-implement":
-                self.assertIn("must not be used to skip required", content)
         planner = (self.tmp / ".reasonix" / "skills" / "aiwf-planner" / "SKILL.md").read_text()
         self.assertIn("runAs: inline", planner)
-        self.assertIn("Subagent Connection Recovery", planner)
-        self.assertIn("interrupted/resumable run", planner)
+        self.assertIn("Connection Recovery", planner)
 
-    def test_reasonix_has_explorer_and_curator_subagent_skills(self):
-        for skill in ["aiwf-explore", "aiwf-curate"]:
-            content = (self.tmp / ".reasonix" / "skills" / skill / "SKILL.md").read_text()
-            self.assertIn("runAs: subagent", content)
-
-    def test_reasonix_planner_prompt_contains_complete_state_machine(self):
-        # State machine lives in the planner-execute sub-skill.
-        execute = (self.tmp / ".reasonix" / "skills" / "aiwf-planner-execute" / "SKILL.md").read_text()
+    def test_reasonix_planner_prompt_contains_lifecycle(self):
+        # Lifecycle reference contains the task lifecycle in V1 flow format.
+        lifecycle = (self.tmp / ".reasonix" / "skills" / "aiwf-planner" / "references" / "lifecycle.md").read_text()
         for phrase in [
-            "Mandatory State Machine",
-            "Orient",
-            "Cleanup before review",
-            "Fix loop when needed",
-            "Meta-critique",
-            "Closure gate",
-            "Task close",
-            "Carry forward",
+            "task create",
+            "task activate",
+            "record evidence",
+            "record testing",
+            "record review",
+            "task close",
         ]:
-            self.assertIn(phrase, execute)
-        machine = execute.split("## Mandatory State Machine", 1)[1].split("## How to Run a Task", 1)[0]
-        self.assertLess(machine.index("Cleanup before review"), machine.index("Review"))
+            self.assertIn(phrase, lifecycle)
+        self.assertIn("planner", lifecycle)
 
         # REASONIX.md carries the constitution — platform-neutral hard boundaries.
         reasonix_md = (self.tmp / "REASONIX.md").read_text()
-        self.assertIn("prepare-close` is the authoritative gate", reasonix_md)
-        self.assertIn("never blocks current task close", reasonix_md)
+        self.assertIn("authoritative close gate", reasonix_md)
+        self.assertIn("Hard gates", reasonix_md)
 
         # Planner-main provides the core workflow orchestrator guidance.
         planner = (self.tmp / ".reasonix" / "skills" / "aiwf-planner" / "SKILL.md").read_text()
-        self.assertIn("run `aiwf status`", planner)
+        self.assertIn("aiwf status", planner.lower())
 
-        # aiwf-init skill exists and contains the decision tree.
-        init_skill = (self.tmp / ".reasonix" / "skills" / "aiwf-init" / "SKILL.md").read_text()
-        self.assertIn("Decision tree", init_skill)
-        self.assertIn("aiwf status", init_skill)
+        # aiwf-init is retired; check planner SKILL.md is the primary planning entry
+        self.assertIn("AIWF Planner", planner)
 
     def test_connection_recovery_source_is_shared_partial(self):
         shared = PROJECT_ROOT / "aiwf_core" / "embedded_templates" / "shared"
@@ -344,7 +354,7 @@ class TestReasonixInstall(unittest.TestCase):
         state = self._j(".aiwf/state/state.json")
         state["active_context_id"] = "CTX-001"
         (self.tmp / ".aiwf" / "state" / "state.json").write_text(json.dumps(state, indent=2))
-        (self.tmp / ".aiwf" / "state" / "contexts.json").write_text(json.dumps({
+        (self.tmp / ".aiwf" / "state" / "state.json").write_text(json.dumps({
             "contexts": [{"id": "CTX-001", "allowed_write": ["src/"], "forbidden_write": []}]
         }, indent=2))
 

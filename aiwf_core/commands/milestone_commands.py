@@ -12,22 +12,27 @@ def _cmd_milestone_create(args: argparse.Namespace) -> None:
         result = upsert_milestone(
             str(Path.cwd()),
             args.milestone_id,
-            goal_id=args.goal_id or "",
-            title=args.title or "",
-            status=args.status or "pending",
-            intent=args.intent or "",
-            plan_ids=args.plan_ids or None,
-            task_ids=args.task_ids or None,
+            goal_id=getattr(args, "goal_id", "") or "",
+            title=getattr(args, "title", "") or "",
+            status=getattr(args, "status", "") or "pending",
+            intent=getattr(args, "intent", "") or "",
+            plan_ids=getattr(args, "plan_ids", None) or None,
+            task_ids=getattr(args, "task_ids", None) or None,
             covered_goal_ids=getattr(args, "covered_goal_ids", None) or None,
             mission_id=getattr(args, "mission_id", "") or "",
-            advance_policy=args.advance_policy or "",
-            checkpoint_level=args.checkpoint_level or "",
+            advance_policy=getattr(args, "advance_policy", "") or "",
+            checkpoint_level=getattr(args, "checkpoint_level", "") or "",
         )
     except ValueError as e:
         print(f"Milestone create blocked: {e}", file=sys.stderr)
         raise SystemExit(1)
     m = result["milestone"]
     print(f"Milestone: {m['milestone_id']} status={m['status']}")
+    if getattr(args, "narrative", False):
+        from ..core.index_ops import create_narrative_for_entity
+        path = create_narrative_for_entity(str(Path.cwd()), args.milestone_id, "milestone",
+                                           title=args.title or "", status=m.get("status", ""))
+        print(f"  Narrative doc: {path}")
     print(f"  Goal: {m.get('goal_id', '')}")
     print(f"  Plans: {len(m.get('plan_ids', []) or [])}")
     print(f"  Tasks: {len(m.get('task_ids', []) or [])}")
@@ -89,14 +94,14 @@ def _cmd_milestone_update(args: argparse.Namespace) -> None:
         result = upsert_milestone(
             str(Path.cwd()),
             args.milestone_id,
-            goal_id=args.goal_id or "",
-            title=args.title or "",
-            status=args.status or "",
-            intent=args.intent or "",
-            plan_ids=args.plan_ids or None,
-            task_ids=args.task_ids or None,
-            advance_policy=args.advance_policy or "",
-            checkpoint_level=args.checkpoint_level or "",
+            goal_id=getattr(args, "goal_id", "") or "",
+            title=getattr(args, "title", "") or "",
+            status=getattr(args, "status", "") or "",
+            intent=getattr(args, "intent", "") or "",
+            plan_ids=getattr(args, "plan_ids", None) or None,
+            task_ids=getattr(args, "task_ids", None) or None,
+            advance_policy=getattr(args, "advance_policy", "") or "",
+            checkpoint_level=getattr(args, "checkpoint_level", "") or "",
         )
     except ValueError as e:
         print(f"Milestone update blocked: {e}", file=sys.stderr)
@@ -105,19 +110,88 @@ def _cmd_milestone_update(args: argparse.Namespace) -> None:
     print(f"Milestone updated: {m['milestone_id']} status={m['status']}")
 
 
+def _cmd_milestone_rename(args: argparse.Namespace) -> None:
+    from ..core.state.milestone_ops import load_milestones, save_milestones
+    from datetime import datetime, timezone
+    data = load_milestones(str(Path.cwd()))
+    for m in data.get("milestones", []) or []:
+        if m.get("milestone_id") == args.milestone_id:
+            m["title"] = getattr(args, "title", "") or ""
+            m["updated_at"] = datetime.now(timezone.utc).isoformat()
+            save_milestones(str(Path.cwd()), data)
+            print(f"Milestone renamed: {args.milestone_id}")
+            return
+    print(f"Milestone not found: {args.milestone_id}", file=sys.stderr)
+    raise SystemExit(1)
+
+
+def _cmd_milestone_cancel(args: argparse.Namespace) -> None:
+    from ..core.state.milestone_ops import load_milestones, save_milestones
+    from datetime import datetime, timezone
+    data = load_milestones(str(Path.cwd()))
+    for m in data.get("milestones", []) or []:
+        if m.get("milestone_id") == args.milestone_id:
+            m["status"] = "cancelled"
+            reason = getattr(args, "reason", "") or ""
+            if reason:
+                m["cancel_reason"] = reason
+            replaced_by = getattr(args, "replaced_by", "") or ""
+            if replaced_by:
+                m["replaced_by"] = replaced_by
+            m["updated_at"] = datetime.now(timezone.utc).isoformat()
+            # Clear active_milestone_id if this was active
+            if data.get("active_milestone_id") == args.milestone_id:
+                data["active_milestone_id"] = None
+            save_milestones(str(Path.cwd()), data)
+            print(f"Milestone cancelled: {args.milestone_id}")
+            if reason:
+                print(f"  Reason: {reason}")
+            return
+    print(f"Milestone not found: {args.milestone_id}", file=sys.stderr)
+    raise SystemExit(1)
+
+
+def _cmd_milestone_link_plan(args: argparse.Namespace) -> None:
+    from ..core.state.milestone_ops import link_milestone_plan
+    result = link_milestone_plan(str(Path.cwd()), args.milestone_id, args.plan_id)
+    print(f"Milestone link-plan: {args.milestone_id} <- {args.plan_id} linked={result.get('linked', False)}")
+
+
+def _cmd_milestone_unlink_plan(args: argparse.Namespace) -> None:
+    from ..core.state.milestone_ops import unlink_milestone_plan
+    result = unlink_milestone_plan(str(Path.cwd()), args.milestone_id, args.plan_id)
+    print(f"Milestone unlink-plan: {args.milestone_id} -/-> {args.plan_id} unlinked={result.get('unlinked', False)}")
+
+
+def _cmd_milestone_link_task(args: argparse.Namespace) -> None:
+    from ..core.state.milestone_ops import link_milestone_task
+    result = link_milestone_task(str(Path.cwd()), args.milestone_id, args.task_id)
+    print(f"Milestone link-task: {args.milestone_id} <- {args.task_id} linked={result.get('linked', False)}")
+
+
+def _cmd_milestone_unlink_task(args: argparse.Namespace) -> None:
+    from ..core.state.milestone_ops import unlink_milestone_task
+    result = unlink_milestone_task(str(Path.cwd()), args.milestone_id, args.task_id)
+    print(f"Milestone unlink-task: {args.milestone_id} -/-> {args.task_id} unlinked={result.get('unlinked', False)}")
+
+
 def _cmd_milestone_assess(args: argparse.Namespace) -> None:
     from ..core.state.milestone_ops import record_milestone_assessment
+    def _g(key, default=""):
+        return getattr(args, key, default)
+    def _gl(key, default=None):
+        return getattr(args, key, default)
     try:
         result = record_milestone_assessment(
             str(Path.cwd()),
-            args.milestone_id,
-            verdict=args.verdict,
-            summary=args.summary,
-            evidence_ids=args.evidence_ids or None,
-            coherence_check=args.coherence_check or "",
-            open_gaps=args.open_gaps or None,
-            residual_risks=args.residual_risks or None,
-            next_recommendation=args.next_recommendation or "",
+            _g("milestone_id"),
+            verdict=_g("verdict"),
+            summary=_g("summary"),
+            evidence_ids=_gl("evidence_ids"),
+            coherence_check=_g("coherence_check"),
+            open_gaps=_gl("open_gaps"),
+            residual_risks=_gl("residual_risks"),
+            next_recommendation=_g("next_recommendation"),
         )
     except ValueError as e:
         print(f"Milestone assessment blocked: {e}", file=sys.stderr)
@@ -136,6 +210,14 @@ def _cmd_milestone_close(args: argparse.Namespace) -> None:
         print(f"  - {blocker}")
     if result.get("blockers"):
         raise SystemExit(1)
+    print()
+    print("Milestone closed.")
+    print("Recommended human action:")
+    print("  git status")
+    print("  git add -A")
+    print(f"  git commit -m \"milestone({args.milestone_id}): <title>\"")
+
+
 
 
 def _cmd_milestone_confirm(args: argparse.Namespace) -> None:
@@ -143,7 +225,7 @@ def _cmd_milestone_confirm(args: argparse.Namespace) -> None:
     result = confirm_milestone_acceptance(
         str(Path.cwd()),
         args.milestone_id,
-        confirmed_by=args.confirmed_by,
+        confirmed_by=getattr(args, "confirmed_by", "user") or "user",
         summary=args.summary,
     )
     print(f"Milestone acceptance: {args.milestone_id} confirmed={result['confirmed']}")
@@ -155,13 +237,17 @@ def _cmd_milestone_confirm(args: argparse.Namespace) -> None:
 
 def _cmd_milestone_integration_test(args: argparse.Namespace) -> None:
     from ..core.state.milestone_ops import record_milestone_integration
+    def _g(key, default=""):
+        return getattr(args, key, default)
+    def _gl(key, default=None):
+        return getattr(args, key, default)
     commands = []
-    if args.command:
-        for c in args.command:
-            cmd, _, out = c.partition(":::")
-            commands.append({"command": cmd.strip(), "output_summary": out.strip()})
+    cmd_list = _gl("command") or []
+    for c in cmd_list:
+        cmd, _, out = c.partition(":::")
+        commands.append({"command": cmd.strip(), "output_summary": out.strip()})
     function_traces = []
-    for item in args.function_trace or []:
+    for item in _gl("function_trace") or []:
         parts = item.split("::", 4)
         if len(parts) < 4:
             print(
@@ -182,74 +268,113 @@ def _cmd_milestone_integration_test(args: argparse.Namespace) -> None:
     try:
         result = record_milestone_integration(
             str(Path.cwd()),
-            args.milestone_id,
-            status=args.status,
+            _g("milestone_id"),
+            status=_g("status"),
             commands=commands or None,
-            summary=args.summary or "",
-            failed_points=args.failed_point or None,
-            coverage_mode=args.coverage_mode or "",
-            main_path_status=args.main_path_status or "",
-            source_files=args.source_file or None,
-            accounted_files=args.accounted_file or None,
+            summary=_g("summary"),
+            failed_points=_gl("failed_point"),
+            coverage_mode=_g("coverage_mode"),
+            main_path_status=_g("main_path_status"),
+            source_files=_gl("source_file"),
+            accounted_files=_gl("accounted_file"),
             function_traces=function_traces or None,
         )
     except ValueError as e:
         print(f"Integration test blocked: {e}", file=sys.stderr)
         raise SystemExit(1)
-    print(f"Integration test recorded: {args.milestone_id} status={args.status}")
+    print(f"Integration test recorded: {_g('milestone_id')} status={_g('status')}")
 
 def _cmd_milestone_arch_review(args: argparse.Namespace) -> None:
     from ..core.state.milestone_ops import record_milestone_arch_review
+    def _g(key, default=""):
+        return getattr(args, key, default)
+    def _gl(key, default=None):
+        return getattr(args, key, default)
     iface = []
-    if args.interface:
-        for i in args.interface:
-            parts = i.split("→", 1)
-            from_g = parts[0].strip() if parts else ""
-            to_g = parts[1].strip() if len(parts) > 1 else ""
-            iface.append({"from_goal": from_g, "to_goal": to_g, "status": "intact"})
+    for i in _gl("interface") or []:
+        parts = i.split("→", 1)
+        from_g = parts[0].strip() if parts else ""
+        to_g = parts[1].strip() if len(parts) > 1 else ""
+        iface.append({"from_goal": from_g, "to_goal": to_g, "status": "intact"})
     issues = []
-    for item in args.issue or []:
+    for item in _gl("issue") or []:
         severity, sep, description = item.partition(":::")
         if not sep:
-            print(
-                "Architecture review blocked: --issue requires SEVERITY:::DESCRIPTION",
-                file=sys.stderr,
-            )
+            print("Architecture review blocked: --issue requires SEVERITY:::DESCRIPTION", file=sys.stderr)
             raise SystemExit(1)
-        issues.append({
-            "severity": severity.strip().lower(),
-            "description": description.strip(),
-            "disposition": "open",
-        })
+        issues.append({"severity": severity.strip().lower(), "description": description.strip(), "disposition": "open"})
     try:
         result = record_milestone_arch_review(
             str(Path.cwd()),
-            args.milestone_id,
-            status=args.status,
+            _g("milestone_id"),
+            status=_g("status"),
             interface_integrity=iface or None,
             cross_goal_issues=issues or None,
-            notes=args.notes or "",
-            resolution=args.resolution or "",
-            resolution_evidence_ids=args.resolution_evidence_id or None,
+            notes=_g("notes"),
+            resolution=_g("resolution"),
+            resolution_evidence_ids=_gl("resolution_evidence_ids"),
         )
     except ValueError as e:
         print(f"Architecture review blocked: {e}", file=sys.stderr)
         raise SystemExit(1)
-    print(f"Architecture review recorded: {args.milestone_id} status={args.status}")
+    print(f"Architecture review recorded: {_g('milestone_id')} status={_g('status')}")
+
+def _cmd_milestone_archive(args: argparse.Namespace) -> None:
+    from ..core.state.milestone_ops import upsert_milestone
+    try:
+        result = upsert_milestone(
+            str(Path.cwd()),
+            args.milestone_id,
+            status="archived",
+        )
+    except ValueError as e:
+        print(f"Milestone archive blocked: {e}", file=sys.stderr)
+        raise SystemExit(1)
+    m = result["milestone"]
+    print(f"Milestone archived: {m['milestone_id']} reason={args.reason}")
+
+
+def _cmd_milestone_link_plan(args: argparse.Namespace) -> None:
+    from ..core.state.milestone_ops import link_milestone_plan
+    result = link_milestone_plan(str(Path.cwd()), args.milestone_id, args.plan_id)
+    print(f"Milestone link-plan: {args.milestone_id} <- {args.plan_id} linked={result.get('linked', False)}")
+
+
+def _cmd_milestone_unlink_plan(args: argparse.Namespace) -> None:
+    from ..core.state.milestone_ops import unlink_milestone_plan
+    result = unlink_milestone_plan(str(Path.cwd()), args.milestone_id, args.plan_id)
+    print(f"Milestone unlink-plan: {args.milestone_id} -/-> {args.plan_id} unlinked={result.get('unlinked', False)}")
+
+
+def _cmd_milestone_link_task(args: argparse.Namespace) -> None:
+    from ..core.state.milestone_ops import link_milestone_task
+    result = link_milestone_task(str(Path.cwd()), args.milestone_id, args.task_id)
+    print(f"Milestone link-task: {args.milestone_id} <- {args.task_id} linked={result.get('linked', False)}")
+
+
+def _cmd_milestone_unlink_task(args: argparse.Namespace) -> None:
+    from ..core.state.milestone_ops import unlink_milestone_task
+    result = unlink_milestone_task(str(Path.cwd()), args.milestone_id, args.task_id)
+    print(f"Milestone unlink-task: {args.milestone_id} -/-> {args.task_id} unlinked={result.get('unlinked', False)}")
+
 
 def _cmd_milestone_help(args: argparse.Namespace) -> None:
-    print("AIWF Milestone Optional Node")
+    print("AIWF Milestone — node and acceptance")
     print()
-    print("Milestones are stable version checkpoints — cross-Goal integration")
-    print("verification + architecture integrity review + snapshot + git tag.")
-    print()
-    print("Available subcommands:")
-    print("  aiwf milestone create MS-001 --goal-id GOAL-001 --title '...'")
-    print("  aiwf milestone list")
+    print("Node:")
+    print("  aiwf milestone create MS-001 --title '...'")
     print("  aiwf milestone show MS-001")
-    print("  aiwf milestone update MS-001 --status active")
+    print("  aiwf milestone list")
+    print("  aiwf milestone rename MS-001 --title '...'")
+    print("  aiwf milestone cancel MS-001 --reason '...'")
+    print("  aiwf milestone link-plan MS-001 PLAN-001")
+    print("  aiwf milestone unlink-plan MS-001 PLAN-001")
+    print("  aiwf milestone link-task MS-001 TASK-001")
+    print("  aiwf milestone unlink-task MS-001 TASK-001")
+    print()
+    print("Acceptance (human confirm required):")
+    print("  aiwf milestone integration-test MS-001 --status passed --coverage-mode end_to_end_flow --main-path-status passed --command '...'")
+    print("  aiwf milestone arch-review MS-001 --status intact --notes '...'")
     print("  aiwf milestone assess MS-001 --verdict PASS --summary '...'")
-    print("  aiwf milestone integration-test MS-001 --status passed --command '...'")
-    print("  aiwf milestone arch-review MS-001 --status intact --interface 'AUTH→BACKEND'")
-    print("  aiwf milestone confirm MS-001 --summary 'User accepted stage delivery'")
+    print("  aiwf milestone confirm MS-001 --summary '...'     — HUMAN ONLY")
     print("  aiwf milestone close MS-001")

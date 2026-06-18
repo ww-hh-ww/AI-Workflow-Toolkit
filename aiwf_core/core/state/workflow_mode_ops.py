@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from ._common import _execution_contract_frozen, _freeze_explanation, _read, _write
+from .goal_ops import get_active_goal
 from ..task_ledger import WORKFLOW_LEVELS
 
 def record_quality_policy(
@@ -63,7 +64,7 @@ def record_quality_policy(
     hard_l3_types = {"data_migration", "destructive_command", "publish_or_deploy"}
     hard_l3_flags = set(risk_flags or []) & hard_l3_types
     # Auto-detect destructive intent from goal text (crude but effective)
-    goal_data = _read(base / ".aiwf" / "state" / "goal.json")
+    goal_data = get_active_goal(base_dir)
     goal_text = (goal_data.get("current_goal") or goal_data.get("active_goal") or "").lower()
     destructive_keywords = [
         "purge", "delete all", "wipe", "clear all", "drop all",

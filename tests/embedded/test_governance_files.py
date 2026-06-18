@@ -30,7 +30,7 @@ class TestGovernanceFiles(unittest.TestCase):
         s = json.loads((self.tmp / ".aiwf" / "state" / "state.json").read_text())
         s["active_context_id"] = "CTX-001"
         (self.tmp / ".aiwf" / "state" / "state.json").write_text(json.dumps(s, indent=2))
-        (self.tmp / ".aiwf" / "state" / "contexts.json").write_text(json.dumps(
+        (self.tmp / ".aiwf" / "state" / "state.json").write_text(json.dumps(
             {"contexts": [{"id": "CTX-001", "allowed_write": allowed}]}, indent=2))
 
     def _scope_check(self, path):
@@ -50,24 +50,24 @@ class TestGovernanceFiles(unittest.TestCase):
         self.assertNotIn("permissionDecision", out)
 
     def test_review_json_allowed(self):
-        self._set_scope(["src/"]); _, out = self._scope_check(".aiwf/artifacts/quality/review.json")
+        self._set_scope(["src/"]); _, out = self._scope_check(".aiwf/records/review.jsonl")
         self.assertNotIn("permissionDecision", out)
 
     # ── report and assets ──
     def test_report_md_allowed(self):
-        self._set_scope(["src/"]); _, out = self._scope_check(".aiwf/artifacts/reports/闭合报告.md")
+        self._set_scope(["src/"]); _, out = self._scope_check(".aiwf/records/闭合报告.md")
         self.assertNotIn("permissionDecision", out)
 
     def test_project_map_md_allowed(self):
-        self._set_scope(["src/"]); _, out = self._scope_check(".aiwf/artifacts/reports/项目地图.md")
+        self._set_scope(["src/"]); _, out = self._scope_check(".aiwf/records/项目地图.md")
         self.assertNotIn("permissionDecision", out)
 
     def test_ideas_md_allowed(self):
-        self._set_scope(["src/"]); _, out = self._scope_check(".aiwf/artifacts/reports/ideas.md")
+        self._set_scope(["src/"]); _, out = self._scope_check(".aiwf/records/ideas.md")
         self.assertNotIn("permissionDecision", out)
 
     def test_current_state_md_allowed(self):
-        self._set_scope(["src/"]); _, out = self._scope_check(".aiwf/artifacts/reports/当前状态.md")
+        self._set_scope(["src/"]); _, out = self._scope_check(".aiwf/records/当前状态.md")
         self.assertNotIn("permissionDecision", out)
 
     def test_assets_project_map_allowed(self):
@@ -99,9 +99,9 @@ class TestGovernanceFiles(unittest.TestCase):
     def test_classify_governance(self):
         from aiwf_core.core.scope_policy import classify_file_change
         self.assertEqual(classify_file_change(".aiwf/state/state.json"), "governance")
-        self.assertEqual(classify_file_change(".aiwf/artifacts/reports/闭合报告.md"), "governance")
-        self.assertEqual(classify_file_change(".aiwf/artifacts/reports/项目地图.md"), "governance")
-        self.assertEqual(classify_file_change(".aiwf/artifacts/reports/ideas.md"), "governance")
+        self.assertEqual(classify_file_change(".aiwf/records/闭合报告.md"), "governance")
+        self.assertEqual(classify_file_change(".aiwf/records/项目地图.md"), "governance")
+        self.assertEqual(classify_file_change(".aiwf/records/ideas.md"), "governance")
         self.assertEqual(classify_file_change(".aiwf/assets/project-map.json"), "governance")
         self.assertEqual(classify_file_change(".aiwf/experiment-artifacts/x.md"), "governance")
         self.assertEqual(classify_file_change("src/main.py"), "project")
@@ -111,7 +111,7 @@ class TestGovernanceFiles(unittest.TestCase):
         """Governance files never trigger project scope violation."""
         self._set_scope(["src/"])
         from aiwf_core.hooks.common.evidence_writer import check_and_record_scope_violations
-        files = [".aiwf/artifacts/reports/闭合报告.md", ".aiwf/assets/x.json", ".aiwf/experiment-artifacts/r.md"]
+        files = [".aiwf/records/闭合报告.md", ".aiwf/assets/x.json", ".aiwf/experiment-artifacts/r.md"]
         violations = check_and_record_scope_violations(
             files, {"id": "CTX-001", "allowed_write": ["src/"]}, self.tmp)
         self.assertEqual(len(violations), 0)

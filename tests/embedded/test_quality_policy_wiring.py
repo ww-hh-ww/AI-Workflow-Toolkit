@@ -30,15 +30,22 @@ class TestQualityPolicyWiring(unittest.TestCase):
     # ── state schema ──
 
     def test_default_state_has_quality_policy_fields(self):
+        # V2: quality policy fields are injected by record_quality_policy, not in default_state
         from aiwf_core.core.state_schema import default_state
+        from aiwf_core.core.state_ops import record_quality_policy
         s = default_state()
+        # default_state no longer carries quality fields before record_quality_policy
+        # After calling record_quality_policy, they are injected
+        record_quality_policy(str(self.tmp), "small_function", "L1_review_light",
+                              routing_reason="2-file feature")
+        s2 = _rj(self.tmp / ".aiwf" / "state" / "state.json")
         for field in ["task_type", "test_template", "review_template", "git_policy"]:
-            self.assertIn(field, s, f"Missing {field}")
-        self.assertEqual(s["git_policy"], "no_auto_commit")
+            self.assertIn(field, s2, f"Missing {field}")
+        self.assertEqual(s2["git_policy"], "no_auto_commit")
         # All quality fields are short strings or lists
         for field in ["test_template", "review_template", "exploration_budget",
                        "asset_policy", "cleanup_policy", "git_policy"]:
-            val = s.get(field, "")
+            val = s2.get(field, "")
             self.assertLess(len(str(val)), 100, f"{field} too long: {len(str(val))}")
 
     # ── record_quality_policy ──
@@ -75,13 +82,15 @@ class TestQualityPolicyWiring(unittest.TestCase):
     # ── skill text checks ──
 
     def test_planner_skill_has_quality_policy_selection(self):
-        # Quality policy selection details live in planner-contracts sub-skill
-        content = (self.tmp / ".claude" / "skills" / "aiwf-planner-contracts" / "SKILL.md").read_text()
-        self.assertIn("quality", content.lower())
-        # Parent planner delegates to sub-skills
+        # V1: Contracts sub-skill covers goal/plan/task creation
+        content = (self.tmp / ".claude" / "skills" / "aiwf-planner" / "references" / "task-contract.md").read_text()
+        self.assertIn("goal", content.lower())
+        self.assertIn("plan", content.lower())
+        self.assertIn("task", content.lower())
+        # V1: Parent planner is self-contained strategy document
         planner = (self.tmp / ".claude" / "skills" / "aiwf-planner" / "SKILL.md").read_text()
-        self.assertIn("quality policy", planner.lower())
-        self.assertIn("aiwf-planner-contracts", planner.lower())
+        self.assertIn("task strategist", planner.lower())
+        self.assertIn("aiwf status", planner.lower())
 
     def test_test_skill_reads_test_template(self):
         content = (self.tmp / ".claude" / "skills" / "aiwf-test" / "SKILL.md").read_text()

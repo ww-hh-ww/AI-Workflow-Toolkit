@@ -1,8 +1,7 @@
-"""Task plan artifacts — AI working memory, not long-form documentation.
+"""Plan semantic documents.
 
-.aiwf/state/plans.json is the Plan machine authority.
-.aiwf/artifacts/plans/<PLAN-ID>.md is the compact human artifact. Task-named
-plan markdown is retired and never activation truth.
+.aiwf/state/plans.json is the Plan machine index.
+.aiwf/plans/<PLAN-ID>.md is the Plan semantic document.
 """
 from __future__ import annotations
 
@@ -12,16 +11,18 @@ from typing import Dict, List, Optional
 import json
 
 VALID_PLAN_SECTIONS = {
-    # New V2 sections
-    "goal": "Goal",
-    "route": "Route",
+    # V2 sections
+    "strategy": "Strategy",
     "scope": "Scope",
     "risks": "Risks",
-    "decision": "Current Decision",
     "verification": "Verification",
-    "impact": "Impact",
-    "docs-assets": "Impact",  # retired alias accepted only when editing old artifacts
     "done-means": "Done Means",
+    # Legacy sections (still valid)
+    "goal": "Goal",
+    "route": "Route",
+    "decision": "Current Decision",
+    "impact": "Impact",
+    "docs-assets": "Impact",
     "goal-progress": "Goal Progress",
     "next-steps": "Next Steps",
 }
@@ -43,7 +44,7 @@ def _now() -> str:
 
 
 def _plans_dir(base_dir: str) -> Path:
-    return Path(base_dir) / ".aiwf" / "artifacts" / "plans"
+    return Path(base_dir) / ".aiwf" / "plans"
 
 
 def _safe_task_id(task_id: str) -> str:
@@ -89,8 +90,9 @@ def _default_plan(task_id: str, context_id: str = "", title: str = "",
     header_lines = [
         f"# {task_id}",
         "",
-        "> AI working plan. Compact task-local execution memory.",
-        "> Closure gates: .aiwf JSON (testing, review, evidence, cleanup, meta-critique).",
+        "> Plan semantic document.",
+        "> Use this file for intent, decisions, task breakdown, risks, and strategy.",
+        "> JSON only indexes this Plan and links related tasks.",
         "",
         f"Plan ID: {task_id}",
         f"Target Goal: {tg}",
@@ -225,7 +227,7 @@ def create_task_plan(
     try:
         from .state.plan_ops import upsert_plan
         upsert_plan(base_dir, effective_plan_id, goal_id=goal_id, task_ids=attached_tasks,
-                    status="ready", title=title or effective_plan_id,
+                    status="open", title=title or effective_plan_id,
                     milestone_id=milestone_id,
                     target_goal_id=tg,
                     plan_kind=kind,
@@ -244,8 +246,9 @@ def create_task_plan(
                     escalation_triggers=escalation_triggers)
     except ValueError:
         raise
-    except Exception:
-        pass
+    except Exception as exc:
+        return {"path": str(path), "created": False, "error": str(exc),
+                "plan_id": effective_plan_id}
     # Plan is created; activation (setting active_plan_id) is a separate,
     # explicit decision made by the planner-executor via aiwf plan activate.
     # Creating a plan does NOT auto-activate it — otherwise creating N plans

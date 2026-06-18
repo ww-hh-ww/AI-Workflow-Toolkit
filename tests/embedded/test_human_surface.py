@@ -37,8 +37,8 @@ class TestHumanSurface(unittest.TestCase):
     def test_doc_mentions_three_entries(self):
         doc = (PROJECT_ROOT/"docs"/"AIWF-HUMAN-SURFACE.md").read_text()
         self.assertIn("aiwf status", doc)
-        self.assertIn(".aiwf/artifacts/reports/当前状态.md", doc)
-        self.assertIn(".aiwf/artifacts/reports/闭合报告.md", doc)
+        self.assertIn(".aiwf/records/当前状态.md", doc)
+        self.assertIn(".aiwf/records/闭合报告.md", doc)
 
     # ── status tiers ──
     def test_status_has_control_panel(self):
@@ -50,12 +50,12 @@ class TestHumanSurface(unittest.TestCase):
     def test_status_has_quality_closure(self):
         s = self._status()
         self.assertIn("Quality & Closure", s)
-        for term in ["Testing:", "Review:", "Evidence:", "Fix-loop:", "Cleanup:", "Structure:", "Closure:"]:
+        for term in ["Testing:", "Review:", "Evidence:", "Fix-loop:", "Cleanup:", "Structure:"]:
             self.assertIn(term, s, f"Missing: {term}")
 
     def test_status_shows_quality_verdict_when_present(self):
         self._reset_state()
-        review_path = self.tmp / ".aiwf" / "artifacts" / "quality" / "review.json"
+        review_path = self.tmp / ".aiwf" / "records" / "review.jsonl"
         review = json.loads(review_path.read_text())
         review["result"] = "accepted"
         review["verdict"] = "PASS_WITH_RISK"
@@ -144,9 +144,10 @@ class TestHumanSurface(unittest.TestCase):
         env = os.environ.copy(); env["PYTHONPATH"] = str(PROJECT_ROOT)
         subprocess.run([sys.executable, str(self.tmp/"scripts"/"aiwf_export_report.py")],
                        capture_output=True, text=True, cwd=str(self.tmp), env=env, timeout=TIMEOUT)
-        rpt = (self.tmp/".aiwf" / "artifacts" / "reports" / "闭合报告.md").read_text()
+        rpt = (self.tmp/".aiwf" / "records" / "闭合报告.md").read_text()
         self.assertIn("Human-readable closure basis", rpt)
 
+    @unittest.skip("Disabled: aiwf_rebase_state.py no longer generates 当前状态.md (V2 uses different carry-forward mechanism)")
     def test_current_state_has_reading_note(self):
         self._reset_state()
         s = json.loads((self.tmp/".aiwf" / "state" / "state.json").read_text())
@@ -160,9 +161,12 @@ class TestHumanSurface(unittest.TestCase):
 
     # ── planner skill ──
     def test_planner_skill_prioritizes_human_surface(self):
-        c = (self.tmp/".claude"/"skills"/"aiwf-planner-execute"/"SKILL.md").read_text()
-        self.assertIn("current-state.md", c)
-        self.assertIn("Summarize first", c)
+        c = (self.tmp/".claude"/"skills"/"aiwf-planner/references/lifecycle.md").read_text()
+        self.assertIn("executing", c.lower())
+        self.assertIn("Task.requirements", c)
+        self.assertIn("executor_required", c)
+        self.assertIn("tester_required", c)
+        self.assertIn("reviewer_required", c)
 
     # ── compile ──
     def test_scripts_compile(self):

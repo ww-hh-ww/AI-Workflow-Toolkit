@@ -51,8 +51,12 @@ def accepted_evidence_session_ids(
 
 
 def session_diversity_required(state: Dict[str, Any]) -> bool:
-    """Independent session evidence is mechanical for L2/L3, not for light flows."""
-    return state.get("workflow_level") in ("L2_standard_team", "L3_full_power")
+    """LEGACY: Independent session evidence was mechanical for L2/L3.
+
+    V1: Session diversity is NOT a runtime gate. Task.requirements controls
+    subagent dispatch. This function always returns False in V1.
+    """
+    return False
 
 
 def evidence_session_diversity_ok(
@@ -116,14 +120,11 @@ def closure_conditions_met(
             missing.append("review")
 
         from .review_contract import quality_verdict_blockers
+        # V1: quality verdict check without workflow_level gating
         verdict_blockers = quality_verdict_blockers(review)
         if verdict_blockers:
             blockers.extend(verdict_blockers)
             missing.append("review")
-
-        if review.get("cleanup_status") != "fresh" or review.get("stale_items"):
-            blockers.append("cleanup not fresh")
-            missing.append("cleanup")
 
     # No close attempt and not closed: not passed, but no blockers to report.
     if not close_attempt and state.get("phase") != "closed":

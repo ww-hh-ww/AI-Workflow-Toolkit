@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from ._common import _execution_contract_frozen, _freeze_explanation, _read, _write
+from .goal_ops import get_active_goal
 from .context_ops import record_role_evidence
 from ..evidence_schema import trust_level_rank
 
@@ -45,7 +46,7 @@ def mark_cleanup_fresh(
     Replaces stale cleanup_notes with resolved notes.
     """
     base = Path(base_dir)
-    review_path = base / ".aiwf" / "artifacts" / "quality" / "review.json"
+    review_path = base / ".aiwf" / "records" / "review.json"
     review = _read(review_path)
 
     review["cleanup_status"] = "fresh"
@@ -77,7 +78,7 @@ def mark_cleanup_stale(
 ) -> Dict[str, Any]:
     """Set cleanup_status=stale with specific items and blockers."""
     base = Path(base_dir)
-    review_path = base / ".aiwf" / "artifacts" / "quality" / "review.json"
+    review_path = base / ".aiwf" / "records" / "review.json"
     review = _read(review_path)
 
     review["cleanup_status"] = "stale"
@@ -98,9 +99,9 @@ def prepare_close(base_dir: str) -> Dict[str, Any]:
     """
     base = Path(base_dir)
     state_path = base / ".aiwf" / "state" / "state.json"
-    review_path = base / ".aiwf" / "artifacts" / "quality" / "review.json"
-    evidence_path = base / ".aiwf" / "artifacts" / "evidence" / "records.json"
-    testing_path = base / ".aiwf" / "artifacts" / "quality" / "testing.json"
+    review_path = base / ".aiwf" / "records" / "review.json"
+    evidence_path = base / ".aiwf" / "records" / "evidence.json"
+    testing_path = base / ".aiwf" / "records" / "testing.json"
     fix_loop_path = base / ".aiwf" / "state" / "fix-loop.json"
 
     state = _read(state_path)
@@ -196,7 +197,7 @@ def prepare_close(base_dir: str) -> Dict[str, Any]:
     tstat = testing.get("status", "missing")
     if tstat == "missing":
         blockers.append(
-            "testing not recorded. Run aiwf state record-testing --status passed."
+            "testing not recorded. Run aiwf record testing --status passed."
         )
     elif tstat not in ("passed", "adequate"):
         blockers.append(
@@ -208,7 +209,7 @@ def prepare_close(base_dir: str) -> Dict[str, Any]:
     rstat = review.get("result", "unknown")
     if rstat == "unknown":
         blockers.append(
-            "review not recorded. Run aiwf state record-review --result accepted."
+            "review not recorded. Run aiwf record review --result accepted."
         )
     elif rstat != "accepted":
         blockers.append(
@@ -229,7 +230,7 @@ def prepare_close(base_dir: str) -> Dict[str, Any]:
     # 5. Cleanup done — has the project been cleaned up?
     if review.get("cleanup_status") != "fresh" or review.get("stale_items"):
         blockers.append(
-            "cleanup not fresh. Run aiwf state mark-cleanup-fresh."
+            "cleanup not fresh. Run aiwf record review  # with cleanup verified."
         )
 
     # 6. Impact consistency — does the active plan's Impact match actual changes?
@@ -277,7 +278,7 @@ def prepare_close(base_dir: str) -> Dict[str, Any]:
         blockers.append(
             f"Post-hoc: {len(phantom_ids)} accepted evidence ID(s) reference nonexistent records: "
             f"{', '.join(str(eid) for eid in phantom_ids[:5])}. "
-            f"Recovery: aiwf state record-review --verdict REVISE --blocker 'phantom-evidence' "
+            f"Recovery: aiwf record review --verdict REVISE --blocker 'phantom-evidence' "
             f"--accepted-evidence-id <REAL-ID>, then re-run prepare-close."
         )
 
@@ -288,8 +289,8 @@ def prepare_close(base_dir: str) -> Dict[str, Any]:
         post_hoc_warnings.append(
             f"Testing recorded {len(test_commands)} command(s) but no evidence_ids — "
             "test commands are not traceable to machine evidence. "
-            "Recovery: run aiwf state record-role-evidence --role tester --scan-git --command '<cmd>' "
-            "to link test commands to evidence, or re-run aiwf state record-testing with --evidence-id."
+            "Recovery: run aiwf record evidence --role tester --scan-git --command '<cmd>' "
+            "to link test commands to evidence, or re-run aiwf record testing with --evidence-id."
         )
     if test_evidence_ids:
         missing_test_ev = [eid for eid in test_evidence_ids if str(eid) not in record_by_id]
@@ -304,9 +305,9 @@ def prepare_close(base_dir: str) -> Dict[str, Any]:
     if testing.get("status") == "passed" and not test_commands and not test_evidence_ids:
         post_hoc_warnings.append(
             "Testing status is 'passed' but no commands and no evidence_ids were recorded. "
-            "Recovery: re-run tests and record with aiwf state record-testing --status passed "
+            "Recovery: re-run tests and record with aiwf record testing --status passed "
             "--command 'pytest ...' --evidence-id <ID>, or if testing is genuinely not command-based, "
-            "record manual testing evidence with aiwf state record-role-evidence --role tester."
+            "record manual testing evidence with aiwf record evidence --role tester."
         )
 
     # 7e. README.md: if it doesn't exist, remind Planner to create one.
@@ -341,7 +342,7 @@ def prepare_close(base_dir: str) -> Dict[str, Any]:
     if rev_ev_id and str(rev_ev_id) not in record_by_id:
         post_hoc_warnings.append(
             f"Reviewer evidence ID '{rev_ev_id}' does not match any evidence record. "
-            "Recovery: re-record review with aiwf state record-review --verdict ... "
+            "Recovery: re-record review with aiwf record review --verdict ... "
             "to generate a valid evidence ID."
         )
 
@@ -387,10 +388,10 @@ def build_close_summary(base_dir: str) -> str:
     """Build a user-facing close summary. What was done and how thoroughly."""
     base = Path(base_dir)
     state = _read(base / ".aiwf" / "state" / "state.json")
-    review = _read(base / ".aiwf" / "artifacts" / "quality" / "review.json")
-    testing = _read(base / ".aiwf" / "artifacts" / "quality" / "testing.json")
-    evidence = _read(base / ".aiwf" / "artifacts" / "evidence" / "records.json")
-    goal = _read(base / ".aiwf" / "state" / "goal.json")
+    review = _read(base / ".aiwf" / "records" / "review.json")
+    testing = _read(base / ".aiwf" / "records" / "testing.json")
+    evidence = _read(base / ".aiwf" / "records" / "evidence.json")
+    goal = get_active_goal(base_dir)
     lines = []
     warns = []
 

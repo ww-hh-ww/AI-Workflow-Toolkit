@@ -85,7 +85,7 @@ def record_post_tool_event(
         op_attribution: "strong" or "weak".
     """
     base = Path(cwd) if cwd else Path(event.cwd) if event.cwd else Path.cwd()
-    evidence_path = base / ".aiwf" / "artifacts" / "evidence" / "records.json"
+    evidence_path = base / ".aiwf" / "records" / "evidence.json"
     state_path = base / ".aiwf" / "state" / "state.json"
 
     state = _read_json(state_path, {})
@@ -172,7 +172,7 @@ def record_post_tool_event(
         if active_task_id:
             record_dict["task_id"] = active_task_id
             try:
-                ledger_path = base / ".aiwf" / "runtime" / "history" / "task-ledger.json"
+                ledger_path = base / ".aiwf" / "state" / "tasks.json"
                 ledger = _read_json(ledger_path, {"tasks": []}) if ledger_path.exists() else {"tasks": []}
                 for task in ledger.get("tasks", []) or []:
                     if isinstance(task, dict) and task.get("id") == active_task_id:
@@ -190,7 +190,7 @@ def record_post_tool_event(
     record, final_source, gov_files, op_files = _locked_json_update(evidence_path, default_evidence(), _append)
 
     role_text = f"{event.agent_type} {event.agent_id}".lower()
-    if "reviewer" in role_text and ".aiwf/artifacts/quality/review.json" in gov_files:
+    if "reviewer" in role_text and ".aiwf/records/review.json" in gov_files:
         state["phase"] = "reviewing"
         _write_json(state_path, state)
 
@@ -236,7 +236,7 @@ def check_and_record_scope_violations(
         state["scope_violation"] = True
         _write_json(state_path, state)
 
-        review_path = base / ".aiwf" / "artifacts" / "quality" / "review.json"
+        review_path = base / ".aiwf" / "records" / "review.json"
         from ...core.state_schema import default_review
         review = _read_json(review_path, default_review())
         for vf in violations:
@@ -248,7 +248,7 @@ def check_and_record_scope_violations(
             task_allowed = []
             if active_task_id:
                 try:
-                    ledger_path = base / ".aiwf" / "runtime" / "history" / "task-ledger.json"
+                    ledger_path = base / ".aiwf" / "state" / "tasks.json"
                     ledger = _read_json(ledger_path, {"tasks": []})
                     for t in ledger.get("tasks", []) or []:
                         if isinstance(t, dict) and t.get("id") == active_task_id:
@@ -273,20 +273,9 @@ def check_and_record_scope_violations(
                 events.append(event)
         _write_json(review_path, review)
 
-        fl_path = base / ".aiwf" / "state" / "fix-loop.json"
-        from ...core.state_schema import default_fix_loop
-        fix_loop = _read_json(fl_path, default_fix_loop())
-        fix_loop["status"] = "open"
-        fix_loop["route"] = "planner-main"
-        fixes = fix_loop.setdefault("required_fixes", [])
-        msg = f"Resolve scope violations: {', '.join(violations)}"
-        if msg not in fixes:
-            fixes.append(msg)
-        _write_json(fl_path, fix_loop)
-
     if drifts:
         from datetime import datetime, timezone
-        review_path = base / ".aiwf" / "artifacts" / "quality" / "review.json"
+        review_path = base / ".aiwf" / "records" / "review.json"
         from ...core.state_schema import default_review
         review = _read_json(review_path, default_review())
         events = review.setdefault("scope_drift_events", [])
@@ -311,7 +300,11 @@ def check_and_record_scope_violations(
 
 
 def check_and_record_missing_active_task(changed_files: list, base: Path) -> list:
-    """Record project mutation without an active task as a hard protocol violation."""
+    """Post-tool safety net: record project writes without active task.
+
+    The pre-tool scope guard should block these, but this catches any bypass.
+    Records a scope violation but does not open fix-loop (simple binary check).
+    """
     project_files = filter_internal(changed_files, cwd=base)
     if not project_files:
         return []
@@ -321,14 +314,4 @@ def check_and_record_missing_active_task(changed_files: list, base: Path) -> lis
         return []
     state["scope_violation"] = True
     _write_json(state_path, state)
-    review_path = base / ".aiwf" / "artifacts" / "quality" / "review.json"
-    from ...core.state_schema import default_review
-    review = _read_json(review_path, default_review())
-    blockers = review.setdefault("blockers", [])
-    message = "project mutation occurred without an active task: " + ", ".join(project_files[:5])
-    if message not in blockers:
-        blockers.append(message)
-    review["result"] = "scope_violation"
-    review["closure_allowed"] = False
-    _write_json(review_path, review)
     return project_files

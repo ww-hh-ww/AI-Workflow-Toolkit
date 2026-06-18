@@ -11,7 +11,7 @@ from typing import Any, Dict, List, NamedTuple
 
 from .constants import VERSION
 from .core.state_schema import MVP_STATE_FILES
-from .core.paths import ALL_DIRS, STATE_JSON, GOAL_JSON, CONTEXTS_JSON, FIX_LOOP_JSON, EVIDENCE_JSON, TESTING_JSON, REVIEW_JSON, TASK_HISTORY_JSON, TASK_LEDGER_JSON, QUALITY_DIGEST_MD, PROJECT_MAP_MD, BASELINE_JSON
+from .core.paths import ALL_DIRS, STATE_JSON, GOALS_JSON, PLANS_JSON, TASKS_JSON, MILESTONES_JSON, FIX_LOOP_JSON, RECORDS_EVIDENCE, RECORDS_TESTING, RECORDS_REVIEW, RECORDS_ARCHITECTURE_REVIEW, RECORDS_EVENTS, WORKSPACE_DRIFT_JSON
 from .io import read_json, rel, write_json, write_text
 from .utils import now
 
@@ -36,7 +36,7 @@ TARGETS: Dict[str, EmbedTarget] = {
         config_dir=".claude",
         project_env_var="CLAUDE_PROJECT_DIR",
         instruction_file="CLAUDE.md",
-        entry_command="/aiwf-init",
+        entry_command="aiwf status --prompt",
     ),
     "reasonix": EmbedTarget(
         mode="reasonix",
@@ -45,7 +45,7 @@ TARGETS: Dict[str, EmbedTarget] = {
         config_dir=".reasonix",
         project_env_var="REASONIX_PROJECT_DIR",
         instruction_file="REASONIX.md",
-        entry_command="/skill aiwf-init",
+        entry_command="aiwf status --prompt",
     ),
 }
 
@@ -241,25 +241,33 @@ def _write_settings(target: EmbedTarget | None = None) -> Path:
 _TEMPLATE_ROOT = Path(__file__).resolve().parent / "embedded_templates"
 
 SKILL_TEMPLATES = {
-    "aiwf-init": "skills/aiwf-init/SKILL.md",
     "aiwf-planner": "skills/aiwf-planner/SKILL.md",
-    "aiwf-planner-docs": "skills/aiwf-planner-docs/SKILL.md",
-    "aiwf-planner-contracts": "skills/aiwf-planner-contracts/SKILL.md",
-    "aiwf-planner-execute": "skills/aiwf-planner-execute/SKILL.md",
-    "aiwf-planner-meta": "skills/aiwf-planner-meta/SKILL.md",
     "aiwf-implement": "skills/aiwf-implement/SKILL.md",
     "aiwf-test": "skills/aiwf-test/SKILL.md",
     "aiwf-review": "skills/aiwf-review/SKILL.md",
-    "aiwf-review-trace": "skills/aiwf-review-trace/SKILL.md",
-    "aiwf-review-verify": "skills/aiwf-review-verify/SKILL.md",
-    "aiwf-review-output": "skills/aiwf-review-output/SKILL.md",
     "aiwf-close": "skills/aiwf-close/SKILL.md",
+    "aiwf-milestone": "skills/aiwf-milestone/SKILL.md",
     "aiwf-architect": "skills/aiwf-architect/SKILL.md",
-    "aiwf-architecture-doc": "skills/aiwf-architecture-doc/SKILL.md",
-    "aiwf-explore": "skills/aiwf-explore/SKILL.md",
-    "aiwf-curate": "skills/aiwf-curate/SKILL.md",
-    "aiwf-milestone-integration": "skills/aiwf-milestone-integration/SKILL.md",
-    "aiwf-milestone-arch-review": "skills/aiwf-milestone-arch-review/SKILL.md",
+}
+
+SKILL_REFERENCE_TEMPLATES = {
+    "aiwf-planner": {
+        "references/task-contract.md": "skills/aiwf-planner/references/task-contract.md",
+        "references/lifecycle.md": "skills/aiwf-planner/references/lifecycle.md",
+        "references/risk-and-rollback.md": "skills/aiwf-planner/references/risk-and-rollback.md",
+    },
+    "aiwf-review": {
+        "references/review-output.md": "skills/aiwf-review/references/review-output.md",
+        "references/trace-checklist.md": "skills/aiwf-review/references/trace-checklist.md",
+        "references/verify-checklist.md": "skills/aiwf-review/references/verify-checklist.md",
+    },
+    "aiwf-milestone": {
+        "references/integration.md": "skills/aiwf-milestone/references/integration.md",
+        "references/architecture-review.md": "skills/aiwf-milestone/references/architecture-review.md",
+    },
+    "aiwf-architect": {
+        "references/architecture-checklist.md": "skills/aiwf-architect/references/architecture-checklist.md",
+    },
 }
 
 AGENT_TEMPLATES = {
@@ -267,7 +275,6 @@ AGENT_TEMPLATES = {
     "aiwf-executor.md": "agents/aiwf-executor.md",
     "aiwf-tester.md": "agents/aiwf-tester.md",
     "aiwf-reviewer.md": "agents/aiwf-reviewer.md",
-    "aiwf-curator.md": "agents/aiwf-curator.md",
 }
 
 SCRIPT_TEMPLATES = {
@@ -277,8 +284,6 @@ SCRIPT_TEMPLATES = {
     "aiwf_bash_guard.py": "scripts/aiwf_bash_guard.py",
     "aiwf_capture_evidence.py": "scripts/aiwf_capture_evidence.py",
     "aiwf_review_gate.py": "scripts/aiwf_review_gate.py",
-    "aiwf_export_report.py": "scripts/aiwf_export_report.py",
-    "aiwf_rebase_state.py": "scripts/aiwf_rebase_state.py",
 }
 
 
@@ -352,48 +357,13 @@ def _inject_shared_partials(relative_path: str, text: str) -> str:
 
 
 REASONIX_SUBAGENT_SKILL_CONFIG = {
-    "aiwf-implement": {
-        "runAs": "subagent",
-        "allowed-tools": "read,write,edit_file,bash,glob",
-        "model": "deepseek-chat",
-    },
-    "aiwf-test": {
-        "runAs": "subagent",
-        "allowed-tools": "read,bash,glob",
-        "model": "deepseek-chat",
-    },
-    "aiwf-review": {
-        "runAs": "subagent",
-        "allowed-tools": "read,bash,glob",
-        "model": "deepseek-chat",
-    },
-    "aiwf-architect": {
-        "runAs": "subagent",
-        "allowed-tools": "read,bash,glob",
-        "model": "deepseek-chat",
-    },
-    "aiwf-explore": {
-        "runAs": "subagent",
-        "allowed-tools": "read,bash,glob",
-        "model": "deepseek-chat",
-    },
-    "aiwf-curate": {
-        "runAs": "subagent",
-        "allowed-tools": "read,glob",
-        "model": "deepseek-chat",
-    },
-    "aiwf-milestone-integration": {
-        "runAs": "inline",
-    },
-    "aiwf-milestone-arch-review": {
-        "runAs": "inline",
-    },
-    "aiwf-close": {
-        "runAs": "inline",
-    },
-    "aiwf-planner": {
-        "runAs": "inline",
-    },
+    "aiwf-planner": {"runAs": "inline"},
+    "aiwf-implement": {"runAs": "subagent", "allowed-tools": "read,write,edit_file,bash,glob", "model": "deepseek-chat"},
+    "aiwf-test": {"runAs": "subagent", "allowed-tools": "read,bash,glob", "model": "deepseek-chat"},
+    "aiwf-review": {"runAs": "subagent", "allowed-tools": "read,bash,glob", "model": "deepseek-chat"},
+    "aiwf-close": {"runAs": "inline"},
+    "aiwf-milestone": {"runAs": "inline"},
+    "aiwf-architect": {"runAs": "subagent", "allowed-tools": "read,bash,glob", "model": "deepseek-chat"},
 }
 
 
@@ -431,13 +401,21 @@ def _write_skills(target: EmbedTarget | None = None) -> List[Path]:
     target_config = target or _target("claude")
     d = _skills_dir(target_config)
     d.mkdir(parents=True, exist_ok=True)
-    paths = []
+    paths: List[Path] = []
+
     for skill_name, template_path in SKILL_TEMPLATES.items():
         skill_dir = d / skill_name
         skill_dir.mkdir(parents=True, exist_ok=True)
         skill_path = skill_dir / "SKILL.md"
         write_text(skill_path, _target_template_text(template_path, target_config))
         paths.append(skill_path)
+
+        for rel_out, rel_template in SKILL_REFERENCE_TEMPLATES.get(skill_name, {}).items():
+            out_path = skill_dir / rel_out
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            write_text(out_path, _target_template_text(rel_template, target_config))
+            paths.append(out_path)
+
     return paths
 
 
@@ -460,47 +438,67 @@ def _write_agents(target: EmbedTarget | None = None) -> List[Path]:
 def _write_state_files() -> List[Path]:
     d = _aiwf_dir()
     d.mkdir(parents=True, exist_ok=True)
-    # Create v2 5-zone layout (Stage 4.7.3)
     for subdir in ALL_DIRS:
         (d / subdir).mkdir(parents=True, exist_ok=True)
     paths = []
     file_paths = {
-        "state.json": d / "state" / "state.json",
-        "goal.json": d / "state" / "goal.json",
-        "contexts.json": d / "state" / "contexts.json",
-        "fix-loop.json": d / "state" / "fix-loop.json",
-        "evidence.json": d / "artifacts" / "evidence" / "records.json",
-        "testing.json": d / "artifacts" / "quality" / "testing.json",
-        "review.json": d / "artifacts" / "quality" / "review.json",
+        "state/state.json": d / "state" / "state.json",
+        "state/goals.json": d / "state" / "goals.json",
+        "state/plans.json": d / "state" / "plans.json",
+        "state/tasks.json": d / "state" / "tasks.json",
+        "state/milestones.json": d / "state" / "milestones.json",
+        "state/fix-loop.json": d / "state" / "fix-loop.json",
+        "records/evidence.json": d / "records" / "evidence.json",
+        "records/testing.json": d / "records" / "testing.json",
+        "records/review.json": d / "records" / "review.json",
+        "records/architecture-review.json": d / "records" / "architecture-review.json",
+        "records/events.json": d / "records" / "events.json",
     }
-    # Write .aiwf/README.md explaining the five zones
+    # Write .aiwf/README.md
     readme_target = d / "README.md"
     if not readme_target.exists():
         readme_target.write_text(
             "\n".join([
                 "# AIWF Workspace",
                 "",
-                "This directory is AIWF's governance workspace. Humans do not normally read raw `.aiwf` files.",
-                "Ask the agent, run `aiwf status`, or read generated reports when you need a human explanation.",
+                "This directory is AIWF's governance workspace.",
                 "",
                 "Zones:",
-                "- `state/` — machine truth: registries, canonical state, gate inputs. JSON only.",
-                "- `artifacts/` — human projections: plans, reports, reviews, evidence summaries.",
-                "- `runtime/` — execution traces: history, checkpoints, internal files, caches.",
-                "- `assets/` — input assets referenced by AIWF.",
-                "- `archive/` — deprecated, migrated, or superseded material.",
+                "- `state/` — machine truth (JSON): registries, canonical state, gate inputs.",
+                "- `records/` — evidence, testing, review, architecture-review, events (JSONL).",
+                "- `goals/` — goal narrative docs (Markdown).",
+                "- `plans/` — plan narrative docs (Markdown).",
+                "- `tasks/` — task narrative docs (Markdown, execution contract).",
+                "- `milestones/` — milestone narrative docs (Markdown).",
+                "- `config/` — configuration (skill-map, command-policy).",
+                "- `runtime/internal/` — toolkit-path, drift, diag, routing-debug.",
                 "",
                 "Human entry points:",
                 "- `aiwf status`",
-                "- `.aiwf/artifacts/reports/当前状态.md`",
-                "- `.aiwf/artifacts/reports/闭合报告.md`",
-                "- `.aiwf/artifacts/reports/质量摘要.md`",
-                "",
-                "See `docs/AIWF_WORKSPACE_LAYOUT.md` for the full contract.",
+                "- `aiwf doctor`",
+                "- Narrative docs in `goals/`, `plans/`, `tasks/`, `milestones/`",
             ]),
             encoding="utf-8",
         )
         paths.append(readme_target)
+    # Write config/skill-map.json
+    skill_map_target = d / "config" / "skill-map.json"
+    if not skill_map_target.exists():
+        import shutil
+        src = _TEMPLATE_ROOT / "config" / "skill-map.json"
+        if src.exists():
+            skill_map_target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(str(src), str(skill_map_target))
+            paths.append(skill_map_target)
+    # Write config/command-policy.json
+    cmd_policy_target = d / "config" / "command-policy.json"
+    if not cmd_policy_target.exists():
+        import shutil
+        src = _TEMPLATE_ROOT / "config" / "command-policy.json"
+        if src.exists():
+            cmd_policy_target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(str(src), str(cmd_policy_target))
+            paths.append(cmd_policy_target)
     for filename, default_fn in MVP_STATE_FILES.items():
         target = file_paths.get(filename, d / filename)
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -595,19 +593,16 @@ def _migrate_legacy_paths():
 
     legacy_map = {
         "state.json": "state/state.json",
-        "goal.json": "state/goal.json",
-        "contexts.json": "state/contexts.json",
+        "goals.json": "state/goals.json",
+        "plans.json": "state/plans.json",
+        "tasks.json": "state/tasks.json",
+        "milestones.json": "state/milestones.json",
         "fix-loop.json": "state/fix-loop.json",
-        "evidence.json": "artifacts/evidence/records.json",
-        "testing.json": "artifacts/quality/testing.json",
-        "review.json": "artifacts/quality/review.json",
-        "task-history.json": "runtime/history/task-history.json",
-        "task-ledger.json": "runtime/history/task-ledger.json",
-        "current-state.md": "artifacts/reports/当前状态.md",
-        "report.md": "artifacts/reports/闭合报告.md",
-        "quality-digest.md": "artifacts/reports/质量摘要.md",
-        "PROJECT-MAP.md": "artifacts/reports/项目地图.md",
-        "baseline.json": "runtime/internal/baseline.json",
+        "task-ledger.json": "state/tasks.json",
+        "evidence.json": "records/evidence.json",
+        "testing.json": "records/testing.json",
+        "review.json": "records/review.json",
+        "architecture-review.json": "records/architecture-review.json",
     }
 
     migrated = []
@@ -619,9 +614,17 @@ def _migrate_legacy_paths():
             import shutil
             shutil.move(str(old), str(new))
             migrated.append(f"{old_name} -> {new_path}")
-    # Clean up any remaining flat-path orphans (written by old code after partial migration)
+    # Clean up old zone dirs that are no longer valid
+    dead_dirs = ["archive", "assets", "artifacts", "runtime/history", "runtime/checkpoints"]
+    for dd in dead_dirs:
+        dead = aiwf / dd
+        if dead.exists():
+            import shutil
+            shutil.rmtree(str(dead), ignore_errors=True)
+            migrated.append(f"removed dead dir: {dd}/")
+    # Clean up flat orphans
     orphan_cleanup = [
-        "state.json", "goal.json", "contexts.json", "fix-loop.json",
+        "state.json", "contexts.json", "fix-loop.json",
         "evidence.json", "testing.json", "review.json",
         "task-history.json", "task-ledger.json",
         "current-state.md", "report.md", "quality-digest.md", "PROJECT-MAP.md",
@@ -650,19 +653,6 @@ def install_embedded(mode: str = "claude", force: bool = False) -> Dict[str, Any
     # Migrate legacy flat-layout .aiwf files to v2 subdirectory layout.
     _migrate_legacy_paths()
 
-    # Brownfield scan: if project isn't empty, run full bootstrap.
-    # Must run BEFORE AIWF writes any files (CLAUDE.md, settings, scripts, etc.)
-    # so the scan only sees real user project files, not AIWF-installed ones.
-    try:
-        project_files = list(_project_root().glob("*"))
-        ignored = {".aiwf", ".claude", ".reasonix", ".git", ".DS_Store", "scripts", target.instruction_file}
-        non_aiwf = [p for p in project_files if p.name not in ignored]
-        if non_aiwf:
-            from .core.state_ops import bootstrap_project
-            bootstrap_project(str(_project_root()))
-            results["created"].append(rel(_project_root() / ".aiwf" / "runtime" / "history" / "task-history.json"))
-    except Exception:
-        pass
 
     # Embedded install uses the compact .aiwf state directory only.
     results["updated"].append(rel(_write_instruction_md(target)))
@@ -740,7 +730,8 @@ def doctor(mode: str | None = None) -> Dict[str, Any]:
         "scripts": {},
     }
 
-    for skill in ["aiwf-planner", "aiwf-planner-docs", "aiwf-planner-contracts", "aiwf-planner-execute", "aiwf-planner-meta", "aiwf-implement", "aiwf-test", "aiwf-review", "aiwf-review-trace", "aiwf-review-verify", "aiwf-review-output", "aiwf-close", "aiwf-architect", "aiwf-architecture-doc", "aiwf-explore", "aiwf-curate", "aiwf-milestone-integration", "aiwf-milestone-arch-review"]:
+    for skill in ["aiwf-planner", "aiwf-implement", "aiwf-test", "aiwf-review",
+        "aiwf-close", "aiwf-milestone", "aiwf-architect"]:
         path = root / target.config_dir / "skills" / skill / "SKILL.md"
         exists = path.exists()
         has_frontmatter = False
@@ -750,7 +741,7 @@ def doctor(mode: str | None = None) -> Dict[str, Any]:
         checks["skills"][skill] = {"exists": exists, "has_frontmatter": has_frontmatter}
 
     if target.mode == "claude":
-        for agent in ["aiwf-explorer", "aiwf-executor", "aiwf-tester", "aiwf-reviewer", "aiwf-curator"]:
+        for agent in ["aiwf-explorer", "aiwf-executor", "aiwf-tester", "aiwf-reviewer"]:
             path = root / target.config_dir / "agents" / f"{agent}.md"
             exists = path.exists()
             has_frontmatter = False
@@ -787,17 +778,8 @@ def doctor(mode: str | None = None) -> Dict[str, Any]:
             for ev in ["UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop"]:
                 checks["hooks"][ev] = {"configured": False, "valid_schema": False}
 
-    state_paths = {
-        "state.json": STATE_JSON,
-        "goal.json": GOAL_JSON,
-        "contexts.json": CONTEXTS_JSON,
-        "fix-loop.json": FIX_LOOP_JSON,
-        "evidence.json": EVIDENCE_JSON,
-        "testing.json": TESTING_JSON,
-        "review.json": REVIEW_JSON,
-    }
     for sf in MVP_STATE_FILES:
-        path = root / state_paths.get(sf, f".aiwf/{sf}")
+        path = root / ".aiwf" / sf
         checks["state_files"][sf] = path.exists()
 
     for script in ["aiwf_status.py", "aiwf_pre_snapshot.py", "aiwf_scope_check.py",
@@ -808,14 +790,29 @@ def doctor(mode: str | None = None) -> Dict[str, Any]:
         executable = exists and (path.stat().st_mode & 0o111)
         checks["scripts"][script] = {"exists": exists, "executable": executable}
 
+    # Directory structure check
+    for subdir in ALL_DIRS:
+        dir_path = root / ".aiwf" / subdir
+        checks["state_files"][f"dir:{subdir}"] = dir_path.is_dir()
+
+    # Index sync check (narrative doc binding)
+    try:
+        from .core.index_ops import check_index
+        idx = check_index(str(root))
+        checks["index"] = {"healthy": idx["healthy"], "issues_count": idx["issues_count"],
+                           "issues": idx["issues"][:10]}
+    except Exception as e:
+        checks["index"] = {"healthy": False, "issues_count": 1, "issues": [str(e)]}
+
     all_ok = (
         checks["instruction_md"]
         and checks["settings_json"]
         and all(v["exists"] and v["has_frontmatter"] for v in checks["skills"].values())
-        and all(v["exists"] and v["has_frontmatter"] for v in checks["agents"].values())
+        and all(v["exists"] and v["has_frontmatter"] for v in checks.get("agents", {}).values())
         and all(v["configured"] and v["valid_schema"] for v in checks["hooks"].values())
         and all(checks["state_files"].values())
         and all(v["exists"] and v["executable"] for v in checks["scripts"].values())
+        and checks.get("index", {}).get("healthy", True)
     )
     checks["overall"] = "healthy" if all_ok else "issues_found"
 
@@ -842,34 +839,20 @@ def show_status() -> str:
 
     lines.append("")
     lines.append("State files:")
-    state_paths = {
-        "state.json": STATE_JSON,
-        "goal.json": GOAL_JSON,
-        "contexts.json": CONTEXTS_JSON,
-        "fix-loop.json": FIX_LOOP_JSON,
-        "evidence.json": EVIDENCE_JSON,
-        "testing.json": TESTING_JSON,
-        "review.json": REVIEW_JSON,
-    }
     for sf in MVP_STATE_FILES:
-        state_rel = state_paths.get(sf, f".aiwf/{sf}")
-        path = root / state_rel
+        path = root / ".aiwf" / sf
         status = "✓" if path.exists() else "✗"
-        lines.append(f"  {status} {state_rel}")
+        lines.append(f"  {status} {sf}")
 
     lines.append("")
-    if target.mode == "reasonix":
-        lines.append("Entry: /skill aiwf-init, then continue with natural conversation")
-        lines.append("Internal skills: aiwf-planner, aiwf-implement, aiwf-test, aiwf-review, aiwf-close")
-    else:
-        lines.append("Entry: /aiwf-init, then continue with natural conversation")
-        lines.append("Internal skills: aiwf-planner, aiwf-implement, aiwf-test, aiwf-review, aiwf-close")
+    lines.append("Entry: aiwf status --prompt")
+    lines.append("Skills: aiwf-planner, aiwf-implement, aiwf-test, aiwf-review, aiwf-close, aiwf-milestone, aiwf-architect")
     lines.append("Scripts: scripts/aiwf_*.py")
     lines.append("")
     lines.append("Continue:")
-    lines.append(f"  {target.entry_command}    # initialize AIWF guidance")
+    lines.append(f"  {target.entry_command}            # check AIWF status")
     lines.append("  Then describe your goal or question naturally.")
-    lines.append("  aiwf doctor                            # check installation health")
+    lines.append("  aiwf doctor                                  # check installation health")
 
     return "\n".join(lines) + "\n"
 

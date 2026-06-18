@@ -7,14 +7,11 @@ from typing import Dict, List
 
 SOURCE_FILES = [
     "state/state.json",
-    "state/goal.json",
-    "artifacts/evidence/records.json",
-    "artifacts/quality/testing.json",
-    "artifacts/quality/review.json",
+    "records/evidence.json",
+    "records/testing.json",
+    "records/review.json",
     "state/fix-loop.json",
-    "state/contexts.json",
-    "runtime/history/task-history.json",
-    "runtime/history/task-ledger.json",
+    "state/tasks.json",
 ]
 
 def current_state_freshness(base_dir: str) -> Dict[str, object]:

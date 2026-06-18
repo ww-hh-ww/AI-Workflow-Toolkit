@@ -49,7 +49,7 @@ def suggest_relevant_lessons(
     files: Optional[List[str]] = None, limit: int = 5,
 ) -> Dict[str, Any]:
     root = Path(project_root)
-    review = _rj(root / ".aiwf" / "artifacts" / "quality" / "review.json")
+    review = _rj(root / ".aiwf" / "records" / "review.json")
 
     # Collect deferred risks from review.json
     drisks_raw = []

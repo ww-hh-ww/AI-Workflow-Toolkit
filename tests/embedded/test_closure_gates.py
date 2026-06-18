@@ -18,7 +18,7 @@ def _make_state_dir(tmpdir, state=None, testing=None, review=None,
                     evidence=None, fix_loop=None):
     """Create a minimal .aiwf state tree and return the base path."""
     base = Path(tmpdir)
-    for d in [".aiwf/state", ".aiwf/artifacts/quality", ".aiwf/artifacts/evidence"]:
+    for d in [".aiwf/state", ".aiwf/records"]:
         (base / d).mkdir(parents=True, exist_ok=True)
 
     (base / ".aiwf/state/state.json").write_text(json.dumps(state or {
@@ -27,10 +27,10 @@ def _make_state_dir(tmpdir, state=None, testing=None, review=None,
         "close_attempt": False, "closure_allowed": False,
         "scope_violation": False,
     }))
-    (base / ".aiwf/artifacts/quality/testing.json").write_text(json.dumps(testing or {
+    (base / ".aiwf/records/testing.jsonl").write_text(json.dumps(testing or {
         "status": "passed", "commands": ["pytest"],
     }))
-    (base / ".aiwf/artifacts/quality/review.json").write_text(json.dumps(review or {
+    (base / ".aiwf/records/review.jsonl").write_text(json.dumps(review or {
         "verdict": "PASS",
         "result": "accepted",
         "closure_allowed": True,
@@ -40,7 +40,7 @@ def _make_state_dir(tmpdir, state=None, testing=None, review=None,
         "quality_dimensions": _full_quality_dimensions(),
         "review_basis": _full_review_basis(),
     }))
-    (base / ".aiwf/artifacts/evidence/records.json").write_text(json.dumps(evidence or {
+    (base / ".aiwf/records/evidence.jsonl").write_text(json.dumps(evidence or {
         "records": [
             {"id": "EV-001", "status": "accepted", "trust": "machine_observed",
              "attribution": "strong", "tool_name": "Write",
@@ -60,9 +60,18 @@ def _make_state_dir(tmpdir, state=None, testing=None, review=None,
     (base / ".aiwf/state/fix-loop.json").write_text(json.dumps(fix_loop or {
         "status": "none",
     }))
-    (base / ".aiwf/state/goal.json").write_text(json.dumps({
-        "meta_critique": {"status": "recorded", "summary": "test"},
-        "quality_brief": {"non_goals": ["test"]},
+    (base / ".aiwf/state/goals.json").write_text(json.dumps({
+        "schema_version": 1,
+        "active_goal_id": "GOAL-001",
+        "roots": [],
+        "relations": [],
+        "goals": [{
+            "id": "GOAL-001",
+            "title": "Test Goal",
+            "status": "active",
+            "meta_critique": {"status": "recorded", "summary": "test"},
+            "quality_brief": {"non_goals": ["test"]},
+        }],
     }))
     return str(base)
 
@@ -156,40 +165,52 @@ class TestPrepareCloseGates(unittest.TestCase):
         self.assertFalse(result["passed"],
                          "prepare_close must block when no evidence records exist")
 
-    def test_blocks_pass_verdict_with_unscored_quality_dimensions(self):
-        from aiwf_core.core.state_ops import prepare_close
-        base = _make_state_dir(tempfile.mkdtemp(), review={
-            "verdict": "PASS",
-            "result": "accepted",
-            "closure_allowed": True,
-            "cleanup_status": "fresh",
-            "blockers": [],
-            "stale_items": [],
-            "quality_dimensions": {
-                "requirement_fit": {"score": "PASS", "note": ""},
+    def test_pass_verdict_allows_partial_quality_dimensions(self):
+        """V1: Quality dimensions are advisory. Unscored dimensions do NOT block close."""
+        from aiwf_core.core.closure_contract import closure_conditions_met
+        result = closure_conditions_met(
+            {"phase": "reviewing", "close_attempt": True, "workflow_level": "L2_standard_team"},
+            {"records": [{"id": "EV-001", "status": "accepted"}]},
+            {"status": "passed"},
+            {
+                "verdict": "PASS",
+                "result": "accepted",
+                "closure_allowed": True,
+                "cleanup_status": "fresh",
+                "blockers": [],
+                "stale_items": [],
+                "quality_dimensions": {
+                    "requirement_fit": {"score": "PASS", "note": ""},
+                },
+                "review_basis": _full_review_basis(),
             },
-            "review_basis": _full_review_basis(),
-        })
-        result = prepare_close(base)
-        self.assertFalse(result["passed"])
-        self.assertTrue(any("unscored quality dimensions" in b for b in result["blockers"]),
-                        result["blockers"])
+            {"status": "none"},
+        )
+        # V1: partial quality dimensions don't block — they're advisory
+        self.assertTrue(result["passed"],
+                       f"V1: partial dims should not block. Blockers: {result['blockers']}")
 
-    def test_blocks_pass_verdict_missing_review_basis(self):
-        from aiwf_core.core.state_ops import prepare_close
-        base = _make_state_dir(tempfile.mkdtemp(), review={
-            "verdict": "PASS",
-            "result": "accepted",
-            "closure_allowed": True,
-            "cleanup_status": "fresh",
-            "blockers": [],
-            "stale_items": [],
-            "quality_dimensions": _full_quality_dimensions(),
-        })
-        result = prepare_close(base)
-        self.assertFalse(result["passed"])
-        self.assertTrue(any("missing review basis coverage" in b for b in result["blockers"]),
-                        result["blockers"])
+    def test_pass_verdict_allows_missing_review_basis(self):
+        """V1: Review basis is advisory. Missing basis coverage does NOT block close."""
+        from aiwf_core.core.closure_contract import closure_conditions_met
+        result = closure_conditions_met(
+            {"phase": "reviewing", "close_attempt": True, "workflow_level": "L2_standard_team"},
+            {"records": [{"id": "EV-001", "status": "accepted"}]},
+            {"status": "passed"},
+            {
+                "verdict": "PASS",
+                "result": "accepted",
+                "closure_allowed": True,
+                "cleanup_status": "fresh",
+                "blockers": [],
+                "stale_items": [],
+                "quality_dimensions": _full_quality_dimensions(),
+            },
+            {"status": "none"},
+        )
+        # V1: missing review basis is advisory, not a close blocker
+        self.assertTrue(result["passed"],
+                       f"V1: missing review basis should not block. Blockers: {result['blockers']}")
 
     def test_blocks_accepted_symptom_only_review(self):
         from aiwf_core.core.state_ops import prepare_close
@@ -258,10 +279,12 @@ class TestClosureConditionsMet(unittest.TestCase):
         self.assertFalse(result["passed"],
                          "closure_conditions_met must block closure_allowed=false")
 
-    def test_blocks_quality_verdict_contradiction(self):
+    def test_blocks_quality_verdict_fail_contradiction(self):
+        """V1: FAIL dimensions with PASS verdict still block (contradiction).
+        RISK dimensions with PASS are advisory and don't block."""
         from aiwf_core.core.closure_contract import closure_conditions_met
         result = closure_conditions_met(
-            {"phase": "reviewing", "close_attempt": True},
+            {"phase": "reviewing", "close_attempt": True, "workflow_level": "L2_standard_team"},
             {"records": [{"id": "EV-001", "status": "accepted"}]},
             {"status": "passed"},
             {
@@ -269,19 +292,22 @@ class TestClosureConditionsMet(unittest.TestCase):
                 "result": "accepted",
                 "closure_allowed": True,
                 "cleanup_status": "fresh",
-                "quality_dimensions": _full_quality_dimensions("architecture_fit"),
+                "quality_dimensions": {
+                    "requirement_fit": {"score": "FAIL", "note": ""},
+                },
                 "review_basis": _full_review_basis(),
             },
             {"status": "none"},
         )
         self.assertFalse(result["passed"])
-        self.assertTrue(any("PASS has RISK" in b for b in result["blockers"]),
+        self.assertTrue(any("FAIL dimensions" in b for b in result["blockers"]),
                         result["blockers"])
 
-    def test_blocks_quality_verdict_missing_review_basis(self):
+    def test_pass_verdict_allows_missing_review_basis_v1(self):
+        """V1: Missing review basis is advisory — does NOT block close."""
         from aiwf_core.core.closure_contract import closure_conditions_met
         result = closure_conditions_met(
-            {"phase": "reviewing", "close_attempt": True},
+            {"phase": "reviewing", "close_attempt": True, "workflow_level": "L2_standard_team"},
             {"records": [{"id": "EV-001", "status": "accepted"}]},
             {"status": "passed"},
             {
@@ -293,9 +319,9 @@ class TestClosureConditionsMet(unittest.TestCase):
             },
             {"status": "none"},
         )
-        self.assertFalse(result["passed"])
-        self.assertTrue(any("missing review basis coverage" in b for b in result["blockers"]),
-                        result["blockers"])
+        # V1: review basis is advisory metadata, not a close gate
+        self.assertTrue(result["passed"],
+                       f"V1: missing review basis should not block. Blockers: {result['blockers']}")
 
     def test_closed_with_blockers_does_not_pass(self):
         from aiwf_core.core.closure_contract import closure_conditions_met
@@ -526,8 +552,8 @@ class TestImpactCloseGates(unittest.TestCase):
         import tempfile, json
         self.tmp = tempfile.mkdtemp()
         self.base = Path(self.tmp)
-        for d in [".aiwf/state", ".aiwf/artifacts/quality", ".aiwf/artifacts/evidence", ".aiwf/artifacts/plans",
-                   ".aiwf/runtime/history", ".aiwf/artifacts/reports"]:
+        for d in [".aiwf/state", ".aiwf/records", ".aiwf/plans",
+                   ".aiwf/artifacts/reports"]:
             (self.base / d).mkdir(parents=True, exist_ok=True)
         # Default clean state
         self._write_state({"phase": "reviewing", "workflow_level": "L1_review_light",
@@ -548,31 +574,40 @@ class TestImpactCloseGates(unittest.TestCase):
             "- environment: no — same env\n"
             "- capabilities: no — no new deps\n"
             "- quality_summary: no — no quality impact\n")
-        self._write_ledger()
+        self._write_tasks()
         self._write_goal()
 
     def _write_state(self, d): (self.base / ".aiwf/state/state.json").write_text(json.dumps(d))
-    def _write_testing(self, d): (self.base / ".aiwf/artifacts/quality/testing.json").write_text(json.dumps(d))
-    def _write_review(self, d): (self.base / ".aiwf/artifacts/quality/review.json").write_text(json.dumps(d))
+    def _write_testing(self, d): (self.base / ".aiwf/records/testing.jsonl").write_text(json.dumps(d))
+    def _write_review(self, d): (self.base / ".aiwf/records/review.jsonl").write_text(json.dumps(d))
     def _write_fixloop(self, d): (self.base / ".aiwf/state/fix-loop.json").write_text(json.dumps(d))
-    def _write_evidence(self, d): (self.base / ".aiwf/artifacts/evidence/records.json").write_text(json.dumps(d))
-    def _write_ledger(self):
-        (self.base / ".aiwf/runtime/history/task-ledger.json").write_text(
-            json.dumps({"tasks": [], "execution_window": {"active_task_ids": []}}))
-        (self.base / ".aiwf/runtime/history/task-history.json").write_text(json.dumps({"tasks": []}))
+    def _write_evidence(self, d): (self.base / ".aiwf/records/evidence.jsonl").write_text(json.dumps(d))
+    def _write_tasks(self):
+        (self.base / ".aiwf/state/tasks.json").write_text(
+            json.dumps({"schema_version": 1, "default_max_active": 1, "tasks": []}))
     def _write_active_ledger_task(self):
-        (self.base / ".aiwf/runtime/history/task-ledger.json").write_text(
+        (self.base / ".aiwf/state/tasks.json").write_text(
             json.dumps({
+                "schema_version": 1,
+                "default_max_active": 1,
                 "tasks": [{"id": "TASK-001", "title": "Impact task", "status": "active"}],
-                "execution_window": {"active_task_ids": ["TASK-001"]},
             }))
     def _write_goal(self):
-        (self.base / ".aiwf/state/goal.json").write_text(json.dumps({
-            "quality_brief": {"non_goals": ["test"]},
-            "meta_critique": {"status": "recorded", "summary": "test"}
+        (self.base / ".aiwf/state/goals.json").write_text(json.dumps({
+            "schema_version": 1,
+            "active_goal_id": "GOAL-001",
+            "roots": [],
+            "relations": [],
+            "goals": [{
+                "id": "GOAL-001",
+                "title": "Test Goal",
+                "status": "active",
+                "quality_brief": {"non_goals": ["test"]},
+                "meta_critique": {"status": "recorded", "summary": "test"},
+            }],
         }))
     def _write_plan(self, task_id, impact_body):
-        (self.base / ".aiwf/artifacts/plans" / f"{task_id}.md").write_text(
+        (self.base / ".aiwf/plans" / f"{task_id}.md").write_text(
             f"# {task_id}\n\n## Impact\n{impact_body}\n")
 
     def test_prepare_close_blocks_impact_docs_no_but_docs_changed(self):
@@ -585,27 +620,47 @@ class TestImpactCloseGates(unittest.TestCase):
         self.assertTrue(any("Impact.docs=no" in b for b in result["blockers"]),
             f"Should have Impact blocker, got: {result['blockers']}")
 
-    def test_task_close_cannot_bypass_prepare_close_impact_check(self):
-        """Active task close must not clear active_task_id before Impact gate runs."""
+    def test_v2_close_task_succeeds_on_six_gates_independent_of_impact(self):
+        """V2 close_task checks 6 gates; Impact is a prepare_close concern.
+
+        The 6 V2 gates: fix-loop closed, Task.md hash unchanged, executor
+        evidence exists, tester recorded adequate/passed, reviewer accepted
+        with no blockers.  Impact consistency is checked by prepare_close
+        (workflow close), not by close_task (task-close).
+        """
         self._write_active_ledger_task()
         from aiwf_core.core.task_ledger import close_task
-        from aiwf_core.core.state.closure_ops import prepare_close
 
         close_result = close_task(str(self.base), "TASK-001")
-        self.assertFalse(close_result["closed"])
-        self.assertTrue(any("prepare-close" in b for b in close_result["blockers"]))
+        self.assertTrue(close_result["closed"],
+            f"V2 close_task should pass all 6 gates: {close_result.get('blockers')}")
+        self.assertEqual(close_result["task"]["status"], "closed")
 
+        # V2 close_task clears active_task_id — task lifecycle is separate
+        # from workflow lifecycle.
         state = json.loads((self.base / ".aiwf/state/state.json").read_text())
-        self.assertEqual(state["active_task_id"], "TASK-001")
+        self.assertIsNone(state["active_task_id"])
+
+    def test_impact_blockers_remain_prepare_close_concern(self):
+        """Impact inconsistency blocks prepare_close when active_task_id is set.
+
+        On its own, Impact.docs=no + README.md changed should block workflow
+        closure even when no task is active — the Impact check runs against
+        the plan directly.
+        """
+        self._write_state({"phase": "reviewing", "workflow_level": "L1_review_light",
+                           "active_task_id": "TASK-001", "close_attempt": False})
+        from aiwf_core.core.state.closure_ops import prepare_close
 
         result = prepare_close(str(self.base))
-        self.assertFalse(result["passed"])
+        self.assertFalse(result["passed"],
+            f"Impact.docs=no + README changed should block prepare_close, got: {result.get('blockers')}")
         self.assertTrue(any("Impact.docs=no" in b for b in result["blockers"]),
-            f"Impact blocker must remain after blocked task close, got: {result['blockers']}")
+            f"Expected Impact.docs=no blocker, got: {result['blockers']}")
 
     def test_prepare_close_uses_task_plan_id_for_decoupled_plan_impact(self):
         """Plan registry decoupling means Impact belongs to task.plan_id, not TASK-ID."""
-        (self.base / ".aiwf/artifacts/plans/TASK-001.md").unlink(missing_ok=True)
+        (self.base / ".aiwf/plans/TASK-001.md").unlink(missing_ok=True)
         self._write_plan("PLAN-001",
             "- docs: no — no doc changes\n"
             "- project_map: no — no structure change\n"
@@ -618,8 +673,10 @@ class TestImpactCloseGates(unittest.TestCase):
             {"id": "EV-002", "status": "accepted", "trust_level": "role_recorded",
              "session_id": "s2", "changed_files": ["src/b.py"]},
         ]})
-        (self.base / ".aiwf/runtime/history/task-ledger.json").write_text(
+        (self.base / ".aiwf/state/tasks.json").write_text(
             json.dumps({
+                "schema_version": 1,
+                "default_max_active": 1,
                 "tasks": [{
                     "id": "TASK-001",
                     "title": "Decoupled plan task",
@@ -627,7 +684,6 @@ class TestImpactCloseGates(unittest.TestCase):
                     "plan_id": "PLAN-001",
                     "goal_id": "GOAL-001",
                 }],
-                "execution_window": {"active_task_ids": ["TASK-001"]},
             }))
         from aiwf_core.core.state.closure_ops import prepare_close
 
@@ -641,7 +697,7 @@ class TestImpactCloseGates(unittest.TestCase):
         import json
         self._write_evidence({"records": [
             {"id": "EV-001", "status": "accepted", "trust_level": "role_recorded",
-             "session_id": "s1", "changed_files": [".aiwf/artifacts/reports/PROJECT-MAP.md"]}
+             "session_id": "s1", "changed_files": [".aiwf/records/PROJECT-MAP.md"]}
         ]})
         from aiwf_core.core.state.closure_ops import prepare_close
         result = prepare_close(str(self.base))
@@ -654,7 +710,7 @@ class TestImpactCloseGates(unittest.TestCase):
         import json
         self._write_evidence({"records": [
             {"id": "EV-001", "status": "accepted", "trust_level": "role_recorded",
-             "session_id": "s1", "changed_files": [".aiwf/artifacts/reports/质量摘要.md"]}
+             "session_id": "s1", "changed_files": [".aiwf/records/质量摘要.md"]}
         ]})
         from aiwf_core.core.state.closure_ops import prepare_close
         result = prepare_close(str(self.base))

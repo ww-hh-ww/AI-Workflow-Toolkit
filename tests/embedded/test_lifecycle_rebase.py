@@ -23,9 +23,13 @@ class TestLifecycleRebase(unittest.TestCase):
         (self.tmp/".aiwf").mkdir(parents=True, exist_ok=True)
         for fn, dfn in MVP_STATE_FILES.items():
             p = self.tmp / ".aiwf" / fn; p.parent.mkdir(parents=True, exist_ok=True); p.write_text(json.dumps(dfn(), indent=2)+"\n")
-        cs = self.tmp / ".aiwf" / "artifacts" / "reports" / "当前状态.md"
+        # Ensure runtime output directories (rebase script writes to these but
+        # may not create parent dirs on first run).
+        (self.tmp/".aiwf"/"runtime"/"history").mkdir(parents=True, exist_ok=True)
+        (self.tmp/".aiwf"/"artifacts"/"reports").mkdir(parents=True, exist_ok=True)
+        cs = self.tmp / ".aiwf" / "records" / "当前状态.md"
         if cs.exists(): cs.unlink()
-        hist = self.tmp / ".aiwf" / "runtime" / "history" / "task-history.json"
+        hist = self.tmp / ".aiwf" / "state" / "tasks.json"
         if hist.exists(): hist.unlink()
 
     def _rebase(self):
@@ -44,13 +48,25 @@ class TestLifecycleRebase(unittest.TestCase):
         s.update({"phase":"closed","close_attempt":False,"closure_allowed":True,
                   "workflow_level":"L1_review_light","task_type":"small_function"})
         (self.tmp/".aiwf" / "state" / "state.json").write_text(json.dumps(s,indent=2))
-        (self.tmp/".aiwf" / "state" / "goal.json").write_text(json.dumps(
-            {"active_goal":"add subtract","confirmed":True},indent=2))
-        (self.tmp/".aiwf" / "artifacts" / "evidence" / "records.json").write_text(json.dumps(
+        (self.tmp/".aiwf" / "state" / "goals.json").write_text(json.dumps({
+            "schema_version": 1,
+            "active_goal_id": "GOAL-001",
+            "roots": [],
+            "goals": [{
+                "id": "GOAL-001",
+                "current_goal": "add subtract",
+                "active_goal": "add subtract",
+                "goal_version": 1,
+                "goal_status": "discussion",
+                "confirmed": True
+            }],
+            "relations": []
+        }, indent=2))
+        (self.tmp/".aiwf" / "records" / "evidence.jsonl").write_text(json.dumps(
             {"records":[{"id":"EV-001","status":"accepted","changed_files":["src/calc.js","test/calc.test.js"]}]},indent=2))
-        (self.tmp/".aiwf" / "artifacts" / "quality" / "testing.json").write_text(json.dumps(
+        (self.tmp/".aiwf" / "records" / "testing.jsonl").write_text(json.dumps(
             {"status":"adequate","commands":["pytest"],"untested_risks":["overflow"]},indent=2))
-        (self.tmp/".aiwf" / "artifacts" / "quality" / "review.json").write_text(json.dumps({
+        (self.tmp/".aiwf" / "records" / "review.jsonl").write_text(json.dumps({
             "result":"accepted","verdict":"PASS_WITH_RISK",
             "quality_dimensions": dimensions,
             "review_basis": basis,
@@ -119,8 +135,8 @@ class TestLifecycleRebase(unittest.TestCase):
         self._rebase()
         content = (self.tmp/".aiwf"/"artifacts"/"reports"/"当前状态.md").read_text()
         self.assertIn("Raw audit references", content)
-        self.assertIn(".aiwf/artifacts/evidence/records.json", content)
-        self.assertIn(".aiwf/artifacts/quality/review.json", content)
+        self.assertIn(".aiwf/records/evidence.jsonl", content)
+        self.assertIn(".aiwf/records/review.jsonl", content)
 
 
     # ── safety guards ──
@@ -128,7 +144,7 @@ class TestLifecycleRebase(unittest.TestCase):
     def test_rebase_refuses_when_phase_not_closed(self):
         """Rebase must NOT generate current-state when phase is not closed."""
         s = json.loads((self.tmp/".aiwf" / "state" / "state.json").read_text())
-        s["phase"] = "implementing"
+        s["phase"] = "executing"
         s["closure_allowed"] = False
         (self.tmp/".aiwf" / "state" / "state.json").write_text(json.dumps(s, indent=2))
         r = self._rebase()
@@ -161,7 +177,7 @@ class TestLifecycleRebase(unittest.TestCase):
     def test_rebase_records_task_history(self):
         self._seed_closed_state()
         self._rebase()
-        history = json.loads((self.tmp/".aiwf" / "runtime" / "history" / "task-history.json").read_text())
+        history = json.loads((self.tmp/".aiwf" / "state" / "tasks.json").read_text())
         self.assertEqual(len(history["tasks"]), 1)
         task = history["tasks"][0]
         self.assertEqual(task["testing_status"], "adequate")
@@ -180,9 +196,10 @@ class TestLifecycleRebase(unittest.TestCase):
 
         # ── skill text ──
     def test_planner_skill_mentions_current_state(self):
-        c = (self.tmp/".claude"/"skills"/"aiwf-planner-execute"/"SKILL.md").read_text()
-        self.assertIn("Carry-Forward", c)
-        self.assertIn("state.json and the active plan", c)
+        c = (self.tmp/".claude"/"skills"/"aiwf-planner"/"SKILL.md").read_text()
+        # V1: Planner starts with aiwf status; goals.json is the structural reference
+        self.assertIn("aiwf status", c)
+        self.assertIn("goals.json", c)
 
     # ── status ──
     def test_status_short_context_stays_process_focused_after_rebase(self):
@@ -195,7 +212,7 @@ class TestLifecycleRebase(unittest.TestCase):
                           cwd=str(self.tmp), env=env, timeout=TIMEOUT)
         out = json.loads(r.stdout.strip())
         ctx = out["hookSpecificOutput"]["additionalContext"]
-        self.assertIn("Process: level=L1_review_light mode=execution route=linear", ctx)
+        self.assertIn("Process: mode=execution route=linear", ctx)
         self.assertIn("Phase: closed", ctx)
         self.assertNotIn("Current state: available", ctx)
 

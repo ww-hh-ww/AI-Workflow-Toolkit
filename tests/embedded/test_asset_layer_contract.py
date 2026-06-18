@@ -1,8 +1,10 @@
-"""Minimal Context Asset Layer v1 — init, refresh, staleness, no closure blocking.
+"""Minimal Context Asset Layer v2 — init, refresh, staleness, no closure blocking.
 
 Each test gets its own tmp project to prevent state pollution across
 init/refresh/mutate cycles. CLI tests install once per test; pure-function
 tests skip install.
+
+V2: asset CLI commands were removed; tests now call schema functions directly.
 """
 import json, os, shutil, subprocess, sys, tempfile, unittest
 from pathlib import Path
@@ -62,24 +64,15 @@ class TestAssetLayerCLI(unittest.TestCase):
         # Restore source files to original state
         calc = self.tmp / "src" / "calc.js"
         calc.write_text("function add(a,b){return a+b}\nmodule.exports={add};")
-        # Reset state files to defaults
+        # Reset state files to defaults (V2 paths)
         from aiwf_core.core.state_schema import MVP_STATE_FILES
         import json as _json
-        state_map = {
-            "state/state.json": "state",
-            "state/goal.json": "state",
-            "state/contexts.json": "state",
-            "artifacts/evidence/records.json": "evidence",
-            "artifacts/quality/testing.json": "quality",
-            "artifacts/quality/review.json": "quality",
-            "state/fix-loop.json": "state",
-        }
         for fn, dfn in MVP_STATE_FILES.items():
             p = self.tmp / ".aiwf" / fn
             p.parent.mkdir(parents=True, exist_ok=True)
             p.write_text(_json.dumps(dfn(), indent=2) + "\n", encoding="utf-8")
-        # Remove any plans or other state from previous tests
-        for sub in ("plans", "history", "reports", "checkpoints", "evidence", "internal"):
+        # Remove any state artifacts from previous tests (V2 layout)
+        for sub in ("plans", "records", "runtime/internal"):
             d = self.tmp / ".aiwf" / sub
             if d.exists():
                 for f in list(d.glob("*")):
@@ -97,14 +90,16 @@ class TestAssetLayerCLI(unittest.TestCase):
         calc.write_text("function add(a,b){return a+b}\nmodule.exports={add};")
 
     def test_asset_init_creates_core_files(self):
-        _run([sys.executable, "-m", "aiwf_core.cli", "asset", "init"], self.tmp)
+        from aiwf_core.assets.schema import init_assets
+        init_assets(str(self.tmp))
         asset_dir = self.tmp / ".aiwf" / "assets"
         files = sorted(f.name for f in asset_dir.iterdir() if f.is_file())
         for expected in ["conventions.md", "project-map.json", "test-map.json"]:
             self.assertIn(expected, files)
 
     def test_project_map_has_metadata(self):
-        _run([sys.executable, "-m", "aiwf_core.cli", "asset", "init"], self.tmp)
+        from aiwf_core.assets.schema import init_assets
+        init_assets(str(self.tmp))
         pm = json.loads((self.tmp / ".aiwf" / "assets" / "project-map.json").read_text())
         meta = pm["_asset"]
         self.assertEqual(meta["kind"], "project-map")
@@ -114,7 +109,8 @@ class TestAssetLayerCLI(unittest.TestCase):
         self.assertGreater(len(meta["source_files"]), 0)
 
     def test_project_map_detects_modules_and_exports(self):
-        _run([sys.executable, "-m", "aiwf_core.cli", "asset", "init"], self.tmp)
+        from aiwf_core.assets.schema import init_assets
+        init_assets(str(self.tmp))
         pm = json.loads((self.tmp / ".aiwf" / "assets" / "project-map.json").read_text())
         modules = pm.get("modules", [])
         self.assertGreater(len(modules), 0)
@@ -122,42 +118,47 @@ class TestAssetLayerCLI(unittest.TestCase):
         self.assertIn("add", calc["exports"])
 
     def test_test_map_has_test_command(self):
-        _run([sys.executable, "-m", "aiwf_core.cli", "asset", "init"], self.tmp)
+        from aiwf_core.assets.schema import init_assets
+        init_assets(str(self.tmp))
         tm = json.loads((self.tmp / ".aiwf" / "assets" / "test-map.json").read_text())
         self.assertEqual(tm["test_command"], "node test/calc.test.js")
 
     def test_conventions_is_template(self):
-        _run([sys.executable, "-m", "aiwf_core.cli", "asset", "init"], self.tmp)
+        from aiwf_core.assets.schema import init_assets
+        init_assets(str(self.tmp))
         conv = (self.tmp / ".aiwf" / "assets" / "conventions.md").read_text()
         self.assertIn("Manual template", conv)
 
     def test_refresh_check_marks_fresh_when_unchanged(self):
-        _run([sys.executable, "-m", "aiwf_core.cli", "asset", "init"], self.tmp)
-        r = _run([sys.executable, "-m", "aiwf_core.cli", "asset", "refresh", "--check"], self.tmp)
-        self.assertIn("fresh", r.stdout)
-        self.assertNotIn("stale", r.stdout.lower())
+        from aiwf_core.assets.schema import init_assets, refresh_assets
+        init_assets(str(self.tmp))
+        r = refresh_assets(str(self.tmp), update=False)
+        self.assertEqual(r["overall"], "fresh")
+        self.assertNotIn("stale", r["overall"])
 
     def test_refresh_check_marks_stale_after_source_change(self):
-        _run([sys.executable, "-m", "aiwf_core.cli", "asset", "init"], self.tmp)
+        from aiwf_core.assets.schema import init_assets, refresh_assets
+        init_assets(str(self.tmp))
         (self.tmp / "src" / "calc.js").write_text(
             "function add(a,b){return a+b}\nfunction sub(a,b){return a-b}\nmodule.exports={add,sub};")
-        r = _run([sys.executable, "-m", "aiwf_core.cli", "asset", "refresh", "--check"], self.tmp)
-        self.assertIn("stale", r.stdout.lower())
+        r = refresh_assets(str(self.tmp), update=False)
+        self.assertEqual(r["overall"], "stale")
 
     def test_refresh_update_restores_fresh(self):
-        _run([sys.executable, "-m", "aiwf_core.cli", "asset", "init"], self.tmp)
+        from aiwf_core.assets.schema import init_assets, refresh_assets
+        init_assets(str(self.tmp))
         (self.tmp / "src" / "calc.js").write_text("// modified")
-        r = _run([sys.executable, "-m", "aiwf_core.cli", "asset", "refresh", "--update"], self.tmp)
-        self.assertIn("fresh (updated)", r.stdout)
-        r2 = _run([sys.executable, "-m", "aiwf_core.cli", "asset", "refresh", "--check"], self.tmp)
-        self.assertIn("fresh", r2.stdout)
-        self.assertNotIn("stale", r2.stdout.lower())
+        r = refresh_assets(str(self.tmp), update=True)
+        self.assertIn("fresh (updated)", r["assets"]["project-map.json"])
+        r2 = refresh_assets(str(self.tmp), update=False)
+        self.assertEqual(r2["overall"], "fresh")
 
     def test_conventions_preserved_on_refresh(self):
-        _run([sys.executable, "-m", "aiwf_core.cli", "asset", "init"], self.tmp)
+        from aiwf_core.assets.schema import init_assets, refresh_assets
+        init_assets(str(self.tmp))
         conv_path = self.tmp / ".aiwf" / "assets" / "conventions.md"
         conv_path.write_text("# My custom conventions\n- Use tabs\n")
-        _run([sys.executable, "-m", "aiwf_core.cli", "asset", "refresh", "--update"], self.tmp)
+        refresh_assets(str(self.tmp), update=True)
         content = conv_path.read_text()
         self.assertIn("My custom conventions", content)
         self.assertIn("Use tabs", content)
@@ -165,27 +166,28 @@ class TestAssetLayerCLI(unittest.TestCase):
     def test_planner_skill_mentions_routing_and_activation(self):
         planner = (self.tmp / ".claude" / "skills" / "aiwf-planner" / "SKILL.md").read_text()
         lower = planner.lower()
-        self.assertTrue(
-            any(term in lower for term in ("minimum level", "routing", "activation", "context dispatch")),
-            "Planner skill should mention at least one of: minimum level, routing, activation, context dispatch"
-        )
+        # V1: Planner focuses on task strategy, not routing mechanics
+        self.assertIn("task strategist", lower)
+        self.assertIn("aiwf status", lower)
 
     def test_asset_status_reports_states(self):
-        _run([sys.executable, "-m", "aiwf_core.cli", "asset", "init"], self.tmp)
-        from aiwf_core.assets.schema import asset_status
+        from aiwf_core.assets.schema import init_assets, asset_status
+        init_assets(str(self.tmp))
         s = asset_status(str(self.tmp))
         self.assertIn("project-map.json", s["assets"])
         self.assertIn("test-map.json", s["assets"])
         self.assertIn("conventions.md", s["assets"])
 
     def test_project_map_is_tier1(self):
-        _run([sys.executable, "-m", "aiwf_core.cli", "asset", "init"], self.tmp)
+        from aiwf_core.assets.schema import init_assets
+        init_assets(str(self.tmp))
         pm = json.loads((self.tmp / ".aiwf" / "assets" / "project-map.json").read_text())
         self.assertEqual(pm["_asset"]["tier"], 1)
         self.assertIn("tier1_mechanical_fields", pm["_asset"])
 
     def test_conventions_is_tier2(self):
-        _run([sys.executable, "-m", "aiwf_core.cli", "asset", "init"], self.tmp)
+        from aiwf_core.assets.schema import init_assets
+        init_assets(str(self.tmp))
         self.assertTrue((self.tmp / ".aiwf" / "assets" / "conventions.md").exists())
 
 

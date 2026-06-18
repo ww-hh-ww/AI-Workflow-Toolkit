@@ -207,12 +207,12 @@ discussing
 |---|---|---|
 | discussing → planned | Planner 创建结构、Plan 和 Task | 目标与计划进入机器状态 |
 | planned → implementing | `aiwf task activate` | Plan、scope、contracts、依赖、路由和执行窗口 |
-| implementing → testing | `aiwf state record-testing` | 实现证据存在，测试结果与验证层被记录 |
-| testing → reviewing | `aiwf state record-review` | 测试充分；L2/L3 要求 Cleanup 已验证 |
-| reviewing → closing | `aiwf state prepare-close` | Review、观察处置、Meta-critique、证据与清理 |
-| closing → closed | `aiwf task close <ID>` | `prepare-close` 已通过，且没有新的失效变化 |
+| implementing → testing | `aiwf record testing` | 测试结果与验证层被记录 |
+| testing → reviewing | `aiwf record review` | 测试充分；Review 通过，无 blockers |
+| reviewing → closing | `aiwf task close` | 活跃 Task 关闭；检查 Task.md hash、evidence、testing、review、fix-loop |
+| closing → closed | Planner 下一周期 | 任务关闭，状态回到 planning |
 
-`prepare-close` 必须在 Task 仍为 active 时执行。只有它通过后，Task 才能关闭。
+V1: `aiwf task close` 直接关闭活跃 Task，无需单独的 prepare-close 步骤。关闭时机械检查所有 gate。
 
 ## 请求模式
 
@@ -275,7 +275,7 @@ Goal 与代码结构通过 PROJECT-MAP 集中连接：
 
 - `goals.json`：能力身份与父子结构的权威来源。
 - `.aiwf/assets/project-map.json`：机器权威索引，保存文件、依赖和人工确认的 `goal_bindings`。
-- `.aiwf/artifacts/reports/项目地图.md`：人类投影，解释架构方向、模块职责、开放决策和延迟风险，不复制完整文件清单。
+- `.aiwf/records/`：evidence、testing、review、architecture-review 记录。JSON 机器权威。
 
 用户不需要日常进入 `.aiwf/` 翻文件。稳定入口是命令和 agent 摘要：
 
@@ -297,7 +297,7 @@ AIWF 同时保留两种文档能力，但出口不同：
   或 `docs/` 子系统文档。它随着代码生长，服务当前改动，不承担整套系统总结。
 - **总结性文档 / 架构快照**：在用户明确要求、Milestone/Release/Handoff
   边界，或 Architect 判断系统结构已经稳定时，使用 `aiwf-architecture-doc`
-  生成 `.aiwf/artifacts/reports/架构详细设计.md`。
+  生成 `.aiwf/records/architecture-doc.json` 或 `docs/` 副本。
 
 PROJECT-MAP 是两者之间的结构索引：它保存 Goal-to-module 绑定、架构方向、
 开放决策和延迟风险；架构快照从 PROJECT-MAP、Goal Tree、Plan/Task 证据、
@@ -468,25 +468,17 @@ Review 必须发生在 Cleanup 之后。
 
 ```text
 测试通过
-→ Cleanup fresh
 → Review accepted
-→ 对抗观察已处置
-→ Planner Meta-critique
-→ aiwf state prepare-close
-→ aiwf task close <TASK-ID>
+→ aiwf task close
 ```
 
-`prepare-close` 会综合检查：
+`aiwf task close` 机械检查：
 
-- 当前阶段和 active Task
-- accepted Evidence
-- 测试状态和验证层
-- Review verdict 与 closure permission
-- 未处置或未解决的严重观察
-- Cleanup freshness
-- Plan Impact 与实际变化
-- L2/L3 独立角色、会话与证据要求
-- 开放 Fix-loop、Scope violation 和 Architecture Change Request
+- Task.md 执行期间未被修改 (frozen hash)
+- executor_required → evidence 存在
+- tester_required → testing 状态 adequate/passed
+- reviewer_required → review accepted，无 blockers
+- fix-loop 非 open
 
 如果通过后又出现新证据或实现变化，必须重新验证，而不能沿用旧闭合结论。
 
@@ -538,7 +530,7 @@ Milestone 闭合包括：
 
 Milestone 架构 Review 发现问题后会将综合结论恢复为 `REVISE`。修复后必须重新运行 integration、重新进行架构 Review、重新评估，再允许 close。
 
-技术验收通过与正式闭合是两个步骤。`checkpoint` / `manual` Milestone 在集成、架构和综合评估通过后，Planner 必须展示完成内容、范围外内容、残余风险和下一阶段，并取得用户确认：
+Milestone 在集成、架构和综合评估通过后，Planner 必须展示完成内容、范围外内容、残余风险和下一阶段，并取得用户确认：
 
 ```bash
 aiwf milestone confirm MS-001 \
@@ -588,29 +580,25 @@ Mission
 ├── state/
 │   ├── state.json
 │   ├── mission.json
-│   ├── goal.json
 │   ├── goals.json
 │   ├── plans.json
 │   ├── milestones.json
-│   ├── contexts.json
 │   └── fix-loop.json
-├── artifacts/
-│   ├── plans/
-│   ├── evidence/records.json
-│   ├── quality/
-│   │   ├── testing.json
-│   │   ├── review.json
-│   │   └── architecture-review.json
-│   └── reports/
+├── plans/
+├── tasks/
+├── milestones/
+├── goals/
+├── records/
+│   ├── evidence.json
+│   ├── testing.json
+│   ├── review.json
+│   ├── architecture-review.json
+│   └── events.json
 └── runtime/
-    ├── history/
-    │   ├── task-ledger.json
-    │   └── task-history.json
-    ├── checkpoints/
     └── internal/
 ```
 
-Markdown Plan 和报告用于人类阅读与 Agent 接力；JSON registry 和 state 才是机器权威。
+JSON state 和 records 是机器权威；Markdown 目标是语义契约。
 
 ## 常用命令
 
@@ -633,32 +621,27 @@ aiwf plan create PLAN-001 --target-goal GOAL-001
 aiwf plan create PLAN-002 --target-goal GOAL-002 --depends-on PLAN-001
 aiwf plan dep add PLAN-002 PLAN-001
 aiwf plan dep remove PLAN-002 PLAN-001 --reason "dependency superseded"
-aiwf task plan TASK-001 --plan PLAN-001 --status ready
+aiwf task create TASK-001 --plan PLAN-001 --status ready
 aiwf task activate TASK-001
-aiwf task suspend TASK-001 --note "waiting for user decision"
-aiwf task close TASK-001
+aiwf task suspend --note "waiting for user decision"
+aiwf task close
 ```
 
-### 验证与恢复
+### 验证与记录
 
 ```bash
-aiwf cleanup check
-aiwf state record-testing --help
-aiwf state record-review --help
-aiwf state prepare-close
+aiwf record evidence --help
+aiwf record testing --help
+aiwf record review --help
+aiwf record architecture-review --help
 aiwf fixloop --help
-aiwf checkpoint --help
-aiwf state record-architecture-review --help
 ```
 
 ### 长周期结构
 
 ```bash
-aiwf mission --help
-aiwf goal-tree --help
-aiwf relation --help
+aiwf goal --help
 aiwf milestone --help
-aiwf project-map --help
 ```
 
 ## Skills 与角色
@@ -729,7 +712,7 @@ tests/embedded/                  # 独立合同与回归测试
 核心验证：
 
 ```bash
-PYTHONPYCACHEPREFIX=/private/tmp/aiwf-pycache \
+PYTHONPYCACHEPREFIX=/tmp/aiwf-pycache \
   tests/run-all-embedded-tests.sh
 
 tests/run-embedded-self-test.sh

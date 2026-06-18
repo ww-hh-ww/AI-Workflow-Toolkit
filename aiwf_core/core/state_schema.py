@@ -11,61 +11,31 @@ from typing import Any, Dict, List
 # ── state.json ────────────────────────────────────────────────────────
 
 def default_state() -> Dict[str, Any]:
+    """Minimal V2 state machine core.
+
+    Runtime routing fields (workflow_level, routing_score, routing_factors, etc.)
+    are added by _apply_mechanical_routing() at task activation. They are derived
+    state, not stable core — treat them as legacy/debug/routing fields.
+    """
     return {
-        "phase": "discussing",
-        "active_context_id": None,
-        "close_attempt": False,
-        "closure_allowed": False,
-        "scope_violation": False,
-        "complexity": "standard",
-        "routing_reason": "",
-        "workflow_level": "L1_review_light",
-        "workflow_strength": "standard",  # DEPRECATED: use workflow_level instead
-        "routing_score": 0,
-        "routing_factors": [],
-        "routing_background_factors": [],
-        "escalation_history": [],
-        "task_type": "",
-        "risk_flags": [],
-        "test_template": "",
-        "review_template": "",
-        "exploration_budget": "",
-        "asset_policy": "",
-        "cleanup_policy": "",
-        "git_policy": "no_auto_commit",
-        "quality_policy_reason": "",
-        "recommended_minimum_level": "",
-        "requires_user_decision": False,
-        "quality_escalation_required": False,
-        "quality_escalation_reason": "",
+        "schema_version": 1,
+        "phase": "planning",
+        "active_goal_id": None,
+        "active_plan_id": None,
         "active_task_id": None,
-        "planner_inline": False,
-        "cross_task_quality_escalation_required": False,
-        "cross_task_quality_escalation_reason": "",
-        "adversarial_mode": False,
-        "request_mode": "execution",
-        "workflow_pattern": "linear",
-        "pattern_reason": "",
-        "external_research_required": False,
-        "active_plan_id": "",
-        "planned_capability_ids": [],
-        # V2-A routing topology dimensions
-        "verification_need": "standard",
-        "review_need": "optional_light_review",
-        "downgrade_allowed": True,
-        "substitution_allowed": False,
-        "next_plan_docs_required": False,
-        "routing_reasons": [],
-        "hard_constraints": [],
-        "substitution_records": [],
+        "active_milestone_id": None,
+        "blocked": False,
+        "blockers": [],
+        "next": "",
+        "updated_at": "",
     }
 
 STATE_KEYS = {
     "phase", "active_context_id", "close_attempt", "closure_allowed",
     "scope_violation", "complexity", "routing_reason",
-    "workflow_strength", "workflow_level", "routing_score",
+    "workflow_level", "routing_score",
     "routing_factors", "routing_background_factors", "escalation_history",
-    "task_type", "risk_flags", "test_template", "review_template",
+    "task_type", "risk_flags", "review_template",
     "exploration_budget", "asset_policy", "cleanup_policy",
     "git_policy", "quality_policy_reason",
     "recommended_minimum_level", "requires_user_decision",
@@ -79,12 +49,15 @@ STATE_KEYS = {
     "verification_need", "review_need",
     "downgrade_allowed", "substitution_allowed",
     "next_plan_docs_required",
-    "routing_reasons", "hard_constraints", "substitution_records",
+    "hard_constraints", "substitution_records",
 }
 
+# V2 canonical phases: planning, executing, testing, reviewing, closing, blocked, closed
+# V1 aliases kept for backward compat: discussing→planning, planned→planning, implementing→executing
 VALID_PHASES = {
-    "discussing", "planned", "implementing", "testing",
-    "reviewing", "closing", "closed",
+    "planning", "executing", "testing", "reviewing", "closing", "blocked", "closed",
+    # V1 backward compat
+    "discussing", "planned", "implementing",
 }
 
 VALID_REQUEST_MODES = {"discussion", "clarification", "research", "spike", "execution"}
@@ -193,12 +166,11 @@ LEGACY_GOAL_ID = "GOAL-001"
 def default_plans() -> Dict[str, Any]:
     return {
         "schema_version": 1,
-        "legacy_goal_id": LEGACY_GOAL_ID,
         "active_plan_id": None,
         "plans": [],
     }
 
-PLANS_KEYS = {"schema_version", "legacy_goal_id", "active_plan_id", "plans"}
+PLANS_KEYS = {"schema_version", "active_plan_id", "plans"}
 
 VALID_PLAN_KINDS = {"structural", "implementation", "verification", "migration", "exploration"}
 DEFAULT_PLAN_KIND = "implementation"
@@ -216,7 +188,22 @@ VALID_RELATION_TYPES = {"depends_on", "blocks", "conflicts_with", "invalidates",
 
 VALID_ROOT_TYPES = {"main", "temporary", "branch"}
 
-VALID_GOAL_STATUSES = {"discussion", "active", "stable", "superseded", "archived"}
+# ── V1 Unified Status Sets ──
+# Goal / Plan / Milestone: open, closed, cancelled
+# Task: ready, active, suspended, closed, cancelled
+VALID_GOAL_STATUSES = {"open", "closed", "cancelled"}
+VALID_PLAN_STATUSES = {"open", "closed", "cancelled"}
+VALID_MILESTONE_STATUSES = {"open", "closed", "cancelled"}
+VALID_TASK_STATUSES_V2 = {"ready", "active", "suspended", "closed", "cancelled"}
+# Legacy accepted for internal migration only
+VALID_GOAL_STATUSES_LEGACY = VALID_GOAL_STATUSES | {"active"}
+VALID_PLAN_STATUSES_LEGACY = VALID_PLAN_STATUSES | {"active"}
+VALID_MILESTONE_STATUSES_LEGACY = VALID_MILESTONE_STATUSES | {"pending", "active"}
+
+# ── V2 Unified Closure ──
+# Normal close:    {"status":"closed","closure":{"mode":"normal","accepted":true,"summary":"..."}}
+# Force-close:     {"status":"closed","closure":{"mode":"human_force","accepted":false,"reason":null,"unsatisfied_checks":[]}}
+# Cancel:          {"status":"cancelled","cancel_reason":"...","replaced_by":null}
 
 
 def default_goals() -> Dict[str, Any]:
@@ -243,9 +230,6 @@ def default_milestones() -> Dict[str, Any]:
 
 MILESTONES_KEYS = {"schema_version", "active_milestone_id", "mission_id", "milestones"}
 
-VALID_MILESTONE_STATUSES = {
-    "pending", "active", "complete_candidate", "completed", "archived",
-}
 VALID_MILESTONE_VERDICTS = {"pending", "PASS", "PASS_WITH_RISK", "REVISE", "REJECT"}
 VALID_MILESTONE_SCOPE_TYPES = {"goal_subtree", "plan_set", "task_set", "mixed"}
 VALID_MILESTONE_STABILITY_CLAIMS = {"draft", "usable", "stable", "risky"}
@@ -533,19 +517,30 @@ MISSION_KEYS = {
 VALID_MISSION_STATUSES = {"draft", "active", "complete", "archived"}
 
 
-# ── all mvp files ─────────────────────────────────────────────────────
+# -- tasks.json --
+
+def default_tasks() -> Dict[str, Any]:
+    return {
+        "schema_version": 1,
+        "default_max_active": 1,
+        "tasks": [],
+    }
+
+TASKS_KEYS = {"schema_version", "default_max_active", "tasks"}
+
+
+# -- all mvp files --
 
 MVP_STATE_FILES = {
     "state/state.json": default_state,
-    "state/goal.json": default_goal,
-    "state/mission.json": default_mission,
     "state/goals.json": default_goals,
     "state/plans.json": default_plans,
+    "state/tasks.json": default_tasks,
     "state/milestones.json": default_milestones,
-    "state/contexts.json": default_contexts,
-    "artifacts/evidence/records.json": default_evidence,
-    "artifacts/quality/testing.json": default_testing,
-    "artifacts/quality/review.json": default_review,
-    "artifacts/quality/architecture-review.json": default_architecture_review,
     "state/fix-loop.json": default_fix_loop,
+    "records/evidence.json": default_evidence,
+    "records/testing.json": default_testing,
+    "records/review.json": default_review,
+    "records/architecture-review.json": default_architecture_review,
+    "records/events.json": default_claims,
 }

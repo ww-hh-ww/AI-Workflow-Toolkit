@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+
+from .state.goal_ops import get_active_goal
 from typing import Any, Dict, List, Optional
 
 from collections import Counter
@@ -23,7 +25,7 @@ def architecture_trend_signals(
     Returns signals about where the project architecture is heading, not where it's been.
     Empty list when history is too thin to draw conclusions.
     """
-    history = _read(Path(base_dir) / ".aiwf" / "runtime" / "history" / "task-history.json", {"tasks": []})
+    history = _read(Path(base_dir) / ".aiwf" / "state" / "tasks.json", {"tasks": []})
     tasks = history.get("tasks", []) if isinstance(history.get("tasks"), list) else []
     if len(tasks) < min_tasks_for_trend:
         return []
@@ -192,7 +194,7 @@ def _level_index(level: str) -> int:
 
 def _structural_architecture_brief_present(base_dir: str) -> bool:
     """Check for a structural Architecture Brief — not just any non-empty field."""
-    goal = _read(Path(base_dir) / ".aiwf" / "state" / "goal.json", {})
+    goal = get_active_goal(base_dir)
     brief = goal.get("quality_brief", {})
     arch = brief.get("architecture_brief", {}) if isinstance(brief, dict) else {}
     if not arch:
@@ -237,7 +239,7 @@ def task_gravity(
     # Weighted gravity: complex tasks weigh more. Fix-loops, breadth, cross-module, ADVs all add weight.
     # Simple typo fixes weigh ~0.7, complex L2 refactors weigh ~2.0.
     weighted_sum = 0.0
-    hist = _read(Path(base_dir) / ".aiwf" / "runtime" / "history" / "task-history.json", {"tasks": []})
+    hist = _read(Path(base_dir) / ".aiwf" / "state" / "tasks.json", {"tasks": []})
     raw_tasks = [t for t in (hist.get("tasks", []) or []) if isinstance(t, dict)]
     if raw_tasks:
         for t in raw_tasks[-20:]:
@@ -421,10 +423,10 @@ def should_trigger_architecture_review(base_dir: str) -> Dict[str, Any]:
     from .cross_task_quality import evaluate_cross_task_quality
 
     root = Path(base_dir)
-    history_path = root / ".aiwf" / "runtime" / "history" / "task-history.json"
-    pm_path = root / ".aiwf" / "artifacts" / "reports" / "项目地图.md"
+    history_path = root / ".aiwf" / "state" / "tasks.json"
+    pm_path = root / ".aiwf" / "records" / "项目地图.md"
     state_path = root / ".aiwf" / "state" / "state.json"
-    review_path = root / ".aiwf" / "artifacts" / "quality" / "review.json"
+    review_path = root / ".aiwf" / "records" / "review.json"
 
     history = _read(history_path, {"tasks": []})
     tasks = history.get("tasks", []) if isinstance(history.get("tasks"), list) else []
@@ -473,7 +475,7 @@ def should_trigger_architecture_review(base_dir: str) -> Dict[str, Any]:
     # ── Check if a machine-recorded intact review was recently completed ──
     # Closing an ARCH-* task by name is not enough: findings must be recorded.
     architecture_review = _read(
-        root / ".aiwf" / "artifacts" / "quality" / "architecture-review.json",
+        root / ".aiwf" / "records" / "architecture-review.json",
         {},
     )
     review_task_id = architecture_review.get("task_id", "")

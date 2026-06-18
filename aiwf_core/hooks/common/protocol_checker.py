@@ -14,6 +14,8 @@ import json
 from pathlib import Path
 from typing import Any, Dict, Tuple
 
+from ...core.state.goal_ops import get_active_goal
+
 
 def _read(path: Path, default: Dict[str, Any]) -> Dict[str, Any]:
     try:
@@ -29,7 +31,7 @@ def check_protocol_preconditions(cwd: Path) -> Tuple[bool, str, str]:
     Fix-loop repair window overrides are handled by the caller (scope_checker).
     """
     state = _read(cwd / ".aiwf" / "state" / "state.json", {})
-    goal = _read(cwd / ".aiwf" / "state" / "goal.json", {})
+    goal = get_active_goal(str(cwd))
     fix_loop = _read(cwd / ".aiwf" / "state" / "fix-loop.json", {})
 
     # P0: request_mode must be execution

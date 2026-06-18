@@ -730,10 +730,10 @@ def prepare_action_plan(base_dir: str, decision: Dict[str, Any]) -> Dict[str, An
     if confidence == "low":
         warnings.append("Confidence is low — human confirmation required before proceeding.")
     if human_confirm:
-        warnings.append("needs_human_confirmation is true — confirm and consider a checkpoint.")
+        warnings.append("needs_human_confirmation is true — confirm before proceeding.")
     pmc = decision.get("whether_parent_meaning_changes")
     if pmc is True or str(pmc or "").lower() in ("true", "yes", "1"):
-        warnings.append("Parent meaning changes — structural review and checkpoint required.")
+        warnings.append("Parent meaning changes — structural review required.")
     affected = decision.get("affected_plan_ids") or []
     if affected:
         warnings.append(f"Affected Plans: {', '.join(affected)} — impact review recommended.")

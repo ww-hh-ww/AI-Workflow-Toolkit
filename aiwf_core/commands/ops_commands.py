@@ -145,7 +145,7 @@ def _cmd_fix_loop_revalidate(args: argparse.Namespace) -> None:
     fl = _read(fl_path)
 
     required_fixes = fl.get("required_fixes", []) or []
-    review_path = base / ".aiwf" / "artifacts" / "quality" / "review.json"
+    review_path = base / ".aiwf" / "records" / "review.json"
     review = _read(review_path)
     scope_events = review.get("scope_violation_events", []) or []
     force = bool(getattr(args, 'force', False))
@@ -285,7 +285,6 @@ def _cmd_arch_change_help(args: argparse.Namespace) -> None:
 def _cmd_git_summary(args: argparse.Namespace) -> None:
     from ..core.git_ops import get_git_summary
     s = get_git_summary(str(Path.cwd()))
-    ckpt_exists = (Path.cwd()/".aiwf"/"runtime"/"checkpoints").exists() and any((Path.cwd()/".aiwf"/"runtime"/"checkpoints").iterdir())
     state = {}
     try: state = __import__('json').loads((Path.cwd()/".aiwf" / "state" / "state.json").read_text())
     except: pass
@@ -296,7 +295,6 @@ def _cmd_git_summary(args: argparse.Namespace) -> None:
     print(f"  Project changes: {s['project_changes']}")
     print(f"  Governance changes: {s['governance_changes']}")
     print(f"  Untracked: {s['untracked']}")
-    print(f"  Checkpoint: {'available' if ckpt_exists else 'none'}")
     print(f"  Closure: {'allowed' if state.get('closure_allowed') else 'blocked' if state.get('close_attempt') else 'not attempted'}")
 
 def _cmd_git_suggest(args: argparse.Namespace) -> None:
@@ -311,46 +309,6 @@ def _cmd_git_commit(args: argparse.Namespace) -> None:
     if result.get("error"): print(f"Error: {result['error']}"); raise SystemExit(1)
     if result.get("status") == "rejected": print(result.get("reason", "rejected"))
     elif result.get("status") == "committed": print(f"Committed: {result['hash']}")
-
-def _cmd_checkpoint_create(args: argparse.Namespace) -> None:
-    from ..core.checkpoints import create_checkpoint
-    ck = create_checkpoint(str(Path.cwd()), label=args.label, include_governance=args.include_gov, mode=args.mode)
-    print(f"Checkpoint created: {ck['id']}")
-    if ck.get('label'): print(f"  Label: {ck['label']}")
-    print(f"  Git HEAD: {ck['git_head'][:8]}")
-    print(f"  Project files: {ck['project_files']}")
-    print(f"  Governance files: {ck['governance_files']}")
-    print(f"  Untracked: {ck['untracked_files']}")
-    if ck.get('warnings'):
-        for w in ck['warnings'][:3]: print(f"  Warning: {w}")
-
-def _cmd_checkpoint_list(args: argparse.Namespace) -> None:
-    from ..core.checkpoints import list_checkpoints
-    cks = list_checkpoints(str(Path.cwd()))
-    if not cks: print("No checkpoints."); return
-    for ck in cks:
-                print(ck["id"] + ": " + ck.get("label","")[:40] + " provider=" + ck.get("provider","patch") + " mode=" + ck.get("mode","patch") + " head=" + ck["git_head"][:8] + " dirty=" + str(ck["dirty"]) + " proj=" + str(ck["project_files"]))
-
-def _cmd_checkpoint_show(args: argparse.Namespace) -> None:
-    from ..core.checkpoints import show_checkpoint
-    import json as _json
-    ck = show_checkpoint(str(Path.cwd()), args.id)
-    if not ck: print(f"Not found: {args.id}"); raise SystemExit(1)
-    safe = {k:v for k,v in ck.items() if k not in ('project_file_list','governance_file_list')}
-    print(_json.dumps(safe, ensure_ascii=False, indent=2))
-
-def _cmd_checkpoint_restore_plan(args: argparse.Namespace) -> None:
-    root = Path.cwd()
-    plan = root/".aiwf"/"runtime"/"checkpoints"/args.id/"restore-plan.md"
-    if plan.exists(): print(plan.read_text())
-    else: print(f"No restore plan for {args.id}")
-
-def _cmd_checkpoint_restore(args: argparse.Namespace) -> None:
-    from ..core.checkpoints import restore_checkpoint
-    result = restore_checkpoint(str(Path.cwd()), args.id, confirm=args.confirm)
-    if result.get("error"): print(f"Error: {result['error']}"); raise SystemExit(1)
-    if result.get("status") == "dry_run": print(result.get("message", "use --confirm"))
-    elif result.get("status") == "restored": print(f"Restored to {result['checkpoint']} (pre-backup: {result.get('pre_restore_backup','')})")
 
 def _cmd_install(args: argparse.Namespace) -> None:
     """aiwf install <target> — create embedded integration files."""
@@ -423,6 +381,18 @@ def _cmd_doctor(args: argparse.Namespace) -> None:
         print(f"  {_icon(info['exists'])} scripts/{name}  {'[executable]' if info.get('executable') else ''}")
 
     print()
+    idx = results.get("index", {})
+    if idx:
+        idx_healthy = idx.get("healthy", True)
+        idx_count = idx.get("issues_count", 0)
+        if idx_healthy:
+            print(f"Index: {_icon(True)} JSON ↔ Markdown bindings OK")
+        else:
+            print(f"Index: {_icon(False)} {idx_count} issue(s) found")
+            for issue in idx.get("issues", [])[:10]:
+                print(f"  [{issue.get('type', '?')}:{issue.get('id', '?')}] {issue.get('issue', '')}")
+        print()
+
     if overall == "healthy":
         print("✓ All checks passed. AIWF is ready.")
     else:

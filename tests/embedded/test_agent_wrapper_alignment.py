@@ -50,53 +50,55 @@ class TestAgentWrapperAlignment(unittest.TestCase):
     def test_executor_agent_mentions_architecture_contract_not_only_allowed_write(self):
         content = self._claude_agent("aiwf-executor")
         for required in [
-            "architecture_brief",
-            "protected_files",
-            "forbidden_restructures",
-            "aiwf arch-change request",
-            "Do not hand-edit",
+            "Do not modify the active Task.md",
+            "Do not write outside Task.md scope",
+            "Do not change Done When",
+            "Do not modify `.aiwf/state/` or `.aiwf/records/`",
+            "Allowed",
+            "Forbidden",
         ]:
             self.assertIn(required, content)
 
     def test_reviewer_agent_mentions_cleanup_depth_and_evidence_disposition(self):
         content = self._claude_agent("aiwf-reviewer")
         for required in [
-            "cleanup_verified_at",
-            "review_template",
-            "unit tests alone are not enough",
-            "accepted-evidence-id",
-            "rejected-evidence-id",
-            "adversarial observations",
-            "system integration evidence",
+            "--result accepted",
+            "Done When",
+            "Forbidden Write",
+            "Do not modify `.aiwf/state/` or `.aiwf/records/`",
+            "Do not modify code",
+            "Contract compliance",
+            "Evidence integrity",
         ]:
             self.assertIn(required, content)
 
     def test_reviewer_agent_is_evidence_first_not_default_full_rerun(self):
         content = self._claude_agent("aiwf-reviewer")
         for required in [
-            "Evidence-first",
-            "audit testing evidence before rerunning",
-            "spot-checks",
-            "missing, stale, contradictory",
-            "rerun",
+            "done when",
+            "scope",
+            "forbidden paths",
+            "evidence",
+            "testing",
+            "code quality",
+            "safety",
         ]:
-            self.assertIn(required, content)
+            self.assertIn(required, content.lower())
 
-    def test_curator_agent_is_advisory_and_bound_by_lesson_admission(self):
-        content = self._claude_agent("aiwf-curator")
-        self.assertIn("advisory", content.lower())
-        self.assertIn("Do not directly edit", content)
-        self.assertIn("LESSON-ADMISSION-POLICY", content)
-        self.assertIn("applies_to", content)
-        self.assertIn("expires_when", content)
+    def test_curator_agent_retired_in_v1(self):
+        """aiwf-curator is retired; reviewer handles review output now."""
+        agent_path = self.tmp / ".claude" / "agents" / "aiwf-curator.md"
+        self.assertFalse(agent_path.exists(), "aiwf-curator should not be installed")
 
     def test_tester_agent_keeps_full_and_real_usage_obligations(self):
         content = self._claude_agent("aiwf-tester")
         for required in [
-            "validation layers",
-            "full_regression",
-            "real_usage",
-            "Never silently skip",
+            "Tester Requirements",
+            "Do not modify code",
+            "Do not modify `.aiwf/state/` or `.aiwf/records/`",
+            "passed",
+            "failed",
+            "adequate",
         ]:
             self.assertIn(required, content)
 
@@ -104,14 +106,14 @@ class TestAgentWrapperAlignment(unittest.TestCase):
         self.assertFalse((self.tmp / ".reasonix" / "agents" / "aiwf-executor.md").exists())
         self.assertFalse((self.tmp / ".reasonix" / "agents" / "aiwf-reviewer.md").exists())
         for skill_name, required in {
-            "aiwf-implement": ["architecture_brief", "forbidden_restructures", "aiwf arch-change request"],
-            "aiwf-test": ["Validation Layers", "full_regression", "real_usage"],
+            "aiwf-implement": ["Do not expand scope", "Allowed Write", "executor_required"],
+            "aiwf-test": ["Tester Requirements", "passed", "failed", "adequate"],
             "aiwf-review": [
-                "cleanup_verified_at",
-                "review_template",
-                "accepted-evidence-id",
-                "Evidence-First Testing Boundary",
-                "do not default to rerunning the Tester full suite",
+                "reviewer_required",
+                "Done When",
+                "review",
+                "accepted",
+                "needs_fix",
             ],
         }.items():
             content = self._reasonix_skill(skill_name)
@@ -125,41 +127,42 @@ class TestAgentWrapperAlignment(unittest.TestCase):
             "aiwf-review": "reviewer",
         }.items():
             content = self._claude_skill(skill_name)
-            self.assertIn("STOP", content)
-            self.assertIn("DISPATCH GATE", content)
-            self.assertIn("planner-main", content.lower())
+            self.assertIn("Role", content)
+            self.assertIn("Required read", content)
             self.assertIn(role, content.lower())
 
             reasonix_content = self._reasonix_skill(skill_name)
-            self.assertIn("STOP", reasonix_content)
-            self.assertIn("planner-main", reasonix_content.lower())
+            self.assertIn("Role", reasonix_content)
+            self.assertIn(role, reasonix_content.lower())
 
     def test_claude_agents_declare_separate_subagent_role(self):
-        for agent_name, role in {
-            "aiwf-executor": "Executor",
-            "aiwf-tester": "Tester",
-            "aiwf-reviewer": "Reviewer",
+        for agent_name, (role_line, exclusivity) in {
+            "aiwf-executor": ("You implement the active Task.md", "You do not test, review, plan, or close"),
+            "aiwf-tester": ("You validate", "You do not implement, review, plan, or close"),
+            "aiwf-reviewer": ("You review", "You do not implement, test, plan, or close"),
         }.items():
             content = self._claude_agent(agent_name)
-            self.assertIn(f"separate AIWF {role} subagent role", content)
-            self.assertIn("not planner-main roleplaying", content)
+            self.assertIn(role_line, content)
+            self.assertIn(exclusivity, content)
 
     def test_claude_agents_do_not_conflict_with_shared_skills(self):
         executor_agent = self._claude_agent("aiwf-executor")
         executor_skill = self._claude_skill("aiwf-implement")
-        for shared_boundary in ["architecture_brief", "forbidden_restructures", "allowed_write"]:
+        for shared_boundary in ["Allowed", "Forbidden", "Do not modify"]:
             self.assertIn(shared_boundary, executor_agent)
             self.assertIn(shared_boundary, executor_skill)
 
         reviewer_agent = self._claude_agent("aiwf-reviewer")
         reviewer_skill = self._claude_skill("aiwf-review")
         for shared_gate in [
-            "cleanup_verified_at",
-            "review_template",
-            "accepted-evidence-id",
-            "do not default to rerunning the Tester full suite",
+            "Done When",
+            "Forbidden",
+            "review",
+            "evidence",
+            "testing",
         ]:
-            self.assertIn(shared_gate, reviewer_skill)
+            self.assertIn(shared_gate.lower(), reviewer_skill.lower())
+            self.assertIn(shared_gate.lower(), reviewer_agent.lower())
 
 
 if __name__ == "__main__":

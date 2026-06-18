@@ -12,7 +12,7 @@ def _now() -> str:
 
 
 def _path(base_dir: str) -> Path:
-    return Path(base_dir) / ".aiwf" / "artifacts" / "research" / "external.json"
+    return Path(base_dir) / ".aiwf" / "records" / "events.json"
 
 
 def default_research() -> Dict:

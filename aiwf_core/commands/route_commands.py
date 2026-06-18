@@ -1,8 +1,7 @@
-"""CLI route override commands for Complexity Routing V2-A.
+"""CLI route commands.
 
-aiwf route explain     — explain the current routing decision
-aiwf route downgrade   — request a topology downgrade with recorded reason
-aiwf route substitute  — request topology substitution with alternative verification
+aiwf route explain   — show current routing decision
+aiwf route override  — override routing level with recorded reason
 """
 from __future__ import annotations
 
@@ -30,17 +29,27 @@ def _write_state(root: Path, state: dict) -> None:
     path.write_text(json.dumps(state, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
+def _count_prior_overrides(state: dict) -> int:
+    records = state.get("substitution_records", []) or []
+    overrides = 0
+    for r in records:
+        if not isinstance(r, dict):
+            continue
+        if not r.get("user_confirmed"):
+            continue
+        if r.get("status") != "confirmed":
+            continue
+        overrides += 1
+    redemptions = state.get("routing_redemption_count", 0) or 0
+    return max(0, overrides - redemptions)
+
+
 def _cmd_route_explain(args: argparse.Namespace) -> None:
-    """aiwf route explain — show the current routing decision with reasons."""
     root = Path.cwd()
     state = _read_state(root)
-
-    from ..core.routing import explain_routing
-
-    from ..core.routing import LEVEL_TO_TOPOLOGY
+    from ..core.routing import explain_routing, LEVEL_TO_TOPOLOGY
 
     level = state.get("workflow_level", "L1_review_light")
-    # Build a decision-like dict from current state
     decision = {
         "workflow_level": level,
         "label": level,
@@ -53,35 +62,29 @@ def _cmd_route_explain(args: argparse.Namespace) -> None:
         "downgrade_allowed": state.get("downgrade_allowed", True),
         "substitution_allowed": state.get("substitution_allowed", False),
     }
-
     print(explain_routing(decision))
 
-    # Show substitution history if any
     subs = state.get("substitution_records", []) or []
     if subs:
         print()
-        print("Substitution history:")
+        print("Override history:")
         for s in subs[-5:]:
             print(f"  [{s.get('timestamp', '?')[:19]}] {s.get('from_topology', '?')} -> {s.get('to_topology', '?')}")
             print(f"    Reason: {s.get('reason', '?')[:120]}")
 
 
-def _cmd_route_downgrade(args: argparse.Namespace) -> None:
-    """aiwf route downgrade — request a topology downgrade with recorded reason."""
+def _cmd_route_override(args: argparse.Namespace) -> None:
     root = Path.cwd()
     state = _read_state(root)
-
     from ..core.routing import LEVEL_TO_TOPOLOGY, TOPOLOGY_TO_LEVEL, compute_topology_override
 
     current_level = state.get("workflow_level", "L1_review_light")
     current_topo = LEVEL_TO_TOPOLOGY.get(current_level, "light_review")
     requested = args.to
 
-    # Build factors from current state
-    factors = {}
-    for f in state.get("routing_factors", []):
-        factors[f] = True
+    factors = {f: True for f in (state.get("routing_factors", []) or [])}
     hard = state.get("hard_constraints", []) or []
+    prior_count = _count_prior_overrides(state)
 
     result = compute_topology_override(
         current_topology=current_topo,
@@ -89,21 +92,18 @@ def _cmd_route_downgrade(args: argparse.Namespace) -> None:
         factors=factors,
         hard=hard,
         reason=args.reason,
+        downgrade_history_count=prior_count,
     )
 
     if not result["allowed"]:
-        print("Downgrade BLOCKED:")
+        print("Override BLOCKED:")
         for w in result["warnings"]:
             print(f"  ! {w}")
         raise SystemExit(1)
 
-    # workflow_level is the canonical stored field — topology derives from it
     new_level = TOPOLOGY_TO_LEVEL.get(result["effective_topology"])
+    pending = bool(result.get("is_downgrade") and not args.user_confirmed)
 
-    pending_user_confirmation = bool(result.get("is_downgrade") and not args.user_confirmed)
-
-    # Record the downgrade request. Unconfirmed downgrades are audit records only;
-    # they must not mutate the active workflow truth before user approval.
     record = {
         "timestamp": _now(),
         "from_topology": current_topo,
@@ -112,20 +112,18 @@ def _cmd_route_downgrade(args: argparse.Namespace) -> None:
         "to_level": new_level or "",
         "task_id": args.task_id or "",
         "reason": args.reason,
-        "substitute_verification": args.substitute or "",
         "user_confirmed": bool(args.user_confirmed),
-        "status": "pending_user_confirmation" if pending_user_confirmation else "confirmed",
-        "type": "downgrade",
+        "status": "pending_user_confirmation" if pending else "confirmed",
+        "type": "override",
     }
     subs = state.setdefault("substitution_records", [])
     subs.append(record)
 
-    # Downgrades require explicit user confirmation — never silent, never applied early.
-    if pending_user_confirmation:
+    if pending:
         state["requires_user_decision"] = True
         state["quality_escalation_required"] = True
         state["quality_escalation_reason"] = (
-            f"Workflow downgrade requested from {current_level} ({current_topo}) to "
+            f"Route override requested from {current_level} ({current_topo}) to "
             f"{new_level} ({result['effective_topology']}) "
             f"(reason: {args.reason[:120]}); rerun with --user-confirmed to apply"
         )
@@ -133,134 +131,21 @@ def _cmd_route_downgrade(args: argparse.Namespace) -> None:
         state["workflow_level"] = new_level
     _write_state(root, state)
 
-    if pending_user_confirmation:
-        print(
-            f"Workflow downgrade pending user confirmation: {current_level} ({current_topo}) -> "
-            f"{new_level} ({result['effective_topology']})"
-        )
-        print(f"  Current workflow remains: {current_level} ({current_topo})")
-        print("  USER DECISION REQUIRED — rerun with --user-confirmed after user approves")
+    if pending:
+        print(f"Route override pending: {current_level} ({current_topo}) -> {new_level} ({result['effective_topology']})")
+        print(f"  Current: {current_level} ({current_topo})")
+        print("  USER DECISION REQUIRED — rerun with --user-confirmed")
     else:
-        print(f"Workflow downgraded: {current_level} ({current_topo}) -> {new_level} ({result['effective_topology']})")
+        print(f"Route overridden: {current_level} ({current_topo}) -> {new_level} ({result['effective_topology']})")
     if args.task_id:
         print(f"  Task: {args.task_id}")
     print(f"  Reason: {args.reason[:120]}")
-    if args.substitute:
-        print(f"  Substitute verification: {args.substitute[:120]}")
     if result["warnings"]:
         for w in result["warnings"]:
             print(f"  Note: {w}")
 
 
-def _cmd_route_substitute(args: argparse.Namespace) -> None:
-    """aiwf route substitute — waive a topology requirement with alternative verification."""
-    root = Path.cwd()
-    state = _read_state(root)
-
-    from ..core.routing import LEVEL_TO_TOPOLOGY, TOPOLOGY_TO_LEVEL, compute_topology_override
-
-    current_level = state.get("workflow_level", "L1_review_light")
-    current_topo = LEVEL_TO_TOPOLOGY.get(current_level, "light_review")
-    requested = args.use
-
-    factors = {}
-    for f in state.get("routing_factors", []):
-        factors[f] = True
-    hard = state.get("hard_constraints", []) or []
-
-    result = compute_topology_override(
-        current_topology=current_topo,
-        requested_topology=requested,
-        factors=factors,
-        hard=hard,
-        reason=args.reason,
-    )
-
-    if not result["allowed"]:
-        print("Substitution BLOCKED:")
-        for w in result["warnings"]:
-            print(f"  ! {w}")
-        raise SystemExit(1)
-
-    # workflow_level is canonical — topology derives from it
-    new_level = TOPOLOGY_TO_LEVEL.get(result["effective_topology"])
-
-    pending_user_confirmation = bool(result.get("is_downgrade") and not args.user_confirmed)
-
-    # Record the substitution with alternative verification. Unconfirmed downgrade
-    # substitutions are audit records only; they must not change the active level.
-    record = {
-        "timestamp": _now(),
-        "from_topology": current_topo,
-        "to_topology": result["effective_topology"],
-        "from_level": current_level,
-        "to_level": new_level or "",
-        "task_id": args.task_id or "",
-        "reason": args.reason,
-        "waived": args.waive or "",
-        "substitute_verification": args.substitute or "",
-        "user_confirmed": bool(args.user_confirmed),
-        "status": "pending_user_confirmation" if pending_user_confirmation else "confirmed",
-        "type": "substitution",
-    }
-    subs = state.setdefault("substitution_records", [])
-    subs.append(record)
-
-    # Downgrade substitutions require explicit user confirmation before applying.
-    if pending_user_confirmation:
-        state["requires_user_decision"] = True
-        state["quality_escalation_required"] = True
-        state["quality_escalation_reason"] = (
-            f"Workflow substitution requested from {current_level} ({current_topo}) to "
-            f"{new_level} ({result['effective_topology']}) "
-            f"(reason: {args.reason[:120]}); rerun with --user-confirmed to apply"
-        )
-    elif new_level:
-        state["workflow_level"] = new_level
-    if args.substitute and not pending_user_confirmation:
-        state["substitution_allowed"] = True
-    _write_state(root, state)
-
-    if pending_user_confirmation:
-        print(
-            f"Workflow substitution pending user confirmation: {current_level} ({current_topo}) -> "
-            f"{new_level} ({result['effective_topology']})"
-        )
-        print(f"  Current workflow remains: {current_level} ({current_topo})")
-        print("  USER DECISION REQUIRED — rerun with --user-confirmed after user approves")
-    else:
-        print(f"Workflow substituted: {current_level} ({current_topo}) -> {new_level} ({result['effective_topology']})")
-    if args.task_id:
-        print(f"  Task: {args.task_id}")
-    print(f"  Reason: {args.reason[:120]}")
-    if args.waive:
-        print(f"  Waived: {args.waive}")
-    if args.substitute:
-        print(f"  Alternative verification: {args.substitute[:120]}")
-    if result["warnings"]:
-        for w in result["warnings"]:
-            print(f"  Note: {w}")
-
-
-def _cmd_route_help(args: argparse.Namespace) -> None:
-    """aiwf route — show available routing subcommands."""
-    print("AIWF Route Operations (V2-A)")
-    print()
-    print("Available subcommands:")
-    print("  aiwf route explain       — explain the current routing decision")
-    print("  aiwf route downgrade     — request a topology downgrade with recorded reason")
-    print("  aiwf route substitute    — waive a topology requirement with alternative verification")
-    print("  Never hand-edit .aiwf/state/state.json to bypass routing or gravity.")
-    print()
-    print("Execution topologies (least to most intensive):")
-    print("  single_agent                         — one agent, self-review ok")
-    print("  single_agent_with_machine_evidence   — one agent + machine-verifiable commands")
-    print("  light_review                         — executor + reviewer-light")
-    print("  standard_team                        — executor + tester + reviewer")
-    print("  fanout_merge                         — parallel agents + merge")
-    print()
-    print("Verification needs:")
-    print("  deterministic   — machine-verifiable (neg/pos test, diff check)")
-    print("  standard        — targeted + regression")
-    print("  broad           — full regression + boundary + adverse")
-    print("  adversarial     — full adversarial matrix")
+def _cmd_route_help(args):
+    print("Usage: aiwf route <explain|override>")
+    print("  explain   — show current routing decision")
+    print("  override  — override routing level with recorded reason")

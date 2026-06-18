@@ -41,7 +41,7 @@ class TestProjectRootResolution(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertTrue(
-            (self.tmp / ".aiwf" / "artifacts" / "plans" / "PLAN-NESTED.md").exists()
+            (self.tmp / ".aiwf" / "plans" / "PLAN-NESTED.md").exists()
         )
         self.assertFalse((self.tmp / "app" / ".aiwf").exists())
         self.assertFalse((self.child / ".aiwf").exists())
@@ -57,10 +57,10 @@ class TestProjectRootResolution(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertTrue(
-            (self.tmp / ".aiwf" / "artifacts" / "plans" / "PLAN-RECOVERED.md").exists()
+            (self.tmp / ".aiwf" / "plans" / "PLAN-RECOVERED.md").exists()
         )
         self.assertFalse(
-            (self.tmp / "app" / ".aiwf" / "artifacts" / "plans" / "PLAN-RECOVERED.md").exists()
+            (self.tmp / "app" / ".aiwf" / "plans" / "PLAN-RECOVERED.md").exists()
         )
 
     def test_event_normalizer_uses_installed_ancestor(self):

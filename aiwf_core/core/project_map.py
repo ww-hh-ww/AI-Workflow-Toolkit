@@ -80,11 +80,11 @@ def _now() -> str:
 
 
 def _path(project_root: str) -> Path:
-    return Path(project_root) / ".aiwf" / "artifacts" / "reports" / "项目地图.md"
+    return Path(project_root) / ".aiwf" / "records" / "项目地图.md"
 
 
 def _asset_path(project_root: str) -> Path:
-    return Path(project_root) / ".aiwf" / "assets" / "project-map.json"
+    return Path(project_root) / ".aiwf" / "records" / "events.json"
 
 
 def _normalize_repo_path(value: str) -> str:

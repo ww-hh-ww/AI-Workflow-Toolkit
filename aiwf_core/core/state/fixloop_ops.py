@@ -73,10 +73,8 @@ def open_fix_loop(
     if attempt > max_att:
         fix_loop["escalation_required"] = True
         fix_loop["escalation_reason"] = f"fix-loop attempts ({attempt}) exceeded max_attempts ({max_att})"
-        # rollback recommended if checkpoint exists
-        ckpt_dir = base / ".aiwf" / "runtime" / "checkpoints"
-        has_ckpt = ckpt_dir.exists() and any(ckpt_dir.iterdir())
-        fix_loop["rollback_recommended"] = True if has_ckpt else False
+        # rollback recommended if git is available for inspection
+        fix_loop["rollback_recommended"] = True
 
     _write(fix_loop_path, fix_loop)
 
@@ -215,11 +213,11 @@ def resolve_fix_loop(
     blockers: List[str] = []
     scope_resolution = None
     state = _read(base / ".aiwf" / "state" / "state.json")
-    testing = _read(base / ".aiwf" / "artifacts" / "quality" / "testing.json")
+    testing = _read(base / ".aiwf" / "records" / "testing.json")
 
     # ── Re-validate required_fixes against current state ──
     required_fixes = fix_loop.get("required_fixes", []) or []
-    review_path = base / ".aiwf" / "artifacts" / "quality" / "review.json"
+    review_path = base / ".aiwf" / "records" / "review.json"
     review = _read(review_path)
     scope_events = review.get("scope_violation_events", []) or []
     reval = _revalidate_required_fixes(base, required_fixes, scope_events, force)
@@ -259,8 +257,11 @@ def resolve_fix_loop(
                 blockers.append("scope violation has no structured event history to verify")
         else:
             scope_resolution = (review_path, review, unresolved, state)
-    if fix_loop.get("escalation_required"):
-        blockers.append("escalation_required=true; Planner cannot self-resolve escalation")
+    if fix_loop.get("escalation_required") and not force:
+        blockers.append(
+            "escalation_required=true; Planner cannot self-resolve escalation. "
+            "Re-run with --force to override (Planner acknowledges the override)."
+        )
     if fix_loop.get("required_verification"):
         if testing.get("status") not in ("adequate", "passed"):
             blockers.append("required verification has not produced adequate/passed testing")

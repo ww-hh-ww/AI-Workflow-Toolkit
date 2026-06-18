@@ -14,6 +14,7 @@ TIMEOUT = 15
 
 
 class _Base(unittest.TestCase):
+    __unittest_skip__ = True  # V1: graft/prune/impact removed
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp(prefix="aiwf_s368_"))
         from aiwf_core.core.state_schema import MVP_STATE_FILES
@@ -44,6 +45,7 @@ class _Base(unittest.TestCase):
 # ═══════════════════════════════════════════════════════════════════════════
 
 class TestGraftPrune(_Base):
+    @unittest.skip("V1: feature removed")
     def test_graft_moves_temporary_into_main_tree(self):
         from aiwf_core.core.state.goal_tree_ops import get_goal, graft_branch, init_root
 
@@ -61,6 +63,7 @@ class TestGraftPrune(_Base):
         target = get_goal(str(self.tmp), "GOAL-001")
         self.assertIn("TMP-001", target["child_goal_ids"])
 
+    @unittest.skip("V1: feature removed")
     def test_graft_rejects_self_target(self):
         from aiwf_core.core.state.goal_tree_ops import graft_branch, init_root
 
@@ -68,6 +71,7 @@ class TestGraftPrune(_Base):
         with self.assertRaises(ValueError):
             graft_branch(str(self.tmp), "GOAL-001", "GOAL-001")
 
+    @unittest.skip("V1: feature removed")
     def test_graft_rejects_nonexistent(self):
         from aiwf_core.core.state.goal_tree_ops import graft_branch, init_root
 
@@ -75,6 +79,7 @@ class TestGraftPrune(_Base):
         with self.assertRaises(ValueError):
             graft_branch(str(self.tmp), "NONEXISTENT", "GOAL-001")
 
+    @unittest.skip("V1: feature removed")
     def test_graft_records_history(self):
         from aiwf_core.core.state.goal_tree_ops import get_goal, graft_branch, init_root
 
@@ -88,6 +93,7 @@ class TestGraftPrune(_Base):
         self.assertEqual(history[0]["reason"], "Test graft")
         self.assertEqual(history[0]["previous_root_type"], "temporary")
 
+    @unittest.skip("V1: feature removed")
     def test_prune_archives_not_deletes(self):
         from aiwf_core.core.state.goal_tree_ops import get_goal, init_root, prune_branch
 
@@ -101,6 +107,7 @@ class TestGraftPrune(_Base):
         self.assertEqual(branch["visibility"], "archived_only")
         self.assertEqual(branch["prune_reason"], "No longer needed")
 
+    @unittest.skip("V1: feature removed")
     def test_prune_cannot_touch_active_main_root(self):
         from aiwf_core.core.state.goal_tree_ops import init_root, prune_branch
 
@@ -108,6 +115,7 @@ class TestGraftPrune(_Base):
         with self.assertRaises(ValueError):
             prune_branch(str(self.tmp), "GOAL-001")
 
+    @unittest.skip("V1: feature removed")
     def test_prune_removes_from_parent(self):
         from aiwf_core.core.state.goal_tree_ops import add_child_goal, get_goal, init_root, prune_branch
 
@@ -118,6 +126,7 @@ class TestGraftPrune(_Base):
         parent = get_goal(str(self.tmp), "GOAL-001")
         self.assertNotIn("GOAL-001-A", parent["child_goal_ids"])
 
+    @unittest.skip("V1: feature removed")
     def test_cli_graft_and_prune(self):
         self._run_ok("goal-tree", "init-root", "GOAL-001", "--type", "main")
         self._run_ok("goal-tree", "init-root", "TMP-001", "--type", "temporary")
@@ -130,6 +139,7 @@ class TestGraftPrune(_Base):
 
     # ── Stage 3.9: graft through interface ──
 
+    @unittest.skip("V1: feature removed")
     def test_graft_interface_fields_recorded(self):
         from aiwf_core.core.state.goal_tree_ops import get_goal, graft_branch, init_root
 
@@ -160,6 +170,7 @@ class TestGraftPrune(_Base):
         self.assertEqual(gi.get("consumed"), "Goal Tree registry api")
         self.assertEqual(gi.get("provided"), "Temporary Root trial growth")
 
+    @unittest.skip("V1: feature removed")
     def test_graft_interface_parent_meaning_changes(self):
         from aiwf_core.core.state.goal_tree_ops import get_goal, graft_branch, init_root
 
@@ -176,6 +187,7 @@ class TestGraftPrune(_Base):
         history = source.get("graft_history", [])
         self.assertTrue(history[0]["whether_parent_meaning_changes"])
 
+    @unittest.skip("V1: feature removed")
     def test_cli_graft_with_interface_flags(self):
         self._run_ok("goal-tree", "init-root", "GOAL-ROOT", "--type", "main")
         self._run_ok("goal-tree", "init-root", "TMP-001", "--type", "temporary")
@@ -198,6 +210,7 @@ class TestGraftPrune(_Base):
 # ═══════════════════════════════════════════════════════════════════════════
 
 class TestSiblingRelations(_Base):
+    @unittest.skip("V1: feature removed")
     def test_add_relation(self):
         from aiwf_core.core.state.goal_tree_ops import add_relation, get_relations, init_root
 
@@ -211,6 +224,7 @@ class TestSiblingRelations(_Base):
         self.assertEqual(len(rels), 1)
         self.assertEqual(rels[0]["type"], "depends_on")
 
+    @unittest.skip("V1: feature removed")
     def test_add_relation_rejects_invalid_type(self):
         from aiwf_core.core.state.goal_tree_ops import add_relation, init_root
 
@@ -219,6 +233,7 @@ class TestSiblingRelations(_Base):
         with self.assertRaises(ValueError):
             add_relation(str(self.tmp), "GOAL-A", "GOAL-B", "garbage")
 
+    @unittest.skip("V1: feature removed")
     def test_add_relation_rejects_self(self):
         from aiwf_core.core.state.goal_tree_ops import add_relation, init_root
 
@@ -226,6 +241,7 @@ class TestSiblingRelations(_Base):
         with self.assertRaises(ValueError):
             add_relation(str(self.tmp), "GOAL-A", "GOAL-A")
 
+    @unittest.skip("V1: feature removed")
     def test_remove_relation(self):
         from aiwf_core.core.state.goal_tree_ops import add_relation, get_relations, init_root, remove_relation
 
@@ -237,6 +253,7 @@ class TestSiblingRelations(_Base):
         self.assertTrue(result["removed"])
         self.assertEqual(len(get_relations(str(self.tmp), "GOAL-A")), 0)
 
+    @unittest.skip("V1: feature removed")
     def test_relation_does_not_block_activation(self):
         from aiwf_core.core.state.goal_tree_ops import add_relation, init_root
         from aiwf_core.core.state.plan_ops import upsert_plan
@@ -255,6 +272,7 @@ class TestSiblingRelations(_Base):
         blockers_text = " ".join(result.get("blockers", []) or [])
         self.assertNotIn("relation", blockers_text.lower())
 
+    @unittest.skip("V1: feature removed")
     def test_cli_relation_add_remove_show(self):
         self._run_ok("goal-tree", "init-root", "GOAL-A", "--type", "main")
         self._run_ok("goal-tree", "init-root", "GOAL-B", "--type", "main")
@@ -270,6 +288,7 @@ class TestSiblingRelations(_Base):
 
     # ── Stage 3.9: relation same-parent enforcement ──
 
+    @unittest.skip("V1: feature removed")
     def test_relation_requires_same_parent(self):
         """Sibling relations default to same-parent; different-parent goals must use --cross."""
         from aiwf_core.core.state.goal_tree_ops import add_child_goal, add_relation, init_root
@@ -283,6 +302,7 @@ class TestSiblingRelations(_Base):
         result = add_relation(str(self.tmp), "GOAL-A", "GOAL-B", "depends_on")
         self.assertTrue(result["added"])
 
+    @unittest.skip("V1: feature removed")
     def test_relation_rejects_different_parents(self):
         from aiwf_core.core.state.goal_tree_ops import add_child_goal, add_relation, init_root
 
@@ -295,6 +315,7 @@ class TestSiblingRelations(_Base):
         with self.assertRaises(ValueError):
             add_relation(str(self.tmp), "GOAL-A", "GOAL-B", "depends_on")
 
+    @unittest.skip("V1: feature removed")
     def test_relation_cross_parent_allowed(self):
         from aiwf_core.core.state.goal_tree_ops import add_child_goal, add_relation, init_root
 
@@ -309,6 +330,7 @@ class TestSiblingRelations(_Base):
         self.assertTrue(result["added"])
         self.assertTrue(result["relation"]["cross_parent"])
 
+    @unittest.skip("V1: feature removed")
     def test_cli_relation_add_cross(self):
         self._run_ok("goal-tree", "init-root", "GOAL-ROOT-1", "--type", "main")
         self._run_ok("goal-tree", "init-root", "GOAL-ROOT-2", "--type", "main")
@@ -329,6 +351,7 @@ class TestSiblingRelations(_Base):
 # ═══════════════════════════════════════════════════════════════════════════
 
 class TestImpactCone(_Base):
+    @unittest.skip("V1: feature removed")
     def test_impact_cone_includes_ancestors(self):
         from aiwf_core.core.state.goal_tree_ops import add_child_goal, init_root
         from aiwf_core.core.state.impact_ops import compute_impact_cone
@@ -342,6 +365,7 @@ class TestImpactCone(_Base):
         self.assertIn("GOAL-L1", result["ancestors"])
         self.assertIn("GOAL-ROOT", result["ancestors"])
 
+    @unittest.skip("V1: feature removed")
     def test_impact_cone_includes_children(self):
         from aiwf_core.core.state.goal_tree_ops import add_child_goal, init_root
         from aiwf_core.core.state.impact_ops import compute_impact_cone
@@ -353,6 +377,7 @@ class TestImpactCone(_Base):
         child_ids = [c["id"] for c in result["children"]]
         self.assertIn("GOAL-L1", child_ids)
 
+    @unittest.skip("V1: feature removed")
     def test_impact_cone_includes_relations(self):
         from aiwf_core.core.state.goal_tree_ops import add_relation, init_root
         from aiwf_core.core.state.impact_ops import compute_impact_cone
@@ -365,6 +390,7 @@ class TestImpactCone(_Base):
         self.assertEqual(len(result["relations"]), 1)
         self.assertEqual(result["relations"][0]["type"], "depends_on")
 
+    @unittest.skip("V1: feature removed")
     def test_impact_cone_readonly(self):
         from aiwf_core.core.state.goal_tree_ops import init_root, load_goal_tree
         from aiwf_core.core.state.impact_ops import compute_impact_cone
@@ -378,12 +404,14 @@ class TestImpactCone(_Base):
         after = json.dumps(load_goal_tree(str(self.tmp), auto_create=False))
         self.assertEqual(before, after, "impact cone must be read-only")
 
+    @unittest.skip("V1: feature removed")
     def test_impact_cone_nonexistent_node(self):
         from aiwf_core.core.state.impact_ops import compute_impact_cone
 
         result = compute_impact_cone(str(self.tmp), "NONEXISTENT")
         self.assertFalse(result["found"])
 
+    @unittest.skip("V1: feature removed")
     def test_cli_impact_cone(self):
         from aiwf_core.core.state.goal_tree_ops import add_relation, init_root
 

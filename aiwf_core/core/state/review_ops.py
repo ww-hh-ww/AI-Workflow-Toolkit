@@ -55,7 +55,7 @@ def record_review(
         raise ValueError("either verdict or result is required")
 
     base = Path(base_dir)
-    review_path = base / ".aiwf" / "artifacts" / "quality" / "review.json"
+    review_path = base / ".aiwf" / "records" / "review.json"
     state = _read(base / ".aiwf" / "state" / "state.json")
     review = _read(review_path)
     previous = json.loads(json.dumps(review))
@@ -65,14 +65,14 @@ def record_review(
     if previous_verdict in ("REVISE", "REJECT") and verdict in ("PASS", "PASS_WITH_RISK"):
         if not resolution.strip():
             raise ValueError("clearing a prior REVISE/REJECT review requires --resolution")
-        testing = _read(base / ".aiwf" / "artifacts" / "quality" / "testing.json")
+        testing = _read(base / ".aiwf" / "records" / "testing.json")
         previous_at = str(previous.get("recorded_at", "") or "")
         testing_at = str(testing.get("recorded_at", "") or "")
         if not testing_at or (previous_at and testing_at <= previous_at):
             raise ValueError("review blockers require testing to be rerun after the blocking review")
         if not resolution_evidence_ids:
             raise ValueError("clearing review blockers requires --resolution-evidence-id")
-        evidence = _read(base / ".aiwf" / "artifacts" / "evidence" / "records.json")
+        evidence = _read(base / ".aiwf" / "records" / "evidence.json")
         known_evidence = {
             str(record.get("id", ""))
             for record in evidence.get("records", [])
@@ -98,11 +98,39 @@ def record_review(
     if review.get("recorded_at"):
         history.append({k: v for k, v in previous.items() if k != "review_history"})
 
+    # Validate accepted/rejected evidence IDs against actual records.
+    # Phantom IDs (referencing nonexistent evidence) cause close-gate
+    # failures and force rework. Catch them at record time.
+    evidence = _read(base / ".aiwf" / "records" / "evidence.json")
+    known_evidence = {
+        str(record.get("id", ""))
+        for record in evidence.get("records", [])
+        if isinstance(record, dict)
+    }
+    accepted_ids = list(accepted_evidence_ids or [])
+    rejected_ids = list(rejected_evidence_ids or [])
+    phantom_accepted = [eid for eid in accepted_ids if eid not in known_evidence]
+    phantom_rejected = [eid for eid in rejected_ids if eid not in known_evidence]
+    if phantom_accepted:
+        # Give actionable info: show which IDs are phantom and what's available
+        recent_ids = sorted(known_evidence)[-10:]
+        raise ValueError(
+            f"Phantom evidence IDs in --accepted-evidence-id: {', '.join(phantom_accepted[:5])}. "
+            f"These IDs don't exist in evidence records. "
+            f"Recent valid IDs: {', '.join(recent_ids) if recent_ids else '(none)'}. "
+            f"Fix: run 'aiwf record evidence' for missing roles, "
+            f"then use those new evidence IDs in --accepted-evidence-id."
+        )
+    if phantom_rejected:
+        raise ValueError(
+            f"Phantom evidence IDs in --rejected-evidence-id: {', '.join(phantom_rejected[:5])}"
+        )
+
     review["verdict"] = verdict or "pending"
     review["result"] = result
     review["closure_allowed"] = bool(closure_allowed)
-    review["accepted_evidence_ids"] = list(accepted_evidence_ids or [])
-    review["rejected_evidence_ids"] = list(rejected_evidence_ids or [])
+    review["accepted_evidence_ids"] = accepted_ids
+    review["rejected_evidence_ids"] = rejected_ids
     review["blockers"] = list(blockers or [])
     review["recorded_at"] = now
     review["resolution"] = resolution.strip()
@@ -151,7 +179,7 @@ def record_review(
         base_dir,
         "reviewer",
         summary=summary_text,
-        command="aiwf state record-review",
+        command="aiwf record review",
         context_id=context_id or state.get("active_context_id") or "",
         status="pending",
         exit_code=0 if (verdict in ("PASS", "PASS_WITH_RISK") or result == "accepted") else 1,
@@ -164,21 +192,8 @@ def record_review(
         from ..review_contract import set_review_rejected
         set_review_rejected(review, result, blockers or [], rejected_evidence_ids or [])
 
-    # Phase-gate: check BEFORE writing review so a failed gate doesn't
-    # leave a dirty PASS/closure_allowed=true state on disk.
+    # V2: write review directly. No phase gate, no testing_to_reviewing check.
     if state.get("phase") not in ("closing", "closed"):
-        try:
-            from ..phase_gates import testing_to_reviewing_gates
-            gate_blockers = testing_to_reviewing_gates(base_dir)
-            if gate_blockers:
-                raise ValueError(
-                    "Phase gate (testing→reviewing) not met:\n" +
-                    "\n".join(f"  - {b}" for b in gate_blockers)
-                )
-        except ValueError:
-            raise
-        except Exception:
-            pass
         state["phase"] = "reviewing"
 
     _write(review_path, review)
@@ -187,8 +202,10 @@ def record_review(
     return review
 
 
+# LEGACY/ADVISORY ONLY: V1 does not use workflow_level for severity.
+# Orphan/admission checks are always advisory ("warning") — they never block close.
+# The old L2/L3 → "high" severity mapping is retired.
 def _read_current_workflow_level(base_dir: str) -> str:
-    """Read current workflow_level from state.json, default to L1_review_light."""
     try:
         data = _read(Path(base_dir) / ".aiwf" / "state" / "state.json")
         return str(data.get("workflow_level", "L1_review_light") or "L1_review_light")
@@ -197,19 +214,11 @@ def _read_current_workflow_level(base_dir: str) -> str:
 
 
 def _severity_for_level(workflow_level: str) -> str:
-    """Map workflow level to orphan severity.
-
-    L0/L1: warning — surface but don't escalate
-    L2/L3: high — architecture-sensitive, needs attention
-    """
-    if workflow_level.startswith("L2") or workflow_level.startswith("L3"):
-        return "high"
     return "warning"
 
 
 def _severity_desc(severity: str) -> str:
-    return "review_attention (should not pass silently at L2+)" if severity == "high" \
-        else "advisory (flag for Planner awareness)"
+    return "advisory (flag for Planner awareness)"
 
 
 def check_orphan_patches(base_dir: str) -> Dict[str, Any]:

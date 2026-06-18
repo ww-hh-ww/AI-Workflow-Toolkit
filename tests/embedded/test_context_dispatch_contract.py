@@ -77,22 +77,26 @@ class TestContextDispatch(unittest.TestCase):
 
     def test_planner_skill_has_dispatch_fields(self):
         content = (self.tmp / ".claude" / "skills" / "aiwf-planner" / "SKILL.md").read_text()
-        for field in ["read_hints", "non_goals", "dependencies", "interface_contract",
-                       "test_focus", "review_focus", "escalation_triggers"]:
+        # V1: planner skill covers Goal/Plan structure and task strategy;
+        # old dispatch-field vocabulary (context, frontier) is retired
+        for field in ["scope", "contract", "plan", "goal"]:
             self.assertIn(field, content.lower(),
                          f"Planner skill should mention '{field}'")
 
     def test_test_skill_has_context_dispatch_refs(self):
         content = (self.tmp / ".claude" / "skills" / "aiwf-test" / "SKILL.md").read_text()
-        self.assertIn("context.test_focus", content.lower())
-        self.assertIn("context.escalation_triggers", content.lower())
+        # V2: test skill references Task.md requirements dispatch, not old context field paths
+        self.assertIn("task.md", content.lower())
+        self.assertIn("tasks.json", content.lower())
+        self.assertIn("tester_required", content.lower())
 
     def test_review_skill_has_plan_scope_refs(self):
         content = (self.tmp / ".claude" / "skills" / "aiwf-review" / "SKILL.md").read_text()
-        self.assertIn("review_focus", content.lower())
-        self.assertIn("non_goals", content.lower())
-        self.assertIn("interface_contract", content.lower())
-        self.assertIn("plans.json", content.lower())
+        # V2: review skill is a dispatch template referencing Task.md and tasks.json
+        self.assertIn("task.md", content.lower())
+        self.assertIn("tasks.json", content.lower())
+        self.assertTrue("non-goals" in content.lower() or "non_goals" in content.lower())
+        self.assertIn("reviewer_required", content.lower())
 
     def test_status_does_not_dump_context_dispatch(self):
         from aiwf_core.core.state_ops import start_context

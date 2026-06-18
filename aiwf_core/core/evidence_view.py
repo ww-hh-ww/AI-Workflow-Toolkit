@@ -5,7 +5,7 @@ deduplicated views for status, review, and closure reporting.
 """
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 
 
 def get_accepted_evidence(
@@ -29,6 +29,93 @@ def get_accepted_evidence(
             r.get("id") in accepted_ids or r.get("status") == "accepted"
         )
     ]
+
+
+def effective_closure_evidence_ids(testing: Dict[str, Any], review: Dict[str, Any]) -> Set[str]:
+    """Return evidence IDs explicitly linked by testing/review artifacts."""
+    ids: set[str] = set()
+
+    if testing.get("status") in ("adequate", "passed"):
+        if testing.get("evidence_id"):
+            ids.add(str(testing.get("evidence_id")))
+        ids.update(str(eid) for eid in (testing.get("evidence_ids", []) or []) if str(eid))
+        ids.update(str(eid) for eid in (testing.get("reused_evidence_ids", []) or []) if str(eid))
+        ids.difference_update(
+            str(eid) for eid in (testing.get("invalidated_evidence_ids", []) or []) if str(eid)
+        )
+
+    if review.get("result") == "accepted" or review.get("verdict") in ("PASS", "PASS_WITH_RISK"):
+        ids.update(str(eid) for eid in (review.get("accepted_evidence_ids", []) or []) if str(eid))
+        if review.get("reviewer_evidence_id"):
+            ids.add(str(review.get("reviewer_evidence_id")))
+
+    ids.discard("")
+    return ids
+
+
+def task_evidence_view(
+    evidence: Dict[str, Any],
+    testing: Dict[str, Any],
+    review: Dict[str, Any],
+    task: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Compute evidence relevant to one task without brittle task_id dependence.
+
+    Inclusion rules:
+    - evidence with matching task_id belongs to the task
+    - evidence with a different task_id never belongs to the task
+    - evidence with no task_id belongs if it is explicitly linked by testing/review
+      or was captured after the task activated
+
+    This keeps old/legacy evidence usable while preventing historical pollution.
+    """
+    task_id = str(task.get("id") or "")
+    activated_at = str(task.get("activated_at") or "")
+    explicit_ids = effective_closure_evidence_ids(testing, review)
+    records = evidence.get("records", []) if isinstance(evidence.get("records", []), list) else []
+
+    relevant: list[dict] = []
+    accepted: list[dict] = []
+    inferred_task_ids: list[str] = []
+    ignored_other_task_ids: set[str] = set()
+
+    for record in records:
+        if not isinstance(record, dict):
+            continue
+        rid = str(record.get("id") or "")
+        record_task = str(record.get("task_id") or "")
+        if record_task and task_id and record_task != task_id:
+            ignored_other_task_ids.add(record_task)
+            continue
+
+        timestamp = str(record.get("timestamp") or record.get("recorded_at") or "")
+        linked = bool(rid and rid in explicit_ids)
+        explicit_match = bool(task_id and record_task == task_id)
+        in_active_window = bool(task_id and not record_task and activated_at and timestamp and timestamp >= activated_at)
+        legacy_no_window = bool(task_id and not record_task and not activated_at)
+
+        if not (explicit_match or linked or in_active_window or legacy_no_window):
+            continue
+
+        relevant.append(record)
+        if not record_task and task_id and (linked or in_active_window or legacy_no_window):
+            inferred_task_ids.append(rid or "(unknown)")
+        if record.get("status") == "accepted" or linked:
+            accepted.append(record)
+
+    accepted_ids = {str(r.get("id")) for r in accepted if str(r.get("id") or "")}
+    accepted_ids.update(explicit_ids)
+    accepted_ids.discard("")
+
+    return {
+        "task_id": task_id,
+        "records": relevant,
+        "accepted_records": accepted,
+        "accepted_ids": accepted_ids,
+        "explicit_ids": explicit_ids,
+        "inferred_task_id_record_ids": inferred_task_ids,
+        "ignored_other_task_ids": sorted(ignored_other_task_ids),
+    }
 
 
 def summarize_evidence(

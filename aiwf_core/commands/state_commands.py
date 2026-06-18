@@ -747,6 +747,17 @@ def _cmd_set_workflow_mode(args: argparse.Namespace) -> None:
     print(f"  External research required: {state.get('external_research_required', False)}")
 
 
+def _cmd_record_help(args: argparse.Namespace) -> None:
+    """aiwf record — show available record subcommands."""
+    print("AIWF Record Operations")
+    print()
+    print("Available subcommands:")
+    print("  aiwf record evidence             — record executor evidence")
+    print("  aiwf record testing              — record testing results")
+    print("  aiwf record review               — record review results")
+    print("  aiwf record architecture-review  — record architecture review")
+
+
 def _cmd_state_help(args: argparse.Namespace) -> None:
     """aiwf state — show available state subcommands."""
     print("AIWF State Operations")

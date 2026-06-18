@@ -93,15 +93,15 @@ class TestQualityPolicy(unittest.TestCase):
 
     def test_prompt_cache_compliance_state_keys_only(self):
         """State records template keys, never full template text."""
-        from aiwf_core.core.state_schema import default_state
+        from aiwf_core.core.state_schema import default_state, STATE_KEYS
         s = default_state()
         # All string fields should be short keys, not full text
         for k, v in s.items():
             if isinstance(v, str):
                 self.assertLess(len(v), 200, f"state.{k} is {len(v)} chars; should be a key, not full text")
-        # Verify template-relevant fields are keys
+        # Verify template-relevant fields are valid state keys (may not be populated in default_state)
         for field in ["workflow_level", "complexity"]:
-            self.assertIn(field, s)
+            self.assertIn(field, STATE_KEYS)
 
     def test_prompt_cache_compliance_no_dynamic_claude_md(self):
         """Quality policy does not reference dynamic CLAUDE.md modification."""

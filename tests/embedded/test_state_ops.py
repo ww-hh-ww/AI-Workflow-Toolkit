@@ -35,7 +35,7 @@ class TestStateOps(unittest.TestCase):
         self.assertTrue(any(c["id"] == "CTX-MOD" for c in ctxs["contexts"]))
         state = _rj(self.tmp / ".aiwf" / "state" / "state.json")
         self.assertEqual(state["active_context_id"], "CTX-MOD")
-        self.assertEqual(state["phase"], "implementing")
+        self.assertEqual(state["phase"], "executing")
 
     def test_start_context_upserts_existing(self):
         from aiwf_core.core.state_ops import start_context
@@ -61,12 +61,12 @@ class TestStateOps(unittest.TestCase):
         from aiwf_core.core.state_ops import mark_cleanup_stale, mark_cleanup_fresh
         mark_cleanup_stale(str(self.tmp), ["old context CTX-OLD"],
                           blockers=["stale context"], notes=["stale warning"])
-        r = _rj(self.tmp / ".aiwf" / "artifacts" / "quality" / "review.json")
+        r = _rj(self.tmp / ".aiwf" / "records" / "review.jsonl")
         self.assertEqual(r["cleanup_status"], "stale")
         self.assertEqual(len(r["stale_items"]), 1)
 
         mark_cleanup_fresh(str(self.tmp), resolved_notes=["Removed CTX-OLD"])
-        r = _rj(self.tmp / ".aiwf" / "artifacts" / "quality" / "review.json")
+        r = _rj(self.tmp / ".aiwf" / "records" / "review.jsonl")
         self.assertEqual(r["cleanup_status"], "fresh")
         self.assertEqual(r["cleanup_blockers"], [])
         self.assertEqual(r["stale_items"], [])
@@ -75,13 +75,13 @@ class TestStateOps(unittest.TestCase):
     def test_mark_cleanup_fresh_filters_stale_notes(self):
         from aiwf_core.core.state_ops import mark_cleanup_fresh
         # Pre-seed stale notes
-        r = _rj(self.tmp / ".aiwf" / "artifacts" / "quality" / "review.json")
+        r = _rj(self.tmp / ".aiwf" / "records" / "review.jsonl")
         r["cleanup_notes"] = ["old stale context", "valid note", "STALE data"]
         r["stale_items"] = ["x"]
-        (self.tmp / ".aiwf" / "artifacts" / "quality" / "review.json").write_text(json.dumps(r, indent=2))
+        (self.tmp / ".aiwf" / "records" / "review.jsonl").write_text(json.dumps(r, indent=2))
 
         mark_cleanup_fresh(str(self.tmp))  # No explicit resolved_notes
-        r = _rj(self.tmp / ".aiwf" / "artifacts" / "quality" / "review.json")
+        r = _rj(self.tmp / ".aiwf" / "records" / "review.jsonl")
         # stale-related notes are filtered
         for n in r["cleanup_notes"]:
             self.assertNotIn("stale", n.lower())
@@ -90,13 +90,13 @@ class TestStateOps(unittest.TestCase):
         """Cleanup invariant: fresh requires empty stale_items and no blockers."""
         from aiwf_core.core.state_ops import mark_cleanup_fresh
         # Pre-seed stale state, then mark fresh (which clears them)
-        r = _rj(self.tmp / ".aiwf" / "artifacts" / "quality" / "review.json")
+        r = _rj(self.tmp / ".aiwf" / "records" / "review.jsonl")
         r["stale_items"] = ["stale-context"]
         r["cleanup_blockers"] = ["blocker"]
-        (self.tmp / ".aiwf" / "artifacts" / "quality" / "review.json").write_text(json.dumps(r, indent=2))
+        (self.tmp / ".aiwf" / "records" / "review.jsonl").write_text(json.dumps(r, indent=2))
 
         mark_cleanup_fresh(str(self.tmp))
-        r = _rj(self.tmp / ".aiwf" / "artifacts" / "quality" / "review.json")
+        r = _rj(self.tmp / ".aiwf" / "records" / "review.jsonl")
         self.assertEqual(r["cleanup_status"], "fresh")
         self.assertEqual(r["stale_items"], [])
         self.assertEqual(r["cleanup_blockers"], [])
@@ -105,7 +105,7 @@ class TestStateOps(unittest.TestCase):
     def test_get_state_summary(self):
         from aiwf_core.core.state_ops import get_state_summary
         s = get_state_summary(str(self.tmp))
-        self.assertEqual(s["phase"], "discussing")
+        self.assertEqual(s["phase"], "planning")
         self.assertEqual(s["complexity"], "standard")
         self.assertIn("review_result", s)
         self.assertIn("cleanup_status", s)

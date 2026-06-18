@@ -29,7 +29,13 @@ class TestQualityBrief(unittest.TestCase):
 
     # ── goal schema ──
     def test_default_goal_has_quality_brief(self):
-        g = _rj(self.tmp / ".aiwf" / "state" / "goal.json")
+        from aiwf_core.core.state_ops import record_quality_brief
+        from aiwf_core.core.state.goal_ops import get_active_goal
+        record_quality_brief(str(self.tmp),
+            test_focus=["placeholder"], acceptance_criteria=["placeholder"],
+            review_focus=["placeholder"], non_goals=["placeholder"],
+            escalation_triggers=["placeholder"])
+        g = get_active_goal(str(self.tmp))
         self.assertIn("quality_brief", g)
         brief = g["quality_brief"]
         for field in ["acceptance_criteria", "test_focus", "review_focus",
@@ -40,13 +46,14 @@ class TestQualityBrief(unittest.TestCase):
     # ── record_quality_brief ──
     def test_record_quality_brief_writes_goal(self):
         from aiwf_core.core.state_ops import record_quality_brief
+        from aiwf_core.core.state.goal_ops import get_active_goal
         record_quality_brief(str(self.tmp),
             acceptance_criteria=["subtract returns a-b for finite numbers"],
             test_focus=["normal subtraction", "negative operands"],
             review_focus=["no unrelated numeric change"],
             non_goals=["do not redesign validation"],
             escalation_triggers=["shared validator change → L2"])
-        g = _rj(self.tmp / ".aiwf" / "state" / "goal.json")
+        g = get_active_goal(str(self.tmp))
         brief = g["quality_brief"]
         self.assertEqual(len(brief["acceptance_criteria"]), 1)
         self.assertEqual(len(brief["test_focus"]), 2)
@@ -54,38 +61,46 @@ class TestQualityBrief(unittest.TestCase):
 
     def test_record_quality_brief_preserves_active_goal(self):
         from aiwf_core.core.state_ops import record_quality_brief
-        # Pre-set goal
-        g = _rj(self.tmp / ".aiwf" / "state" / "goal.json")
-        g["active_goal"] = "add subtract to calculator"
-        g["confirmed"] = True
-        (self.tmp / ".aiwf" / "state" / "goal.json").write_text(json.dumps(g, indent=2))
+        from aiwf_core.core.state.goal_ops import get_active_goal
+        # Pre-set goal in goals.json
+        goals = _rj(self.tmp / ".aiwf" / "state" / "goals.json")
+        goals["active_goal_id"] = "GOAL-001"
+        goals["goals"].append({
+            "id": "GOAL-001",
+            "title": "add subtract to calculator",
+            "status": "discussing",
+            "confirmed": True,
+        })
+        (self.tmp / ".aiwf" / "state" / "goals.json").write_text(json.dumps(goals, indent=2))
         record_quality_brief(str(self.tmp), test_focus=["subtract"])
-        g2 = _rj(self.tmp / ".aiwf" / "state" / "goal.json")
-        self.assertEqual(g2["active_goal"], "add subtract to calculator")
-        self.assertTrue(g2["confirmed"])
+        g2 = get_active_goal(str(self.tmp))
+        self.assertEqual(g2["title"], "add subtract to calculator")
+        self.assertTrue(g2.get("confirmed"))
 
     def test_record_quality_brief_no_template_fulltext(self):
         from aiwf_core.core.state_ops import record_quality_brief
+        from aiwf_core.core.state.goal_ops import get_active_goal
         record_quality_brief(str(self.tmp), test_focus=["test a"])
-        g = _rj(self.tmp / ".aiwf" / "state" / "goal.json")
+        g = get_active_goal(str(self.tmp))
         text = json.dumps(g["quality_brief"])
         self.assertLess(len(text), 1000, "brief must be short")
 
     # ── skill text ──
     def test_planner_skill_mentions_quality_brief(self):
         c = (self.tmp / ".claude" / "skills" / "aiwf-planner" / "SKILL.md").read_text()
-        self.assertIn("record-quality-brief", c)
-        self.assertIn("quality", c.lower())
+        # V1: Planner reads goals.json for quality brief; "Before Planning" covers discovery
+        self.assertIn("goals.json", c.lower())
+        self.assertIn("before planning", c.lower())
 
     def test_test_skill_reads_test_focus(self):
         c = (self.tmp / ".claude" / "skills" / "aiwf-test" / "SKILL.md").read_text()
-        self.assertIn("test_focus", c)
-        self.assertIn("use context.test_focus first", c.lower())
+        self.assertIn("tester requirements", c.lower())
+        self.assertIn("test_template", c.lower())
 
     def test_review_skill_reads_review_focus(self):
         c = (self.tmp / ".claude" / "skills" / "aiwf-review" / "SKILL.md").read_text()
-        self.assertIn("review_focus", c)
-        self.assertIn("non_goals", c)
+        self.assertIn("reviewer requirements", c.lower())
+        self.assertIn("non-goals", c.lower())
 
     # ── heavy-testing cleanup ──
     def test_no_comprehensive_validation_language(self):
@@ -101,7 +116,7 @@ class TestQualityBrief(unittest.TestCase):
 
     def test_tester_agent_description_updated(self):
         c = (self.tmp / ".claude" / "agents" / "aiwf-tester.md").read_text()
-        self.assertIn("template-guided", c.lower())
+        self.assertIn("scoped tester", c.lower())
 
     # ── prompt cache ──
     def test_status_does_not_dump_quality_brief(self):

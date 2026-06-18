@@ -177,6 +177,17 @@ SUBSTITUTION_ALLOWED_FACTORS = {
     "semantic_mechanical",
 }
 
+# Downgrade fatigue: cumulative project-wide user-confirmed downgrades
+# harden the gate. Each downgrade is a recorded bypass of system routing.
+# After N prior confirmed downgrades, restrictions escalate until the
+# project's downgrade quota is exhausted and the system-routed level
+# becomes mandatory.
+DOWNGRADE_FATIGUE = {
+    "express_lane_blocked": 3,      # "mechanical change:" multi-step skip disabled
+    "dispatch_plan_required": 5,    # reason must name subagent dispatch plan
+    "quota_exhausted": 7,           # hard block — no further downgrades allowed
+}
+
 # ── AIWF core gate file patterns ──
 CORE_GATE_PATTERNS = [
     "aiwf_core/core/routing.py",
@@ -523,8 +534,12 @@ def compute_topology_override(
     factors: Dict[str, bool],
     hard: List[str],
     reason: str,
+    downgrade_history_count: int = 0,
 ) -> Dict:
     """Validate and record a topology override request.
+
+    downgrade_history_count: number of prior user-confirmed downgrades/substitutions
+    already recorded in this project. Used to enforce escalating fatigue gates.
 
     Returns a dict with 'allowed', 'effective_topology', 'reason', 'warnings'.
     """
@@ -575,6 +590,44 @@ def compute_topology_override(
     # Check substitution validity
     if requested_order < current_order:
         is_mechanical = reason.strip().lower().startswith("mechanical change")
+        next_count = downgrade_history_count + 1  # this request would be the Nth
+
+        # ── Downgrade fatigue: cumulative project downgrades harden the gate ──
+        if next_count >= DOWNGRADE_FATIGUE["quota_exhausted"]:
+            allowed = False
+            warnings.append(
+                f"DOWNGRADE QUOTA EXHAUSTED: {downgrade_history_count} prior "
+                f"user-confirmed downgrades recorded in this project. "
+                f"System-routed level '{current_topology}' is now mandatory. "
+                f"Dispatch subagents per the routing topology — do not inline."
+            )
+        elif next_count >= DOWNGRADE_FATIGUE["dispatch_plan_required"]:
+            reason_lower = reason.lower()
+            has_dispatch_plan = any(
+                keyword in reason_lower
+                for keyword in ("dispatch", "subagent", "子agent", "executor",
+                                "tester", "reviewer", "delegate")
+            )
+            if not has_dispatch_plan:
+                allowed = False
+                warnings.append(
+                    f"DOWNGRADE #{next_count}: {downgrade_history_count} prior "
+                    f"user-confirmed downgrades recorded. Reason MUST include an "
+                    f"explicit subagent dispatch plan — name who will execute, "
+                    f"test, and review. E.g.: 'dispatch Executor subagent for "
+                    f"build.ps1, Tester for CI verification, Reviewer for gate check.'"
+                )
+        elif next_count >= DOWNGRADE_FATIGUE["express_lane_blocked"]:
+            if is_mechanical and current_order - requested_order > 1:
+                allowed = False
+                warnings.append(
+                    f"DOWNGRADE #{next_count}: 'mechanical change:' express lane "
+                    f"disabled after {downgrade_history_count} prior user-confirmed "
+                    f"downgrades. Downgrade ONE level at a time "
+                    f"(from '{current_topology}' to the next level down, "
+                    f"not directly to '{requested_topology}')."
+                )
+
         # Single-step limit: downgrade one level at a time, unless the
         # downgrade is for a mechanical change (explicitly scoped by Planner).
         if current_order - requested_order > 1 and not is_mechanical:

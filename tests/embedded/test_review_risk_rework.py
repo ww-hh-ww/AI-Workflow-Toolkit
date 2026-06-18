@@ -29,7 +29,7 @@ class TestReviewRiskRework(unittest.TestCase):
 
         upsert_task(str(self.tmp), task_id, title, status=status)
         plan_id = f"PLAN-{task_id}"
-        plan_path = self.tmp / ".aiwf" / "artifacts" / "plans" / f"{plan_id}.md"
+        plan_path = self.tmp / ".aiwf" / "plans" / f"{plan_id}.md"
         plan_path.parent.mkdir(parents=True, exist_ok=True)
         plan_path.write_text(
             f"# {plan_id}\n\nPlan ID: {plan_id}\nParent Goal: GOAL-001\n"
@@ -51,7 +51,7 @@ class TestReviewRiskRework(unittest.TestCase):
             purpose="Review architecture risk",
             work_intent="verification",
         )
-        ledger_path = self.tmp / ".aiwf" / "runtime" / "history" / "task-ledger.json"
+        ledger_path = self.tmp / ".aiwf" / "state" / "tasks.json"
         ledger = json.loads(ledger_path.read_text())
         for task in ledger["tasks"]:
             if task["id"] == task_id:
@@ -101,7 +101,7 @@ class TestReviewRiskRework(unittest.TestCase):
         record_testing(str(self.tmp), status="adequate", commands=["pytest"])
         with self.assertRaisesRegex(ValueError, "resolution-evidence-id"):
             record_review(str(self.tmp), verdict="PASS", resolution="auth path repaired")
-        evidence_path = self.tmp / ".aiwf" / "artifacts" / "evidence" / "records.json"
+        evidence_path = self.tmp / ".aiwf" / "records" / "evidence.jsonl"
         evidence = json.loads(evidence_path.read_text())
         evidence["records"].append({"id": "EV-FIX", "status": "accepted"})
         _write(evidence_path, evidence)
@@ -123,87 +123,48 @@ class TestReviewRiskRework(unittest.TestCase):
             "tasks": [{"id": f"TASK-{i}", "title": "Done"} for i in range(10)]
         }
         _write(
-            self.tmp / ".aiwf" / "runtime" / "history" / "task-history.json",
+            self.tmp / ".aiwf" / "state" / "tasks.json",
             history,
         )
-        self._seed_task("ARCH-010", "[Architect] periodic review")
-        activated = activate_task(str(self.tmp), "ARCH-010")
-        self.assertTrue(activated["activated"], activated["blockers"])
+        # V1: Architect is read-only, no ARCH-* task needed
         record_architecture_review(
             str(self.tmp),
-            task_id="ARCH-010",
             status="issues_found",
-            issues=[{"severity": "critical", "description": "main auth path is disconnected"}],
+            findings=[{"severity": "critical", "description": "main auth path is disconnected"}],
         )
-
-        ledger_path = self.tmp / ".aiwf" / "runtime" / "history" / "task-ledger.json"
-        ledger = json.loads(ledger_path.read_text())
-        for task in ledger["tasks"]:
-            if task["id"] == "ARCH-010":
-                task["status"] = "closed"
-        ledger["active_task_id"] = None
-        _write(ledger_path, ledger)
-        self._set_phase("closed")
-
+        # V1: Periodic architecture review does NOT block ordinary task activation
         self._seed_task("TASK-NEXT", "ordinary feature")
-        blocked = activate_task(str(self.tmp), "TASK-NEXT")
-        self.assertFalse(blocked["activated"])
-        self.assertTrue(any("unresolved issues" in item for item in blocked["blockers"]))
-
-        self._seed_task("ARCH-FIX-001", "[Architecture Fix] repair auth")
-        remediation = activate_task(str(self.tmp), "ARCH-FIX-001")
-        self.assertTrue(remediation["activated"], remediation["blockers"])
+        result = activate_task(str(self.tmp), "TASK-NEXT")
+        self.assertTrue(result["activated"], result.get("blockers", []))
 
     def test_periodic_intact_requires_closed_fix_task_and_evidence(self):
         from aiwf_core.core.state.architecture_review_ops import record_architecture_review
-        from aiwf_core.core.task_ledger import activate_task
 
-        self._seed_task("ARCH-001", "[Architect] initial review")
-        activated = activate_task(str(self.tmp), "ARCH-001")
-        self.assertTrue(activated["activated"], activated["blockers"])
+        # V1: Architect is read-only. Record issues directly, no ARCH-* task.
         record_architecture_review(
             str(self.tmp),
-            task_id="ARCH-001",
             status="issues_found",
-            issues=[{"severity": "high", "description": "coupling breaks boundary"}],
+            findings=[{"severity": "high", "description": "coupling breaks boundary"}],
         )
-
-        ledger_path = self.tmp / ".aiwf" / "runtime" / "history" / "task-ledger.json"
-        ledger = json.loads(ledger_path.read_text())
-        for task in ledger["tasks"]:
-            if task["id"] == "ARCH-001":
-                task["status"] = "closed"
-        ledger["active_task_id"] = None
-        _write(ledger_path, ledger)
-        self._set_phase("closed")
-
-        self._seed_task("ARCH-002", "[Architect] follow-up review")
-        self.assertTrue(activate_task(str(self.tmp), "ARCH-002")["activated"])
-        with self.assertRaisesRegex(ValueError, "closed ARCH-FIX"):
+        # V1: Transition issues_found → intact requires resolution + evidence
+        with self.assertRaisesRegex(ValueError, "require a resolution"):
             record_architecture_review(
                 str(self.tmp),
-                task_id="ARCH-002",
+                status="intact",
+            )
+        with self.assertRaisesRegex(ValueError, "requires evidence"):
+            record_architecture_review(
+                str(self.tmp),
                 status="intact",
                 resolution="boundary repaired",
-                resolution_evidence_ids=["EV-ARCH"],
-                resolved_task_ids=["ARCH-FIX-001"],
             )
-        ledger = json.loads(ledger_path.read_text())
-        ledger["tasks"].append({
-            "id": "ARCH-FIX-001",
-            "title": "[Architecture Fix] repair boundary",
-            "status": "closed",
-        })
-        _write(ledger_path, ledger)
-        evidence_path = self.tmp / ".aiwf" / "artifacts" / "evidence" / "records.json"
+        evidence_path = self.tmp / ".aiwf" / "records" / "evidence.jsonl"
         _write(evidence_path, {"records": [{"id": "EV-ARCH", "status": "accepted"}]})
         result = record_architecture_review(
             str(self.tmp),
-            task_id="ARCH-002",
             status="intact",
             resolution="boundary repaired and verified",
             resolution_evidence_ids=["EV-ARCH"],
-            resolved_task_ids=["ARCH-FIX-001"],
         )
         self.assertEqual(result["status"], "intact")
         self.assertEqual(result["review_history"][-1]["status"], "issues_found")

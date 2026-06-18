@@ -12,9 +12,13 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from .current_state import current_state_freshness
+from .state.goal_ops import get_active_goal
 
 
 VALID_TASK_STATUSES = {"candidate", "ready", "active", "blocked", "suspended", "closed", "rejected"}
+# LEGACY/DEBUG-ONLY: workflow levels are not V1 runtime control paths.
+# Task.requirements controls subagent dispatch. These strings exist only for
+# legacy routing-debug.json compatibility and debug display.
 WORKFLOW_LEVELS = ["L0_direct", "L1_review_light", "L2_standard_team", "L3_full_power"]
 
 # Task granularity: titles that smell like actions, not deliverables.
@@ -71,33 +75,68 @@ def _write(path: Path, data: Dict[str, Any]) -> None:
 
 
 def ledger_path(base_dir: str) -> Path:
-    return Path(base_dir) / ".aiwf" / "runtime" / "history" / "task-ledger.json"
+    return Path(base_dir) / ".aiwf" / "state" / "tasks.json"
+
+
+def _migrate_ledger_if_needed(base_dir: str) -> None:
+    new_path = ledger_path(base_dir)
+    old_path = Path(base_dir) / ".aiwf" / "runtime" / "history" / "task-ledger.json"
+    if old_path.exists() and not new_path.exists():
+        new_path.parent.mkdir(parents=True, exist_ok=True)
+        import shutil
+        shutil.move(str(old_path), str(new_path))
 
 
 def default_ledger() -> Dict[str, Any]:
     return {
         "schema_version": 1,
-        "execution_window": {
-            "default_max_active": 1,
-            "active_task_ids": [],
-        },
+        "default_max_active": 1,
         "tasks": [],
     }
 
 
 def load_ledger(base_dir: str) -> Dict[str, Any]:
+    _migrate_ledger_if_needed(base_dir)
     ledger = _read(ledger_path(base_dir), default_ledger())
     if not isinstance(ledger.get("tasks"), list):
         ledger["tasks"] = []
-    window = ledger.setdefault("execution_window", {})
-    window.setdefault("default_max_active", 1)
-    window.setdefault("active_task_ids", [])
+    ledger.setdefault("default_max_active", 1)
     ledger.setdefault("schema_version", 1)
     return ledger
 
 
 def save_ledger(base_dir: str, ledger: Dict[str, Any]) -> None:
     _write(ledger_path(base_dir), ledger)
+
+
+def load_routing_state(base_dir: str) -> Dict[str, Any]:
+    """LEGACY/DEBUG-ONLY: Read routing/quality debug state. Returns defaults when absent.
+
+    V2: routing fields live in runtime/internal/routing-debug.json.
+    state.json is the clean V2 core — NO routing fields.
+    When the debug file is absent, all readers default to L1_review_light.
+
+    V1: Task.requirements controls dispatch. workflow_level is NOT a runtime control path.
+    This function exists only for debug/status display. Do NOT use for gating decisions.
+    """
+    routing_path = Path(base_dir) / ".aiwf" / "runtime" / "internal" / "routing-debug.json"
+    if routing_path.exists():
+        return _read(routing_path, {})
+    return {
+        "workflow_level": "L1_review_light",
+        "test_template": "",
+        "review_template": "",
+        "verification_need": "standard",
+        "review_need": "optional_light_review",
+        "routing_factors": [],
+        "routing_score": 0,
+        "exploration_budget": "",
+        "cleanup_policy": "",
+        "git_policy": "no_auto_commit",
+        "recommended_minimum_level": "",
+        "downgrade_allowed": True,
+        "hard_constraints": [],
+    }
 
 
 def _now() -> str:
@@ -126,6 +165,7 @@ def upsert_task(
     plan_id: str = "",
     milestone: str = "",
     milestone_id: str = "",
+    kind: str = "",
 ) -> Dict[str, Any]:
     """Create/update a task without activating execution.
 
@@ -156,8 +196,21 @@ def upsert_task(
     if not task:
         task = {
             "id": task_id,
+            "type": "task",
             "title": title or task_id,
             "status": status,
+            "title_cache": title or task_id,
+            "summary_cache": "",
+            "doc_path": "",
+            "doc_hash": "",
+            "doc_updated_at": "",
+            "frozen_doc_hash": None,
+            "requirements": {
+                "executor_required": False if kind == "milestone_verification" else True,
+                "tester_required": True,
+                "reviewer_required": True,
+            },
+            "report_policy": "ask",
             "dependencies": [],
             "parallel_safe": False,
             "notes": [],
@@ -169,6 +222,7 @@ def upsert_task(
             "plan_id": "",
             "milestone": "",
             "milestone_id": "",
+            "kind": "",
         }
         tasks.append(task)
     if title:
@@ -191,6 +245,8 @@ def upsert_task(
         task["milestone"] = milestone
     if milestone_id:
         task["milestone_id"] = milestone_id
+    if kind:
+        task["kind"] = kind
     task["updated_at"] = _now()
     _sync_active_ids(ledger)
     save_ledger(base_dir, ledger)
@@ -206,8 +262,8 @@ def upsert_task(
 
 
 def _sync_active_ids(ledger: Dict[str, Any]) -> None:
-    active = [t.get("id") for t in ledger.get("tasks", []) if t.get("status") == "active" and t.get("id")]
-    ledger.setdefault("execution_window", {})["active_task_ids"] = active
+    """No-op in V2. state.json.active_task_id is the single active pointer."""
+    pass
 
 
 def _overlap(a: List[str], b: List[str]) -> List[str]:
@@ -305,7 +361,7 @@ def _mechanical_routing_factors(base_dir: str, task: Dict[str, Any]) -> Dict[str
         for p in allowed
         if "/" in p.replace("\\", "/")
     }
-    goal = _read(root / ".aiwf" / "state" / "goal.json", {})
+    goal = get_active_goal(base_dir)
     brief = goal.get("quality_brief", {}).get("architecture_brief", {}) or {}
     state = _read(root / ".aiwf" / "state" / "state.json", {})
     fix_loop = _read(root / ".aiwf" / "state" / "fix-loop.json", {})
@@ -387,10 +443,11 @@ def _mechanical_routing_factors(base_dir: str, task: Dict[str, Any]) -> Dict[str
 
 
 def _apply_mechanical_routing(base_dir: str, task: Dict[str, Any]) -> Dict[str, Any]:
-    """Compute and persist the minimum workflow level and its depth/breadth policy.
+    """LEGACY/DEBUG-ONLY: Compute and persist routing factors to routing-debug.json.
 
-    V2-A: also populates topology dimensions (verification_need, execution_topology,
-    review_need, downgrade_allowed, substitution_allowed, hard_constraints).
+    V1: Task.requirements controls subagent dispatch. workflow_level is NOT a runtime
+    control path. This function writes debug info only — it does NOT gate activation,
+    writes, review, testing, or close. The routing-debug.json file is informational.
     """
     root = Path(base_dir)
     state_path = root / ".aiwf" / "state" / "state.json"
@@ -459,7 +516,10 @@ def _apply_mechanical_routing(base_dir: str, task: Dict[str, Any]) -> Dict[str, 
         _apply_level_dimensions(decision, final_level)
         policy = select_quality_policy(task_type, final_level, state.get("risk_flags", []) or [],
                                        "explicit user-confirmed routing override")
-    state.update({
+    # Routing state is debug-only — NOT written to state.json.
+    # All routing/quality/template fields go to runtime/internal/routing-debug.json.
+    # Readers default to "L1_review_light" when the file is absent.
+    routing_debug = {
         "workflow_level": final_level,
         "routing_score": decision["routing_score"],
         "routing_factors": decision["routing_factors"],
@@ -475,21 +535,17 @@ def _apply_mechanical_routing(base_dir: str, task: Dict[str, Any]) -> Dict[str, 
         "recommended_minimum_level": recommended,
         "quality_escalation_required": False,
         "requires_user_decision": False,
-        # V2-A topology dimensions
         "verification_need": decision.get("verification_need", "standard"),
         "review_need": decision.get("review_need", "optional_light_review"),
         "downgrade_allowed": decision.get("downgrade_allowed", True),
         "substitution_allowed": decision.get("substitution_allowed", False),
         "hard_constraints": decision.get("hard_constraints", []),
         "active_routing_override": override.get("record", {}) if override.get("allowed") else {},
-    })
-    state["complexity"] = {
-        "L0_direct": "simple",
-        "L1_review_light": "standard",
-        "L2_standard_team": "complex",
-        "L3_full_power": "critical",
-    }[final_level]
-    _write(state_path, state)
+        "updated_at": _now(),
+    }
+    routing_path = root / ".aiwf" / "runtime" / "internal" / "routing-debug.json"
+    _write(routing_path, routing_debug)
+
     return {"decision": decision, "recommended": recommended, "final_level": final_level, "state": state}
 
 
@@ -571,9 +627,6 @@ def _task_start_confirmation(task: Dict[str, Any]) -> Dict[str, Any]:
 
 def task_start_confirmation_blockers(base_dir: str, task_id: str) -> List[str]:
     """CLI-facing start gate: explain work before activation unless skipped."""
-    state = _read(Path(base_dir) / ".aiwf" / "state" / "state.json", {})
-    if state.get("workflow_level", "L1_review_light") == "L0_direct":
-        return []
     task = _find(load_ledger(base_dir).get("tasks", []), task_id)
     if not task:
         return [f"task not found: {task_id}"]
@@ -625,110 +678,27 @@ def record_task_start_confirmation(
 
 
 def _refresh_mechanical_assets(base_dir: str) -> None:
-    """Rebuild deterministic Tier 1 assets; preserve human-curated conventions."""
-    try:
-        from ..assets.schema import init_assets
-        init_assets(base_dir)
-    except Exception:
-        pass
-
-
-def _checkpoint_activation_blockers(base_dir: str, task: Dict[str, Any]) -> List[str]:
-    """L3 tasks require a checkpoint before activation."""
-    import json
-    state_path = Path(base_dir) / ".aiwf" / "state" / "state.json"
-    try:
-        state = json.loads(state_path.read_text()) if state_path.exists() else {}
-    except Exception:
-        return []
-    if state.get("workflow_level") != "L3_full_power":
-        return []
-    ck_dir = Path(base_dir) / ".aiwf" / "runtime" / "checkpoints"
-    if not ck_dir.exists() or not any(ck_dir.iterdir()):
-        return ["L3 task requires a checkpoint before activation. Run aiwf checkpoint create --label 'pre-task'"]
-    return []
-
-
-def _user_confirmation_blockers(base_dir: str) -> List[str]:
-    """Block L1+ task activation until the user confirms the goal. L0 skips."""
-    import json
-    state_path = Path(base_dir) / ".aiwf" / "state" / "state.json"
-    try:
-        state = json.loads(state_path.read_text()) if state_path.exists() else {}
-    except Exception:
-        return []
-    if state.get("workflow_level", "") == "L0_direct":
-        return []
-    goal_path = Path(base_dir) / ".aiwf" / "state" / "goal.json"
-    try:
-        goal = json.loads(goal_path.read_text()) if goal_path.exists() else {}
-    except Exception:
-        return []
-    if goal.get("confirmed") is False:
-        return ["Goal not confirmed by user. Present the plan and ask the user to confirm."]
-    return []
+    """V1: Mechanical assets are no longer auto-created. Records zone replaces them."""
+    pass
 
 
 def _periodic_architecture_blockers(base_dir: str, task: Dict[str, Any]) -> List[str]:
-    """Block ordinary task activation while a periodic architecture review is due."""
-    if _is_architecture_review_task(task) or _is_architecture_remediation_task(task):
-        return []
-    architecture_review = _read(
-        Path(base_dir) / ".aiwf" / "artifacts" / "quality" / "architecture-review.json",
-        {},
-    )
-    if architecture_review.get("status") == "issues_found":
-        issues = architecture_review.get("issues", []) or []
-        labels = ", ".join(
-            str(issue.get("severity", "")).upper()
-            for issue in issues[:3] if isinstance(issue, dict)
-        )
-        return [
-            "[gravity] periodic architecture review has unresolved issues"
-            + (f": {labels}" if labels else "")
-            + "; activate an ARCH-FIX-* task, then rerun an ARCH-* review"
-        ]
-    from .task_gravity import should_trigger_architecture_review
-    trigger = should_trigger_architecture_review(base_dir)
-    if not trigger.get("should_trigger"):
-        return []
-    reasons = "; ".join(trigger.get("reasons", [])[:3])
-    return [
-        "[gravity] periodic architecture review due before activating another task"
-        + (f": {reasons}" if reasons else "")
-    ]
+    """LEGACY: V1 does not block ordinary task activation for architecture review.
 
-
-def _required_contract_blockers(base_dir: str, task: Dict[str, Any]) -> List[str]:
-    """Require machine-readable planning contracts at the depth selected by routing."""
-    root = Path(base_dir)
-    state = _read(root / ".aiwf" / "state" / "state.json", {})
-    level = state.get("workflow_level", "L1_review_light")
-    if _is_architecture_review_task(task):
-        return []
-    goal = _read(root / ".aiwf" / "state" / "goal.json", {})
-    brief = goal.get("quality_brief", {}) or {}
-    evaluation = brief.get("evaluation_contract", {}) or {}
-    architecture = brief.get("architecture_brief", {}) or {}
-    blockers: List[str] = []
-    if level in ("L2_standard_team", "L3_full_power"):
-        if not evaluation.get("user_visible_outcome"):
-            blockers.append("L2/L3 requires evaluation_contract.user_visible_outcome before activation")
-        if not evaluation.get("acceptance_criteria"):
-            blockers.append("L2/L3 requires evaluation_contract.acceptance_criteria before activation")
-        if not evaluation.get("test_obligations"):
-            blockers.append("L2/L3 requires evaluation_contract.test_obligations before activation")
-        if not evaluation.get("review_obligations"):
-            blockers.append("L2/L3 requires evaluation_contract.review_obligations before activation")
-        if not any(architecture.get(k) for k in (
-            "target_structure", "module_boundaries", "architecture_invariants",
-            "forbidden_restructures", "integration_points",
-        )):
-            blockers.append("L2/L3 requires a structural Architecture Brief before activation")
-    return blockers
+    Architect is a read-only periodic reviewer — not a Task, not a gate.
+    This function always returns no blockers. Status/prompt shows "Architect due"
+    as a reminder. The old ARCH-* task / ARCH-FIX-* task mechanism is retired.
+    """
+    return []
 
 
 def activation_blockers(base_dir: str, task_id: str, skip_current_state_check: bool = False) -> List[str]:
+    """Task activation minimal gates.
+
+    Task.md is the execution contract. Plan is not a gate.
+    Only checks: task exists, status valid, deps closed, no other active,
+    no fix_loop, no scope_violation, no close_attempt, start confirmed.
+    """
     ledger = load_ledger(base_dir)
     tasks = ledger.get("tasks", [])
     task = _find(tasks, task_id)
@@ -744,9 +714,9 @@ def activation_blockers(base_dir: str, task_id: str, skip_current_state_check: b
             blockers.append(f"dependency not closed: {dep}")
 
     active = [t for t in tasks if t.get("status") == "active" and t.get("id") != task_id]
-    max_active = int(ledger.get("execution_window", {}).get("default_max_active", 1) or 1)
+    max_active = int(ledger.get("default_max_active", 1) or 1)
     if active and not task.get("parallel_safe"):
-        blockers.append("active execution window occupied; mark task parallel_safe only if Planner verified independence")
+        blockers.append("active execution window occupied")
     if len(active) >= max_active and not task.get("parallel_safe"):
         blockers.append(f"default active task limit reached: {max_active}")
     if task.get("parallel_safe"):
@@ -756,29 +726,9 @@ def activation_blockers(base_dir: str, task_id: str, skip_current_state_check: b
                 blockers.append(f"parallel write boundary conflict with {other.get('id')}: {', '.join(overlap[:5])}")
 
     state = _read(Path(base_dir) / ".aiwf" / "state" / "state.json", {})
-    try:
-        from .workflow_patterns import mode_activation_blocker
-        mode_blocker = mode_activation_blocker(state)
-        if mode_blocker:
-            blockers.append(mode_blocker)
-    except Exception:
-        pass
-    if state.get("external_research_required") and state.get("request_mode", "execution") == "execution":
-        try:
-            from .external_research import research_requirement_blocker
-            research_blocker = research_requirement_blocker(base_dir)
-            if research_blocker:
-                blockers.append(research_blocker)
-        except Exception:
-            blockers.append("external research requirement could not be verified")
-    try:
-        from .capabilities import capability_use_blockers
-        blockers.extend(capability_use_blockers(base_dir))
-    except Exception:
-        pass
     if state.get("scope_violation"):
         blockers.append(
-            "scope violation remains recorded; revert the originally violating files, then run "
+            "scope violation remains recorded; revert the violating files, then run "
             "aiwf fix-loop resolve --resolution '<what was reverted>' before activating another task"
         )
     if state.get("close_attempt") or state.get("phase") == "closing":
@@ -792,105 +742,51 @@ def activation_blockers(base_dir: str, task_id: str, skip_current_state_check: b
             + suffix
         )
     blockers.extend(_quality_activation_blockers(base_dir, task))
-    blockers.extend(_periodic_architecture_blockers(base_dir, task))
-    blockers.extend(_required_contract_blockers(base_dir, task))
-    blockers.extend(_user_confirmation_blockers(base_dir))
+    # V1: Periodic architecture review is advisory — it does NOT block ordinary task activation.
+    # Architect is a read-only reviewer. Status/prompt shows "Architect due" as a reminder.
     blockers.extend(_active_plan_blockers(base_dir, task))
-    # Phase-gate field checks: Plan, Context, Contract must have key fields filled
-    try:
-        from .phase_gates import planned_to_implementing_gates
-        blockers.extend(planned_to_implementing_gates(base_dir, task_plan_id=task.get("plan_id", "") or ""))
-    except Exception:
-        pass
     return blockers
 
 
 def _active_plan_blockers(base_dir: str, task: Dict[str, Any]) -> List[str]:
-    """L1+ execution requires task.plan_id to reference plans.json authority."""
-    root = Path(base_dir)
-    state = _read(root / ".aiwf" / "state" / "state.json", {})
-    level = state.get("workflow_level", "L1_review_light")
-    request_mode = state.get("request_mode", "execution")
+    """Plan is optional. Task.md is the execution contract.
+
+    When a Plan is attached, only verify it exists and its index binding is healthy.
+    Semantic fields (allowed_write, purpose, work_intent, etc.) live in Plan.md and
+    are checked by Reviewer — NOT by the activation gate.
+    """
     plan_id = str(task.get("plan_id") or "")
-
-    # Plan dependency ordering applies at every workflow level. L0 may omit a
-    # Plan, but it may not bypass dependencies when a Plan is attached.
-    if plan_id:
-        try:
-            from .state.plan_ops import get_plan, plan_dependency_blockers
-            if get_plan(base_dir, plan_id, migrate=False):
-                dependency_blockers = plan_dependency_blockers(base_dir, plan_id)
-                if dependency_blockers:
-                    return dependency_blockers
-        except Exception as e:
-            return [f"Plan dependency check failed: {e}"]
-
-    if level == "L0_direct":
-        return []
-    if request_mode not in ("execution", ""):
-        return []
-
-    task_id = task.get("id", "")
-    legacy_plan_path = root / ".aiwf" / "artifacts" / "plans" / f"{task_id}.md"
     if not plan_id:
-        if legacy_plan_path.exists() or task.get("parent_plan"):
-            return [
-                "Legacy task-bound plan detected. This development version uses "
-                "plans.json as the Plan machine authority. Create a registry-backed plan with: "
-                f"aiwf plan create PLAN-001 --goal-id GOAL-001 && aiwf plan attach PLAN-001 {task_id}"
-            ]
-        return [
-            f"Task {task_id} has no plan_id. Create and attach a plan:\n"
-            f"  aiwf plan create PLAN-001 --goal-id GOAL-001\n"
-            f"  aiwf plan attach PLAN-001 {task_id}\n"
-            f"  aiwf task plan {task_id} --status ready\n"
-            f"(plan attach automatically links this task to the plan and its goal)"
-        ]
-
-    try:
-        from .state.plan_ops import get_plan
-        plan = get_plan(base_dir, plan_id, migrate=False)
-    except Exception as e:
-        return [f"Plan registry check failed: {e}"]
-    if not plan:
-        if legacy_plan_path.exists():
-            return [
-                "Legacy task-bound plan detected. This development version uses "
-                "plans.json as the Plan machine authority. Create a registry-backed plan with: "
-                f"aiwf plan create PLAN-001 --goal-id GOAL-001 && aiwf plan attach PLAN-001 {task_id}"
-            ]
-        return [f"task.plan_id references missing plan registry entry: {plan_id}"]
-    effective_plan_goal = str(plan.get("target_goal_id") or plan.get("goal_id") or "")
-    if not effective_plan_goal:
-        return [f"Plan {plan_id} is missing target_goal_id/goal_id"]
-    task_goal = task.get("goal_id") or ""
-    if task_goal and task_goal != effective_plan_goal:
-        return [f"task.goal_id {task_goal} does not match plan target goal {effective_plan_goal}"]
-    plan_milestone = str(plan.get("milestone_id") or "")
-    task_milestone = str(task.get("milestone_id") or "")
-    if plan_milestone or task_milestone:
-        milestone_id = plan_milestone or task_milestone
-        try:
-            from .state.milestone_ops import milestone_exists
-            if not milestone_exists(base_dir, milestone_id):
-                return [f"milestone_id references missing milestone registry entry: {milestone_id}"]
-        except Exception as e:
-            return [f"Milestone registry check failed: {e}"]
-        if plan_milestone and task_milestone and task_milestone != plan_milestone:
-            return [
-                f"task.milestone_id {task_milestone} does not match plan.milestone_id {plan_milestone}"
-            ]
-
-    from .task_plan import validate_plan_impact, _resolve_plan_artifact_id
-    artifact_id = _resolve_plan_artifact_id(base_dir, plan_id)
-    plan_path = root / ".aiwf" / "artifacts" / "plans" / f"{artifact_id}.md"
-    if plan_path.exists():
-        impact_issues = validate_plan_impact(base_dir, artifact_id)
-        if impact_issues:
-            suffix = f"; ... {len(impact_issues) - 3} more" if len(impact_issues) > 3 else ""
-            return [f"Plan Impact incomplete: {'; '.join(impact_issues[:3])}{suffix}"]
         return []
-    return [f"Plan artifact missing for registry plan {plan_id}: .aiwf/artifacts/plans/{artifact_id}.md"]
+
+    blockers: List[str] = []
+    try:
+        from .state.plan_ops import get_plan, plan_exists
+        if not plan_exists(base_dir, plan_id):
+            blockers.append(f"[plan] Plan '{plan_id}' not found in plans.json")
+            return blockers
+        plan = get_plan(base_dir, plan_id, migrate=False)
+        if not plan:
+            blockers.append(f"[plan] Plan '{plan_id}' entry is empty")
+            return blockers
+        # Check Plan.md exists if doc_path is set
+        doc_path = plan.get("doc_path", "")
+        if doc_path:
+            from pathlib import Path as _Path
+            if not (_Path(base_dir) / doc_path).exists():
+                blockers.append(
+                    f"[plan] Plan.md missing at {doc_path} — "
+                    f"create it with: aiwf plan create {plan_id} --narrative"
+                )
+        # Check dependencies if plan has them
+        from .state.plan_ops import plan_dependency_blockers
+        dep_blockers = plan_dependency_blockers(base_dir, plan_id)
+        if dep_blockers:
+            blockers.extend(dep_blockers)
+    except Exception as e:
+        blockers.append(f"[plan] Plan check failed: {e}")
+
+    return blockers
 
 
 def activate_task(base_dir: str, task_id: str) -> Dict[str, Any]:
@@ -906,6 +802,15 @@ def activate_task(base_dir: str, task_id: str) -> Dict[str, Any]:
     task["status"] = "active"
     task["activated_at"] = _now()
     task["updated_at"] = _now()
+    # Freeze narrative doc hash on activation
+    if task.get("doc_path"):
+        from pathlib import Path as _Path
+        doc = _Path(base_dir) / task["doc_path"]
+        if doc.exists():
+            from .index_ops import parse_md, compute_content_hash
+            _, body = parse_md(doc)
+            if body:
+                task["frozen_doc_hash"] = compute_content_hash(body)
     # Sync plan task_status so plans.json doesn't drift from task-ledger
     if task.get("plan_id"):
         try:
@@ -940,14 +845,21 @@ def activate_task(base_dir: str, task_id: str) -> Dict[str, Any]:
     if task.get("plan_id"):
         state["active_plan_id"] = task["plan_id"]
     if state.get("phase") not in ("testing", "reviewing", "closing", "closed"):
-        state["phase"] = "implementing"
+        state["phase"] = "executing"
     _write(state_path, state)
     save_ledger(base_dir, ledger)
     return {"activated": True, "task": task, "ledger": ledger, "blockers": []}
 
 
-def suspend_task(base_dir: str, task_id: str, note: str = "") -> Dict[str, Any]:
-    """Suspend an active task and store a lightweight state snapshot."""
+def suspend_task(base_dir: str, task_id: str = "", note: str = "") -> Dict[str, Any]:
+    """Suspend the active task and store a lightweight state snapshot."""
+    if not task_id:
+        state_path = Path(base_dir) / ".aiwf" / "state" / "state.json"
+        state = _read(state_path, {})
+        task_id = state.get("active_task_id", "")
+    if not task_id:
+        return {"suspended": False, "task": None, "ledger": load_ledger(base_dir),
+                "blockers": ["no active task to suspend"]}
     ledger = load_ledger(base_dir)
     task = _find(ledger["tasks"], task_id)
     if not task:
@@ -958,11 +870,7 @@ def suspend_task(base_dir: str, task_id: str, note: str = "") -> Dict[str, Any]:
     state_path = Path(base_dir) / ".aiwf" / "state" / "state.json"
     state = _read(state_path, {})
     snapshot_keys = [
-        "phase", "active_context_id", "active_task_id", "workflow_level",
-        "task_type", "test_template", "review_template", "exploration_budget",
-        "cleanup_policy", "git_policy", "request_mode", "workflow_pattern",
-        "pattern_reason", "external_research_required", "active_plan_id",
-        "planned_capability_ids",
+        "phase", "active_task_id", "active_plan_id",
     ]
     task["status"] = "suspended"
     task["suspended_at"] = _now()
@@ -972,6 +880,7 @@ def suspend_task(base_dir: str, task_id: str, note: str = "") -> Dict[str, Any]:
         task.setdefault("notes", []).append(note)
     if state.get("active_task_id") == task_id:
         state["active_task_id"] = None
+        state["phase"] = "planning"
         _write(state_path, state)
     _sync_active_ids(ledger)
     save_ledger(base_dir, ledger)
@@ -1018,273 +927,19 @@ def void_task(base_dir: str, task_id: str, reason: str, superseded_by: str = "")
     return {"voided": True, "task": task, "ledger": ledger, "blockers": []}
 
 
-def _l2_l3_completion_blockers(base_dir: str, task: Dict[str, Any]) -> List[str]:
-    """Require the independent quality chain before an active L2/L3 task closes."""
-    root = Path(base_dir)
-    state = _read(root / ".aiwf" / "state" / "state.json", {})
-    level = state.get("workflow_level", "L1_review_light")
-    if level not in ("L2_standard_team", "L3_full_power") or _is_architecture_review_task(task):
-        return []
-
-    testing = _read(root / ".aiwf" / "artifacts" / "quality" / "testing.json", {})
-    review = _read(root / ".aiwf" / "artifacts" / "quality" / "review.json", {})
-    evidence = _read(root / ".aiwf" / "artifacts" / "evidence" / "records.json", {"records": []})
-    goal = _read(root / ".aiwf" / "state" / "goal.json", {})
-    blockers: List[str] = []
-
-    if testing.get("status") not in ("adequate", "passed"):
-        blockers.append("L2/L3 task requires adequate independent testing before close")
-    if not testing.get("commands"):
-        blockers.append("L2/L3 task requires recorded test commands before close")
-    if testing.get("full_suite_status") == "failed":
-        blockers.append("L2/L3 full project suite failed")
-    if testing.get("real_usage_status") == "failed":
-        blockers.append("L2/L3 real user-facing validation failed")
-    if review.get("result") != "accepted" or not review.get("closure_allowed", False):
-        blockers.append("L2/L3 task requires accepted independent review before close")
-    if review.get("cleanup_status") != "fresh" or review.get("stale_items") or review.get("cleanup_blockers"):
-        blockers.append("L2/L3 task requires fresh cleanup before close")
-    if review.get("structure_status") != "accepted" or review.get("structure_blockers"):
-        blockers.append("L2/L3 task requires accepted structure review before close")
-    cleanup_at = str(review.get("cleanup_verified_at", "") or "")
-    from .review_contract import has_pending_adversarial_observations
-    if has_pending_adversarial_observations(review):
-        blockers.append("L2/L3 task has pending adversarial observations")
-
-    decisions = goal.get("decisions", []) or []
-    structured_meta = goal.get("meta_critique", {}) or {}
-    has_meta_critique = (
-        structured_meta.get("status") == "completed"
-        and str(structured_meta.get("recorded_by", "")).lower() == "planner"
-        and bool(str(structured_meta.get("summary", "")).strip())
-    ) or any(
-        isinstance(d, dict)
-        and str(d.get("source", "")).lower() == "planner"
-        and "meta" in str(d.get("decision", "")).lower()
-        and "critique" in str(d.get("decision", "")).lower()
-        for d in decisions
-    )
-    if not has_meta_critique:
-        blockers.append("L2/L3 task requires Planner meta-critique before close")
-
-    accepted_ids = {
-        str(eid) for eid in (review.get("accepted_evidence_ids", []) or []) if str(eid)
-    }
-    if testing.get("status") in ("adequate", "passed"):
-        if testing.get("evidence_id"):
-            accepted_ids.add(str(testing.get("evidence_id")))
-        accepted_ids.update(str(eid) for eid in (testing.get("evidence_ids", []) or []) if str(eid))
-        accepted_ids.update(str(eid) for eid in (testing.get("reused_evidence_ids", []) or []) if str(eid))
-        accepted_ids.difference_update(
-            str(eid) for eid in (testing.get("invalidated_evidence_ids", []) or []) if str(eid)
-        )
-    accepted_ids.update(
-        str(record.get("id", ""))
-        for record in (evidence.get("records", []) or [])
-        if isinstance(record, dict)
-        and record.get("status") == "accepted"
-        and str(record.get("id", ""))
-    )
-    roles = set()
-    reviewer_timestamps: List[str] = []
-    for record in evidence.get("records", []) or []:
-        if not isinstance(record, dict) or str(record.get("id", "")) not in accepted_ids:
-            continue
-        record_task = str(record.get("task_id", "") or "")
-        if record_task and record_task != str(task.get("id", "") or ""):
-            continue
-        if record.get("trust") != "machine_observed":
-            continue
-        # Role evidence produced by `record-role-evidence` is useful as a note,
-        # but it can be filled by the main agent after the fact. The hard gate
-        # needs hook-observed role work: actual Write/Edit/Bash/etc. from the
-        # corresponding aiwf subagent. Do not require distinct session IDs here:
-        # some runtimes give subagents the same parent session.
-        if str(record.get("tool_name") or "") == "AIWFRoleEvidence":
-            continue
-        role_text = " ".join([
-            str(record.get("agent_type", "")),
-            str(record.get("agent_id", "")),
-        ]).lower()
-        for role in ("executor", "tester", "reviewer"):
-            if role in role_text:
-                roles.add(role)
-                if role == "reviewer" and record.get("timestamp"):
-                    reviewer_timestamps.append(str(record["timestamp"]))
-    missing_roles = [r for r in ("executor", "tester", "reviewer") if r not in roles]
-    if missing_roles:
-        blockers.append(
-            f"L2/L3 task requires hook-observed independent role work; missing: {', '.join(missing_roles)}. "
-            "Spawn aiwf-executor, aiwf-tester, and aiwf-reviewer subagents and have each perform real tool work. "
-            "CLI role-evidence backfill does not satisfy this hard gate."
-        )
-    if cleanup_at and reviewer_timestamps and min(reviewer_timestamps) <= cleanup_at:
-        blockers.append("L2/L3 cleanup must be verified before Reviewer evidence")
-    if cleanup_at and "reviewer" not in roles:
-        blockers.append("L2/L3 task requires hook-observed Reviewer evidence after cleanup verification")
-
-    blockers.extend(_architecture_migration_blockers(goal, evidence, accepted_ids))
-
-    if level == "L3_full_power":
-        checkpoint_dir = root / ".aiwf" / "runtime" / "checkpoints"
-        goal_decisions = goal.get("decisions", []) or []
-        explicit_skip = any(
-            isinstance(d, dict)
-            and "checkpoint" in str(d.get("decision", "")).lower()
-            and "skip" in str(d.get("decision", "")).lower()
-            for d in goal_decisions
-        )
-        if not (checkpoint_dir.exists() and any(checkpoint_dir.iterdir())) and not explicit_skip:
-            blockers.append("L3 task requires checkpoint or explicit checkpoint skip decision")
-    return blockers
-
-
-def _architecture_migration_blockers(
-    goal: Dict[str, Any],
-    evidence: Dict[str, Any],
-    accepted_ids: set[str],
-) -> List[str]:
-    """Require behavior evidence when a task declares an architecture migration."""
-    brief = goal.get("quality_brief", {}) or {}
-    architecture = brief.get("architecture_brief", {}) or {}
-    migration_fields = {
-        "migration_source_of_truth": architecture.get("migration_source_of_truth", ""),
-        "legacy_paths": architecture.get("legacy_paths", []) or [],
-        "legacy_terms": architecture.get("legacy_terms", []) or [],
-        "default_entrypoints": architecture.get("default_entrypoints", []) or [],
-        "validators": architecture.get("validators", []) or [],
-        "sample_outputs": architecture.get("sample_outputs", []) or [],
-    }
-    migration_active = any(bool(v) for v in migration_fields.values())
-    if not migration_active:
-        return []
-
-    blockers: List[str] = []
-    if not str(migration_fields["migration_source_of_truth"]).strip():
-        blockers.append("architecture migration requires migration_source_of_truth")
-    if not (migration_fields["legacy_paths"] or migration_fields["legacy_terms"]):
-        blockers.append("architecture migration requires legacy_paths or legacy_terms to sweep")
-    if not migration_fields["default_entrypoints"]:
-        blockers.append("architecture migration requires default_entrypoints to prove the new mainline")
-    if not migration_fields["validators"]:
-        blockers.append("architecture migration requires validators/CI to prove the new structure")
-
-    accepted_records = [
-        r for r in (evidence.get("records", []) or [])
-        if isinstance(r, dict)
-        and str(r.get("id", "")) in accepted_ids
-        and r.get("trust") == "machine_observed"
-    ]
-    commands = [
-        " ".join([
-            str(r.get("command", "")),
-            str(r.get("stdout_summary", "")),
-            str(r.get("tool_input", "")),
-        ]).lower()
-        for r in accepted_records
-    ]
-
-    legacy_tokens = [
-        str(token).strip().lower()
-        for token in (migration_fields["legacy_paths"] + migration_fields["legacy_terms"])
-        if str(token).strip()
-    ]
-    if legacy_tokens:
-        has_sweep = any(
-            ("rg " in cmd or cmd.startswith("rg") or "grep " in cmd)
-            and any(token in cmd for token in legacy_tokens)
-            for cmd in commands
-        )
-        if not has_sweep:
-            blockers.append("architecture migration requires accepted legacy sweep evidence (rg/grep over legacy paths or terms)")
-
-    for entrypoint in migration_fields["default_entrypoints"]:
-        ep = str(entrypoint).strip().lower()
-        if not ep:
-            continue
-        found = any(ep in cmd and ("dry-run" in cmd or "dry run" in cmd or "--check" in cmd) for cmd in commands)
-        if not found:
-            blockers.append(f"architecture migration requires accepted dry-run/check evidence for default entrypoint: {entrypoint}")
-
-    for validator in migration_fields["validators"]:
-        val = str(validator).strip().lower()
-        if not val:
-            continue
-        found = any(val in cmd for cmd in commands)
-        if not found:
-            blockers.append(f"architecture migration requires accepted validator evidence: {validator}")
-
-    for sample in migration_fields["sample_outputs"]:
-        smp = str(sample).strip().lower()
-        if not smp:
-            continue
-        found = any(smp in cmd for cmd in commands)
-        if not found:
-            blockers.append(f"architecture migration requires accepted sample-output alignment evidence: {sample}")
-
-    return blockers
-
-
-def _mode_completion_blockers(base_dir: str, task: Dict[str, Any]) -> List[str]:
-    """Block closing advisory/exploratory modes as final implementation work."""
-    state = _read(Path(base_dir) / ".aiwf" / "state" / "state.json", {})
-    mode = state.get("request_mode", "execution")
-    pattern = state.get("workflow_pattern", "linear")
-    if mode == "spike" or pattern == "spike_first":
-        return [
-            "spike task cannot close as final implementation; record findings and switch to request_mode=execution for the formal task"
-        ]
-    return []
-
-
-def active_task_completion_blockers(base_dir: str) -> List[str]:
-    """Return completion blockers for the active task, if one exists."""
-    state = _read(Path(base_dir) / ".aiwf" / "state" / "state.json", {})
-    task_id = str(state.get("active_task_id", "") or "")
-    if not task_id:
-        return []
-    task = _find(load_ledger(base_dir).get("tasks", []), task_id)
-    if not task:
-        return [f"active task is missing from task ledger: {task_id}"]
-    blockers = _mode_completion_blockers(base_dir, task) + _l2_l3_completion_blockers(base_dir, task)
-    if _is_architecture_review_task(task):
-        architecture_review = _read(
-            Path(base_dir) / ".aiwf" / "artifacts" / "quality" / "architecture-review.json",
-            {},
-        )
-        if architecture_review.get("task_id") != task_id or architecture_review.get("status") not in (
-            "intact", "issues_found"
-        ):
-            blockers.append(
-                "ARCH-* review task requires aiwf state record-architecture-review before close"
-            )
-    blockers.extend(_claim_evidence_blockers(base_dir, task_id))
-    return blockers
-
-
-def _claim_evidence_blockers(base_dir: str, task_id: str) -> List[str]:
-    """L1+: unsupported or overclaimed claims block task close.
-
-    Every claim about task completion must be traceable to machine-observed evidence.
-    """
-    state = _read(Path(base_dir) / ".aiwf" / "state" / "state.json", {})
-    level = state.get("workflow_level", "L1_review_light")
-    if level == "L0_direct":
-        return []
-
-    try:
-        from .state.claims_ops import unsupported_claims_blockers
-        return unsupported_claims_blockers(base_dir, task_id=task_id)
-    except Exception:
-        return []
-
-
-def close_task(base_dir: str, task_id: str, note: str = "") -> Dict[str, Any]:
-    """Mark a ledger task closed. This does not close the AIWF workflow.
+def close_task(base_dir: str, task_id: str = "", note: str = "") -> Dict[str, Any]:
+    """Mark the active task closed. Defaults to state.json's active_task_id.
 
     Returns goal progress: task is an execution unit, not a goal unit.
     Close output must show: task closed, goal complete status, next task.
     """
+    if not task_id:
+        state_path = Path(base_dir) / ".aiwf" / "state" / "state.json"
+        state = _read(state_path, {})
+        task_id = state.get("active_task_id", "")
+    if not task_id:
+        return {"closed": False, "task": None, "ledger": load_ledger(base_dir),
+                "blockers": ["no active task to close"]}
     ledger = load_ledger(base_dir)
     task = _find(ledger["tasks"], task_id)
     if not task:
@@ -1299,51 +954,50 @@ def close_task(base_dir: str, task_id: str, note: str = "") -> Dict[str, Any]:
             "blockers": [f"task status is '{task.get('status')}', not active; activate the task before close"],
         }
     if task.get("status") == "active":
+        # 1. Fix-loop must not be open
         fix_loop = _read(Path(base_dir) / ".aiwf" / "state" / "fix-loop.json", {})
         if fix_loop.get("status") == "open":
-            return {
-                "closed": False,
-                "task": task,
-                "ledger": ledger,
-                "blockers": [
-                    "open fix-loop blocks task close; resolve it and re-run prepare-close"
-                ],
-            }
-        state = _read(Path(base_dir) / ".aiwf" / "state" / "state.json", {})
-        if not (state.get("phase") in ("closing", "closed") and state.get("closure_allowed")):
-            return {
-                "closed": False,
-                "task": task,
-                "ledger": ledger,
-                "blockers": [
-                    "active task cannot close before prepare-close passes; run aiwf state prepare-close first"
-                ],
-            }
-        mode = state.get("request_mode", "execution")
-        pattern = state.get("workflow_pattern", "linear")
-        if mode == "spike" or pattern == "spike_first":
             return {"closed": False, "task": task, "ledger": ledger,
-                    "blockers": ["spike task cannot close as final implementation; record findings and switch to request_mode=execution"]}
-        # L2/L3 quality gates: independent testing, review, cleanup must complete first.
-        # active_task_completion_blockers enforces the full quality chain.
-        quality_blockers = active_task_completion_blockers(base_dir)
-        if quality_blockers:
-            return {"closed": False, "task": task, "ledger": ledger, "blockers": quality_blockers}
-        # Lightweight re-check: ensure this is the task that passed prepare-close
-        prepared_task = state.get("close_prepared_task_id", "") or ""
-        prepared_at = state.get("close_prepared_at", "") or ""
-        if prepared_task and prepared_task != task_id:
-            return {"closed": False, "task": task, "ledger": ledger,
-                    "blockers": [f"task {task_id} does not match close_prepared_task_id {prepared_task}; re-run prepare-close"]}
-        if prepared_at:
-            evidence = _read(Path(base_dir) / ".aiwf" / "artifacts" / "evidence" / "records.json", {"records": []})
-            for r in evidence.get("records", []) or []:
-                if isinstance(r, dict) and r.get("recorded_at", "") > prepared_at:
-                    return {"closed": False, "task": task, "ledger": ledger,
-                            "blockers": ["new evidence recorded after prepare-close; re-run prepare-close to revalidate"]}
+                    "blockers": ["open fix-loop blocks task close"]}
+
+        # 2. Task.md must not have been modified during execution
+        frozen = task.get("frozen_doc_hash", "")
+        if frozen and task.get("doc_path"):
+            from pathlib import Path as _Path
+            doc = _Path(base_dir) / task["doc_path"]
+            if doc.exists():
+                from .index_ops import parse_md, compute_content_hash
+                _, body = parse_md(doc)
+                if body:
+                    current_hash = compute_content_hash(body)
+                    if current_hash != frozen:
+                        return {"closed": False, "task": task, "ledger": ledger,
+                                "blockers": ["active Task.md was modified during execution (doc_hash != frozen_doc_hash)"]}
+
+        # 3. Requirements gates: executor, tester, reviewer
+        reqs = task.get("requirements", {})
+        if reqs.get("executor_required"):
+            evidence = _read(Path(base_dir) / ".aiwf" / "records" / "evidence.json", {"records": []})
+            if not evidence.get("records"):
+                return {"closed": False, "task": task, "ledger": ledger,
+                        "blockers": ["executor_required but no evidence recorded"]}
+        if reqs.get("tester_required"):
+            testing = _read(Path(base_dir) / ".aiwf" / "records" / "testing.json", {"status": "missing"})
+            if testing.get("status") not in ("adequate", "passed"):
+                return {"closed": False, "task": task, "ledger": ledger,
+                        "blockers": ["tester_required but testing status is not adequate/passed"]}
+        if reqs.get("reviewer_required"):
+            review = _read(Path(base_dir) / ".aiwf" / "records" / "review.json", {"result": "unknown"})
+            if review.get("result") != "accepted":
+                return {"closed": False, "task": task, "ledger": ledger,
+                        "blockers": ["reviewer_required but review not accepted"]}
+            if review.get("blockers"):
+                return {"closed": False, "task": task, "ledger": ledger,
+                        "blockers": [f"review has blockers: {review['blockers']}"]}
     task["status"] = "closed"
     task["closed_at"] = _now()
     task["updated_at"] = _now()
+    task["closure"] = {"mode": "normal", "accepted": True, "summary": note or ""}
     if note:
         task.setdefault("notes", []).append(note)
     _sync_active_ids(ledger)
@@ -1372,16 +1026,16 @@ def close_task(base_dir: str, task_id: str, note: str = "") -> Dict[str, Any]:
     state = _read(state_path, {})
     if state.get("active_task_id") == task_id:
         state["active_task_id"] = None
-    if state.get("phase") == "closing":
-        state["phase"] = "closed"
+    if state.get("phase") in ("executing", "testing", "reviewing", "closing"):
+        state["phase"] = "planning"
     _write(state_path, state)
     # When a Plan completes without README: force next Plan to fix it
     if task.get("plan_id") and not (Path(base_dir) / "README.md").exists():
         try:
             from .state.plan_ops import get_plan
             plan = get_plan(base_dir, task["plan_id"], migrate=False)
-            remaining = plan.get("remaining_task_ids", []) or []
-            if not remaining:
+            plan_remaining = plan.get("remaining_task_ids", []) or []
+            if not plan_remaining:
                 state_path = Path(base_dir) / ".aiwf" / "state" / "state.json"
                 state = _read(state_path, {})
                 state["next_plan_docs_required"] = True
@@ -1414,12 +1068,18 @@ def close_task(base_dir: str, task_id: str, note: str = "") -> Dict[str, Any]:
         plan_progress = {"reconciled": False, "reason": "plan reconcile failed"}
     # Granularity: task without parent goal is an orphan.
     # Tasks are execution units, not goal units.
+    # Milestone verification tasks bind to milestone_id, not parent_goal.
+    task_kind = task.get("kind", "")
+    task_milestone_id = task.get("milestone_id", "")
     granularity_warnings = []
     if not parent_goal and not parent_plan:
-        granularity_warnings.append(
-            "No parent_goal set — task was not linked to a larger goal. "
-            "Use --parent-goal GOAL-xxx when planning tasks to prevent goal drift."
-        )
+        if task_kind == "milestone_verification" and task_milestone_id:
+            pass  # milestone verification tasks bind to milestone_id, not parent_goal
+        else:
+            granularity_warnings.append(
+                "No parent_goal set — task was not linked to a larger goal. "
+                "Use --parent-goal GOAL-xxx when planning tasks to prevent goal drift."
+            )
 
     return {
         "closed": True,
@@ -1439,6 +1099,75 @@ def close_task(base_dir: str, task_id: str, note: str = "") -> Dict[str, Any]:
     }
 
 
+def force_close_task(base_dir: str, reason: str = "") -> Dict[str, Any]:
+    """Human-only emergency close of the current active task.
+    Bypasses ALL gates — no hash check, no evidence, no testing, no review.
+
+    AI is mechanically blocked from calling this by command-policy.json.
+    Operates on active_task_id from state.json — no TASK-ID parameter.
+    """
+    state_path = Path(base_dir) / ".aiwf" / "state" / "state.json"
+    state = _read(state_path, {})
+    task_id = state.get("active_task_id", "")
+    if not task_id:
+        return {"closed": False, "task": None, "ledger": load_ledger(base_dir),
+                "blockers": ["no active task to force-close"]}
+
+    ledger = load_ledger(base_dir)
+    task = _find(ledger.get("tasks", []), task_id)
+    if not task:
+        return {"closed": False, "task": None, "ledger": ledger,
+                "blockers": [f"active task not found in ledger: {task_id}"]}
+    if task.get("status") == "closed":
+        return {"closed": True, "task": task, "ledger": ledger, "blockers": []}
+
+    # Collect unsatisfied checks before closing
+    unsatisfied: List[str] = []
+    reqs = task.get("requirements", {})
+    if reqs.get("executor_required"):
+        evidence = _read(Path(base_dir) / ".aiwf" / "records" / "evidence.json", {"records": []})
+        if not evidence.get("records"):
+            unsatisfied.append("executor_required but no evidence recorded")
+    if reqs.get("tester_required"):
+        testing = _read(Path(base_dir) / ".aiwf" / "records" / "testing.json", {"status": "missing"})
+        if testing.get("status") not in ("adequate", "passed"):
+            unsatisfied.append(f"tester_required but testing status={testing.get('status', 'missing')}")
+    if reqs.get("reviewer_required"):
+        review = _read(Path(base_dir) / ".aiwf" / "records" / "review.json", {"result": "unknown"})
+        if review.get("result") != "accepted":
+            unsatisfied.append(f"reviewer_required but review result={review.get('result', 'unknown')}")
+        if review.get("blockers"):
+            unsatisfied.append(f"review blockers: {review['blockers']}")
+
+    task["status"] = "closed"
+    task["closed_at"] = _now()
+    task["updated_at"] = _now()
+    task["closure"] = {
+        "mode": "human_force",
+        "accepted": False,
+        "reason": reason.strip() or None,
+        "unsatisfied_checks": unsatisfied,
+    }
+    if reason.strip():
+        task.setdefault("notes", []).append(f"FORCE-CLOSED by human: {reason.strip()}")
+
+    state["active_task_id"] = None
+    if state.get("phase") in ("executing", "testing", "reviewing", "closing"):
+        state["phase"] = "planning"
+    _write(state_path, state)
+
+    save_ledger(base_dir, ledger)
+    _refresh_mechanical_assets(base_dir)
+
+    try:
+        from .state.plan_ops import reconcile_task_to_plan
+        reconcile_task_to_plan(base_dir, task)
+    except Exception:
+        pass
+
+    return {"closed": True, "task": task, "ledger": ledger, "blockers": []}
+
+
 def ledger_summary(base_dir: str) -> Dict[str, Any]:
     ledger = load_ledger(base_dir)
     tasks = ledger.get("tasks", [])
@@ -1446,8 +1175,9 @@ def ledger_summary(base_dir: str) -> Dict[str, Any]:
     for task in tasks:
         status = task.get("status", "unknown")
         counts[status] = counts.get(status, 0) + 1
+    active_ids = [t.get("id") for t in tasks if t.get("status") == "active" and t.get("id")]
     return {
         "tasks": tasks,
         "counts": counts,
-        "active_task_ids": ledger.get("execution_window", {}).get("active_task_ids", []),
+        "active_task_ids": active_ids,
     }

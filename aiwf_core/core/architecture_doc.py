@@ -24,7 +24,7 @@ def _now() -> str:
 
 
 def _state_path(project_root: str) -> Path:
-    return Path(project_root) / ".aiwf" / "artifacts" / "reports" / "architecture-doc.json"
+    return Path(project_root) / ".aiwf" / "records" / "architecture-doc.json"
 
 
 def _default_state() -> Dict[str, Any]:

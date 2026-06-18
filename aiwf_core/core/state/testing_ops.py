@@ -43,7 +43,7 @@ def record_testing(
 ) -> Dict[str, Any]:
     """Write testing.json consistently. Returns testing dict."""
     base = Path(base_dir)
-    testing_path = base / ".aiwf" / "artifacts" / "quality" / "testing.json"
+    testing_path = base / ".aiwf" / "records" / "testing.json"
 
     testing = _read(testing_path)
     testing["status"] = status
@@ -83,21 +83,6 @@ def record_testing(
     testing["recorded_at"] = datetime.now(timezone.utc).isoformat()
 
     _write(testing_path, testing)
-
-    # Phase-gate: before recording adequate/passed, check evidence exists
-    if status in ("adequate", "passed"):
-        try:
-            from ..phase_gates import implementing_to_testing_gates
-            gate_blockers = implementing_to_testing_gates(base_dir)
-            if gate_blockers:
-                raise ValueError(
-                    "Phase gate (implementing→testing) not met:\n" +
-                    "\n".join(f"  - {b}" for b in gate_blockers)
-                )
-        except ValueError:
-            raise
-        except Exception:
-            pass
 
     state_path = base / ".aiwf" / "state" / "state.json"
     state = _read(state_path)

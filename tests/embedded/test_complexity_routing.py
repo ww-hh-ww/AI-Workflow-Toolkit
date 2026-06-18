@@ -5,10 +5,10 @@ class TestComplexityRouting(unittest.TestCase):
     """Planner must classify task complexity before execution."""
 
     def test_default_is_standard(self):
-        from aiwf_core.core.state_schema import default_state
+        from aiwf_core.core.state_schema import default_state, STATE_KEYS
         s = default_state()
-        self.assertEqual(s["complexity"], "standard")
-        self.assertIn("routing_reason", s)
+        self.assertIn("complexity", STATE_KEYS)
+        self.assertIn("routing_reason", STATE_KEYS)
 
     def test_simple_requires_all_invariant_gates(self):
         """Even simple tasks need scope/evidence/testing/review/closure."""

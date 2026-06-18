@@ -211,7 +211,7 @@ def scan_environment(project_root: str) -> Dict[str, Any]:
 
 def write_environment_profile(project_root: str, profile: Dict[str, Any]) -> Path:
     """Write environment profile to .aiwf/assets/environment.json."""
-    dest = Path(project_root) / ".aiwf" / "assets" / "environment.json"
+    dest = Path(project_root) / ".aiwf" / "records" / "events.json"
     dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_text(json.dumps(profile, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return dest
@@ -219,7 +219,7 @@ def write_environment_profile(project_root: str, profile: Dict[str, Any]) -> Pat
 
 def load_environment_profile(project_root: str) -> Dict[str, Any]:
     """Load environment profile, or return empty dict if missing."""
-    path = Path(project_root) / ".aiwf" / "assets" / "environment.json"
+    path = Path(project_root) / ".aiwf" / "records" / "events.json"
     if not path.exists():
         return {}
     try:

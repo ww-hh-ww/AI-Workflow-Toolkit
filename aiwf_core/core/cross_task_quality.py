@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import json
+
+from .state.goal_ops import get_active_goal
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List
@@ -45,82 +47,36 @@ def _accepted_changed_files(evidence: Dict[str, Any]) -> List[str]:
 def _archive_trimmed_tasks(history: Dict[str, Any], tasks: List[Dict[str, Any]]) -> Dict[str, Any]:
     if len(tasks) <= 100:
         history["tasks"] = tasks
-        history.setdefault("archived_hotspots", {})
+        history.setdefault("historical_hotspots", {})
         return history
-    archived = history.get("archived_hotspots", {})
-    if not isinstance(archived, dict):
-        archived = {}
+    cold_spots = history.get("historical_hotspots", {})
+    if not isinstance(cold_spots, dict):
+        cold_spots = {}
     for task in tasks[:-100]:
         for path in task.get("changed_files", []) or []:
-            archived[path] = int(archived.get(path, 0) or 0) + 1
-    history["archived_hotspots"] = archived
+            cold_spots[path] = int(cold_spots.get(path, 0) or 0) + 1
+    history["historical_hotspots"] = cold_spots
     history["tasks"] = tasks[-100:]
     return history
 
 
 def append_task_history_from_state(base_dir: str, task_id: str = "", title: str = "") -> Dict[str, Any]:
-    """Append/update a closed-task history record from current AIWF state."""
-    root = Path(base_dir)
-    history_path = root / ".aiwf" / "runtime" / "history" / "task-history.json"
-    history = _read(history_path, {"tasks": []})
-    tasks = history.get("tasks", []) if isinstance(history.get("tasks"), list) else []
-    state = _read(root / ".aiwf" / "state" / "state.json", {})
-    goal = _read(root / ".aiwf" / "state" / "goal.json", {})
-    evidence = _read(root / ".aiwf" / "artifacts" / "evidence" / "records.json", {"records": []})
-    testing = _read(root / ".aiwf" / "artifacts" / "quality" / "testing.json", {})
-    review = _read(root / ".aiwf" / "artifacts" / "quality" / "review.json", {})
-    fix_loop = _read(root / ".aiwf" / "state" / "fix-loop.json", {})
-    contexts = _read(root / ".aiwf" / "state" / "contexts.json", {"contexts": []})
+    """V1: No-op. Task ledger (state/tasks.json) is the single source of truth.
 
-    record_id = task_id or f"goal-v{goal.get('goal_version', 1)}-closed"
-    record = {
-        "id": record_id,
-        "closed_at": datetime.now(timezone.utc).isoformat(),
-        "goal_version": goal.get("goal_version", 1),
-        "goal": goal.get("current_goal") or goal.get("active_goal", "") or title,
-        "title": title,
-        "workflow_level": state.get("workflow_level", state.get("workflow_strength", "")),
-        "task_type": state.get("task_type", ""),
-        "context_ids": [c.get("id", "") for c in contexts.get("contexts", []) or [] if c.get("id")][:20],
-        "accepted_evidence_count": len([r for r in evidence.get("records", []) or [] if r.get("status") == "accepted"]),
-        "changed_files": _accepted_changed_files(evidence)[:50],
-        "testing_status": testing.get("status", "missing"),
-        "untested_risk_count": len(testing.get("untested_risks", []) or []),
-        "review_result": review.get("result", "unknown"),
-        "fix_loop_attempt_count": fix_loop.get("attempt_count", 0) or 0,
-        "cleanup_status": review.get("cleanup_status", ""),
-        "structure_status": review.get("structure_status", ""),
-    }
-    # Compact adversarial observation summary — counts only, not full messages
-    adv_obs = review.get("adversarial_observations", []) or []
-    if adv_obs:
-        record["adversarial_observation_count"] = len(adv_obs)
-        record["adversarial_escalation_count"] = sum(
-            1 for o in adv_obs if isinstance(o, dict) and o.get("severity") == "escalate"
-        )
-        record["adversarial_kinds"] = list(set(
-            o.get("kind", "") for o in adv_obs if isinstance(o, dict) and o.get("kind")
-        ))
-    # Post-hoc warning summary — for cross-task pattern detection
-    ph_warnings = review.get("post_hoc_warnings", []) or []
-    if ph_warnings:
-        record["post_hoc_warning_count"] = len(ph_warnings)
-        record["post_hoc_warning_kinds"] = list(set(
-            _classify_post_hoc_warning(w) for w in ph_warnings
-        ))
-    tasks = [t for t in tasks if t.get("id") != record_id]
-    tasks.append(record)
-    history = _archive_trimmed_tasks(history, tasks)
-    _write(history_path, history)
-    return record
+    Closed tasks remain in the ledger with full entries (status, plan_id,
+    milestone_id, requirements, closure, etc.). Cross-task quality signals
+    are derived by scanning the ledger directly; a separate history file
+    is no longer needed.
+    """
+    return {"id": task_id, "status": "noop"}
 
 
 def evaluate_cross_task_quality(base_dir: str, recent_limit: int = 5) -> Dict[str, Any]:
     """Summarize cross-task quality signals without making semantic judgments."""
     root = Path(base_dir)
-    history = _read(root / ".aiwf" / "runtime" / "history" / "task-history.json", {"tasks": []})
-    testing = _read(root / ".aiwf" / "artifacts" / "quality" / "testing.json", {})
-    review = _read(root / ".aiwf" / "artifacts" / "quality" / "review.json", {})
+    history = _read(root / ".aiwf" / "state" / "tasks.json", {"tasks": []})
+    testing = _read(root / ".aiwf" / "records" / "testing.json", {})
+    review = _read(root / ".aiwf" / "records" / "review.json", {})
     tasks = history.get("tasks", []) if isinstance(history.get("tasks"), list) else []
     recent = tasks[-recent_limit:]
 
@@ -128,10 +84,10 @@ def evaluate_cross_task_quality(base_dir: str, recent_limit: int = 5) -> Dict[st
     for task in recent:
         for path in task.get("changed_files", []) or []:
             file_counts[path] = file_counts.get(path, 0) + 1
-    # Merge archived hotspots with half weight to preserve long-term memory
-    archived = history.get("archived_hotspots", {})
-    if isinstance(archived, dict):
-        for path, count in archived.items():
+    # Merge historical hotspots with half weight to preserve long-term memory
+    cold_spots = history.get("historical_hotspots", {})
+    if isinstance(cold_spots, dict):
+        for path, count in cold_spots.items():
             file_counts[path] = file_counts.get(path, 0) + max(1, int(count or 0) // 2)
     repeated = [
         {"path": path, "count": count}
@@ -269,7 +225,7 @@ def render_quality_digest(base_dir: str) -> str:
 
 def write_quality_digest(base_dir: str) -> Path:
     """Write .aiwf/artifacts/reports/质量摘要.md and return the path."""
-    path = Path(base_dir) / ".aiwf" / "artifacts" / "reports" / "质量摘要.md"
+    path = Path(base_dir) / ".aiwf" / "records" / "质量摘要.md"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(render_quality_digest(base_dir), encoding="utf-8")
     sync_quality_escalation_state(base_dir)

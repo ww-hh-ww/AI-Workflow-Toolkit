@@ -11,6 +11,7 @@ from typing import Any, Dict
 from ...core.closure_contract import closure_conditions_met
 from ...core.gate_engine import build_status_context
 from ...core.review_contract import promote_evidence
+from ...core.state.goal_ops import get_active_goal
 from ...core.state_schema import (
     default_state, default_goal, default_evidence,
     default_testing, default_review, default_fix_loop,
@@ -30,11 +31,11 @@ def load_all_state(cwd: Path) -> Dict[str, Any]:
     """Load all .aiwf state files from a project root."""
     return {
         "state": _read_json(cwd / ".aiwf" / "state" / "state.json", default_state()),
-        "goal": _read_json(cwd / ".aiwf" / "state" / "goal.json", default_goal()),
-        "contexts": _read_json(cwd / ".aiwf" / "state" / "contexts.json", {"contexts": []}),
-        "evidence": _read_json(cwd / ".aiwf" / "artifacts" / "evidence" / "records.json", default_evidence()),
-        "testing": _read_json(cwd / ".aiwf" / "artifacts" / "quality" / "testing.json", default_testing()),
-        "review": _read_json(cwd / ".aiwf" / "artifacts" / "quality" / "review.json", default_review()),
+        "goal": get_active_goal(str(cwd)),
+        "contexts": _read_json(cwd / ".aiwf" / "state" / "state.json", {"contexts": []}),
+        "evidence": _read_json(cwd / ".aiwf" / "records" / "evidence.json", default_evidence()),
+        "testing": _read_json(cwd / ".aiwf" / "records" / "testing.json", default_testing()),
+        "review": _read_json(cwd / ".aiwf" / "records" / "review.json", default_review()),
         "fix_loop": _read_json(cwd / ".aiwf" / "state" / "fix-loop.json", default_fix_loop()),
     }
 
@@ -51,7 +52,7 @@ def eval_closure_gates(cwd: Path) -> Dict[str, Any]:
 
     # Promote evidence before gate check (mechanical, not semantic)
     # Always save so evidence.json on disk reflects promoted status
-    evidence_path = cwd / ".aiwf" / "artifacts" / "evidence" / "records.json"
+    evidence_path = cwd / ".aiwf" / "records" / "evidence.json"
     import json
     promoted = promote_evidence(s["evidence"], s["review"])
     evidence_path.write_text(

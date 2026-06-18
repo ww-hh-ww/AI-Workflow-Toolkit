@@ -10,6 +10,8 @@ Each blocker returns a human-readable message + the fix command.
 from __future__ import annotations
 
 import json
+
+from .state.goal_ops import get_active_goal
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
@@ -109,11 +111,11 @@ def planned_to_implementing_gates(base_dir: str, task_plan_id: str = "") -> List
                 # Legacy GOAL-001: check goal.json exists as fallback.
                 # goals.json is the tree registry; goal.json is the legacy singleton.
                 # If neither exists, the project state is incomplete.
-                legacy = _read(root / ".aiwf" / "state" / "goal.json")
-                if not legacy:
+                legacy = get_active_goal(base_dir)
+                if not legacy.get("title") and not legacy.get("quality_brief"):
                     blockers.append(_blocker(
                         "plan.target_goal_id",
-                        "Legacy GOAL-001 has no goal.json — project state may be incomplete",
+                        "Legacy GOAL-001 has no goal data — project state may be incomplete",
                         "aiwf goal-tree init-root GOAL-001 --type main --title '...'",
                     ))
             else:
@@ -126,34 +128,27 @@ def planned_to_implementing_gates(base_dir: str, task_plan_id: str = "") -> List
             pass
 
     # ── Plan scope (L1+) ──
-    # allowed_write is the Plan's scope authority; context is deprecated.
-    # The activation gate must verify the active Plan has a scope.
-    if level != "L0_direct":
-        if plan:
-            if not plan.get("allowed_write"):
-                blockers.append(_blocker(
-                    "plan.allowed_write",
-                    "Which files are allowed to be modified under this Plan?",
-                    "aiwf plan create PLAN-ID --allowed-write 'src/path/'",
-                ))
-            if not plan.get("purpose"):
-                blockers.append(_blocker(
-                    "plan.purpose",
-                    "What is this Plan meant to achieve?",
-                    "aiwf plan create PLAN-ID --purpose '...'",
-                ))
-        else:
+    # Plan is recommended but not required. Task.md is the execution contract.
+    # Only check Plan fields when a Plan is actually attached.
+    if level != "L0_direct" and plan:
+        if not plan.get("allowed_write"):
             blockers.append(_blocker(
-                "plan",
-                "No Plan found — create and activate a Plan before activating a task",
-                "aiwf plan create PLAN-ID --target-goal <GOAL-ID> --kind implementation --allowed-write 'src/' --purpose '...'",
+                "plan.allowed_write",
+                "Which files are allowed to be modified under this Plan?",
+                "aiwf plan create PLAN-ID --allowed-write 'src/path/'",
+            ))
+        if not plan.get("purpose"):
+            blockers.append(_blocker(
+                "plan.purpose",
+                "What is this Plan meant to achieve?",
+                "aiwf plan create PLAN-ID --purpose '...'",
             ))
 
     # ── Contract fields (L1+) ──
     # Only check when quality_brief has been started (any field filled).
     # If everything is default-empty, Planner hasn't begun contracts — skip.
     if level != "L0_direct":
-        goal = _read(root / ".aiwf" / "state" / "goal.json")
+        goal = get_active_goal(base_dir)
         brief = goal.get("quality_brief", {}) or {}
         evaluation = brief.get("evaluation_contract", {}) or {}
         architecture = brief.get("architecture_brief", {}) or {}
@@ -230,7 +225,7 @@ def implementing_to_testing_gates(base_dir: str) -> List[str]:
     if not state.get("active_task_id"):
         return blockers
 
-    evidence = _read(root / ".aiwf" / "artifacts" / "evidence" / "records.json")
+    evidence = _read(root / ".aiwf" / "records" / "evidence.json")
     records = evidence.get("records", []) or []
 
     if not records:
@@ -258,7 +253,7 @@ def testing_to_reviewing_gates(base_dir: str) -> List[str]:
 
     level = state.get("workflow_level", "L1_review_light")
 
-    testing = _read(root / ".aiwf" / "artifacts" / "quality" / "testing.json")
+    testing = _read(root / ".aiwf" / "records" / "testing.json")
     tstat = testing.get("status", "missing")
 
     if tstat not in ("adequate", "passed"):
@@ -270,7 +265,7 @@ def testing_to_reviewing_gates(base_dir: str) -> List[str]:
 
     # L1+: cleanup must be verified before review
     if level != "L0_direct":
-        review = _read(root / ".aiwf" / "artifacts" / "quality" / "review.json")
+        review = _read(root / ".aiwf" / "records" / "review.json")
         if _empty(review.get("cleanup_verified_at")):
             blockers.append(_blocker(
                 "cleanup",
@@ -324,7 +319,7 @@ def reviewing_to_closing_gates(base_dir: str) -> List[str]:
     root = Path(base_dir)
     blockers: List[str] = []
 
-    review = _read(root / ".aiwf" / "artifacts" / "quality" / "review.json")
+    review = _read(root / ".aiwf" / "records" / "review.json")
     verdict = review.get("verdict", "pending")
 
     # Only check if review has been started (result or verdict explicitly set)
@@ -340,20 +335,18 @@ def reviewing_to_closing_gates(base_dir: str) -> List[str]:
             "aiwf state record-review --verdict PASS|PASS_WITH_RISK|REVISE|REJECT --accepted-evidence-id <ID>",
         ))
 
-    # Q&A: Planner meta-critique (L2+; skip if goal.json not set up)
+    # Q&A: Planner meta-critique (L2+; skip if goals.json not set up)
     state = _read(root / ".aiwf" / "state" / "state.json")
     level = state.get("workflow_level", "L1_review_light")
     if level in ("L2_standard_team", "L3_full_power"):
-        goal_path = root / ".aiwf" / "state" / "goal.json"
-        if goal_path.exists():
-            goal = _read(goal_path)
-            meta = goal.get("meta_critique", {}) or {}
-            if _empty(meta.get("summary")):
-                blockers.append(_blocker(
-                    "meta_critique.summary",
-                    "Planner must record meta-critique after reviewing adversarial observations",
-                    "aiwf state record-meta-critique --summary '...'",
-                ))
+        goal = get_active_goal(base_dir)
+        meta = goal.get("meta_critique", {}) or {}
+        if _empty(meta.get("summary")):
+            blockers.append(_blocker(
+                "meta_critique.summary",
+                "Planner must record meta-critique after reviewing adversarial observations",
+                "aiwf state record-meta-critique --summary '...'",
+            ))
 
     # Enum: adversarial observations must be disposed
     observations = review.get("adversarial_observations", []) or []

@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, Dict
 
 from ..constants import VERSION
+from ..core.state.goal_ops import get_active_goal
 
 
 def _read_json(path: Path, default: Dict[str, Any]) -> Dict[str, Any]:
@@ -38,10 +39,19 @@ def cmd_status(args) -> None:
     prompt_mode = getattr(args, 'prompt', False)
 
     state = _read_json(root / ".aiwf" / "state" / "state.json", {})
-    goal = _read_json(root / ".aiwf" / "state" / "goal.json", {})
-    evidence = _read_json(root / ".aiwf" / "artifacts" / "evidence" / "records.json", {"records": []})
-    testing = _read_json(root / ".aiwf" / "artifacts" / "quality" / "testing.json", {"status": "missing"})
-    review = _read_json(root / ".aiwf" / "artifacts" / "quality" / "review.json", {"result": "unknown", "closure_allowed": False, "blockers": []})
+    # Merge routing state (V2: lives in runtime/internal/, not state.json)
+    try:
+        from ..core.task_ledger import load_routing_state
+        routing = load_routing_state(str(root))
+        for k, v in routing.items():
+            if k not in state or state.get(k) in (None, "", [], 0, False):
+                state[k] = v
+    except Exception:
+        pass
+    goal = get_active_goal(str(root))
+    evidence = _read_json(root / ".aiwf" / "records" / "evidence.json", {"records": []})
+    testing = _read_json(root / ".aiwf" / "records" / "testing.json", {"status": "missing"})
+    review = _read_json(root / ".aiwf" / "records" / "review.json", {"result": "unknown", "closure_allowed": False, "blockers": []})
     fix_loop = _read_json(root / ".aiwf" / "state" / "fix-loop.json", {"status": "none"})
 
     if debug_mode:
@@ -55,203 +65,193 @@ def cmd_status(args) -> None:
 
 
 def _print_status_human(root, state, goal, evidence, testing, review, fix_loop):
-    """Human-readable short status — ~15 lines. What's happening, can we close, what's next."""
+    """Human-readable short status — V1: write permissions, reminders, next action."""
     product = "Reasonix" if (root / ".reasonix" / "settings.json").exists() else "Claude Code"
     print(f"AIWF V{VERSION} — {product}")
     print()
 
-    phase = state.get("phase", "unknown")
+    phase = state.get("phase", "planning")
     goal_text = goal.get("current_goal") or goal.get("active_goal", "") or "(none)"
     active_task_id = state.get("active_task_id") or ""
-    has_goal = goal_text != "(none)"
-    display_mode = state.get("request_mode", "execution")
-    display_level = state.get("workflow_level", "L1")
-    if not has_goal and not active_task_id and phase == "discussing":
-        display_mode = "discussion"
-        display_level = "not_routed"
-    print(f"Goal:  {goal_text[:120]}")
-    print(f"Phase: {phase}  level={display_level}  mode={display_mode}")
 
-    # Can close?
-    blockers = []
-    if fix_loop.get("status") == "open":
-        blockers.append("fix-loop open")
-    if state.get("scope_violation"):
-        blockers.append("scope violation")
-    rstat = review.get("result", "unknown")
-    if rstat not in ("accepted", "unknown"):
-        blockers.append(f"review={rstat}")
-    tstat = testing.get("status", "missing")
-    if tstat == "failed":
-        blockers.append("testing failed")
-    if review.get("cleanup_status") != "fresh":
-        blockers.append("cleanup not fresh")
-    recs = evidence.get("records", []) or []
-    ev_acc = sum(1 for r in recs if r.get("status") == "accepted")
-    if not ev_acc:
-        blockers.append("no accepted evidence")
-
-    can_close = phase == "closed" or (not blockers and phase in ("reviewing", "closing"))
-    print(f"Can close: {'yes' if can_close else 'no'}")
-    if blockers:
-        print(f"  Why: {', '.join(blockers[:3])}")
-
-    # Next action
-    try:
-        from ..core.process_contract import planner_process_guidance
-        guidance = planner_process_guidance(str(root))
-        rec = guidance.get("recovery") or {}
-        if rec and rec.get("state") != "clear":
-            primary = rec.get("primary", "")
-            if primary:
-                print(f"Next: {primary[:160]}")
-    except Exception:
-        pass
-
-    # Surfaces
-    brief = goal.get("quality_brief", {}) or {}
-    surface_types = brief.get("surface_types", []) or []
-    print(f"Surfaces: {', '.join(surface_types) if surface_types else 'none'}")
-
-    # Evidence + quality
-    print(f"Evidence: {ev_acc} accepted / {len(recs)} raw")
-    verdict = review.get("verdict", "pending")
-    verdict_part = f" verdict={verdict}" if verdict not in ("", "pending", None) else ""
-    print(f"Testing:  {tstat}  Review: {rstat}{verdict_part}  Cleanup: {review.get('cleanup_status', '?')}")
+    print(f"Phase: {phase}")
     if active_task_id:
-        print(f"Task:     {active_task_id}")
+        print(f"Active task: {active_task_id}")
+    else:
+        print(f"Active task: none")
 
-    # Risk
-    risks = []
-    if testing.get("cross_task_risks"):
-        risks.append(f"cross-task risks ({len(testing.get('cross_task_risks', []))})")
-    if testing.get("testing_debt"):
-        risks.append("testing debt")
-    if fix_loop.get("architecture_change_requests"):
-        pending = [a for a in fix_loop.get("architecture_change_requests", [])
-                   if a.get("status") == "proposed"]
-        if pending:
-            risks.append(f"{len(pending)} pending ACR(s)")
+    # ── Write permissions ──
+    if not active_task_id:
+        print(f"Project writes: blocked (no active task)")
+        print(f"Governance writes: allowed")
+    else:
+        reqs = _read_task_requirements(root, active_task_id)
+        if reqs.get("executor_required", True):
+            print(f"Project writes: executor subagent required")
+        else:
+            print(f"Project writes: allowed (executor_required=false)")
+
+    # ── Reminders (advisory, not gates) ──
+    architect_due = _architect_due(root, state)
+    milestone_due = _milestone_due(root, state)
+    if architect_due or milestone_due:
+        print(f"Architect due: {'yes' if architect_due else 'no'}")
+        if milestone_due: print(f"Milestone checks due: yes")
+
+    # ── Active task status ──
+    if active_task_id:
+        tstat = testing.get("status", "missing")
+        rstat = review.get("result", "unknown")
+        print(f"Testing: {tstat}  Review: {rstat}")
+        if fix_loop.get("status") == "open":
+            print(f"Fix-loop: OPEN (route={fix_loop.get('route', '?')})")
+        if state.get("scope_violation"):
+            print(f"Scope violation: unresolved")
+
+    # ── Next action ──
+    print(f"Next: {_next_human(phase, active_task_id, fix_loop, state, root)}")
+
+
+def _read_task_requirements(root, task_id):
     try:
-        from ..core.architecture_doc import load_architecture_doc_state
-        arch_doc = load_architecture_doc_state(str(root))
-        if arch_doc.get("required") and arch_doc.get("status") != "satisfied":
-            risks.append("architecture snapshot required")
+        tasks_data = _read_json(root / ".aiwf" / "state" / "tasks.json", {"tasks": []})
+        for t in tasks_data.get("tasks", []) or []:
+            if isinstance(t, dict) and t.get("id") == task_id:
+                return t.get("requirements", {})
     except Exception:
         pass
-    if risks:
-        print(f"Risk: {', '.join(risks)}")
+    return {}
+
+
+def _architect_due(root, state):
+    """Check if periodic architecture review is due (advisory only)."""
+    try:
+        from ..core.task_gravity import should_trigger_architecture_review
+        trigger = should_trigger_architecture_review(str(root))
+        return trigger.get("should_trigger", False)
+    except Exception:
+        return False
+
+
+def _milestone_due(root, state):
+    """Check if milestone assessment is due."""
+    try:
+        ms_data = _read_json(root / ".aiwf" / "state" / "milestones.json", {})
+        active_ms = ms_data.get("active_milestone_id") or state.get("active_milestone_id") or ""
+        if active_ms:
+            for ms in ms_data.get("milestones", []) or []:
+                if isinstance(ms, dict) and ms.get("id") == active_ms:
+                    return ms.get("status") not in ("closed", "completed")
+    except Exception:
+        pass
+    return False
+
+
+def _next_human(phase, active_task_id, fix_loop, state, root):
+    """Return a concise next-action line based on phase and state."""
+    if fix_loop.get("status") == "open":
+        route = fix_loop.get("route", "planner")
+        return f"resolve fix-loop (route={route})"
+    if state.get("scope_violation"):
+        return "resolve scope violation before any task activation"
+    if not active_task_id:
+        remaining = _remaining_tasks(root)
+        if remaining:
+            return f"aiwf-planner ({len(remaining)} task(s) remaining)"
+        return "aiwf-planner"
+    if phase in ("executing", "implementing"):
+        return "complete implementation, then record testing"
+    if phase == "testing":
+        return "complete testing, then record review"
+    if phase == "reviewing":
+        return "complete review, then close task"
+    if phase == "closing":
+        return "resolve blockers, then close task"
+    if phase == "closed":
+        return "planner reviews closed state, plans next cycle"
+    return "planner decides next step"
+
+
+def _remaining_tasks(root):
+    """Return remaining non-closed task IDs, excluding the just-closed one."""
+    try:
+        tasks_data = _read_json(root / ".aiwf" / "state" / "tasks.json", {"tasks": []})
+        return [
+            t.get("id", "") for t in tasks_data.get("tasks", []) or []
+            if isinstance(t, dict) and t.get("status") not in ("closed", "rejected")
+        ][:5]
+    except Exception:
+        return []
 
 
 def _print_status_prompt(root, state, goal, testing, review, fix_loop):
-    """AI prompt injection — minimal. Only what the model needs to decide next action.
-
-    A2-class: phase, active task/plan, health/blockers, PRIMARY, forbidden, current skill.
-    No routing topology, no advisory, no assets, no reports, no history.
-    """
-    phase = state.get("phase", "unknown")
-    level = state.get("workflow_level", "L1_review_light")
+    """AI prompt injection — minimal. Reads skill-map.json for dispatch, outputs required skills + required read."""
+    phase = state.get("phase", "planning")
     task_id = state.get("active_task_id", "")
     plan_id = state.get("active_plan_id", "")
-    ctx_id = state.get("active_context_id", "")
 
-    # Phase anchor with topology: tells AI what to do NOW, placed FIRST so it
-    # can't be missed. Repeated at the end as well.
-    #
-    # Per-topology subagent requirements:
-    #   single_agent / single_agent_with_machine_evidence: all inline (L0)
-    #   light_review: executor=SUBAGENT, testing+review=one SUBAGENT (L1)
-    #   standard_team: executor+tester+reviewer each SUBAGENT (L2)
-    #   fanout_merge: same as standard_team, adversarial depth (L3/security)
-    from ..core.routing import LEVEL_TO_TOPOLOGY
-    topo = LEVEL_TO_TOPOLOGY.get(state.get("workflow_level", ""), "light_review")
-    needs_exec_sub = topo in ("light_review", "standard_team", "fanout_merge")
-    needs_test_sub = topo in ("standard_team", "fanout_merge")
-    needs_review_sub = topo in ("standard_team", "fanout_merge")
-    is_light_review = topo == "light_review"
-    anchors = {
-        "discussing": ("/aiwf-planner — shape Goal Tree. No project code.", False),
-        "planned": ("/aiwf-planner-contracts — freeze contracts, then aiwf plan activate.", False),
-        "implementing": ("/aiwf-implement — "
-            + ("SPAWN aiwf-executor SUBAGENT. Do NOT inline." if needs_exec_sub
-               else "inline OK. Stay in allowed_write."), needs_exec_sub),
-        "testing": ("/aiwf-test — "
-            + ("SPAWN aiwf-tester SUBAGENT. Evidence first." if needs_test_sub
-               else "SPAWN aiwf-reviewer SUBAGENT. It handles both testing+review for light_review." if is_light_review
-               else "inline OK. record-testing --status adequate."), needs_test_sub or is_light_review),
-        "reviewing": ("/aiwf-review — "
-            + ("SPAWN aiwf-reviewer SUBAGENT. Cleanup first." if needs_review_sub
-               else "SendMessage to same aiwf-reviewer. record-review." if is_light_review
-               else "inline OK. record-review."), needs_review_sub or is_light_review),
-        "closing": ("/aiwf-close — "
-            + ("L2/L3: verify 3 independent subagent sessions (executor/tester/reviewer) "
-               "were actually spawned via Agent tool. Do NOT run three CLI commands "
-               "with different --session-id from main session — that is evidence "
-               "fabrication. If subagents were not spawned, cancel close and redo "
-               "from implementing phase." if needs_review_sub
-               else "L1: verify executor evidence + reviewer-light evidence exist. "
-               "prepare-close then task close. No JSON hand-edits." if is_light_review
-               else "prepare-close then task close. No JSON hand-edits."),
-            needs_review_sub),
-        "closed": ("CLOSED. Run aiwf status.", False),
-    }
-    anchor, requires_subagent = anchors.get(phase, ("", False))
-    if requires_subagent:
-        print(f"DO: {anchor}")
-    else:
-        print(f"[ATTN] {anchor}")
+    # Read skill-map.json for dispatch
+    skill_map_path = root / ".aiwf" / "config" / "skill-map.json"
+    required_skills = []
+    primary_skill = ""
+    if skill_map_path.exists():
+        try:
+            sm = json.loads(skill_map_path.read_text(encoding="utf-8"))
+            phase_skills = sm.get("phase_skills", {})
+            required_skills = phase_skills.get(phase, phase_skills.get("planning", []))
+            primary_skill = required_skills[0] if required_skills else ""
+        except Exception:
+            pass
+    if not primary_skill:
+        primary_skill = {"planning": "aiwf-planner", "executing": "aiwf-implement",
+                         "testing": "aiwf-test", "reviewing": "aiwf-review",
+                         "closing": "aiwf-close", "blocked": "aiwf-planner",
+                         "closed": "aiwf-planner"}.get(phase, "aiwf-planner")
 
-    # One-line status with goal context
-    parts = [f"Phase: {phase}", f"level={level}"]
+    # Check if active task is a milestone verification task
+    task_kind = ""
+    task_milestone_id = ""
+    if task_id:
+        try:
+            tasks_data = _read_json(root / ".aiwf" / "state" / "tasks.json", {"tasks": []})
+            for t in tasks_data.get("tasks", []) or []:
+                if isinstance(t, dict) and t.get("id") == task_id:
+                    task_kind = t.get("kind", "") or ""
+                    task_milestone_id = t.get("milestone_id", "") or ""
+                    break
+        except Exception:
+            pass
+
+    # Required read: active task narrative doc
+    required_read = []
+    if task_id:
+        task_doc = root / ".aiwf" / "tasks" / f"{task_id}.md"
+        if task_doc.exists():
+            required_read.append(f".aiwf/tasks/{task_id}.md")
+        # Milestone verification: also read the milestone doc
+        if task_kind == "milestone_verification" and task_milestone_id:
+            ms_doc = root / ".aiwf" / "milestones" / f"{task_milestone_id}.md"
+            if ms_doc.exists():
+                required_read.append(f".aiwf/milestones/{task_milestone_id}.md")
+
+    # Override primary skill for milestone verification tasks
+    if task_kind == "milestone_verification":
+        primary_skill = "aiwf-milestone"
+        required_skills = ["aiwf-milestone"]
+
+    # Output
+    print(f"[ATTN] /{primary_skill}")
+    if required_skills:
+        print(f"Required skills: {', '.join(required_skills)}")
+    if required_read:
+        print(f"Required read: {', '.join(required_read)}")
+
+    parts = [f"Phase: {phase}"]
     if task_id:
         parts.append(f"task={task_id}")
     if plan_id:
         parts.append(f"plan={plan_id}")
-    if ctx_id:
-        parts.append(f"ctx={ctx_id}")
-
-    # Goal context from active task
-    parent_goal = state.get("active_task_parent_goal", "") or ""
-    if not parent_goal and task_id:
-        try:
-            from ..core.task_ledger import load_ledger
-            ledger = load_ledger(str(root))
-            for t in ledger.get("tasks", []):
-                if t.get("id") == task_id:
-                    parent_goal = t.get("parent_goal", "") or ""
-                    break
-        except Exception:
-            pass
-    if parent_goal:
-        parts.append(f"goal={parent_goal}")
-    # Active milestone from plans.json
-    active_milestone_id = state.get("active_milestone_id", "")
-    if not active_milestone_id:
-        try:
-            milestones_data = _read_json(root / ".aiwf" / "state" / "milestones.json", {})
-            active_milestone_id = milestones_data.get("active_milestone_id", "") or ""
-        except Exception:
-            pass
-    if active_milestone_id:
-        parts.append(f"milestone={active_milestone_id}")
     print("  ".join(parts))
-    try:
-        from ..core.architecture_doc import load_architecture_doc_state
-        arch_doc = load_architecture_doc_state(str(root))
-        if arch_doc.get("required") and arch_doc.get("status") != "satisfied":
-            print("[ATTN] /aiwf-architecture-doc — architecture snapshot required")
-            print("REQUIRED DOC: run aiwf architecture-doc status; write/validate/satisfy snapshot")
-    except Exception:
-        pass
-    topo_short = {
-        "single_agent": "1-agent",
-        "single_agent_with_machine_evidence": "1-agent+machine-evidence",
-        "light_review": "executor+light-review",
-        "standard_team": "executor→tester→reviewer",
-        "fanout_merge": "parallel-agents→merge",
-    }
-    topo_label = topo_short.get(topo, topo)
-    print(f"level={level} mode={state.get('request_mode', 'execution')} topo={topo_label}")
 
     # Health
     blockers = []
@@ -260,141 +260,41 @@ def _print_status_prompt(root, state, goal, testing, review, fix_loop):
         blockers.append(f"fix-loop open -> {route}")
     if state.get("scope_violation"):
         blockers.append("scope violation")
-    rstat = review.get("result", "unknown")
-    if rstat not in ("accepted", "unknown"):
-        blockers.append(f"review={rstat}")
-    tstat = testing.get("status", "missing")
-    if tstat == "failed":
-        blockers.append("testing failed")
     if blockers:
         print(f"BLOCKED: {', '.join(blockers)}")
     else:
         print("Health: ok")
 
-    # Milestone activation: scan pending milestones for activatable ones.
-    # Activation = all covered goals have plans, all plans have tasks.
-    try:
-        from ..core.state.milestone_ops import load_milestones, check_milestone_activatable
-        ms_data = load_milestones(str(root))
-        for m in (ms_data.get("milestones", []) or []):
-            if not isinstance(m, dict):
-                continue
-            mid = m.get("id") or m.get("milestone_id") or ""
-            if not mid or m.get("status") != "pending":
-                continue
-            reasons = check_milestone_activatable(str(root), mid)
-            if not reasons:
-                goal_count = len(m.get("covered_goal_ids", []) or [])
-                plan_count = len(m.get("plan_ids", []) or [])
-                print(f"MILESTONE ACTIVATABLE {mid}: {goal_count} goals, {plan_count} plans ready. "
-                      f"Run: aiwf milestone update {mid} --status active")
-    except Exception:
-        pass
+    # Write permissions for no-active-task state
+    if not task_id:
+        print("")
+        print("Allowed writes:")
+        print("  - governance/planning (.aiwf/goals/, .aiwf/plans/, .aiwf/tasks/, .aiwf/config/)")
+        print("  - .claude/ skills and agent templates")
+        print("No project writes until a task is activated.")
 
-    # Milestone verification: when a milestone is close-ready except for
-    # integration_test or arch_review, prompt Planner to run them.
-    try:
-        from ..core.state.milestone_ops import load_milestones, check_milestone_readiness
-        ms_data = load_milestones(str(root))
-        ms_id = ms_data.get("active_milestone_id", "") or ""
-        if not ms_id:
-            ms_id = state.get("active_milestone_id", "") or ""
-        if ms_id:
-            if ms_data.get("milestones"):
-                ms = {m.get("id") or m.get("milestone_id"): m for m in ms_data["milestones"]}.get(ms_id, {})
-            else:
-                ms = {}
-            if ms and ms.get("status") not in ("completed", "archived"):
-                blockers = check_milestone_readiness(str(root), ms_id)
-                # Only integration_test / arch_review blockers → milestone is ready for verification
-                it_blocked = any("integration test" in b.lower() for b in blockers)
-                ar_blocked = any("architecture review" in b.lower() for b in blockers)
-                other_blocked = [b for b in blockers if "integration test" not in b.lower() and "architecture review" not in b.lower()]
-                if not other_blocked and (it_blocked or ar_blocked):
-                    missing = []
-                    if it_blocked:
-                        missing.append("load /aiwf-milestone-integration → test cross-Goal integration points")
-                    if ar_blocked:
-                        missing.append("load /aiwf-milestone-arch-review → verify Goal interfaces")
-                    if missing:
-                        print(f"MILESTONE NEEDS VERIFICATION {ms_id}: {'; '.join(missing)}")
-                elif not blockers:
-                    print(f"MILESTONE CLOSABLE {ms_id}: verification complete — run aiwf milestone close {ms_id}")
-    except Exception:
-        pass
+    # Signal skills (advisory reminders from skill-map.json)
+    signal_skills = {}
+    if skill_map_path.exists():
+        try:
+            sm = json.loads(skill_map_path.read_text(encoding="utf-8"))
+            signal_skills = sm.get("signal_skills", {})
+        except Exception:
+            pass
 
-    # Downgrade check: when routing recommends higher level than current,
-    # Planner must explain to user and get confirmation. Cannot silently drop.
-    if task_id:
-        lvls = ["L0_direct","L1_review_light","L2_standard_team","L3_full_power"]
-        rec_level = state.get("recommended_minimum_level", "")
-        if rec_level and rec_level in lvls and level in lvls and lvls.index(rec_level) > lvls.index(level):
-            factors = state.get("routing_factors", []) or []
-            reasons = [f for f in factors if not f.startswith("downgrade:")]
-            print(f"DOWNGRADE: routing recommends {rec_level} (current {level}). "
-                  f"User must confirm. Reasons: {', '.join(reasons[:3])}")
-            print(
-                "  Use: aiwf route downgrade --task-id "
-                f"{task_id} --to <topology> --reason '<why this task is safe>' --user-confirmed"
-            )
-            print("  Do not edit .aiwf/state/state.json to lower gravity or workflow level.")
+    reminders = []
+    if _architect_due(root, state):
+        skills = signal_skills.get("architect_due", ["aiwf-architect"])
+        reminders.append(f"Architect review due: run /{' /'.join(skills)} (read-only, advisory)")
+    if _milestone_due(root, state):
+        skills = signal_skills.get("milestone_due", ["aiwf-milestone"])
+        reminders.append(f"Milestone checks due. Available: /{' /'.join(skills)}")
+    if reminders:
+        print("")
+        for r in reminders:
+            print(f"  SIGNAL: {r}")
 
-    # Technical debt summary: one compact line of what needs attention
-    debt_items = []
-    try:
-        from ..core.task_gravity import should_trigger_architecture_review
-        arch = should_trigger_architecture_review(str(root))
-        if arch.get("should_trigger"):
-            debt_items.append(f"architect review due ({arch.get('closed_task_count', '?')} tasks)")
-    except Exception:
-        pass
-    try:
-        # Hotspots from cross-task quality
-        history_path = root / ".aiwf" / "runtime" / "history" / "task-history.json"
-        if history_path.exists():
-            hist = _read_json(history_path, {"tasks": []})
-            file_counts = {}
-            for t in hist.get("tasks", [])[-10:]:
-                for p in t.get("changed_files", []) or []:
-                    file_counts[p] = file_counts.get(p, 0) + 1
-            hotspots = [p for p, c in file_counts.items() if c >= 3]
-            if hotspots:
-                debt_items.append(f"{len(hotspots)} hotspot{'s' if len(hotspots)>1 else ''}")
-    except Exception:
-        pass
-    # Pending adversarial observations
-    if review.get("adversarial_observations"):
-        pending_adv = [o for o in review.get("adversarial_observations", []) or []
-                       if isinstance(o, dict) and o.get("disposition") == "pending"]
-        if pending_adv:
-            debt_items.append(f"{len(pending_adv)} pending adversarial obs")
-    if debt_items:
-        print(f"Debt: {', '.join(debt_items)}")
-
-    # Load guidance once
-    guidance = None
-    try:
-        from ..core.process_contract import planner_process_guidance
-        guidance = planner_process_guidance(str(root))
-    except Exception:
-        pass
-
-    # Recovery / PRIMARY (trimmed to fit prompt budget)
-    if guidance:
-        rec = guidance.get("recovery") or {}
-        if rec and rec.get("state") != "clear":
-            primary = rec.get("primary", "")
-            if primary:
-                print(f"PRIMARY: {primary[:160]}")
-            for item in (rec.get("legal_options") or [])[:1]:
-                print(f"→ {item[:160]}")
-            forbidden = rec.get("forbidden", []) or []
-            if forbidden:
-                print(f"NO: {'; '.join(f[:80] for f in forbidden[:2])}")
-
-    # Repeat the action directive — last thing the model sees before acting
-    if anchor:
-        print(f"Remember: {anchor}")
+    print(f"Next: {primary_skill}")
 
 
 def _print_status_debug(root, state, goal, evidence, testing, review, fix_loop,
@@ -422,13 +322,13 @@ def _print_status_debug(root, state, goal, evidence, testing, review, fix_loop,
         gravity = {"history_weight": 0.0, "hard_constraints": [], "soft_warnings": []}
         architect_trigger = {"should_trigger": False, "reasons": []}
     architecture_review = _read_json(
-        root / ".aiwf" / "artifacts" / "quality" / "architecture-review.json",
+        root / ".aiwf" / "records" / "architecture-review.json",
         {},
     )
-    report_exists = (root / ".aiwf" / "artifacts" / "reports" / "闭合报告.md").exists()
+    report_exists = (root / ".aiwf" / "records" / "闭合报告.md").exists()
     drift_path = root / ".aiwf" / "runtime" / "internal" / "workspace-drift.json"
     drift_exists = drift_path.exists()
-    cap_path = root / ".aiwf" / "assets" / "capabilities.json"
+    cap_path = root / ".aiwf" / "records" / "events.json"
     cap_exists = cap_path.exists()
 
     blockers = []
@@ -515,8 +415,8 @@ def _print_status_debug(root, state, goal, evidence, testing, review, fix_loop,
     print(f"  Cleanup:  {review.get('cleanup_status', '?')}  stale_items={len(review.get('stale_items', []) or [])}")
     print(f"  Structure:{review.get('structure_status', '?')}")
 
-    goal_data = _read_json(root / ".aiwf" / "state" / "goal.json", {})
-    brief = goal_data.get("quality_brief", {})
+    goal = get_active_goal(str(root))
+    brief = goal.get("quality_brief", {})
     arch = brief.get("architecture_brief", {})
     has_arch = arch and any(v for v in arch.values() if v and v != "" and v != [])
     print(f"  Architecture: {'brief present' if has_arch else 'missing'}")
@@ -592,7 +492,7 @@ def _print_status_debug(root, state, goal, evidence, testing, review, fix_loop,
     if signals:
         print(f"  Quality digest:   signals ({len(signals)})")
     else:
-        print(f"  Quality digest:   clear" if (root / ".aiwf" / "artifacts" / "reports" / "质量摘要.md").exists() else "  Quality digest:   none")
+        print(f"  Quality digest:   clear" if (root / ".aiwf" / "records" / "质量摘要.md").exists() else "  Quality digest:   none")
     print()
 
     print("── Gravity ──")
@@ -662,18 +562,13 @@ def _print_status_debug(root, state, goal, evidence, testing, review, fix_loop,
     print()
 
     print("── Detail ──")
-    ckpt_dir = root / ".aiwf" / "runtime" / "checkpoints"
-    ckpt_exists = ckpt_dir.exists() and any(ckpt_dir.iterdir())
-    print(f"  Checkpoint: {'available' if ckpt_exists else 'none'}")
-    print("  .aiwf/artifacts/reports/质量摘要.md      quality trends")
-    print("  .aiwf/artifacts/reports/项目地图.md      architecture direction")
-    print("  .aiwf/state + .aiwf/artifacts/quality|evidence   machine state")
+    print("  .aiwf/state + .aiwf/records   machine state")
     print()
     print("  CLI: aiwf doctor | aiwf workspace scan | aiwf capability scan")
 
 
 def _next_action(state, review, fix_loop, drift_pending, cap_high):
-    phase = state.get("phase", "discussing")
+    phase = state.get("phase", "planning")
     if fix_loop.get("status") == "open":
         return "resolve fix-loop"
     if state.get("scope_violation"):
@@ -682,11 +577,9 @@ def _next_action(state, review, fix_loop, drift_pending, cap_high):
         return "review workspace drift"
     if cap_high:
         return "review high-risk capabilities"
-    if phase == "discussing":
-        return "discuss goal with Planner"
-    if phase == "planned":
-        return "ask Planner to direct implementation"
-    if phase == "implementing":
+    if phase in ("planning", "discussing", "planned"):
+        return "load /aiwf-planner"
+    if phase in ("executing", "implementing"):
         return "ask Planner to direct testing"
     if phase == "testing":
         return "ask Planner to direct review"
@@ -695,7 +588,7 @@ def _next_action(state, review, fix_loop, drift_pending, cap_high):
     if phase == "closing":
         return "Stop hook will verify gates"
     if phase == "closed":
-        return "check current-state.md"
+        return "run aiwf status and aiwf doctor"
     return "discuss with Planner"
 
 
@@ -703,7 +596,7 @@ def _has_context_dispatch(root: Path, state: Dict[str, Any]) -> bool:
     ctx_id = state.get("active_context_id")
     if not ctx_id:
         return False
-    contexts = _read_json(root / ".aiwf" / "state" / "contexts.json", {"contexts": []})
+    contexts = _read_json(root / ".aiwf" / "state" / "state.json", {"contexts": []})
     for ctx in contexts.get("contexts", []):
         if ctx.get("id") == ctx_id:
             return bool(ctx.get("purpose") or ctx.get("test_focus") or ctx.get("review_focus"))
@@ -711,7 +604,7 @@ def _has_context_dispatch(root: Path, state: Dict[str, Any]) -> bool:
 
 
 def _environment_status(root: Path) -> str:
-    env_path = root / ".aiwf" / "assets" / "environment.json"
+    env_path = root / ".aiwf" / "records" / "events.json"
     if not env_path.exists():
         return "missing"
     env = _read_json(env_path, {})
@@ -734,7 +627,7 @@ def _rules_status(root: Path) -> str:
 
 
 def _ideas_status(root: Path) -> str:
-    ideas_path = root / ".aiwf" / "artifacts" / "reports" / "ideas.md"
+    ideas_path = root / ".aiwf" / "records" / "ideas.md"
     if not ideas_path.exists():
         return "none"
     try:
@@ -764,16 +657,16 @@ def cmd_next(args) -> None:
         role_actions = {
             "planner": ("Run aiwf status; determine next gate; freeze contracts before execution",
                         "Planner owns the workflow and decides routing",
-                        "Roleplaying executor/tester/reviewer for L2+; skipping gates"),
-            "executor": ("Read context scope and architecture_brief; implement within allowed_write",
-                         "Executor is scoped to assigned context; implement then hand off to Tester",
+                        "Skipping required subagent dispatch; writing project files when executor_required=true"),
+            "executor": ("Read active Task.md; implement within scope; record evidence",
+                         "Executor is scoped to the active task; implement then hand off to Tester",
                          "Architecture changes without ACR; hand-editing AIWF state; committing code"),
-            "tester": ("Validate at selected test depth; record all commands with output",
+            "tester": ("Validate against Task.md Tester Requirements; record all commands with output",
                        "Independent testing is required before review; tests must be traceable",
-                       "Recording adequate without running full regression when template requires; prose-only claims"),
-            "reviewer": ("Verify cleanup_verified_at, audit evidence, check architecture boundaries, record adversarial observations",
+                       "Prose-only claims without command output; skipping required test surfaces"),
+            "reviewer": ("Audit evidence, check Task.md boundaries, record adversarial observations",
                          "Independent review is required before closure; contract critique, not checklist",
-                         "Reviewing own code; skipping cleanup verification; defaulting to full test rerun"),
+                         "Reviewing own code; skipping evidence audit; defaulting to full test rerun"),
         }
         action, why, forbidden = role_actions.get(role, role_actions["planner"])
         print(f"NEXT_ROLE: {role}")
@@ -789,15 +682,14 @@ def cmd_next(args) -> None:
         return
 
     state = _read_json(state_path, {})
-    goal = _read_json(root / ".aiwf" / "state" / "goal.json", {})
-    contexts = _read_json(root / ".aiwf" / "state" / "contexts.json", {"contexts": []})
-    review = _read_json(root / ".aiwf" / "artifacts" / "quality" / "review.json", {"result": "unknown"})
+    goal = get_active_goal(str(root))
+    contexts = _read_json(root / ".aiwf" / "state" / "state.json", {"contexts": []})
+    review = _read_json(root / ".aiwf" / "records" / "review.json", {"result": "unknown"})
     fix_loop = _read_json(root / ".aiwf" / "state" / "fix-loop.json", {"status": "none"})
-    testing = _read_json(root / ".aiwf" / "artifacts" / "quality" / "testing.json", {"status": "missing"})
+    testing = _read_json(root / ".aiwf" / "records" / "testing.json", {"status": "missing"})
 
-    phase = state.get("phase", "discussing")
+    phase = state.get("phase", "planning")
     request_mode = state.get("request_mode", "execution")
-    level = state.get("workflow_level", "L1_review_light")
     ctx_id = state.get("active_context_id") or ""
     ctx = next((c for c in contexts.get("contexts", []) or [] if c.get("id") == ctx_id), {})
 
@@ -810,22 +702,22 @@ def cmd_next(args) -> None:
             "planner": {
                 "action": "Run aiwf status; determine next gate; freeze contracts before execution",
                 "why": "Planner owns the workflow and decides routing",
-                "forbidden": "Roleplaying executor/tester/reviewer for L2+; skipping gates",
+                "forbidden": "Skipping required subagent dispatch; writing project files when executor_required=true",
             },
             "executor": {
-                "action": f"Read context {ctx_id} scope and architecture_brief; implement within allowed_write",
-                "why": "Executor is scoped to assigned context; implement then hand off to Tester",
+                "action": "Read active Task.md; implement within scope; record evidence",
+                "why": "Executor is scoped to the active task; implement then hand off to Tester",
                 "forbidden": "Architecture changes without ACR; hand-editing AIWF state; committing code",
             },
             "tester": {
-                "action": f"Validate at depth {state.get('test_template', 'targeted')}; record all commands with output",
+                "action": "Validate against Task.md Tester Requirements; record all commands with output",
                 "why": "Independent testing is required before review; tests must be traceable",
-                "forbidden": "Recording adequate without running full regression when template requires; prose-only claims",
+                "forbidden": "Prose-only claims without command output; skipping required test surfaces",
             },
             "reviewer": {
-                "action": "Verify cleanup_verified_at, audit evidence, check architecture boundaries, record adversarial observations",
+                "action": "Audit evidence, check Task.md boundaries, record adversarial observations",
                 "why": "Independent review is required before closure; contract critique, not checklist",
-                "forbidden": "Reviewing own code; skipping cleanup verification; defaulting to full test rerun",
+                "forbidden": "Reviewing own code; skipping evidence audit; defaulting to full test rerun",
             },
         }
         ra = role_actions.get(role, role_actions["planner"])
@@ -834,13 +726,19 @@ def cmd_next(args) -> None:
         print(f"WHY: {ra['why']}")
         print(f"FORBIDDEN: {ra['forbidden']}")
         print(f"PHASE: {phase}")
-        print(f"LEVEL: {level}")
         if fix_loop.get("status") == "open":
             print(f"FIX_LOOP: open (route={fix_loop.get('route', '?')})")
         return
 
     # ── Phase → next role & action ──
+    # V2 canonical names + V1 backward compat aliases
     phase_map = {
+        "planning": {
+            "role": "planner",
+            "action": f"Confirm goal and freeze contracts (request_mode={request_mode})",
+            "why": "Contracts must be frozen before any code is written",
+            "forbidden": "Project writes; only state, goal, and plan changes allowed",
+        },
         "discussing": {
             "role": "planner",
             "action": f"Confirm goal and freeze contracts (request_mode={request_mode})",
@@ -848,15 +746,21 @@ def cmd_next(args) -> None:
             "forbidden": "Project writes; only state, goal, and plan changes allowed",
         },
         "planned": {
-            "role": "executor" if level != "L0_direct" else "planner",
-            "action": f"Implement within context {ctx_id}" if ctx_id else "Activate task first (aiwf task activate)",
-            "why": f"Phase={phase}, level={level}, context={ctx_id or 'none'}",
-            "forbidden": f"Writes outside allowed_write; architecture changes without ACR",
+            "role": "planner",
+            "action": f"Confirm goal and freeze contracts (request_mode={request_mode})",
+            "why": "Contracts must be frozen before any code is written",
+            "forbidden": "Project writes; only state, goal, and plan changes allowed",
+        },
+        "executing": {
+            "role": "tester",
+            "action": f"Validate changes at depth {state.get('test_template', 'targeted')}",
+            "why": "Implementation recorded; independent testing required",
+            "forbidden": "Prose-only testing; must record commands and results",
         },
         "implementing": {
             "role": "tester",
             "action": f"Validate changes at depth {state.get('test_template', 'targeted')}",
-            "why": f"Implementation recorded; independent testing required at level {level}",
+            "why": "Implementation recorded; independent testing required",
             "forbidden": "Prose-only testing; must record commands and results",
         },
         "testing": {
@@ -867,19 +771,19 @@ def cmd_next(args) -> None:
         },
         "reviewing": {
             "role": "planner",
-            "action": "Disposition adversarial observations, then prepare-close",
+            "action": "Disposition adversarial observations, then close task",
             "why": f"Review result={review.get('result')}",
-            "forbidden": "Closing without meta-critique and fix-loop resolution",
+            "forbidden": "Closing without fix-loop resolution; new implementation",
         },
         "closing": {
             "role": "planner",
-            "action": "Resolve blockers, complete meta-critique, run prepare-close",
-            "why": "Closure requires all gates passed",
+            "action": "Resolve blockers, run aiwf task close",
+            "why": "Closure requires all gates passed (hash, evidence, testing, review, fix-loop)",
             "forbidden": "New implementation; only fix-loop and contract updates",
         },
         "closed": {
             "role": "planner",
-            "action": "Carry forward: run aiwf state rebase, review current-state.md",
+            "action": "Carry forward: run aiwf status --debug to review state, then plan next cycle",
             "why": "Workflow complete; prepare for next cycle",
             "forbidden": "Re-opening closed tasks without new goal",
         },
@@ -893,7 +797,6 @@ def cmd_next(args) -> None:
     print(f"WHY: {info['why']}")
     print(f"FORBIDDEN: {info['forbidden']}")
     print(f"PHASE: {phase}")
-    print(f"LEVEL: {level}")
 
     # Extra context
     if fix_loop.get("status") == "open":
@@ -921,3 +824,36 @@ def _has_meaningful_value(value: Any) -> bool:
     if isinstance(value, str):
         return bool(value.strip())
     return bool(value)
+
+
+# ── index commands ────────────────────────────────────────────────────
+
+def _cmd_index_check(args: argparse.Namespace) -> None:
+    from ..core.index_ops import check_index
+    result = check_index(str(Path.cwd()))
+    if result["healthy"]:
+        print("Index: HEALTHY — all JSON ↔ Markdown bindings OK")
+    else:
+        print(f"Index: {result['issues_count']} issue(s) found")
+        for i in result["issues"]:
+            print(f"  [{i['type']}:{i['id']}] {i['issue']}")
+        raise SystemExit(1)
+
+
+def _cmd_index_refresh(args: argparse.Namespace) -> None:
+    from ..core.index_ops import refresh_index
+    result = refresh_index(str(Path.cwd()))
+    print(f"Index refreshed: {result['refreshed']} entries updated")
+    if result["updated"]:
+        for item in result["updated"][:20]:
+            print(f"  {item}")
+
+
+def _cmd_index_repair(args: argparse.Namespace) -> None:
+    from ..core.index_ops import repair_index
+    result = repair_index(str(Path.cwd()))
+    print(f"Index repaired: {result['repaired']} entries checked")
+    if result["fixed_files"]:
+        print(f"Fixed frontmatter in {len(result['fixed_files'])} file(s):")
+        for f in result["fixed_files"]:
+            print(f"  {f}")

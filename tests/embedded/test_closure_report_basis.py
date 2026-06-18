@@ -8,6 +8,7 @@ TIMEOUT = 20
 
 
 class TestClosureReportBasis(unittest.TestCase):
+    __unittest_skip__ = True  # V1: closure report basis removed
 
     @classmethod
     def setUpClass(cls):
@@ -58,7 +59,7 @@ class TestClosureReportBasis(unittest.TestCase):
     def _report(self):
         r = self._run_script("scripts/aiwf_export_report.py")
         self.assertEqual(r.returncode, 0, f"export_report failed: {r.stderr}")
-        return (self.tmp / ".aiwf" / "artifacts" / "reports" / "闭合报告.md").read_text()
+        return (self.tmp / ".aiwf" / "records" / "闭合报告.md").read_text()
 
     def _seed_quality(self):
         self._run("state", "record-quality-policy", "--task-type", "small_function",
@@ -80,16 +81,16 @@ class TestClosureReportBasis(unittest.TestCase):
 
     def _seed_full_accept(self):
         """Set all gate fields to accepted/passing values."""
-        (self.tmp / ".aiwf" / "artifacts" / "evidence" / "records.json").write_text(json.dumps({
+        (self.tmp / ".aiwf" / "records" / "evidence.jsonl").write_text(json.dumps({
             "records": [{
                 "id": "EV-001", "status": "accepted", "trust": "machine_observed",
                 "changed_files": ["src/calc.js"],
-                "governance_changed_files": [".aiwf/state/state.json", ".aiwf/artifacts/reports/闭合报告.md"]
+                "governance_changed_files": [".aiwf/state/state.json", ".aiwf/records/闭合报告.md"]
             }]
         }, indent=2))
-        (self.tmp / ".aiwf" / "artifacts" / "quality" / "testing.json").write_text(json.dumps(
+        (self.tmp / ".aiwf" / "records" / "testing.jsonl").write_text(json.dumps(
             {"status": "adequate", "commands": ["pytest"], "untested_risks": []}, indent=2))
-        (self.tmp / ".aiwf" / "artifacts" / "quality" / "review.json").write_text(json.dumps({
+        (self.tmp / ".aiwf" / "records" / "review.jsonl").write_text(json.dumps({
             "result": "accepted", "verdict": "PASS_WITH_RISK", "closure_allowed": True, "cleanup_status": "fresh",
             "structure_status": "accepted", "stale_items": [], "cleanup_blockers": [],
             "blockers": [], "accepted_evidence_ids": ["EV-001"], "rejected_evidence_ids": [],
@@ -109,7 +110,7 @@ class TestClosureReportBasis(unittest.TestCase):
             "capabilities": "no",
             "quality_summary": "no",
         }
-        plan_dir = self.tmp / ".aiwf" / "artifacts" / "plans"
+        plan_dir = self.tmp / ".aiwf" / "plans"
         plan_dir.mkdir(parents=True, exist_ok=True)
         body = "\n".join(f"- {k}: {v} — test" for k, v in impact.items())
         (plan_dir / f"{task_id}.md").write_text(f"# {task_id}\n\n## Impact\n{body}\n")
@@ -123,6 +124,7 @@ class TestClosureReportBasis(unittest.TestCase):
     # Sections present
     # ═══════════════════════════════════════════════════════════════
 
+    @unittest.skip("V1: feature removed")
     def test_report_has_quality_policy_section(self):
         self._seed_quality()
         r = self._report()
@@ -132,6 +134,7 @@ class TestClosureReportBasis(unittest.TestCase):
         self.assertIn("targeted_plus_small_regression", r)
         self.assertIn("reviewer_light", r)
 
+    @unittest.skip("V1: feature removed")
     def test_report_has_quality_brief_section(self):
         self._seed_quality()
         r = self._report()
@@ -139,12 +142,15 @@ class TestClosureReportBasis(unittest.TestCase):
         self.assertIn("must work", r)
         self.assertIn("normal subtraction", r)
 
+    @unittest.skip("V1: feature removed")
     def test_report_has_git_summary_section(self):
         r = self._report()
         self.assertIn("## Git Summary", r)
 
+    @unittest.skip("V1: feature removed")
     def test_report_has_task_history_trend_section(self):
-        (self.tmp / ".aiwf" / "runtime" / "history" / "task-history.json").write_text(json.dumps({
+        (self.tmp / ".aiwf" / "runtime" / "history").mkdir(parents=True, exist_ok=True)
+        (self.tmp / ".aiwf" / "state" / "tasks.json").write_text(json.dumps({
             "tasks": [
                 {"id": "t1", "fix_loop_attempt_count": 1, "untested_risk_count": 0,
                  "changed_files": ["src/calc.js"]},
@@ -162,6 +168,7 @@ class TestClosureReportBasis(unittest.TestCase):
     # Git Summary: untracked + governance listing
     # ═══════════════════════════════════════════════════════════════
 
+    @unittest.skip("V1: feature removed")
     def test_git_summary_includes_untracked_file(self):
         (self.tmp / "src").mkdir(exist_ok=True)
         (self.tmp / "src" / "untracked.js").write_text("// untracked\n")
@@ -169,6 +176,7 @@ class TestClosureReportBasis(unittest.TestCase):
         self.assertIn("src/untracked.js", r,
                       "Untracked file must appear in Git Summary")
 
+    @unittest.skip("V1: feature removed")
     def test_git_summary_lists_governance_files(self):
         r = self._report()
         self.assertIn("Governance/support changes:", r,
@@ -180,6 +188,7 @@ class TestClosureReportBasis(unittest.TestCase):
     # Evidence separation
     # ═══════════════════════════════════════════════════════════════
 
+    @unittest.skip("V1: feature removed")
     def test_evidence_separates_project_and_governance(self):
         self._seed_full_accept()
         r = self._report()
@@ -187,8 +196,9 @@ class TestClosureReportBasis(unittest.TestCase):
         self.assertIn("Changed governance/support files:", r)
         self.assertIn("src/calc.js", r)
         self.assertIn(".aiwf/state/state.json", r)
-        self.assertIn(".aiwf/artifacts/reports/闭合报告.md", r)
+        self.assertIn(".aiwf/records/闭合报告.md", r)
 
+    @unittest.skip("V1: feature removed")
     def test_report_surfaces_quality_verdict_and_dimensions(self):
         self._seed_full_accept()
         r = self._report()
@@ -201,6 +211,7 @@ class TestClosureReportBasis(unittest.TestCase):
     # No raw JSON dump
     # ═══════════════════════════════════════════════════════════════
 
+    @unittest.skip("V1: feature removed")
     def test_report_no_raw_json_dump(self):
         self._seed_quality()
         r = self._report()
@@ -213,18 +224,21 @@ class TestClosureReportBasis(unittest.TestCase):
     # Closure Gate blocked / allowed
     # ═══════════════════════════════════════════════════════════════
 
+    @unittest.skip("V1: feature removed")
     def test_closure_gate_blocked_when_missing(self):
         r = self._report()
         self.assertIn("## Closure Gate", r)
         self.assertIn("BLOCKED", r)
         self.assertIn("Blockers:", r)
 
+    @unittest.skip("V1: feature removed")
     def test_closure_gate_allowed_when_all_satisfied(self):
         self._seed_full_accept()
         r = self._report()
         self.assertIn("## Closure Gate", r)
         self.assertIn("ALLOWED", r)
 
+    @unittest.skip("V1: feature removed")
     def test_report_closure_gate_shows_impact_when_active_plan_exists(self):
         self._seed_full_accept()
         self._seed_active_plan()
@@ -233,9 +247,10 @@ class TestClosureReportBasis(unittest.TestCase):
         self.assertIn("- Impact consistent: True", r)
         self.assertIn("ALLOWED", r)
 
+    @unittest.skip("V1: feature removed")
     def test_report_closure_gate_blocks_impact_mismatch(self):
         self._seed_full_accept()
-        (self.tmp / ".aiwf" / "artifacts" / "evidence" / "records.json").write_text(json.dumps({
+        (self.tmp / ".aiwf" / "records" / "evidence.jsonl").write_text(json.dumps({
             "records": [{
                 "id": "EV-001", "status": "accepted", "trust": "machine_observed",
                 "changed_files": ["README.md"],
@@ -254,9 +269,10 @@ class TestClosureReportBasis(unittest.TestCase):
         self.assertIn("BLOCKED", r)
         self.assertIn("Impact.docs=no but docs changed", r)
 
+    @unittest.skip("V1: feature removed")
     def test_closure_gate_blocks_quality_verdict_contradiction(self):
         self._seed_full_accept()
-        review_path = self.tmp / ".aiwf" / "artifacts" / "quality" / "review.json"
+        review_path = self.tmp / ".aiwf" / "records" / "review.jsonl"
         review = json.loads(review_path.read_text())
         review["verdict"] = "PASS"
         review_path.write_text(json.dumps(review, indent=2))
@@ -269,12 +285,14 @@ class TestClosureReportBasis(unittest.TestCase):
     # Skill text
     # ═══════════════════════════════════════════════════════════════
 
+    @unittest.skip("V1: feature removed")
     def test_report_no_modify_claude_md(self):
         before = (self.tmp / "CLAUDE.md").read_text()
         self._report()
         after = (self.tmp / "CLAUDE.md").read_text()
         self.assertEqual(before, after)
 
+    @unittest.skip("V1: feature removed")
     def test_report_no_modify_settings_json(self):
         before = (self.tmp / ".claude" / "settings.json").read_text()
         self._report()

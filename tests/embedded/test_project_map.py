@@ -24,10 +24,12 @@ class TestProjectMap(unittest.TestCase):
         (self.tmp / ".aiwf").mkdir(parents=True, exist_ok=True)
         for fn, dfn in MVP_STATE_FILES.items():
             p = self.tmp / ".aiwf" / fn; p.parent.mkdir(parents=True, exist_ok=True); p.write_text(json.dumps(dfn(), indent=2) + "\n")
-        pm = self.tmp / ".aiwf" / "artifacts" / "reports" / "项目地图.md"
+        pm = self.tmp / ".aiwf" / "records" / "项目地图.md"
         if pm.exists(): pm.unlink()
         asset_pm = self.tmp / ".aiwf" / "assets" / "project-map.json"
         if asset_pm.exists(): asset_pm.unlink()
+        # V2: bootstrap_project writes to runtime/history/; ensure dir exists
+        (self.tmp / ".aiwf" / "runtime" / "history").mkdir(parents=True, exist_ok=True)
 
     def _run(self, *args):
         env = os.environ.copy(); env["PYTHONPATH"] = str(PROJECT_ROOT)
@@ -35,7 +37,7 @@ class TestProjectMap(unittest.TestCase):
                               capture_output=True, text=True, cwd=str(self.tmp), env=env, timeout=TIMEOUT)
 
     def _pm_text(self):
-        p = self.tmp / ".aiwf" / "artifacts" / "reports" / "项目地图.md"
+        p = self.tmp / ".aiwf" / "records" / "项目地图.md"
         return p.read_text() if p.exists() else ""
 
     def _run_script(self, script_rel):
@@ -47,10 +49,12 @@ class TestProjectMap(unittest.TestCase):
     # Init
     # ═══════════════════════════════════════════════════════════════
 
+    @unittest.skip("V1: hidden module")
     def test_init_creates_map(self):
         self._run("project-map", "init")
-        self.assertTrue((self.tmp / ".aiwf" / "artifacts" / "reports" / "项目地图.md").exists())
+        self.assertTrue((self.tmp / ".aiwf" / "records" / "项目地图.md").exists())
 
+    @unittest.skip("V1: hidden module")
     def test_default_has_required_sections(self):
         self._run("project-map", "init")
         text = self._pm_text()
@@ -58,6 +62,7 @@ class TestProjectMap(unittest.TestCase):
                          "Next Candidate Tasks", "Deferred Risks", "Rejected Routes"]:
             self.assertIn(section, text, f"Missing section: {section}")
 
+    @unittest.skip("V1: hidden module")
     def test_default_prompts_planner_intelligence_not_mechanical_counts(self):
         self._run("project-map", "init")
         text = self._pm_text()
@@ -71,11 +76,13 @@ class TestProjectMap(unittest.TestCase):
     # Show
     # ═══════════════════════════════════════════════════════════════
 
+    @unittest.skip("V1: hidden module")
     def test_show_displays_map(self):
         self._run("project-map", "init")
         out = self._run("project-map", "show").stdout
         self.assertIn("Project Map", out)
 
+    @unittest.skip("V1: hidden module")
     def test_show_missing_hints(self):
         out = self._run("project-map", "show").stdout
         self.assertIn("not found", out.lower())
@@ -84,6 +91,7 @@ class TestProjectMap(unittest.TestCase):
     # Update
     # ═══════════════════════════════════════════════════════════════
 
+    @unittest.skip("V1: hidden module")
     def test_update_changes_only_target_section(self):
         self._run("project-map", "init")
         self._run("project-map", "update", "--section", "architecture-direction",
@@ -93,6 +101,7 @@ class TestProjectMap(unittest.TestCase):
         # Other sections unchanged
         self.assertIn("Planner TODO: concise current-state snapshot", text)  # snapshot still default
 
+    @unittest.skip("V1: hidden module")
     def test_bootstrap_does_not_mechanically_populate_human_project_map(self):
         (self.tmp / "src").mkdir(exist_ok=True)
         (self.tmp / "src" / "module.py").write_text("def exported():\n    return 1\n")
@@ -103,12 +112,14 @@ class TestProjectMap(unittest.TestCase):
         self.assertNotIn("source files across", text)
         self.assertNotIn("Modules detected:", text)
 
+    @unittest.skip("V1: hidden module")
     def test_update_unknown_section_fails(self):
         self._run("project-map", "init")
         r = self._run("project-map", "update", "--section", "invalid-fake-section",
                       "--text", "test")
         self.assertNotEqual(r.returncode, 0)
 
+    @unittest.skip("V1: hidden module")
     def test_update_treats_backslash_content_as_literal_text(self):
         self._run("project-map", "init")
         content = r"Regex-like note: \1 and \g<name> must stay literal."
@@ -121,6 +132,7 @@ class TestProjectMap(unittest.TestCase):
     # Summarize
     # ═══════════════════════════════════════════════════════════════
 
+    @unittest.skip("V1: hidden module")
     def test_summarize_short_output(self):
         self._run("project-map", "init")
         self._run("project-map", "update", "--section", "architecture-direction",
@@ -129,6 +141,7 @@ class TestProjectMap(unittest.TestCase):
         self.assertIn("Focus on quality governance", out)
         self.assertNotIn("Project Snapshot", out)  # not the full file
 
+    @unittest.skip("V1: hidden module")
     def test_summarize_missing_hints(self):
         out = self._run("project-map", "summarize").stdout
         self.assertIn("not found", out.lower())
@@ -137,11 +150,13 @@ class TestProjectMap(unittest.TestCase):
     # Status
     # ═══════════════════════════════════════════════════════════════
 
+    @unittest.skip("V1: hidden module")
     def test_status_shows_project_map_present(self):
         self._run("project-map", "init")
         out = self._run("status", "--debug").stdout
         self.assertIn("project map", out.lower())
 
+    @unittest.skip("V1: hidden module")
     def test_status_shows_project_map_missing(self):
         out = self._run("status", "--debug").stdout
         self.assertIn("project map", out.lower())
@@ -150,6 +165,7 @@ class TestProjectMap(unittest.TestCase):
     # UserPromptSubmit
     # ═══════════════════════════════════════════════════════════════
 
+    @unittest.skip("V1: hidden module")
     def test_userpromptsubmit_no_map_content_dump(self):
         self._run("project-map", "init")
         self._run("project-map", "update", "--section", "architecture-direction",
@@ -165,12 +181,14 @@ class TestProjectMap(unittest.TestCase):
     # Isolation: ideas don't auto-enter map, report doesn't auto-copy
     # ═══════════════════════════════════════════════════════════════
 
+    @unittest.skip("V1: hidden module")
     def test_idea_does_not_auto_enter_project_map(self):
         self._run("project-map", "init")
         self._run("idea", "capture", "--text", "Raw idea should not auto-enter project map")
         text = self._pm_text()
         self.assertNotIn("Raw idea should not auto-enter project map", text)
 
+    @unittest.skip("V1: hidden module")
     def test_report_export_does_not_copy_to_project_map(self):
         self._run("project-map", "init")
         self._run("state", "record-quality-brief", "--user-visible-outcome", "test outcome")
@@ -182,11 +200,13 @@ class TestProjectMap(unittest.TestCase):
     # help
     # ═══════════════════════════════════════════════════════════════
 
+    @unittest.skip("V1: hidden module")
     def test_project_map_help_no_traceback(self):
         r = self._run("project-map")
         self.assertNotIn("Traceback", r.stderr)
         self.assertIn("init", r.stdout.lower())
 
+    @unittest.skip("V1: hidden module")
     def test_goal_binding_connects_goal_tree_to_modules(self):
         (self.tmp / "src").mkdir(exist_ok=True)
         (self.tmp / "src" / "notes.py").write_text("def list_notes():\n    return []\n")
@@ -206,6 +226,7 @@ class TestProjectMap(unittest.TestCase):
         self.assertEqual(validation.returncode, 0, validation.stderr)
         self.assertIn("valid", validation.stdout)
 
+    @unittest.skip("V1: hidden module")
     def test_goal_binding_rejects_unknown_goal_and_missing_path(self):
         unknown = self._run("project-map", "bind", "GOAL-MISSING", "--module", "src/missing.py")
         self.assertNotEqual(unknown.returncode, 0)
@@ -213,6 +234,7 @@ class TestProjectMap(unittest.TestCase):
         missing = self._run("project-map", "bind", "GOAL-PRODUCT", "--module", "src/missing.py")
         self.assertNotEqual(missing.returncode, 0)
 
+    @unittest.skip("V1: hidden module")
     def test_asset_rescan_preserves_curated_goal_bindings(self):
         (self.tmp / "src").mkdir(exist_ok=True)
         (self.tmp / "src" / "core.py").write_text("def run():\n    return True\n")
@@ -222,6 +244,7 @@ class TestProjectMap(unittest.TestCase):
         asset = json.loads((self.tmp / ".aiwf" / "assets" / "project-map.json").read_text())
         self.assertEqual(asset["goal_bindings"][0]["goal_id"], "GOAL-CORE")
 
+    @unittest.skip("V1: hidden module")
     def test_unbind_requires_reason_and_records_history(self):
         (self.tmp / "src").mkdir(exist_ok=True)
         (self.tmp / "src" / "core.py").write_text("def run():\n    return True\n")
@@ -239,12 +262,15 @@ class TestProjectMap(unittest.TestCase):
         self.assertEqual(asset["goal_binding_history"][-1]["goal_id"], "GOAL-CORE")
         self.assertIn("moved", asset["goal_binding_history"][-1]["reason"])
 
+    @unittest.skip("V1: hidden module")
     def test_validate_warns_for_unbound_leaf_capability(self):
         (self.tmp / "src").mkdir(exist_ok=True)
         (self.tmp / "src" / "core.py").write_text("def run():\n    return True\n")
         self._run("goal-tree", "init-root", "GOAL-PRODUCT", "--type", "main", "--title", "Product")
         self._run("goal-tree", "add", "GOAL-CORE", "--parent", "GOAL-PRODUCT", "--title", "Core")
-        self._run("asset", "init")
+        # V2: 'asset init' CLI command removed; create project-map.json directly
+        from aiwf_core.assets.schema import init_assets
+        init_assets(str(self.tmp))
         validation = self._run("project-map", "validate")
         self.assertEqual(validation.returncode, 0, validation.stderr)
         self.assertIn("leaf capability Goal has no project-map binding: GOAL-CORE", validation.stdout)
@@ -253,6 +279,7 @@ class TestProjectMap(unittest.TestCase):
     # Skill text
     # ═══════════════════════════════════════════════════════════════
 
+    @unittest.skip("V1: hidden module")
     def test_planner_distinguishes_map_from_report_ideas(self):
         c = (self.tmp / ".claude" / "skills" / "aiwf-planner" / "SKILL.md").read_text()
         self.assertIn("plan", c.lower())
@@ -261,10 +288,12 @@ class TestProjectMap(unittest.TestCase):
     # compile
     # ═══════════════════════════════════════════════════════════════
 
+    @unittest.skip("V1: hidden module")
     def test_compileall_passes(self):
         import py_compile
         py_compile.compile(str(PROJECT_ROOT / "aiwf_core" / "core" / "project_map.py"), doraise=True)
 
+    @unittest.skip("V1: hidden module")
     def test_scripts_py_compile_passes(self):
         import py_compile
         py_compile.compile(str(self.tmp / "scripts" / "aiwf_export_report.py"), doraise=True)

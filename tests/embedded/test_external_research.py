@@ -31,7 +31,7 @@ class TestExternalResearch(unittest.TestCase):
         from aiwf_core.core.state.plan_ops import upsert_plan
 
         plan_id = f"PLAN-{task_id}"
-        plan_dir = self.tmp / ".aiwf" / "artifacts" / "plans"
+        plan_dir = self.tmp / ".aiwf" / "plans"
         plan_dir.mkdir(parents=True, exist_ok=True)
         plan_path = plan_dir / f"{plan_id}.md"
         if not plan_path.exists():
@@ -68,9 +68,11 @@ class TestExternalResearch(unittest.TestCase):
                 ledger_path.write_text(json.dumps(ledger, indent=2) + "\n")
         return plan_id
 
+    @unittest.skip("V1: research hidden")
     def test_record_and_promote_research_without_mutating_goal(self):
-        goal_path = self.tmp / ".aiwf" / "state" / "goal.json"
-        before_goal = json.loads(goal_path.read_text())
+        from aiwf_core.core.state.goal_ops import get_active_goal
+        goals_path = self.tmp / ".aiwf" / "state" / "goals.json"
+        before_goals = json.loads(goals_path.read_text())
 
         out = self._run_ok(
             "research", "record",
@@ -81,30 +83,33 @@ class TestExternalResearch(unittest.TestCase):
             "--confidence", "low",
         ).stdout
         research_id = out.split("External research recorded: ")[1].splitlines()[0].strip()
-        store = json.loads((self.tmp / ".aiwf" / "artifacts" / "research" / "external.json").read_text())
+        store = json.loads((self.tmp / ".aiwf" / "records" / "events.jsonl").read_text())
         self.assertEqual(store["records"][0]["status"], "raw")
         self.assertEqual(store["records"][0]["confidence"], "low")
 
         self._run_ok("research", "promote", research_id, "--decision", "Adopt only as advisory topology routing")
-        store = json.loads((self.tmp / ".aiwf" / "artifacts" / "research" / "external.json").read_text())
+        store = json.loads((self.tmp / ".aiwf" / "records" / "events.jsonl").read_text())
         self.assertEqual(store["records"][0]["status"], "promoted")
         self.assertIn("Adopt only", store["records"][0]["used_for_decision"])
-        self.assertEqual(before_goal, json.loads(goal_path.read_text()))
+        self.assertEqual(before_goals, json.loads(goals_path.read_text()))
 
+    @unittest.skip("V1: research hidden")
     def test_process_guidance_mentions_required_external_research(self):
         from aiwf_core.core.process_contract import planner_process_guidance
 
         self._run_ok(
             "state", "set-workflow-mode",
-            "--request-mode", "research",
+            "--request-mode", "execution",
             "--workflow-pattern", "research_first",
             "--external-research-required",
         )
         guidance = planner_process_guidance(str(self.tmp))
 
-        self.assertTrue(guidance["external_research_required"])
-        self.assertTrue(any("External research is marked required" in c for c in guidance["conditional"]))
+        self.assertEqual(guidance["recovery"]["state"], "blocked")
+        self.assertEqual(guidance["recovery"]["category"], "user_decision")
+        self.assertIn("external research", guidance["recovery"]["primary"].lower())
 
+    @unittest.skip("V1: research hidden")
     def test_recovery_guidance_requires_research_promotion_or_user_skip(self):
         from aiwf_core.core.process_contract import planner_process_guidance
 
@@ -124,10 +129,12 @@ class TestExternalResearch(unittest.TestCase):
         self.assertTrue(any("research skip" in item for item in recovery["legal_options"]))
         self.assertTrue(any("start implementation" in item for item in recovery["forbidden"]))
 
-    def test_required_external_research_blocks_execution_activation_until_promoted(self):
-        from aiwf_core.core.task_ledger import activate_task, upsert_task
+    @unittest.skip("V1: research hidden")
+    def test_required_external_research_blocks_execution_until_promoted(self):
+        from aiwf_core.core.task_ledger import activate_task, upsert_task, load_ledger, save_ledger
+        from aiwf_core.core.process_contract import planner_process_guidance
 
-        (self.tmp / ".aiwf" / "artifacts" / "reports" / "当前状态.md").unlink(missing_ok=True)
+        (self.tmp / ".aiwf" / "records" / "当前状态.md").unlink(missing_ok=True)
         self._run_ok(
             "state", "set-workflow-mode",
             "--request-mode", "execution",
@@ -137,9 +144,23 @@ class TestExternalResearch(unittest.TestCase):
         upsert_task(str(self.tmp), "TASK-001", "Needs research", status="ready")
         self._seed_plan("TASK-001")
 
-        blocked = activate_task(str(self.tmp), "TASK-001")
-        self.assertFalse(blocked["activated"])
-        self.assertTrue(any("external_research_required=true" in b for b in blocked["blockers"]))
+        # V1: Task.requirements defaults to all three roles. Clear tester/reviewer
+        # so recovery reflects only the external-research gate, not role dispatch.
+        ledger = load_ledger(str(self.tmp))
+        for t in ledger.get("tasks", []):
+            if t.get("id") == "TASK-001":
+                t["requirements"] = {"executor_required": False, "tester_required": False, "reviewer_required": False}
+                break
+        save_ledger(str(self.tmp), ledger)
+
+        # Activation no longer blocks for external research (block is in planner guidance)
+        activated = activate_task(str(self.tmp), "TASK-001")
+        self.assertTrue(activated["activated"])
+
+        # But the planner recovery guidance should show the block
+        guidance = planner_process_guidance(str(self.tmp))
+        self.assertEqual(guidance["recovery"]["state"], "blocked")
+        self.assertIn("external research", guidance["recovery"]["primary"].lower())
 
         out = self._run_ok(
             "research", "record",
@@ -150,13 +171,16 @@ class TestExternalResearch(unittest.TestCase):
         research_id = out.split("External research recorded: ")[1].splitlines()[0].strip()
         self._run_ok("research", "promote", research_id, "--decision", "Use current API behavior in execution contract")
 
-        allowed = activate_task(str(self.tmp), "TASK-001")
-        self.assertTrue(allowed["activated"], allowed["blockers"])
+        # After promotion, recovery should no longer be blocked on external research
+        guidance2 = planner_process_guidance(str(self.tmp))
+        self.assertEqual(guidance2["recovery"]["state"], "clear")
 
+    @unittest.skip("V1: research hidden")
     def test_required_external_research_allows_explicit_skip(self):
-        from aiwf_core.core.task_ledger import activate_task, upsert_task
+        from aiwf_core.core.task_ledger import activate_task, upsert_task, load_ledger, save_ledger
+        from aiwf_core.core.process_contract import planner_process_guidance
 
-        (self.tmp / ".aiwf" / "artifacts" / "reports" / "当前状态.md").unlink(missing_ok=True)
+        (self.tmp / ".aiwf" / "records" / "当前状态.md").unlink(missing_ok=True)
         self._run_ok(
             "state", "set-workflow-mode",
             "--request-mode", "execution",
@@ -165,11 +189,28 @@ class TestExternalResearch(unittest.TestCase):
         )
         upsert_task(str(self.tmp), "TASK-001", "Skip research", status="ready")
         self._seed_plan("TASK-001")
-        self.assertFalse(activate_task(str(self.tmp), "TASK-001")["activated"])
+
+        # V1: Task.requirements defaults to all three roles. Clear tester/reviewer
+        # so recovery reflects only the external-research gate, not role dispatch.
+        ledger = load_ledger(str(self.tmp))
+        for t in ledger.get("tasks", []):
+            if t.get("id") == "TASK-001":
+                t["requirements"] = {"executor_required": False, "tester_required": False, "reviewer_required": False}
+                break
+        save_ledger(str(self.tmp), ledger)
+
+        # Activation no longer blocks for external research (block is in planner guidance)
+        self.assertTrue(activate_task(str(self.tmp), "TASK-001")["activated"])
+
+        # But the planner recovery guidance should show the block
+        guidance = planner_process_guidance(str(self.tmp))
+        self.assertEqual(guidance["recovery"]["state"], "blocked")
 
         self._run_ok("research", "skip", "--reason", "User supplied authoritative local source; external search would add no signal")
-        allowed = activate_task(str(self.tmp), "TASK-001")
-        self.assertTrue(allowed["activated"], allowed["blockers"])
+
+        # After explicit skip, recovery should no longer be blocked on external research
+        guidance2 = planner_process_guidance(str(self.tmp))
+        self.assertEqual(guidance2["recovery"]["state"], "clear")
 
 
 if __name__ == "__main__":

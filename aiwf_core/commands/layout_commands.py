@@ -17,13 +17,7 @@ import sys
 # ═══════════════════════════════════════════════════════════════════════════
 
 _MIGRATION_MAP = {
-    "plans": "artifacts/plans",
-    "evidence": "artifacts/evidence",
-    "reports": "artifacts/reports",
-    "research": "artifacts/research",
-    "quality": "artifacts/quality",
-    "checkpoints": "runtime/checkpoints",
-    "history": "runtime/history",
+    "plans": "plans",
     "internal": "runtime/internal",
 }
 

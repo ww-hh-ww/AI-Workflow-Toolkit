@@ -37,73 +37,33 @@ def _write(path: Path, data: Dict[str, Any]) -> None:
 
 
 def _empty_plan(plan_id: str, goal_id: str = "", task_ids: Optional[List[str]] = None,
-                status: str = "draft", milestone_id: str = "",
-                plan_kind: str = "", target_goal_id: str = "",
-                active_phase: str = "",
-                interfaces: Optional[List[str]] = None,
-                constraints: Optional[List[str]] = None,
-                child_goal_policy: str = "",
-                work_intent: str = "",
-                allowed_write: Optional[List[str]] = None,
-                forbidden_write: Optional[List[str]] = None,
-                purpose: str = "",
-                test_focus: Optional[List[str]] = None,
-                review_focus: Optional[List[str]] = None,
-                non_goals: Optional[List[str]] = None,
-                dependencies: Optional[List[str]] = None,
-                interface_contract: str = "",
-                escalation_triggers: Optional[List[str]] = None,
-                read_hints: Optional[List[str]] = None) -> Dict[str, Any]:
+                status: str = "open", milestone_id: str = "",
+                **_legacy) -> Dict[str, Any]:
+    """V2 minimal Plan JSON: index + status + doc binding only.
+
+    Semantic fields (work_intent, allowed_write, purpose, etc.) live in Plan.md.
+    This function accepts but ignores legacy kwargs for backward compat.
+    """
     now = _now()
     ids = list(dict.fromkeys(task_ids or []))
-    kind = plan_kind or DEFAULT_PLAN_KIND
-    if kind not in VALID_PLAN_KINDS:
-        raise ValueError(f"invalid plan_kind: {kind}")
-    phase = active_phase or DEFAULT_PLAN_PHASE
-    if phase not in VALID_PLAN_PHASES:
-        raise ValueError(f"invalid active_phase: {phase}")
-    intent = work_intent or ""
-    if intent and not _is_valid_work_intent(intent):
-        raise ValueError(f"invalid work_intent: {intent}")
     return {
         "id": plan_id,
         "plan_id": plan_id,
+        "type": "plan",
         "title": plan_id,
+        "title_cache": "",
+        "summary_cache": "",
+        "doc_path": "",
+        "doc_hash": "",
+        "doc_updated_at": "",
+        "report_policy": "ask",
         "goal_id": goal_id or LEGACY_GOAL_ID,
-        "target_goal_id": target_goal_id or goal_id or LEGACY_GOAL_ID,
-        "plan_kind": kind,
-        "active_phase": phase,
-        "work_intent": intent or None,
         "milestone_id": milestone_id or None,
         "task_ids": ids,
         "task_status": {tid: "unknown" for tid in ids},
         "closed_task_ids": [],
         "remaining_task_ids": ids,
-        "interfaces": list(dict.fromkeys(interfaces or [])),
-        "constraints": list(dict.fromkeys(constraints or [])),
-        "child_goal_policy": child_goal_policy or "",
         "status": status,
-        "admission_trace": None,  # Stage 4.4: set when Plan created via admission protocol
-        "artifact_path": f".aiwf/artifacts/plans/{plan_id}.md",
-        "evidence_rollup": {
-            "summary": "",
-            "closed_count": 0,
-            "total_count": len(ids),
-            "remaining_task_ids": ids,
-            "changed_files": [],
-        },
-        # Context fields — the Plan IS the context. Tasks inherit on activation.
-        "allowed_write": list(dict.fromkeys(allowed_write or [])),
-        "forbidden_write": list(dict.fromkeys(forbidden_write or [])),
-        "purpose": purpose or "",
-        "test_focus": list(dict.fromkeys(test_focus or [])),
-        "review_focus": list(dict.fromkeys(review_focus or [])),
-        "non_goals": list(dict.fromkeys(non_goals or [])),
-        "dependencies": list(dict.fromkeys(dependencies or [])),
-        "dependency_decisions": [],
-        "interface_contract": interface_contract or "",
-        "escalation_triggers": list(dict.fromkeys(escalation_triggers or [])),
-        "read_hints": list(dict.fromkeys(read_hints or [])),
         "created_at": now,
         "updated_at": now,
     }
@@ -163,7 +123,7 @@ def plan_dependency_blockers(base_dir: str, plan_id: str) -> List[str]:
             blockers.append(f"plan dependency missing: {dependency_id}")
             continue
         status = str(dependency.get("status") or "draft")
-        if status != "complete":
+        if status != "closed":
             blockers.append(f"plan dependency not complete: {dependency_id} (status={status})")
     return blockers
 
@@ -222,7 +182,7 @@ def remove_plan_dependency(base_dir: str, plan_id: str, dependency_id: str,
 
 
 def _legacy_task_refs(base: Path) -> Dict[str, Dict[str, str]]:
-    ledger = _read(base / ".aiwf" / "runtime" / "history" / "task-ledger.json", {})
+    ledger = _read(base / ".aiwf" / "state" / "tasks.json", {})
     refs: Dict[str, Dict[str, str]] = {}
     for task in ledger.get("tasks", []) or []:
         if not isinstance(task, dict):
@@ -252,7 +212,7 @@ def migrate_legacy_plans(base_dir: str, plans: Optional[Dict[str, Any]] = None) 
     seen = {p.get("plan_id") for p in entries if isinstance(p, dict)}
     changed = False
 
-    plan_dir = base / ".aiwf" / "artifacts" / "plans"
+    plan_dir = base / ".aiwf" / "plans"
     if plan_dir.exists():
         for path in sorted(plan_dir.glob("*.md")):
             legacy_id = path.stem
@@ -309,127 +269,70 @@ def save_plans(base_dir: str, plans: Dict[str, Any]) -> None:
 
 
 def upsert_plan(base_dir: str, plan_id: str, goal_id: str = "", task_ids: Optional[List[str]] = None,
-                status: str = "active", milestone_id: str = "", title: str = "",
-                plan_kind: str = "", target_goal_id: str = "",
-                active_phase: str = "",
-                interfaces: Optional[List[str]] = None,
-                constraints: Optional[List[str]] = None,
-                child_goal_policy: str = "",
-                work_intent: str = "",
-                allowed_write: Optional[List[str]] = None,
-                forbidden_write: Optional[List[str]] = None,
-                purpose: str = "",
-                test_focus: Optional[List[str]] = None,
-                review_focus: Optional[List[str]] = None,
-                dependencies: Optional[List[str]] = None,
-                interface_contract: str = "",
-                escalation_triggers: Optional[List[str]] = None) -> Dict[str, Any]:
+                status: str = "open", milestone_id: str = "", title: str = "",
+                **_legacy) -> Dict[str, Any]:
+    """V2 minimal Plan upsert: index + status + doc binding only.
+
+    Legacy semantic kwargs (plan_kind, work_intent, allowed_write, etc.)
+    are accepted but ignored — they live in Plan.md now.
+    """
     if milestone_id:
         from .milestone_ops import attach_plan_to_milestone, milestone_exists
         if not milestone_exists(base_dir, milestone_id):
             raise ValueError(f"milestone not found: {milestone_id}")
-    if plan_kind and plan_kind not in VALID_PLAN_KINDS:
-        raise ValueError(f"invalid plan_kind: {plan_kind}")
-    if active_phase and active_phase not in VALID_PLAN_PHASES:
-        raise ValueError(f"invalid active_phase: {active_phase}")
-    if work_intent and work_intent not in VALID_WORK_INTENTS:
-        raise ValueError(f"invalid work_intent: {work_intent}")
-
-    # Stage 3.9: validate target_goal_id exists in goals.json when registry non-empty
-    tgid = target_goal_id or ""
-    if tgid and tgid != LEGACY_GOAL_ID:
-        try:
-            from .goal_tree_ops import goal_exists, load_goal_tree
-            tree = load_goal_tree(base_dir, auto_create=False)
-            if tree.get("goals"):  # registry is non-empty
-                if not goal_exists(base_dir, tgid):
-                    raise ValueError(
-                        f"target_goal_id {tgid} does not exist in goals.json; "
-                        f"create the goal first or use GOAL-001 as fallback"
-                    )
-        except ImportError:
-            pass
+    effective_goal = (goal_id or "").strip()
+    try:
+        from .goal_tree_ops import goal_exists, load_goal_tree
+        tree = load_goal_tree(base_dir, auto_create=False)
+        goals = tree.get("goals", []) or []
+        if goals:  # registry is non-empty — require a real goal
+            if not effective_goal:
+                existing = [g.get('id', '') for g in goals[:8]]
+                raise ValueError(
+                    f"Plan requires a target goal. "
+                    f"Existing goals: {', '.join(existing) if existing else '(none)'}. "
+                    f"Use: aiwf plan create {plan_id} --goal-id <GOAL-ID>"
+                )
+            if not goal_exists(base_dir, effective_goal):
+                existing = [g.get('id', '') for g in goals[:8]]
+                raise ValueError(
+                    f"Goal '{effective_goal}' does not exist in goals.json. "
+                    f"Existing goals: {', '.join(existing) if existing else '(none)'}. "
+                    f"Create it first: aiwf goal-tree init-root {effective_goal} --title '...'"
+                )
+    except ImportError:
+        pass
 
     plans = load_plans(base_dir)
     plan = _find_plan(plans, plan_id)
     if not plan:
-        plan = _empty_plan(plan_id, goal_id=goal_id, task_ids=task_ids or [], status=status,
-                           milestone_id=milestone_id, plan_kind=plan_kind,
-                           target_goal_id=target_goal_id, active_phase=active_phase,
-                           interfaces=interfaces, constraints=constraints,
-                           child_goal_policy=child_goal_policy, work_intent=work_intent,
-                           allowed_write=allowed_write, forbidden_write=forbidden_write,
-                           purpose=purpose, test_focus=test_focus, review_focus=review_focus,
-                           dependencies=dependencies,
-                           interface_contract=interface_contract,
-                           escalation_triggers=escalation_triggers)
+        plan = _empty_plan(plan_id, goal_id=goal_id, task_ids=task_ids or [],
+                           status=status, milestone_id=milestone_id)
         plans["plans"].append(plan)
     else:
+        # V2 minimal update: only id, goal, status, milestone, task_ids, title
         plan.setdefault("id", plan_id)
         plan.setdefault("plan_id", plan_id)
         plan.setdefault("goal_id", LEGACY_GOAL_ID)
-        plan.setdefault("target_goal_id", plan.get("goal_id"))
-        plan.setdefault("plan_kind", DEFAULT_PLAN_KIND)
-        plan.setdefault("active_phase", DEFAULT_PLAN_PHASE)
-        plan.setdefault("artifact_path", f".aiwf/artifacts/plans/{plan_id}.md")
-        plan.setdefault("interfaces", [])
-        plan.setdefault("constraints", [])
-        plan.setdefault("child_goal_policy", "")
-        plan.setdefault("admission_trace", None)
-        plan.setdefault("work_intent", None)
-        # Context fields — Plan IS the context
-        plan.setdefault("allowed_write", [])
-        plan.setdefault("forbidden_write", [])
-        plan.setdefault("purpose", "")
-        plan.setdefault("test_focus", [])
-        plan.setdefault("review_focus", [])
-        plan.setdefault("non_goals", [])
-        plan.setdefault("dependencies", [])
-        plan.setdefault("dependency_decisions", [])
-        plan.setdefault("interface_contract", "")
-        plan.setdefault("escalation_triggers", [])
-        plan.setdefault("read_hints", [])
+        plan.setdefault("type", "plan")
+        plan.setdefault("title_cache", "")
+        plan.setdefault("summary_cache", "")
+        plan.setdefault("doc_path", "")
+        plan.setdefault("doc_hash", "")
+        plan.setdefault("doc_updated_at", "")
+        plan.setdefault("report_policy", "ask")
+        plan.setdefault("task_ids", [])
+        plan.setdefault("task_status", {})
+        plan.setdefault("closed_task_ids", [])
+        plan.setdefault("remaining_task_ids", [])
         if goal_id:
             plan["goal_id"] = goal_id
-        if target_goal_id:
-            plan["target_goal_id"] = target_goal_id
-        if plan_kind:
-            plan["plan_kind"] = plan_kind
-        if active_phase:
-            plan["active_phase"] = active_phase
         if milestone_id:
             plan["milestone_id"] = milestone_id
         if title:
             plan["title"] = title
         if status:
             plan["status"] = status
-        for iface in interfaces or []:
-            if iface not in plan.setdefault("interfaces", []):
-                plan["interfaces"].append(iface)
-        for c in constraints or []:
-            if c not in plan.setdefault("constraints", []):
-                plan["constraints"].append(c)
-        if child_goal_policy:
-            plan["child_goal_policy"] = child_goal_policy
-        if work_intent:
-            plan["work_intent"] = work_intent
-        # Context fields
-        if allowed_write is not None:
-            plan["allowed_write"] = list(dict.fromkeys(allowed_write))
-        if forbidden_write is not None:
-            plan["forbidden_write"] = list(dict.fromkeys(forbidden_write))
-        if purpose:
-            plan["purpose"] = purpose
-        if test_focus is not None:
-            plan["test_focus"] = list(dict.fromkeys(test_focus))
-        if review_focus is not None:
-            plan["review_focus"] = list(dict.fromkeys(review_focus))
-        if dependencies is not None:
-            plan["dependencies"] = list(dict.fromkeys(dependencies))
-        if interface_contract:
-            plan["interface_contract"] = interface_contract
-        if escalation_triggers is not None:
-            plan["escalation_triggers"] = list(dict.fromkeys(escalation_triggers))
         for tid in task_ids or []:
             if tid not in plan.setdefault("task_ids", []):
                 plan["task_ids"].append(tid)
@@ -440,8 +343,6 @@ def upsert_plan(base_dir: str, plan_id: str, goal_id: str = "", task_ids: Option
             and plan.get("task_status", {}).get(tid) != "rejected"
         ]
         plan["updated_at"] = _now()
-    if not plan.get("target_goal_id"):
-        plan["target_goal_id"] = plan.get("goal_id", LEGACY_GOAL_ID)
     if title:
         plan["title"] = title
     if status == "active":
@@ -478,7 +379,7 @@ def set_active_plan(base_dir: str, plan_id: str) -> Dict[str, Any]:
         except Exception:
             state = {}
         state["active_plan_id"] = plan_id
-        state["phase"] = "planned"
+        state["phase"] = "planning"
         state["active_task_id"] = None
         state["close_attempt"] = False
         state["closure_allowed"] = False
@@ -502,7 +403,7 @@ def deactivate_plan(base_dir: str) -> Dict[str, Any]:
         except Exception:
             state = {}
         state["active_plan_id"] = ""
-        state["phase"] = "discussing"
+        state["phase"] = "planning"
         state_path.write_text(json.dumps(state, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return {"deactivated": True, "previous": prev, "plans": plans}
 
@@ -608,7 +509,7 @@ def reconcile_task_to_plan(base_dir: str, task: Dict[str, Any]) -> Dict[str, Any
     closed = [tid for tid in task_ids if task_status.get(tid) == "closed"]
     remaining = [tid for tid in task_ids if task_status.get(tid) not in ("closed", "rejected")]
 
-    evidence = _read(Path(base_dir) / ".aiwf" / "artifacts" / "evidence" / "records.json", {"records": []})
+    evidence = _read(Path(base_dir) / ".aiwf" / "records" / "evidence.json", {"records": []})
     changed = sorted({
         f for rec in evidence.get("records", []) or []
         if isinstance(rec, dict)
@@ -624,8 +525,7 @@ def reconcile_task_to_plan(base_dir: str, task: Dict[str, Any]) -> Dict[str, Any
         "remaining_task_ids": remaining,
         "changed_files": changed,
     }
-    if task_ids and not remaining:
-        plan["status"] = "complete"
+    # V1: task close updates rollup only; plan close must be explicit
     plan["updated_at"] = _now()
     save_plans(base_dir, plans)
 
@@ -639,7 +539,7 @@ def reconcile_task_to_plan(base_dir: str, task: Dict[str, Any]) -> Dict[str, Any
 
     # Stage 3.4: soft rollup to parent Goal (read-only, no auto-close)
     goal_progress = {}
-    if plan.get("status") == "complete":
+    if plan.get("status") == "closed":
         try:
             from .goal_tree_ops import reconcile_plan_to_goal
             goal_progress = reconcile_plan_to_goal(base_dir, plan)
@@ -663,7 +563,7 @@ def rebase_plan_registry(base_dir: str, fix: str = "legacy-goal-id") -> Dict[str
         raise ValueError(f"unknown plan rebase fix: {fix}")
 
     plans = load_plans(base_dir)
-    ledger_path = Path(base_dir) / ".aiwf" / "runtime" / "history" / "task-ledger.json"
+    ledger_path = Path(base_dir) / ".aiwf" / "state" / "tasks.json"
     ledger = _read(ledger_path, {"tasks": [], "execution_window": {"active_task_ids": []}})
     task_by_id = {
         str(t.get("id", "")): t

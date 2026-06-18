@@ -41,27 +41,56 @@ class TestTesterValidationLayers(unittest.TestCase):
         self.assertEqual(result["real_usage_status"], "passed")
         self.assertIn("real_usage", result["validation_layers"])
 
-    def test_l2_unit_test_only_is_not_enough_to_close(self):
-        from aiwf_core.core.task_ledger import _l2_l3_completion_blockers
-        state = json.loads((self.tmp / ".aiwf" / "state" / "state.json").read_text())
-        state["workflow_level"] = "L2_standard_team"
-        _write(self.tmp / ".aiwf" / "state" / "state.json", state)
-        testing = json.loads((self.tmp / ".aiwf" / "artifacts" / "quality" / "testing.json").read_text())
-        testing.update({"status": "adequate", "commands": ["pytest tests/unit/test_one.py"]})
-        _write(self.tmp / ".aiwf" / "artifacts" / "quality" / "testing.json", testing)
+    def test_tester_required_blocks_close_when_testing_not_adequate(self):
+        """V2: close_task blocks when tester_required but testing not adequate/passed."""
+        from aiwf_core.core.task_ledger import close_task
 
-        blockers = _l2_l3_completion_blockers(str(self.tmp), {"id": "TASK-1", "status": "active"})
-        text = " ".join(blockers)
-        self.assertIn("targeted validation layer", text)
-        self.assertIn("full project suite", text)
-        self.assertIn("real user-facing entrypoint", text)
+        # Write a task with tester_required=True in the ledger
+        ledger = json.loads((self.tmp / ".aiwf" / "state" / "tasks.json").read_text())
+        ledger["tasks"] = [{
+            "id": "TASK-1", "status": "active",
+            "frozen_doc_hash": "",
+            "requirements": {"tester_required": True}
+        }]
+        _write(self.tmp / ".aiwf" / "state" / "tasks.json", ledger)
 
-    def test_explicit_environmental_deferral_avoids_layer_blockers(self):
-        from aiwf_core.core.task_ledger import _l2_l3_completion_blockers
+        # Set active_task_id so the task is the active one
         state = json.loads((self.tmp / ".aiwf" / "state" / "state.json").read_text())
-        state["workflow_level"] = "L2_standard_team"
+        state["active_task_id"] = "TASK-1"
         _write(self.tmp / ".aiwf" / "state" / "state.json", state)
-        testing = json.loads((self.tmp / ".aiwf" / "artifacts" / "quality" / "testing.json").read_text())
+
+        # Testing is missing (not adequate/passed)
+        testing = json.loads((self.tmp / ".aiwf" / "records" / "testing.jsonl").read_text())
+        testing["status"] = "missing"
+        _write(self.tmp / ".aiwf" / "records" / "testing.jsonl", testing)
+
+        result = close_task(str(self.tmp), "TASK-1")
+        self.assertFalse(result["closed"])
+        blockers_text = " ".join(result.get("blockers", []))
+        self.assertIn("tester_required", blockers_text)
+        self.assertIn("testing status", blockers_text.lower())
+
+    def test_tester_required_passes_when_testing_adequate(self):
+        """V2: close_task succeeds when tester_required and testing is adequate,
+        even with environmental deferrals on full suite and real usage."""
+        from aiwf_core.core.task_ledger import close_task
+
+        # Write a task with tester_required=True
+        ledger = json.loads((self.tmp / ".aiwf" / "state" / "tasks.json").read_text())
+        ledger["tasks"] = [{
+            "id": "TASK-1", "status": "active",
+            "frozen_doc_hash": "",
+            "requirements": {"tester_required": True}
+        }]
+        _write(self.tmp / ".aiwf" / "state" / "tasks.json", ledger)
+
+        # Set active_task_id
+        state = json.loads((self.tmp / ".aiwf" / "state" / "state.json").read_text())
+        state["active_task_id"] = "TASK-1"
+        _write(self.tmp / ".aiwf" / "state" / "state.json", state)
+
+        # Testing is adequate with environmental deferrals
+        testing = json.loads((self.tmp / ".aiwf" / "records" / "testing.jsonl").read_text())
         testing.update({
             "status": "adequate",
             "commands": ["pytest tests/unit/test_one.py"],
@@ -72,18 +101,18 @@ class TestTesterValidationLayers(unittest.TestCase):
             "real_usage_reason": "staging credentials unavailable",
             "untested_risks": ["GPU and staging paths remain unverified"],
         })
-        _write(self.tmp / ".aiwf" / "artifacts" / "quality" / "testing.json", testing)
+        _write(self.tmp / ".aiwf" / "records" / "testing.jsonl", testing)
 
-        blockers = _l2_l3_completion_blockers(str(self.tmp), {"id": "TASK-1", "status": "active"})
-        text = " ".join(blockers)
-        self.assertNotIn("full project suite", text)
-        self.assertNotIn("real user-facing entrypoint", text)
-        self.assertNotIn("deferral requires", text)
+        result = close_task(str(self.tmp), "TASK-1")
+        self.assertTrue(result["closed"],
+            f"Expected close to succeed, got blockers: {result.get('blockers', [])}")
 
-    def test_installed_claude_and_reasonix_tester_prompts_require_real_usage(self):
-        for mode, prompt_path in (
-            ("claude", ".claude/agents/aiwf-tester.md"),
-            ("reasonix", ".reasonix/skills/aiwf-test/SKILL.md"),
+    def test_installed_tester_templates_use_v2_task_packet_format(self):
+        """V2: agent templates use Role/Read/Task/Boundaries/Output format;
+        skill templates use Task.requirements for dispatch decisions."""
+        for mode, prompt_path, is_agent in (
+            ("claude", ".claude/agents/aiwf-tester.md", True),
+            ("reasonix", ".reasonix/skills/aiwf-test/SKILL.md", False),
         ):
             target = self.tmp / mode
             target.mkdir()
@@ -97,8 +126,19 @@ class TestTesterValidationLayers(unittest.TestCase):
             )
             self.assertEqual(result.returncode, 0, result.stderr)
             text = (target / prompt_path).read_text(encoding="utf-8")
-            self.assertIn("actual user-facing", text)
-            self.assertIn("full", text.lower())
+
+            if is_agent:
+                # V2 agent template uses task packet format with section headers
+                self.assertIn("## Role", text)
+                self.assertIn("## Read", text)
+                self.assertIn("## Task", text)
+                self.assertIn("## Boundaries", text)
+                self.assertIn("## Output", text)
+                self.assertIn("Do NOT modify code", text)
+            else:
+                # V2 skill template uses Task.requirements for dispatch decisions
+                self.assertIn("tester_required", text)
+                self.assertIn("Task.requirements", text)
 
 
 if __name__ == "__main__":

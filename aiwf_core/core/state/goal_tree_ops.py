@@ -49,7 +49,7 @@ def _empty_goal(
     title: str = "",
     root_type: Optional[str] = None,
     parent_goal_id: Optional[str] = None,
-    status: str = "active",
+    status: str = "open",
     intent: str = "",
     acceptance_boundary: str = "",
 ) -> Dict[str, Any]:
@@ -60,7 +60,14 @@ def _empty_goal(
         raise ValueError(f"invalid goal status: {status}")
     return {
         "id": goal_id,
+        "type": "goal",
         "title": title or goal_id,
+        "title_cache": title or goal_id,
+        "summary_cache": "",
+        "doc_path": "",
+        "doc_hash": "",
+        "doc_updated_at": "",
+        "report_policy": "ask",
         "root_type": root_type,
         "parent_goal_id": parent_goal_id,
         "child_goal_ids": [],
@@ -74,7 +81,7 @@ def _empty_goal(
         "checkpoint_level": "goal",
         "evidence_rollup": {},
         "open_gaps": [],
-        "admission_trace": None,  # Stage 4.4: set when Goal created via admission protocol
+        "admission_trace": None,
         "created_at": now,
         "updated_at": now,
     }
@@ -87,7 +94,7 @@ def load_goal_tree(base_dir: str, auto_create: bool = True) -> Dict[str, Any]:
     path = _goals_path(base_dir)
     data = _read(path, None)
     if data is None or not path.exists():
-        data = _seed_from_legacy(base_dir) if auto_create else default_goals()
+        data = default_goals()
         if auto_create:
             _write(path, data)
     data.setdefault("schema_version", 1)
@@ -117,7 +124,7 @@ def _seed_from_legacy(base_dir: str) -> Dict[str, Any]:
             active_goal = legacy.get("active_goal") or legacy.get("current_goal") or ""
             confirmed = legacy.get("confirmed", False)
             intent = legacy.get("original_intent") or legacy.get("current_goal") or ""
-            status = "active" if confirmed else "discussion"
+            status = "open" if confirmed else "discussion"
         except Exception:
             active_goal = ""
             intent = ""
@@ -212,7 +219,7 @@ def upsert_goal(
             title=title,
             root_type=root_type,
             parent_goal_id=parent_goal_id,
-            status=status or "active",
+            status=status or "open",
             intent=intent,
             acceptance_boundary=acceptance_boundary,
         )
@@ -240,9 +247,9 @@ def upsert_goal(
                 tree["roots"].append(goal_id)
         goal["updated_at"] = _now()
 
-    if goal.get("status") == "active" and goal.get("root_type") == "main":
+    if goal.get("status") == "open" and goal.get("root_type") == "main":
         tree["active_goal_id"] = goal_id
-    elif tree.get("active_goal_id") == goal_id and goal.get("status") != "active":
+    elif tree.get("active_goal_id") == goal_id and goal.get("status") != "open":
         tree["active_goal_id"] = None
 
     save_goal_tree(base_dir, tree)
@@ -263,7 +270,7 @@ def add_child_goal(base_dir: str, parent_id: str, child_id: str,
             title=title or child_id,
             root_type=None,
             parent_goal_id=parent_id,
-            status="active",
+            status="open",
             intent=intent,
         )
         tree["goals"].append(child)
@@ -314,7 +321,7 @@ def init_root(base_dir: str, goal_id: str, root_type: str = "main",
         title=title or goal_id,
         root_type=root_type,
         parent_goal_id=None,
-        status="active",
+        status="open",
         intent=intent,
     )
     tree["goals"].append(goal)
@@ -595,7 +602,7 @@ def prune_branch(base_dir: str, branch_id: str, reason: str = "") -> Dict[str, A
     # Cannot prune the active main root
     if (branch.get("root_type") == "main" and
             tree.get("active_goal_id") == branch_id and
-            branch.get("status") == "active"):
+            branch.get("status") == "open"):
         raise ValueError(f"cannot prune the active main root: {branch_id}")
 
     # Collect info about what's being abandoned

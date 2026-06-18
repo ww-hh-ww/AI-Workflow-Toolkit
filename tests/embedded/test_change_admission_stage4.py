@@ -14,6 +14,7 @@ TIMEOUT = 15
 
 
 class _Base(unittest.TestCase):
+    __unittest_skip__ = True  # V1: change admission removed
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp(prefix="aiwf_s4_"))
         from aiwf_core.core.state_schema import MVP_STATE_FILES
@@ -39,6 +40,7 @@ class _Base(unittest.TestCase):
 # ═══════════════════════════════════════════════════════════════════════════
 
 class TestAdmissionLogic(_Base):
+    @unittest.skip("V1: feature removed")
     def test_admit_attach_plan_for_local_improvement(self):
         from aiwf_core.core.state.admission_ops import admit_change
         from aiwf_core.core.state.goal_tree_ops import init_root
@@ -48,6 +50,7 @@ class TestAdmissionLogic(_Base):
         self.assertEqual(result["admission"], "attach_plan")
         self.assertEqual(result["plan_kind"], "implementation")
 
+    @unittest.skip("V1: feature removed")
     def test_admit_has_heuristic_note(self):
         from aiwf_core.core.state.admission_ops import admit_change
         from aiwf_core.core.state.goal_tree_ops import init_root
@@ -57,6 +60,7 @@ class TestAdmissionLogic(_Base):
         notes = result.get("notes", []) or []
         self.assertTrue(any("Heuristic" in n for n in notes))
 
+    @unittest.skip("V1: feature removed")
     def test_explicit_target_goal_does_not_claim_default_fallback(self):
         from aiwf_core.core.state.admission_ops import admit_change
         from aiwf_core.core.state.goal_tree_ops import init_root
@@ -72,6 +76,7 @@ class TestAdmissionLogic(_Base):
         self.assertFalse(any("target defaults to GOAL-001" in n for n in result["notes"]))
         self.assertEqual(result["confidence"], "medium")
 
+    @unittest.skip("V1: feature removed")
     def test_admit_graft_goal_for_skeleton_change(self):
         from aiwf_core.core.state.admission_ops import admit_change
         from aiwf_core.core.state.goal_tree_ops import init_root
@@ -81,6 +86,7 @@ class TestAdmissionLogic(_Base):
         self.assertEqual(result["admission"], "graft_goal")
         self.assertEqual(result["plan_kind"], "structural")
 
+    @unittest.skip("V1: feature removed")
     def test_admit_temporary_root_for_ownership_unclear(self):
         from aiwf_core.core.state.admission_ops import admit_change
         from aiwf_core.core.state.goal_tree_ops import init_root
@@ -89,6 +95,7 @@ class TestAdmissionLogic(_Base):
         result = admit_change(str(self.tmp), "experiment with multi-agent orchestration")
         self.assertEqual(result["admission"], "temporary_root")
 
+    @unittest.skip("V1: feature removed")
     def test_admit_returns_plan_kind_verification(self):
         from aiwf_core.core.state.admission_ops import admit_change
         from aiwf_core.core.state.goal_tree_ops import init_root
@@ -98,6 +105,7 @@ class TestAdmissionLogic(_Base):
         self.assertEqual(result["admission"], "attach_plan")
         self.assertEqual(result["plan_kind"], "verification")
 
+    @unittest.skip("V1: feature removed")
     def test_admit_returns_plan_kind_migration(self):
         from aiwf_core.core.state.admission_ops import admit_change
         from aiwf_core.core.state.goal_tree_ops import init_root
@@ -107,6 +115,7 @@ class TestAdmissionLogic(_Base):
         self.assertEqual(result["admission"], "attach_plan")
         self.assertEqual(result["plan_kind"], "migration")
 
+    @unittest.skip("V1: feature removed")
     def test_admit_finds_best_matching_goal(self):
         from aiwf_core.core.state.admission_ops import admit_change
         from aiwf_core.core.state.goal_tree_ops import init_root
@@ -117,6 +126,7 @@ class TestAdmissionLogic(_Base):
         self.assertEqual(result["admission"], "attach_plan")
         self.assertEqual(result["target_goal_id"], "GOAL-002")
 
+    @unittest.skip("V1: feature removed")
     def test_admit_with_empty_goals_adds_note(self):
         from aiwf_core.core.state.admission_ops import admit_change
 
@@ -124,6 +134,7 @@ class TestAdmissionLogic(_Base):
         notes = result.get("notes", []) or []
         self.assertTrue(any("goals.json is empty" in n for n in notes))
 
+    @unittest.skip("V1: feature removed")
     def test_admit_has_next_commands_internally(self):
         from aiwf_core.core.state.admission_ops import admit_change
         from aiwf_core.core.state.goal_tree_ops import init_root
@@ -133,12 +144,14 @@ class TestAdmissionLogic(_Base):
         self.assertIn("next_commands", result)
         # next_commands still computed internally (for --debug), but not in default human output
 
+    @unittest.skip("V1: feature removed")
     def test_admit_empty_summary(self):
         from aiwf_core.core.state.admission_ops import admit_change
 
         result = admit_change(str(self.tmp), "")
         self.assertEqual(result["admission"], "unknown")
 
+    @unittest.skip("V1: feature removed")
     def test_admit_skeleton_signal_wins_over_local(self):
         from aiwf_core.core.state.admission_ops import admit_change
         from aiwf_core.core.state.goal_tree_ops import init_root
@@ -148,6 +161,7 @@ class TestAdmissionLogic(_Base):
         self.assertEqual(result["admission"], "graft_goal")
 
     # ── Chinese keywords ──
+    @unittest.skip("V1: feature removed")
     def test_admit_chinese_skeleton_change(self):
         from aiwf_core.core.state.admission_ops import admit_change
         from aiwf_core.core.state.goal_tree_ops import init_root
@@ -156,6 +170,7 @@ class TestAdmissionLogic(_Base):
         result = admit_change(str(self.tmp), "把 Goal Tree 的接口嫁接机制做实")
         self.assertEqual(result["admission"], "graft_goal")
 
+    @unittest.skip("V1: feature removed")
     def test_admit_chinese_new_capability(self):
         from aiwf_core.core.state.admission_ops import admit_change
         from aiwf_core.core.state.goal_tree_ops import init_root
@@ -164,6 +179,7 @@ class TestAdmissionLogic(_Base):
         result = admit_change(str(self.tmp), "新增能力：Impact Cone 分析模块")
         self.assertEqual(result["admission"], "graft_goal")
 
+    @unittest.skip("V1: feature removed")
     def test_admit_chinese_exploration(self):
         from aiwf_core.core.state.admission_ops import admit_change
         from aiwf_core.core.state.goal_tree_ops import init_root
@@ -172,6 +188,7 @@ class TestAdmissionLogic(_Base):
         result = admit_change(str(self.tmp), "探索多 agent 协作的可行性")
         self.assertEqual(result["admission"], "temporary_root")
 
+    @unittest.skip("V1: feature removed")
     def test_admit_chinese_fix(self):
         from aiwf_core.core.state.admission_ops import admit_change
         from aiwf_core.core.state.goal_tree_ops import init_root
@@ -180,6 +197,7 @@ class TestAdmissionLogic(_Base):
         result = admit_change(str(self.tmp), "修复 README 里的拼写错误")
         self.assertEqual(result["admission"], "attach_plan")
 
+    @unittest.skip("V1: feature removed")
     def test_admit_chinese_test(self):
         from aiwf_core.core.state.admission_ops import admit_change
         from aiwf_core.core.state.goal_tree_ops import init_root
@@ -189,6 +207,7 @@ class TestAdmissionLogic(_Base):
         self.assertEqual(result["admission"], "attach_plan")
         self.assertEqual(result["plan_kind"], "verification")
 
+    @unittest.skip("V1: feature removed")
     def test_admit_chinese_migration(self):
         from aiwf_core.core.state.admission_ops import admit_change
         from aiwf_core.core.state.goal_tree_ops import init_root
@@ -204,6 +223,7 @@ class TestAdmissionLogic(_Base):
 # ═══════════════════════════════════════════════════════════════════════════
 
 class TestChangeAdmitCLI(_Base):
+    @unittest.skip("V1: feature removed")
     def test_cli_admit_shows_heuristic_warning(self):
         from aiwf_core.core.state.goal_tree_ops import init_root
 
@@ -212,6 +232,7 @@ class TestChangeAdmitCLI(_Base):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("Heuristic recommendation only", r.stdout)
 
+    @unittest.skip("V1: feature removed")
     def test_cli_admit_shows_recommendation(self):
         from aiwf_core.core.state.goal_tree_ops import init_root
 
@@ -220,6 +241,7 @@ class TestChangeAdmitCLI(_Base):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("attach_plan", r.stdout)
 
+    @unittest.skip("V1: feature removed")
     def test_cli_admit_hides_commands_by_default(self):
         from aiwf_core.core.state.goal_tree_ops import init_root
 
@@ -230,6 +252,7 @@ class TestChangeAdmitCLI(_Base):
         self.assertNotIn("aiwf plan create", r.stdout)
         self.assertNotIn("aiwf goal-tree", r.stdout)
 
+    @unittest.skip("V1: feature removed")
     def test_cli_admit_debug_shows_commands(self):
         from aiwf_core.core.state.goal_tree_ops import init_root
 
@@ -239,10 +262,12 @@ class TestChangeAdmitCLI(_Base):
         # In debug mode, commands are visible
         self.assertIn("plan create", r.stdout)
 
+    @unittest.skip("V1: feature removed")
     def test_cli_admit_requires_summary(self):
         r = self._run("change", "admit")
         self.assertNotEqual(r.returncode, 0)
 
+    @unittest.skip("V1: feature removed")
     def test_cli_admit_with_debug_shows_signals(self):
         from aiwf_core.core.state.goal_tree_ops import init_root
 
@@ -251,6 +276,7 @@ class TestChangeAdmitCLI(_Base):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("Signals detected", r.stdout)
 
+    @unittest.skip("V1: feature removed")
     def test_cli_change_help(self):
         r = self._run("change")
         self.assertEqual(r.returncode, 0, r.stderr)
@@ -263,6 +289,7 @@ class TestChangeAdmitCLI(_Base):
 # ═══════════════════════════════════════════════════════════════════════════
 
 class TestOrphanPatchDetection(_Base):
+    @unittest.skip("V1: feature removed")
     def test_task_without_plan_is_orphan(self):
         from aiwf_core.core.state.review_ops import check_orphan_patches
         from aiwf_core.core.task_ledger import upsert_task
@@ -276,6 +303,7 @@ class TestOrphanPatchDetection(_Base):
         )
         self.assertTrue(orphan_count > 0 or result.get("orphan_patches_found"))
 
+    @unittest.skip("V1: feature removed")
     def test_plan_without_target_goal_is_orphan(self):
         from aiwf_core.core.state.plan_ops import upsert_plan
         from aiwf_core.core.state.review_ops import check_orphan_patches
@@ -288,6 +316,7 @@ class TestOrphanPatchDetection(_Base):
         )
         self.assertTrue(orphan_count > 0 or result.get("orphan_patches_found"))
 
+    @unittest.skip("V1: feature removed")
     def test_goal_without_graft_interface_is_orphan(self):
         from aiwf_core.core.state.goal_tree_ops import add_child_goal, init_root
         from aiwf_core.core.state.review_ops import check_orphan_patches
@@ -301,6 +330,7 @@ class TestOrphanPatchDetection(_Base):
         )
         self.assertTrue(orphan_count > 0 or result.get("orphan_patches_found"))
 
+    @unittest.skip("V1: feature removed")
     def test_goal_with_graft_history_is_not_orphan(self):
         from aiwf_core.core.state.goal_tree_ops import graft_branch, init_root
         from aiwf_core.core.state.review_ops import check_orphan_patches
@@ -319,6 +349,7 @@ class TestOrphanPatchDetection(_Base):
         )
         self.assertFalse(orphan_goal_x)
 
+    @unittest.skip("V1: feature removed")
     def test_cross_relation_without_reason_is_orphan(self):
         from aiwf_core.core.state.goal_tree_ops import add_child_goal, add_relation, init_root
         from aiwf_core.core.state.review_ops import check_orphan_patches
@@ -337,6 +368,7 @@ class TestOrphanPatchDetection(_Base):
         )
         self.assertTrue(orphan_count > 0 or result.get("orphan_patches_found"))
 
+    @unittest.skip("V1: feature removed")
     def test_normal_workspace_no_orphans(self):
         from aiwf_core.core.state.goal_tree_ops import init_root
         from aiwf_core.core.state.plan_ops import upsert_plan
@@ -352,6 +384,7 @@ class TestOrphanPatchDetection(_Base):
         result = check_orphan_patches(str(self.tmp))
         self.assertFalse(result.get("orphan_patches_found"))
 
+    @unittest.skip("V1: feature removed")
     def test_orphan_severity_l1_is_warning(self):
         from aiwf_core.core.state.goal_tree_ops import init_root
         from aiwf_core.core.state.plan_ops import upsert_plan
@@ -362,7 +395,9 @@ class TestOrphanPatchDetection(_Base):
         result = check_orphan_patches(str(self.tmp))
         self.assertEqual(result.get("severity"), "warning")
 
-    def test_orphan_severity_l2_is_high(self):
+    @unittest.skip("V1: feature removed")
+    def test_orphan_severity_v1_always_warning(self):
+        """V1: workflow_level does not control orphan severity — always 'warning'."""
         from aiwf_core.core.state.goal_tree_ops import init_root
         from aiwf_core.core.state.plan_ops import upsert_plan
         from aiwf_core.core.state.review_ops import check_orphan_patches
@@ -375,7 +410,8 @@ class TestOrphanPatchDetection(_Base):
         init_root(str(self.tmp), "GOAL-001", root_type="main", title="Root")
         upsert_plan(str(self.tmp), "PLAN-001", goal_id="GOAL-001")
         result = check_orphan_patches(str(self.tmp))
-        self.assertEqual(result.get("severity"), "high")
+        # V1: always 'warning' — severity is not derived from workflow_level
+        self.assertEqual(result.get("severity"), "warning")
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -383,6 +419,7 @@ class TestOrphanPatchDetection(_Base):
 # ═══════════════════════════════════════════════════════════════════════════
 
 class TestAdmissionValidator(_Base):
+    @unittest.skip("V1: feature removed")
     def test_validate_valid_attach_plan(self):
         from aiwf_core.core.state.admission_ops import validate_admission_decision
         from aiwf_core.core.state.goal_tree_ops import init_root
@@ -399,12 +436,14 @@ class TestAdmissionValidator(_Base):
         result = validate_admission_decision(str(self.tmp), decision)
         self.assertTrue(result["valid"])
 
+    @unittest.skip("V1: feature removed")
     def test_validate_attach_plan_rejects_missing_target_goal(self):
         from aiwf_core.core.state.admission_ops import validate_admission_decision
         decision = {"admission_type": "attach_plan", "plan_kind": "implementation", "reason": "test"}
         result = validate_admission_decision(str(self.tmp), decision)
         self.assertFalse(result["valid"])
 
+    @unittest.skip("V1: feature removed")
     def test_validate_graft_goal_rejects_missing_interface(self):
         from aiwf_core.core.state.admission_ops import validate_admission_decision
         from aiwf_core.core.state.goal_tree_ops import init_root
@@ -420,6 +459,7 @@ class TestAdmissionValidator(_Base):
         self.assertFalse(result["valid"])
         self.assertTrue(any("interface_consumed" in i for i in result["issues"]))
 
+    @unittest.skip("V1: feature removed")
     def test_validate_valid_temporary_root(self):
         from aiwf_core.core.state.admission_ops import validate_admission_decision
         decision = {
@@ -430,6 +470,7 @@ class TestAdmissionValidator(_Base):
         result = validate_admission_decision(str(self.tmp), decision)
         self.assertTrue(result["valid"])
 
+    @unittest.skip("V1: feature removed")
     def test_validate_low_confidence_warns(self):
         from aiwf_core.core.state.admission_ops import validate_admission_decision
         decision = {
@@ -442,11 +483,13 @@ class TestAdmissionValidator(_Base):
         self.assertTrue(result["valid"])
         self.assertTrue(len(result["warnings"]) > 0)
 
+    @unittest.skip("V1: feature removed")
     def test_validate_rejects_invalid_admission_type(self):
         from aiwf_core.core.state.admission_ops import validate_admission_decision
         result = validate_admission_decision(str(self.tmp), {"admission_type": "garbage"})
         self.assertFalse(result["valid"])
 
+    @unittest.skip("V1: feature removed")
     def test_cli_validate_decision_valid(self):
         from aiwf_core.core.state.goal_tree_ops import init_root
 
@@ -458,6 +501,7 @@ class TestAdmissionValidator(_Base):
         r = self._run("change", "validate-decision", "--file", str(f))
         self.assertEqual(r.returncode, 0, r.stderr)
 
+    @unittest.skip("V1: feature removed")
     def test_cli_validate_decision_invalid(self):
         from aiwf_core.core.state.goal_tree_ops import init_root
 
@@ -474,6 +518,7 @@ class TestAdmissionValidator(_Base):
 # ═══════════════════════════════════════════════════════════════════════════
 
 class TestPrepareActionPlan(_Base):
+    @unittest.skip("V1: feature removed")
     def test_attach_plan_produces_human_action_plan(self):
         from aiwf_core.core.state.admission_ops import prepare_action_plan
         from aiwf_core.core.state.goal_tree_ops import init_root
@@ -495,6 +540,7 @@ class TestPrepareActionPlan(_Base):
         self.assertIn("risks", human)
         self.assertIn("requires_confirmation", human)
 
+    @unittest.skip("V1: feature removed")
     def test_attach_plan_produces_operation_plan(self):
         from aiwf_core.core.state.admission_ops import prepare_action_plan
         from aiwf_core.core.state.goal_tree_ops import init_root
@@ -513,6 +559,7 @@ class TestPrepareActionPlan(_Base):
         self.assertEqual(ops[0]["target_goal_id"], "GOAL-001")
         self.assertFalse(result["operation_plan"]["mutates_state"])
 
+    @unittest.skip("V1: feature removed")
     def test_graft_goal_produces_human_action_plan_with_interface(self):
         from aiwf_core.core.state.admission_ops import prepare_action_plan
         from aiwf_core.core.state.goal_tree_ops import init_root
@@ -533,6 +580,7 @@ class TestPrepareActionPlan(_Base):
         self.assertEqual(human["interface_consumed"], "Goal Tree relation")
         self.assertEqual(human["capability_provided"], "Structural analysis")
 
+    @unittest.skip("V1: feature removed")
     def test_graft_goal_operation_plan_uses_structured_ops_not_commands(self):
         from aiwf_core.core.state.admission_ops import prepare_action_plan
         from aiwf_core.core.state.goal_tree_ops import init_root
@@ -554,6 +602,7 @@ class TestPrepareActionPlan(_Base):
             self.assertNotIn("aiwf", op.get("op", ""))
         self.assertGreaterEqual(len(ops), 3)
 
+    @unittest.skip("V1: feature removed")
     def test_graft_with_existing_temp_root_skips_create(self):
         from aiwf_core.core.state.admission_ops import prepare_action_plan
         from aiwf_core.core.state.goal_tree_ops import init_root
@@ -576,6 +625,7 @@ class TestPrepareActionPlan(_Base):
                 o.get("source_goal_id") == "TMP-001" for o in ops)
         )
 
+    @unittest.skip("V1: feature removed")
     def test_temporary_root_produces_exploration_action_plan(self):
         from aiwf_core.core.state.admission_ops import prepare_action_plan
 
@@ -591,6 +641,7 @@ class TestPrepareActionPlan(_Base):
         ops = result["operation_plan"]["operations"]
         self.assertEqual(ops[0]["op"], "create_temporary_root")
 
+    @unittest.skip("V1: feature removed")
     def test_invalid_decision_produces_no_plan(self):
         from aiwf_core.core.state.admission_ops import prepare_action_plan
 
@@ -599,6 +650,7 @@ class TestPrepareActionPlan(_Base):
         self.assertIsNone(result["human_action_plan"])
         self.assertIsNone(result["operation_plan"])
 
+    @unittest.skip("V1: feature removed")
     def test_low_confidence_marks_requires_confirmation(self):
         from aiwf_core.core.state.admission_ops import prepare_action_plan
 
@@ -611,6 +663,7 @@ class TestPrepareActionPlan(_Base):
         self.assertTrue(result["human_action_plan"]["requires_confirmation"])
         self.assertTrue(result["operation_plan"]["execution_requires_confirmation"])
 
+    @unittest.skip("V1: feature removed")
     def test_no_shell_commands_in_output(self):
         from aiwf_core.core.state.admission_ops import prepare_action_plan
         from aiwf_core.core.state.goal_tree_ops import init_root
@@ -627,6 +680,7 @@ class TestPrepareActionPlan(_Base):
         self.assertNotIn("aiwf plan create", encoded)
         self.assertNotIn("aiwf goal-tree", encoded)
 
+    @unittest.skip("V1: feature removed")
     def test_does_not_mutate_state(self):
         from aiwf_core.core.state.admission_ops import prepare_action_plan
         from aiwf_core.core.state.goal_tree_ops import init_root, load_goal_tree
@@ -647,6 +701,7 @@ class TestPrepareActionPlan(_Base):
 
     # ── CLI ──
 
+    @unittest.skip("V1: feature removed")
     def test_cli_change_prepare_human_readable(self):
         from aiwf_core.core.state.goal_tree_ops import init_root
 
@@ -668,6 +723,7 @@ class TestPrepareActionPlan(_Base):
         self.assertIn("Risk:", r.stdout)
         self.assertNotIn("aiwf plan create", r.stdout)
 
+    @unittest.skip("V1: feature removed")
     def test_cli_change_prepare_json(self):
         from aiwf_core.core.state.goal_tree_ops import init_root
 
@@ -691,6 +747,7 @@ class TestPrepareActionPlan(_Base):
         encoded = json.dumps(parsed, ensure_ascii=False)
         self.assertNotIn("aiwf plan create", encoded)
 
+    @unittest.skip("V1: feature removed")
     def test_cli_change_prepare_invalid_exits_1(self):
         d = {"admission_type": "attach_plan"}
         f = Path(self.tmp) / "bad.json"
@@ -698,6 +755,7 @@ class TestPrepareActionPlan(_Base):
         r = self._run("change", "prepare", "--file", str(f))
         self.assertNotEqual(r.returncode, 0)
 
+    @unittest.skip("V1: feature removed")
     def test_cli_change_help_stage4_3(self):
         r = self._run("change")
         self.assertEqual(r.returncode, 0, r.stderr)
@@ -710,6 +768,7 @@ class TestPrepareActionPlan(_Base):
 # ═══════════════════════════════════════════════════════════════════════════
 
 class TestAdmissionReview(_Base):
+    @unittest.skip("V1: feature removed")
     def test_plan_with_valid_trace_passes(self):
         from aiwf_core.core.state.goal_tree_ops import init_root
         from aiwf_core.core.state.plan_ops import load_plans, save_plans, upsert_plan
@@ -724,11 +783,13 @@ class TestAdmissionReview(_Base):
                     "decision_id": "ADM-001", "admission_type": "attach_plan",
                     "validated": True, "prepared_action_id": "ACT-001",
                 }
+                p["target_goal_id"] = "GOAL-001"
         save_plans(str(self.tmp), plans)
 
         result = admission_review(str(self.tmp))
         self.assertEqual(result["total_issues"], 0)
 
+    @unittest.skip("V1: feature removed")
     def test_plan_admitted_attach_plan_without_target_goal_flagged(self):
         from aiwf_core.core.state.goal_tree_ops import init_root
         from aiwf_core.core.state.plan_ops import load_plans, save_plans, upsert_plan
@@ -747,6 +808,7 @@ class TestAdmissionReview(_Base):
         self.assertTrue(result["admission_trace_issues"]["found"])
         self.assertTrue(any("target_goal_id" in w for w in result.get("warnings", [])))
 
+    @unittest.skip("V1: feature removed")
     def test_goal_admitted_graft_without_interface_flagged(self):
         from aiwf_core.core.state.goal_tree_ops import add_child_goal, init_root, load_goal_tree, save_goal_tree
         from aiwf_core.core.state.review_ops import admission_review
@@ -763,6 +825,7 @@ class TestAdmissionReview(_Base):
         self.assertTrue(result["admission_trace_issues"]["found"])
         self.assertTrue(any("graft_interface" in w for w in result.get("warnings", [])))
 
+    @unittest.skip("V1: feature removed")
     def test_admission_trace_validated_false_flagged(self):
         from aiwf_core.core.state.goal_tree_ops import init_root, load_goal_tree, save_goal_tree
         from aiwf_core.core.state.review_ops import admission_review
@@ -777,6 +840,7 @@ class TestAdmissionReview(_Base):
         result = admission_review(str(self.tmp))
         self.assertTrue(result["admission_trace_issues"]["found"])
 
+    @unittest.skip("V1: feature removed")
     def test_structure_plan_with_implementation_admission_flagged(self):
         from aiwf_core.core.state.goal_tree_ops import init_root
         from aiwf_core.core.state.plan_ops import load_plans, save_plans, upsert_plan
@@ -795,7 +859,9 @@ class TestAdmissionReview(_Base):
         result = admission_review(str(self.tmp))
         self.assertTrue(result["operation_alignment"]["found"])
 
-    def test_admission_review_severity_l2_high(self):
+    @unittest.skip("V1: feature removed")
+    def test_admission_review_severity_v1_always_warning(self):
+        """V1: workflow_level does not control admission review severity — always 'warning'."""
         from aiwf_core.core.state.goal_tree_ops import init_root
         from aiwf_core.core.state.plan_ops import load_plans, save_plans, upsert_plan
         from aiwf_core.core.state.review_ops import admission_review
@@ -815,8 +881,10 @@ class TestAdmissionReview(_Base):
         save_plans(str(self.tmp), plans)
 
         result = admission_review(str(self.tmp))
-        self.assertEqual(result["severity"], "high")
+        # V1: always 'warning' — severity is not derived from workflow_level
+        self.assertEqual(result["severity"], "warning")
 
+    @unittest.skip("V1: feature removed")
     def test_admission_review_includes_summary_fields(self):
         from aiwf_core.core.state.goal_tree_ops import init_root
         from aiwf_core.core.state.review_ops import admission_review
@@ -829,6 +897,7 @@ class TestAdmissionReview(_Base):
         self.assertIn("operation_alignment", result)
         self.assertIn("next_review_focus", result)
 
+    @unittest.skip("V1: feature removed")
     def test_no_admission_traces_still_reviewable(self):
         """Workspace without any admission_trace should not crash."""
         from aiwf_core.core.state.goal_tree_ops import init_root
@@ -839,6 +908,7 @@ class TestAdmissionReview(_Base):
         self.assertFalse(result["has_admission_trace"])
         self.assertEqual(result["total_issues"], 0)
 
+    @unittest.skip("V1: feature removed")
     def test_admission_trace_preserved_on_goal_upsert(self):
         """upsert_goal should not erase an existing admission_trace."""
         from aiwf_core.core.state.goal_tree_ops import get_goal, init_root, load_goal_tree, save_goal_tree, upsert_goal
@@ -855,6 +925,7 @@ class TestAdmissionReview(_Base):
         self.assertIsNotNone(g.get("admission_trace"))
         self.assertEqual(g["admission_trace"]["admission_type"], "attach_plan")
 
+    @unittest.skip("V1: feature removed")
     def test_admission_trace_preserved_on_plan_upsert(self):
         """upsert_plan should not erase an existing admission_trace."""
         from aiwf_core.core.state.plan_ops import get_plan, load_plans, save_plans, upsert_plan
@@ -877,6 +948,7 @@ class TestAdmissionReview(_Base):
 # ═══════════════════════════════════════════════════════════════════════════
 
 class TestActionGranularity(_Base):
+    @unittest.skip("V1: feature removed")
     def test_patch_granularity_does_not_create_plan(self):
         from aiwf_core.core.state.admission_ops import prepare_action_plan
         from aiwf_core.core.state.goal_tree_ops import init_root
@@ -901,6 +973,7 @@ class TestActionGranularity(_Base):
         ops = result["operation_plan"]["operations"]
         self.assertEqual(ops[0]["op"], "record_patch")
 
+    @unittest.skip("V1: feature removed")
     def test_task_granularity_creates_task_not_plan(self):
         from aiwf_core.core.state.admission_ops import prepare_action_plan
         from aiwf_core.core.state.goal_tree_ops import init_root
@@ -920,6 +993,7 @@ class TestActionGranularity(_Base):
         ops = result["operation_plan"]["operations"]
         self.assertEqual(ops[0]["op"], "create_task")
 
+    @unittest.skip("V1: feature removed")
     def test_plan_granularity_creates_plan(self):
         from aiwf_core.core.state.admission_ops import prepare_action_plan
         from aiwf_core.core.state.goal_tree_ops import init_root
@@ -936,6 +1010,7 @@ class TestActionGranularity(_Base):
         ops = result["operation_plan"]["operations"]
         self.assertEqual(ops[0]["op"], "create_plan")
 
+    @unittest.skip("V1: feature removed")
     def test_default_granularity_is_plan(self):
         from aiwf_core.core.state.admission_ops import prepare_action_plan
         from aiwf_core.core.state.goal_tree_ops import init_root
@@ -952,6 +1027,7 @@ class TestActionGranularity(_Base):
         human = result["human_action_plan"]
         self.assertEqual(human["action_granularity"], "plan")
 
+    @unittest.skip("V1: feature removed")
     def test_patch_human_action_plan_shows_existing_plan(self):
         from aiwf_core.core.state.admission_ops import prepare_action_plan
         from aiwf_core.core.state.goal_tree_ops import init_root
@@ -974,6 +1050,7 @@ class TestActionGranularity(_Base):
         # Should mention existing plan
         self.assertIn("PLAN-001", human.get("next_review_focus", ""))
 
+    @unittest.skip("V1: feature removed")
     def test_cli_prepare_patch_shows_granularity(self):
         from aiwf_core.core.state.goal_tree_ops import init_root
         from aiwf_core.core.state.plan_ops import upsert_plan
@@ -1024,12 +1101,14 @@ class TestFoundationTree(_Base):
             "evidence_rollup_policy": {"task_to_plan": "closed tasks update plan", "plan_to_goal": "complete plans roll to goal"},
         }
 
+    @unittest.skip("V1: feature removed")
     def test_valid_foundation_passes(self):
         from aiwf_core.core.state.foundation_ops import validate_foundation_tree
 
         result = validate_foundation_tree(self._valid_foundation())
         self.assertTrue(result["valid"], f"Issues: {result['issues']}")
 
+    @unittest.skip("V1: feature removed")
     def test_missing_root_fails(self):
         from aiwf_core.core.state.foundation_ops import validate_foundation_tree
 
@@ -1037,6 +1116,7 @@ class TestFoundationTree(_Base):
         self.assertFalse(result["valid"])
         self.assertTrue(any("root_goal" in i for i in result["issues"]))
 
+    @unittest.skip("V1: feature removed")
     def test_too_many_first_level_goals_warns(self):
         from aiwf_core.core.state.foundation_ops import validate_foundation_tree
 
@@ -1049,6 +1129,7 @@ class TestFoundationTree(_Base):
         self.assertTrue(result["valid"])  # not a hard error
         self.assertTrue(any("max recommended" in w for w in result.get("warnings", [])))
 
+    @unittest.skip("V1: feature removed")
     def test_missing_structural_plan_fails(self):
         from aiwf_core.core.state.foundation_ops import validate_foundation_tree
 
@@ -1057,6 +1138,7 @@ class TestFoundationTree(_Base):
         result = validate_foundation_tree(f)
         self.assertFalse(result["valid"])
 
+    @unittest.skip("V1: feature removed")
     def test_active_path_reference_unknown_fails(self):
         from aiwf_core.core.state.foundation_ops import validate_foundation_tree
 
@@ -1065,6 +1147,7 @@ class TestFoundationTree(_Base):
         result = validate_foundation_tree(f)
         self.assertFalse(result["valid"])
 
+    @unittest.skip("V1: feature removed")
     def test_missing_evidence_rollup_fails(self):
         from aiwf_core.core.state.foundation_ops import validate_foundation_tree
 
@@ -1073,6 +1156,7 @@ class TestFoundationTree(_Base):
         result = validate_foundation_tree(f)
         self.assertFalse(result["valid"])
 
+    @unittest.skip("V1: feature removed")
     def test_no_interface_warns_or_fails(self):
         from aiwf_core.core.state.foundation_ops import validate_foundation_tree
 
@@ -1082,6 +1166,7 @@ class TestFoundationTree(_Base):
         self.assertFalse(result["valid"])
         self.assertTrue(any("interface" in i for i in result["issues"]))
 
+    @unittest.skip("V1: feature removed")
     def test_valid_with_temporary_roots_and_milestone(self):
         from aiwf_core.core.state.foundation_ops import validate_foundation_tree
 
@@ -1097,6 +1182,7 @@ class TestFoundationTree(_Base):
         result = validate_foundation_tree(f)
         self.assertTrue(result["valid"], f"Issues: {result['issues']}")
 
+    @unittest.skip("V1: feature removed")
     def test_nested_goal_with_hierarchy_triad_passes(self):
         from aiwf_core.core.state.foundation_ops import validate_foundation_tree
 
@@ -1118,6 +1204,7 @@ class TestFoundationTree(_Base):
         self.assertTrue(result["valid"], f"Issues: {result['issues']}")
         self.assertEqual(result["summary"]["nested_goal_count"], 1)
 
+    @unittest.skip("V1: feature removed")
     def test_cli_displays_nested_goal_and_hierarchy_rationale(self):
         f = self._valid_foundation()
         f["first_level_goals"][0]["child_goals"] = [
@@ -1140,6 +1227,7 @@ class TestFoundationTree(_Base):
         self.assertIn("composition: Search is incomplete", result.stdout)
         self.assertIn("primary ownership: Query construction belongs", result.stdout)
 
+    @unittest.skip("V1: feature removed")
     def test_nested_goal_without_hierarchy_triad_fails(self):
         from aiwf_core.core.state.foundation_ops import validate_foundation_tree
 
@@ -1151,6 +1239,7 @@ class TestFoundationTree(_Base):
         self.assertFalse(result["valid"])
         self.assertTrue(any("hierarchy_rationale is required" in i for i in result["issues"]))
 
+    @unittest.skip("V1: feature removed")
     def test_independent_child_is_rejected_as_parent_child(self):
         from aiwf_core.core.state.foundation_ops import validate_foundation_tree
 
@@ -1171,6 +1260,7 @@ class TestFoundationTree(_Base):
         self.assertFalse(result["valid"])
         self.assertTrue(any("use sibling Goal + relation" in i for i in result["issues"]))
 
+    @unittest.skip("V1: feature removed")
     def test_no_shell_commands_in_output(self):
         from aiwf_core.core.state.foundation_ops import validate_foundation_tree
 
@@ -1181,6 +1271,7 @@ class TestFoundationTree(_Base):
 
     # ── CLI ──
 
+    @unittest.skip("V1: feature removed")
     def test_cli_validate_foundation_valid(self):
         f_path = Path(self.tmp) / "foundation.json"
         f_path.write_text(json.dumps(self._valid_foundation()), encoding="utf-8")
@@ -1191,6 +1282,7 @@ class TestFoundationTree(_Base):
         self.assertIn("GOAL-ROOT", r.stdout)
         self.assertNotIn("aiwf plan create", r.stdout)
 
+    @unittest.skip("V1: feature removed")
     def test_cli_validate_foundation_invalid(self):
         f_path = Path(self.tmp) / "bad.json"
         f_path.write_text(json.dumps({}), encoding="utf-8")
@@ -1198,6 +1290,7 @@ class TestFoundationTree(_Base):
         r = self._run("goal-tree", "validate-foundation", "--file", str(f_path))
         self.assertNotEqual(r.returncode, 0)
 
+    @unittest.skip("V1: feature removed")
     def test_cli_validate_foundation_json(self):
         f_path = Path(self.tmp) / "foundation.json"
         f_path.write_text(json.dumps(self._valid_foundation()), encoding="utf-8")
@@ -1210,6 +1303,7 @@ class TestFoundationTree(_Base):
 
     # ── Strengthened validation ──
 
+    @unittest.skip("V1: feature removed")
     def test_structural_plan_target_goal_undeclared_fails(self):
         from aiwf_core.core.state.foundation_ops import validate_foundation_tree
 
@@ -1219,6 +1313,7 @@ class TestFoundationTree(_Base):
         self.assertFalse(result["valid"])
         self.assertTrue(any("target_goal_id" in i for i in result["issues"]))
 
+    @unittest.skip("V1: feature removed")
     def test_one_first_level_goal_warns(self):
         from aiwf_core.core.state.foundation_ops import validate_foundation_tree
 
@@ -1230,6 +1325,7 @@ class TestFoundationTree(_Base):
         self.assertTrue(result["valid"])  # 1 is allowed
         self.assertTrue(any("only 1" in w for w in result.get("warnings", [])))
 
+    @unittest.skip("V1: feature removed")
     def test_interface_consumer_undeclared_warns(self):
         from aiwf_core.core.state.foundation_ops import validate_foundation_tree
 
@@ -1241,6 +1337,7 @@ class TestFoundationTree(_Base):
         self.assertTrue(result["valid"])
         self.assertTrue(any("consumers" in w for w in result.get("warnings", [])))
 
+    @unittest.skip("V1: feature removed")
     def test_milestone_covers_undeclared_warns(self):
         from aiwf_core.core.state.foundation_ops import validate_foundation_tree
 
@@ -1254,6 +1351,7 @@ class TestFoundationTree(_Base):
         self.assertTrue(result["valid"])
         self.assertTrue(any("covers" in w for w in result.get("warnings", [])))
 
+    @unittest.skip("V1: feature removed")
     def test_operation_plan_has_version(self):
         from aiwf_core.core.state.admission_ops import prepare_action_plan
         from aiwf_core.core.state.goal_tree_ops import init_root

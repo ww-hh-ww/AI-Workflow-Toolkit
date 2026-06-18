@@ -4,6 +4,7 @@ import json, subprocess
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from .state.goal_ops import get_active_goal
 GOV_PREFIXES = [".aiwf/", ".claude/", ".reasonix/", "scripts/aiwf_", "CLAUDE.md", "REASONIX.md", "AGENTS.md"]
 
 def _is_gov(p): return any(p == x.rstrip("/") or p.startswith(x) for x in GOV_PREFIXES)
@@ -49,7 +50,7 @@ def get_git_summary(project_root: str) -> Dict[str, Any]:
 
 def suggest_commit_message(project_root: str) -> str:
     root = Path(project_root)
-    goal = _rj(root / ".aiwf" / "state" / "goal.json")
+    goal = get_active_goal(project_root)
     gs = get_git_summary(project_root)
     current_goal = goal.get("current_goal") or goal.get("active_goal", "")
     if current_goal:
@@ -109,7 +110,7 @@ def commit_with_confirmation(
     commit_hash = hd.stdout.strip() if hd else "unknown"
 
     # Record commit in report.md if it exists
-    report_path = root / ".aiwf" / "artifacts" / "reports" / "闭合报告.md"
+    report_path = root / ".aiwf" / "records" / "闭合报告.md"
     if report_path.exists():
         existing = report_path.read_text(encoding="utf-8")
         entry = (f"\n## Git Commit\n\n"

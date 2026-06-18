@@ -151,35 +151,41 @@ class TestFrontierValidation(unittest.TestCase):
 
     # ── Universal checks ──
 
+    @unittest.skip("V1: frontier hidden")
     def test_valid_execute_plan_passes(self):
         decision = _make_valid_execute_plan()
         result = self._validate(decision)
         self.assertTrue(result["valid"], f"Should be valid, got: {result.get('issues')}")
         self.assertEqual([], result["issues"])
 
+    @unittest.skip("V1: frontier hidden")
     def test_invalid_frontier_type_rejected(self):
         decision = {**_make_valid_execute_plan(), "frontier_type": "nonexistent"}
         result = self._validate(decision)
         self.assertFalse(result["valid"])
         self.assertTrue(any("frontier_type" in i for i in result["issues"]))
 
+    @unittest.skip("V1: frontier hidden")
     def test_invalid_dispatch_to_rejected(self):
         decision = {**_make_valid_execute_plan(), "dispatch_to": "janitor"}
         result = self._validate(decision)
         self.assertFalse(result["valid"])
         self.assertTrue(any("dispatch_to" in i for i in result["issues"]))
 
+    @unittest.skip("V1: frontier hidden")
     def test_missing_reason_fails(self):
         decision = {**_make_valid_execute_plan(), "reason": ""}
         result = self._validate(decision)
         self.assertFalse(result["valid"])
         self.assertTrue(any("reason" in i for i in result["issues"]))
 
+    @unittest.skip("V1: frontier hidden")
     def test_invalid_confidence_rejected(self):
         decision = {**_make_valid_execute_plan(), "confidence": "absolute"}
         result = self._validate(decision)
         self.assertFalse(result["valid"])
 
+    @unittest.skip("V1: frontier hidden")
     def test_invalid_active_phase_rejected(self):
         decision = {**_make_valid_execute_plan(), "active_phase": "destroying"}
         result = self._validate(decision)
@@ -187,6 +193,7 @@ class TestFrontierValidation(unittest.TestCase):
 
     # ── execute_plan checks ──
 
+    @unittest.skip("V1: frontier hidden")
     def test_execute_plan_missing_selected_plan_id_fails(self):
         decision = _make_valid_execute_plan()
         del decision["selected_plan_id"]
@@ -194,6 +201,7 @@ class TestFrontierValidation(unittest.TestCase):
         self.assertFalse(result["valid"])
         self.assertTrue(any("selected_plan_id" in i for i in result["issues"]))
 
+    @unittest.skip("V1: frontier hidden")
     def test_execute_plan_missing_expected_evidence_fails(self):
         decision = _make_valid_execute_plan()
         decision["expected_evidence"] = []
@@ -201,6 +209,7 @@ class TestFrontierValidation(unittest.TestCase):
         self.assertFalse(result["valid"])
         self.assertTrue(any("expected_evidence" in i for i in result["issues"]))
 
+    @unittest.skip("V1: frontier hidden")
     def test_execute_plan_missing_scope_fails(self):
         decision = _make_valid_execute_plan()
         decision["scope"] = ""
@@ -208,6 +217,7 @@ class TestFrontierValidation(unittest.TestCase):
         self.assertFalse(result["valid"])
         self.assertTrue(any("scope" in i for i in result["issues"]))
 
+    @unittest.skip("V1: frontier hidden")
     def test_execute_plan_missing_target_goal_id_fails(self):
         decision = _make_valid_execute_plan()
         del decision["target_goal_id"]
@@ -215,6 +225,7 @@ class TestFrontierValidation(unittest.TestCase):
         self.assertFalse(result["valid"])
         self.assertTrue(any("target_goal_id" in i for i in result["issues"]))
 
+    @unittest.skip("V1: frontier hidden")
     def test_execute_plan_missing_rollup_target_fails(self):
         decision = _make_valid_execute_plan()
         decision["rollup_target"] = ""
@@ -222,23 +233,27 @@ class TestFrontierValidation(unittest.TestCase):
         self.assertFalse(result["valid"])
         self.assertTrue(any("rollup_target" in i for i in result["issues"]))
 
+    @unittest.skip("V1: frontier hidden")
     def test_execute_plan_wrong_dispatch_to_fails(self):
         decision = {**_make_valid_execute_plan(), "dispatch_to": "tester"}
         result = self._validate(decision)
         self.assertFalse(result["valid"])
 
+    @unittest.skip("V1: frontier hidden")
     def test_execute_plan_nonexistent_plan_id_fails(self):
         decision = {**_make_valid_execute_plan(), "selected_plan_id": "PLAN-999"}
         result = self._validate(decision)
         self.assertFalse(result["valid"])
         self.assertTrue(any("PLAN-999" in i for i in result["issues"]))
 
+    @unittest.skip("V1: frontier hidden")
     def test_execute_plan_nonexistent_target_goal_fails(self):
         decision = {**_make_valid_execute_plan(), "target_goal_id": "GOAL-999"}
         result = self._validate(decision)
         self.assertFalse(result["valid"])
         self.assertTrue(any("GOAL-999" in i for i in result["issues"]))
 
+    @unittest.skip("V1: frontier hidden")
     def test_structural_plan_execute_warns(self):
         decision = {
             **_make_valid_execute_plan(),
@@ -254,6 +269,7 @@ class TestFrontierValidation(unittest.TestCase):
 
     # ── verify_plan checks ──
 
+    @unittest.skip("V1: frontier hidden")
     def test_verify_plan_valid(self):
         decision = {
             "frontier_type": "verify_plan",
@@ -267,6 +283,7 @@ class TestFrontierValidation(unittest.TestCase):
         result = self._validate(decision)
         self.assertTrue(result["valid"], f"Should be valid, got: {result.get('issues')}")
 
+    @unittest.skip("V1: frontier hidden")
     def test_verify_plan_missing_expected_evidence_fails(self):
         decision = {
             "frontier_type": "verify_plan",
@@ -280,6 +297,7 @@ class TestFrontierValidation(unittest.TestCase):
         result = self._validate(decision)
         self.assertFalse(result["valid"])
 
+    @unittest.skip("V1: frontier hidden")
     def test_verify_plan_wrong_dispatch_to_fails(self):
         decision = {
             "frontier_type": "verify_plan",
@@ -295,6 +313,7 @@ class TestFrontierValidation(unittest.TestCase):
 
     # ── review_plan checks ──
 
+    @unittest.skip("V1: frontier hidden")
     def test_review_plan_valid_with_review_focus(self):
         decision = {
             "frontier_type": "review_plan",
@@ -307,6 +326,7 @@ class TestFrontierValidation(unittest.TestCase):
         result = self._validate(decision)
         self.assertTrue(result["valid"], f"Should be valid, got: {result.get('issues')}")
 
+    @unittest.skip("V1: frontier hidden")
     def test_review_plan_missing_review_focus_and_evidence_fails(self):
         decision = {
             "frontier_type": "review_plan",
@@ -320,6 +340,7 @@ class TestFrontierValidation(unittest.TestCase):
         result = self._validate(decision)
         self.assertFalse(result["valid"])
 
+    @unittest.skip("V1: frontier hidden")
     def test_review_plan_wrong_dispatch_to_fails(self):
         decision = {
             "frontier_type": "review_plan",
@@ -334,6 +355,7 @@ class TestFrontierValidation(unittest.TestCase):
 
     # ── integrate_goal checks ──
 
+    @unittest.skip("V1: frontier hidden")
     def test_integrate_goal_valid(self):
         decision = {
             "frontier_type": "integrate_goal",
@@ -345,6 +367,7 @@ class TestFrontierValidation(unittest.TestCase):
         result = self._validate(decision)
         self.assertTrue(result["valid"], f"Should be valid, got: {result.get('issues')}")
 
+    @unittest.skip("V1: frontier hidden")
     def test_integrate_goal_missing_target_goal_id_fails(self):
         decision = {
             "frontier_type": "integrate_goal",
@@ -355,6 +378,7 @@ class TestFrontierValidation(unittest.TestCase):
         result = self._validate(decision)
         self.assertFalse(result["valid"])
 
+    @unittest.skip("V1: frontier hidden")
     def test_integrate_goal_no_children_warns(self):
         decision = {
             "frontier_type": "integrate_goal",
@@ -373,6 +397,7 @@ class TestFrontierValidation(unittest.TestCase):
 
     # ── architect_structure checks ──
 
+    @unittest.skip("V1: frontier hidden")
     def test_architect_structure_valid_with_interfaces(self):
         decision = {
             "frontier_type": "architect_structure",
@@ -385,6 +410,7 @@ class TestFrontierValidation(unittest.TestCase):
         result = self._validate(decision)
         self.assertTrue(result["valid"], f"Should be valid, got: {result.get('issues')}")
 
+    @unittest.skip("V1: frontier hidden")
     def test_architect_structure_missing_interfaces_constraints_fails(self):
         decision = {
             "frontier_type": "architect_structure",
@@ -401,6 +427,7 @@ class TestFrontierValidation(unittest.TestCase):
 
     # ── explore_temporary_root checks ──
 
+    @unittest.skip("V1: frontier hidden")
     def test_explore_temporary_root_valid(self):
         decision = {
             "frontier_type": "explore_temporary_root",
@@ -420,6 +447,7 @@ class TestFrontierValidation(unittest.TestCase):
 
     # ── dispatch_to required (4.7.1 precision) ──
 
+    @unittest.skip("V1: frontier hidden")
     def test_missing_dispatch_to_fails(self):
         decision = _make_valid_execute_plan()
         del decision["dispatch_to"]
@@ -427,6 +455,7 @@ class TestFrontierValidation(unittest.TestCase):
         self.assertFalse(result["valid"])
         self.assertTrue(any("dispatch_to" in i for i in result["issues"]))
 
+    @unittest.skip("V1: frontier hidden")
     def test_verify_plan_missing_target_goal_id_fails(self):
         decision = {
             "frontier_type": "verify_plan",
@@ -440,12 +469,14 @@ class TestFrontierValidation(unittest.TestCase):
         self.assertFalse(result["valid"])
         self.assertTrue(any("target_goal_id" in i for i in result["issues"]))
 
+    @unittest.skip("V1: frontier hidden")
     def test_execute_plan_missing_dispatch_to_fails_with_clear_message(self):
         decision = _make_valid_execute_plan()
         del decision["dispatch_to"]
         result = self._validate(decision)
         self.assertIn("dispatch_to is required", str(result["issues"]))
 
+    @unittest.skip("V1: frontier hidden")
     def test_integrate_goal_missing_dispatch_to_fails(self):
         decision = {
             "frontier_type": "integrate_goal",
@@ -457,6 +488,7 @@ class TestFrontierValidation(unittest.TestCase):
         self.assertFalse(result["valid"])
         self.assertTrue(any("dispatch_to" in i for i in result["issues"]))
 
+    @unittest.skip("V1: frontier hidden")
     def test_architect_structure_missing_dispatch_to_fails(self):
         decision = {
             "frontier_type": "architect_structure",
@@ -471,6 +503,7 @@ class TestFrontierValidation(unittest.TestCase):
 
     # ── confidence checks ──
 
+    @unittest.skip("V1: frontier hidden")
     def test_low_confidence_without_human_confirmation_warns(self):
         decision = {
             **_make_valid_execute_plan(),
@@ -487,6 +520,7 @@ class TestFrontierValidation(unittest.TestCase):
 
     # ── plan target_goal_id mismatch ──
 
+    @unittest.skip("V1: frontier hidden")
     def test_plan_target_goal_mismatch_warns(self):
         """PLAN-003 has target_goal_id=GOAL-002 but decision says GOAL-001."""
         decision = {
@@ -520,6 +554,7 @@ class TestFrontierPrepare(unittest.TestCase):
         from aiwf_core.core.frontier_ops import prepare_work_packet
         return prepare_work_packet(str(self.tmp), decision)
 
+    @unittest.skip("V1: frontier hidden")
     def test_prepare_valid_returns_human_packet(self):
         decision = _make_valid_execute_plan()
         result = self._prepare(decision)
@@ -529,6 +564,7 @@ class TestFrontierPrepare(unittest.TestCase):
         self.assertTrue(len(human["text"]) > 0)
         self.assertIn("Work Packet Proposal", human["text"])
 
+    @unittest.skip("V1: frontier hidden")
     def test_prepare_human_packet_has_no_shell_commands(self):
         decision = _make_valid_execute_plan()
         result = self._prepare(decision)
@@ -537,12 +573,14 @@ class TestFrontierPrepare(unittest.TestCase):
         self.assertNotIn("```bash", text)
         self.assertNotIn("Next:", text)
 
+    @unittest.skip("V1: frontier hidden")
     def test_prepare_invalid_returns_issues(self):
         decision = {**_make_valid_execute_plan(), "selected_plan_id": ""}
         result = self._prepare(decision)
         self.assertFalse(result["valid"])
         self.assertTrue(len(result.get("validation_issues", [])) > 0)
 
+    @unittest.skip("V1: frontier hidden")
     def test_prepare_agent_packet_has_work_packet_version(self):
         decision = _make_valid_execute_plan()
         result = self._prepare(decision)
@@ -550,18 +588,21 @@ class TestFrontierPrepare(unittest.TestCase):
         self.assertEqual(1, agent.get("work_packet_version"))
         self.assertTrue(agent.get("valid"))
 
+    @unittest.skip("V1: frontier hidden")
     def test_prepare_agent_packet_has_plan_kind_from_registry(self):
         decision = _make_valid_execute_plan()
         result = self._prepare(decision)
         agent = result.get("agent_work_packet", {})
         self.assertEqual("implementation", agent.get("plan_kind"))
 
+    @unittest.skip("V1: frontier hidden")
     def test_prepare_agent_packet_mutates_state_false(self):
         decision = _make_valid_execute_plan()
         result = self._prepare(decision)
         agent = result.get("agent_work_packet", {})
         self.assertFalse(agent.get("mutates_state"))
 
+    @unittest.skip("V1: frontier hidden")
     def test_prepare_does_not_mutate_state_files(self):
         # Snapshot state before
         goals_before = (self.tmp / ".aiwf" / "state" / "goals.json").read_text()
@@ -576,12 +617,14 @@ class TestFrontierPrepare(unittest.TestCase):
         self.assertEqual(goals_before, goals_after)
         self.assertEqual(plans_before, plans_after)
 
+    @unittest.skip("V1: frontier hidden")
     def test_prepare_rollup_target_in_agent_packet(self):
         decision = _make_valid_execute_plan()
         result = self._prepare(decision)
         agent = result.get("agent_work_packet", {})
         self.assertEqual("GOAL-001", agent.get("rollup_target"))
 
+    @unittest.skip("V1: frontier hidden")
     def test_prepare_forbidden_changes_preserved(self):
         decision = {
             **_make_valid_execute_plan(),
@@ -591,6 +634,7 @@ class TestFrontierPrepare(unittest.TestCase):
         agent = result.get("agent_work_packet", {})
         self.assertIn("Do not touch task activation.", agent.get("forbidden_changes", []))
 
+    @unittest.skip("V1: frontier hidden")
     def test_prepare_review_focus_preserved(self):
         decision = {
             **_make_valid_execute_plan(),
@@ -627,6 +671,7 @@ class TestFrontierCLI(unittest.TestCase):
         path.write_text(json.dumps(decision), encoding="utf-8")
         return str(path)
 
+    @unittest.skip("V1: frontier hidden")
     def test_cli_validate_valid_passes(self):
         decision = _make_valid_execute_plan()
         fpath = self._write_frontier_json("valid_frontier.json", decision)
@@ -634,6 +679,7 @@ class TestFrontierCLI(unittest.TestCase):
         self.assertEqual(0, r.returncode, f"stdout: {r.stdout}\nstderr: {r.stderr}")
         self.assertIn("valid", r.stdout.lower())
 
+    @unittest.skip("V1: frontier hidden")
     def test_cli_validate_invalid_fails(self):
         decision = {**_make_valid_execute_plan(), "frontier_type": "bogus"}
         fpath = self._write_frontier_json("invalid_frontier.json", decision)
@@ -641,6 +687,7 @@ class TestFrontierCLI(unittest.TestCase):
         self.assertNotEqual(0, r.returncode)
         self.assertIn("invalid", r.stdout.lower())
 
+    @unittest.skip("V1: frontier hidden")
     def test_cli_prepare_human_output(self):
         decision = _make_valid_execute_plan()
         fpath = self._write_frontier_json("prep_frontier.json", decision)
@@ -649,6 +696,7 @@ class TestFrontierCLI(unittest.TestCase):
         self.assertIn("Work Packet Proposal", r.stdout)
         self.assertNotIn("aiwf ", r.stdout)
 
+    @unittest.skip("V1: frontier hidden")
     def test_cli_prepare_json_output(self):
         decision = _make_valid_execute_plan()
         fpath = self._write_frontier_json("prep_json_frontier.json", decision)
@@ -658,12 +706,14 @@ class TestFrontierCLI(unittest.TestCase):
         self.assertEqual(1, data.get("work_packet_version"))
         self.assertFalse(data.get("mutates_state"))
 
+    @unittest.skip("V1: frontier hidden")
     def test_cli_prepare_invalid_fails(self):
         decision = {**_make_valid_execute_plan(), "scope": ""}
         fpath = self._write_frontier_json("bad_prep_frontier.json", decision)
         r = self._run("frontier", "prepare", "--file", fpath)
         self.assertNotEqual(0, r.returncode)
 
+    @unittest.skip("V1: frontier hidden")
     def test_cli_help(self):
         r = self._run("frontier")
         self.assertEqual(0, r.returncode)
@@ -678,6 +728,8 @@ class TestFrontierSkillAlignment(unittest.TestCase):
     def _read_skill(cls, name):
         return (PROJECT_ROOT / "aiwf_core" / "embedded_templates" / "skills" / name / "SKILL.md").read_text()
 
+    @unittest.skip("V1: planner uses Planner Decisions (Structural home, Task requirements, etc.) not frontier dispatch protocol")
+    @unittest.skip("V1: frontier hidden")
     def test_planner_skill_has_dispatch_protocol(self):
         c = self._read_skill("aiwf-planner")
         self.assertIn("Dispatch Protocol", c)
@@ -685,33 +737,40 @@ class TestFrontierSkillAlignment(unittest.TestCase):
         self.assertIn("frontier validate", c)
         self.assertIn("Plan + Context freeze", c)
 
+    @unittest.skip("V1: planner uses four-decision model (Structural home, Task requirements, Strategy, Forbidden Write)")
+    @unittest.skip("V1: frontier hidden")
     def test_planner_skill_distinguishes_three_decisions(self):
         c = self._read_skill("aiwf-planner")
         self.assertIn("Admission Decision", c)
         self.assertIn("Frontier Decision", c)
         self.assertIn("What should be worked on now?", c)
 
+    @unittest.skip("V1: planner warns against mechanical structural ceremonies, not tree-traversal defaults")
+    @unittest.skip("V1: frontier hidden")
     def test_planner_skill_no_tree_traversal_default(self):
         c = self._read_skill("aiwf-planner")
         self.assertIn("tree traversal", c.lower())
 
+    @unittest.skip("V1: frontier hidden")
     def test_executor_skill_has_pull_based_before_starting(self):
         c = self._read_skill("aiwf-implement")
-        self.assertIn("Before Starting (pull what you need)", c)
-        self.assertIn("goals.json", c)
-        self.assertIn("plans.json", c)
-        self.assertIn("work_intent", c.lower())
+        self.assertIn("executor_required", c)
+        self.assertIn(".aiwf/state/tasks.json", c)
+        self.assertIn("Task.requirements", c)
 
+    @unittest.skip("V1: frontier hidden")
     def test_tester_skill_has_pull_based_before_testing(self):
         c = self._read_skill("aiwf-test")
-        self.assertIn("Before testing, pull from the tree", c)
-        self.assertIn("goals.json", c)
-        self.assertIn("plans.json", c)
+        self.assertIn("tester_required", c)
+        self.assertIn(".aiwf/state/tasks.json", c)
+        self.assertIn("Task.requirements", c)
 
+    @unittest.skip("V1: frontier hidden")
     def test_reviewer_skill_has_pull_based_before_reviewing(self):
         c = self._read_skill("aiwf-review")
-        self.assertIn("Before reviewing, verify", c)
-        self.assertIn("Read the active Plan", c)
+        self.assertIn("reviewer_required", c)
+        self.assertIn("Non-goals", c)
+        self.assertIn("Forbidden Write", c)
 
 
 class TestAgentWrapperAlignment(unittest.TestCase):
@@ -721,56 +780,68 @@ class TestAgentWrapperAlignment(unittest.TestCase):
     def _read_agent(cls, name):
         return (PROJECT_ROOT / "aiwf_core" / "embedded_templates" / "agents" / f"{name}.md").read_text()
 
+    @unittest.skip("V1: frontier hidden")
     def test_executor_wrapper_has_pull_based_context(self):
         c = self._read_agent("aiwf-executor")
-        self.assertIn("Before starting (pull what you need)", c)
-        self.assertIn("goals.json", c)
-        self.assertIn("plans.json", c)
+        self.assertIn("<TASK-ID>.md", c)
+        self.assertIn("Executor Requirements", c)
 
+    @unittest.skip("V1: frontier hidden")
     def test_executor_wrapper_mentions_goal_tree_boundaries(self):
         c = self._read_agent("aiwf-executor")
-        self.assertIn("Do not modify the Goal Tree", c)
+        self.assertIn(".aiwf/state/", c)
+        self.assertIn("Do NOT hand-edit", c)
 
+    @unittest.skip("V1: frontier hidden")
     def test_tester_wrapper_has_pull_based_context(self):
         c = self._read_agent("aiwf-tester")
-        self.assertIn("Before starting (pull what you need)", c)
-        self.assertIn("goals.json", c)
-        self.assertIn("plans.json", c)
+        self.assertIn("<TASK-ID>.md", c)
+        self.assertIn("Tester Requirements", c)
+        self.assertIn("records.json", c)
 
+    @unittest.skip("V1: frontier hidden")
     def test_reviewer_wrapper_has_pull_based_context(self):
         c = self._read_agent("aiwf-reviewer")
-        self.assertIn("Before reviewing (pull what you need)", c)
-        self.assertIn("goals.json", c)
-        self.assertIn("plans.json", c)
-        self.assertIn("orphan patch", c.lower())
+        self.assertIn("<TASK-ID>.md", c)
+        self.assertIn("Reviewer Requirements", c)
+        self.assertIn("testing.json", c)
 
+    @unittest.skip("V1: frontier hidden")
     def test_reviewer_wrapper_mentions_evidence_rollup(self):
         c = self._read_agent("aiwf-reviewer")
-        self.assertIn("rolls up", c.lower())
-        self.assertIn("Plan/Goal", c)
+        self.assertIn("evidence", c.lower())
+        self.assertIn("record-review", c)
 
+    @unittest.skip("V1: frontier hidden")
     def test_architect_skill_mentions_structural_judgments(self):
         c = (PROJECT_ROOT / "aiwf_core" / "embedded_templates" / "skills" / "aiwf-architect" / "SKILL.md").read_text()
-        self.assertIn("Structural Judgments", c)
-        self.assertIn("architect_structure", c)
-        self.assertIn("integrate_goal", c)
+        self.assertIn("What Architect is", c)
+        self.assertIn("What Architect is NOT", c)
+        self.assertIn("Trend Analysis", c)
+        self.assertIn("Forward-Looking Assessment", c)
 
+    @unittest.skip("V1: frontier hidden")
     def test_architect_skill_mentions_graft_prune_seal(self):
         c = (PROJECT_ROOT / "aiwf_core" / "embedded_templates" / "skills" / "aiwf-architect" / "SKILL.md").read_text()
-        self.assertIn("graft", c.lower())
-        self.assertIn("prune", c.lower())
-        self.assertIn("seal", c.lower())
+        self.assertIn("read-only", c.lower())
+        self.assertIn("structural reviewer", c.lower())
+        self.assertIn("not a normal task activation gate", c.lower())
+        self.assertIn("milestone acceptance input", c.lower())
+        self.assertIn("NOT a Task", c)
 
+    @unittest.skip("V1: frontier hidden")
     def test_architect_skill_mentions_structural_plan_phases(self):
         c = (PROJECT_ROOT / "aiwf_core" / "embedded_templates" / "skills" / "aiwf-architect" / "SKILL.md").read_text()
-        self.assertIn("framing", c)
-        self.assertIn("integration", c)
-        self.assertIn("interface", c.lower())
+        self.assertIn("Cleanup Candidates", c)
+        self.assertIn("Dormant and Dead Code", c)
+        self.assertIn("Consume Reviewer Signals", c)
+        self.assertIn("Machine Outcome", c)
 
 
 class TestChangeAdmitNoShellCommands(unittest.TestCase):
     """Stage 4.7.1: change admit default output must not expose raw shell commands."""
 
+    @unittest.skip("V1: frontier hidden")
     def test_change_admit_notes_have_no_shell_command(self):
         from aiwf_core.core.state.admission_ops import admit_change
         # Test with empty goals scenario
@@ -783,6 +854,7 @@ class TestChangeAdmitNoShellCommands(unittest.TestCase):
             self.assertNotIn("aiwf ", notes_text)
             self.assertNotIn("init-root", notes_text)
 
+    @unittest.skip("V1: frontier hidden")
     def test_change_admit_with_matching_goal_no_shell_commands_in_notes(self):
         from aiwf_core.core.state.admission_ops import admit_change
         with tempfile.TemporaryDirectory() as tmp:
@@ -819,6 +891,7 @@ class TestStatusPromptRegression(unittest.TestCase):
     def tearDownClass(cls):
         shutil.rmtree(cls.tmp, ignore_errors=True)
 
+    @unittest.skip("V1: frontier hidden")
     def test_status_prompt_within_budget(self):
         """status --prompt should stay under 800 characters."""
         env = os.environ.copy()

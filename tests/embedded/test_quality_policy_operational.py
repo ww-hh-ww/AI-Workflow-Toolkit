@@ -13,6 +13,7 @@ def _install(cwd):
 def _rj(path): return json.loads(path.read_text())
 
 class TestQualityPolicyOperational(unittest.TestCase):
+    __unittest_skip__ = True  # V1: quality-policy removed
 
     @classmethod
     def setUpClass(cls):
@@ -35,6 +36,7 @@ class TestQualityPolicyOperational(unittest.TestCase):
                               cwd=str(self.tmp), env=env, timeout=TIMEOUT)
 
     # ── CLI writes state ──
+    @unittest.skip("V1: feature removed")
     def test_cli_writes_quality_policy_keys(self):
         r = self._run("state", "record-quality-policy",
                       "--task-type", "small_function",
@@ -50,6 +52,7 @@ class TestQualityPolicyOperational(unittest.TestCase):
         self.assertEqual(s["git_policy"], "no_auto_commit")
         self.assertIn("prior_fix_loop", s["risk_flags"])
 
+    @unittest.skip("V1: feature removed")
     def test_cli_output_is_short_summary(self):
         r = self._run("state", "record-quality-policy",
                       "--task-type", "small_function",
@@ -61,6 +64,7 @@ class TestQualityPolicyOperational(unittest.TestCase):
         self.assertIn("Test:", r.stdout)
         self.assertIn("Review:", r.stdout)
 
+    @unittest.skip("V1: feature removed")
     def test_cli_does_not_touch_claude_md(self):
         claude_md_before = (self.tmp / "CLAUDE.md").read_text()
         self._run("state", "record-quality-policy",
@@ -69,6 +73,7 @@ class TestQualityPolicyOperational(unittest.TestCase):
         claude_md_after = (self.tmp / "CLAUDE.md").read_text()
         self.assertEqual(claude_md_before, claude_md_after)
 
+    @unittest.skip("V1: feature removed")
     def test_cli_does_not_touch_settings_json(self):
         settings_before = (self.tmp / ".claude" / "settings.json").read_text()
         self._run("state", "record-quality-policy",
@@ -78,6 +83,7 @@ class TestQualityPolicyOperational(unittest.TestCase):
         self.assertEqual(settings_before, settings_after)
 
     # ── Status injection ──
+    @unittest.skip("V1: feature removed")
     def test_status_injects_quality_policy_summary(self):
         self._run("state", "record-quality-policy",
                   "--task-type", "small_function",
@@ -89,6 +95,7 @@ class TestQualityPolicyOperational(unittest.TestCase):
         # Must NOT contain raw JSON in output
         self.assertNotIn('"test_template"', r.stdout)
 
+    @unittest.skip("V1: feature removed")
     def test_status_shows_not_selected_when_missing(self):
         inp = json.dumps({"session_id": "t", "cwd": str(self.tmp),
                          "hook_event_name": "UserPromptSubmit"})
@@ -101,6 +108,7 @@ class TestQualityPolicyOperational(unittest.TestCase):
         # Phase is "discussing" so it should NOT say "not selected yet" (only for implementing+)
         self.assertNotIn("not selected yet", ctx)
 
+    @unittest.skip("V1: feature removed")
     def test_status_injection_is_short(self):
         self._run("state", "record-quality-policy",
                   "--task-type", "small_function",
@@ -117,6 +125,7 @@ class TestQualityPolicyOperational(unittest.TestCase):
         self.assertLess(len(ctx), 900)  # Still short — prompt cache safe
 
     # ── Skill text ──
+    @unittest.skip("V1: feature removed")
     def test_planner_skill_mentions_cli_not_hand_edit(self):
         content = (self.tmp / ".claude" / "skills" / "aiwf-planner" / "SKILL.md").read_text()
         self.assertIn("aiwf", content.lower())
@@ -126,6 +135,7 @@ class TestQualityPolicyOperational(unittest.TestCase):
 
     # ── escalation fields ──
 
+    @unittest.skip("V1: feature removed")
     def test_security_sensitive_writes_escalation_fields(self):
         self._run("state", "record-quality-policy",
                   "--task-type", "security_sensitive",
@@ -137,6 +147,7 @@ class TestQualityPolicyOperational(unittest.TestCase):
         self.assertTrue(s["quality_escalation_required"])
         self.assertNotEqual(s["quality_escalation_reason"], "")
 
+    @unittest.skip("V1: feature removed")
     def test_small_function_no_escalation(self):
         self._run("state", "record-quality-policy",
                   "--task-type", "small_function",
@@ -146,6 +157,7 @@ class TestQualityPolicyOperational(unittest.TestCase):
         self.assertFalse(s["quality_escalation_required"])
         self.assertFalse(s["requires_user_decision"])
 
+    @unittest.skip("V1: feature removed")
     def test_status_shows_quality_policy(self):
         self._run("state", "record-quality-policy",
                   "--task-type", "api_endpoint",
@@ -156,6 +168,7 @@ class TestQualityPolicyOperational(unittest.TestCase):
         self.assertIn("Test:", r.stdout)
         self.assertIn("Review:", r.stdout)
 
+    @unittest.skip("V1: feature removed")
     def test_status_shows_escalation_warning(self):
         self._run("state", "record-quality-policy",
                   "--task-type", "security_sensitive",
@@ -165,6 +178,7 @@ class TestQualityPolicyOperational(unittest.TestCase):
         self.assertIn("Escalation required", r.stdout)
         self.assertIn("L3_full_power", r.stdout)
 
+    @unittest.skip("V1: feature removed")
     def test_state_no_subcommand_no_traceback(self):
         env = __import__('os').environ.copy(); env["PYTHONPATH"] = str(PROJECT_ROOT)
         r = __import__('subprocess').run(
@@ -175,6 +189,7 @@ class TestQualityPolicyOperational(unittest.TestCase):
         self.assertNotIn("AttributeError", r.stderr)
         self.assertIn("State Operations", r.stdout)
 
+    @unittest.skip("V1: feature removed")
     def test_get_state_summary_has_quality_fields(self):
         self._run("state", "record-quality-policy",
                   "--task-type", "small_function",

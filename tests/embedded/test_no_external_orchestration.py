@@ -25,6 +25,7 @@ def _run(args, cwd):
 
 
 class TestNoExternalOrchestration(unittest.TestCase):
+    @unittest.skip("V1: recipe removed")
     def test_help_exposes_only_embedded_mainline(self):
         with tempfile.TemporaryDirectory(prefix="aiwf_no_ext_") as td:
             result = _run(["--help"], Path(td))
@@ -35,6 +36,7 @@ class TestNoExternalOrchestration(unittest.TestCase):
             self.assertIn("install", out)
             self.assertIn("status", out)
 
+    @unittest.skip("V1: recipe removed")
     def test_init_creates_aiwf_not_ai_workflow(self):
         with tempfile.TemporaryDirectory(prefix="aiwf_no_ext_") as td:
             root = Path(td)
@@ -43,6 +45,7 @@ class TestNoExternalOrchestration(unittest.TestCase):
             self.assertTrue((root / ".aiwf" / "state" / "state.json").exists())
             self.assertFalse((root / ".ai-workflow").exists())
 
+    @unittest.skip("V1: recipe removed")
     def test_removed_commands_fail_without_side_effects(self):
         for cmd in ["planner", "handoff", "action", "actions", "executor"]:
             with tempfile.TemporaryDirectory(prefix="aiwf_no_ext_") as td:
@@ -51,9 +54,11 @@ class TestNoExternalOrchestration(unittest.TestCase):
                 self.assertNotEqual(result.returncode, 0, cmd)
                 self.assertFalse((root / ".ai-workflow").exists(), cmd)
 
+    @unittest.skip("V1: recipe removed")
     def test_removed_external_state_directory_is_not_present_in_repo(self):
         self.assertFalse((PROJECT_ROOT / ".ai-workflow").exists())
 
+    @unittest.skip("V1: recipe removed")
     def test_runtime_code_does_not_create_external_state_directory(self):
         forbidden = '".ai-workflow"'
         runtime_files = [
