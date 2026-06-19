@@ -82,7 +82,8 @@ Use `references/task-contract.md` for the full contract checklist.
 Examples of valid structural commands:
 
 ```bash
-aiwf goal create GOAL-001 --title "<title>"
+aiwf goal create GOAL-001 --title "<title>"                   # root goal
+aiwf goal create GOAL-002 --parent GOAL-001 --title "<title>"  # child goal
 aiwf plan create PLAN-001 --goal GOAL-001 --title "<title>"
 aiwf task create TASK-001 --plan PLAN-001 --title "<title>"
 aiwf task activate TASK-001

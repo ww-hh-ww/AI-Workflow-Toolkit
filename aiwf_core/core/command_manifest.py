@@ -63,6 +63,12 @@ COMMAND_MANIFEST: Dict[str, Dict] = {
         "visible": True, "tested": "yes", "in_status_prompt": False,
         "keep": "evidence/testing/review/architecture-review",
     },
+    "ui": {
+        "tier": PRIMARY, "core": "infra",
+        "caller": "user", "trigger": "on-demand",
+        "visible": True, "tested": "partial", "in_status_prompt": True,
+        "keep": "TUI browser for governance structure",
+    },
     "sync": {
         "tier": PRIMARY, "core": "infra",
         "caller": "all", "trigger": "on-change",

@@ -876,7 +876,8 @@ To be filled by milestone reviewer after verification Task completes.
 def create_narrative_for_entity(base_dir: str, entity_id: str, entity_type: str,
                                 title: str = "", status: str = "",
                                 goal_id: str = "", plan_id: str = "",
-                                milestone_id: str = "", kind: str = "") -> str:
+                                milestone_id: str = "", kind: str = "",
+                                parent_goal_id: str = "") -> str:
     """Create a narrative .md doc with V1 contract frontmatter.
 
     Returns the doc_path string.
@@ -891,7 +892,7 @@ def create_narrative_for_entity(base_dir: str, entity_id: str, entity_type: str,
     if entity_type == "goal":
         fm["title"] = title
         fm["status"] = status or "open"
-        fm["parent_goal_id"] = ""
+        fm["parent_goal_id"] = parent_goal_id
         fm["child_goal_ids"] = []
         fm["attached_plan_ids"] = []
         body = _GOAL_TEMPLATE.format(id=entity_id, title=title)

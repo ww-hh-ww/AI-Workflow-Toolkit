@@ -15,6 +15,12 @@ from .task_commands import _cmd_task_activate, _cmd_task_cancel, _cmd_task_close
 from ..constants import VERSION
 
 
+def _cmd_ui(args: argparse.Namespace) -> None:
+    """aiwf ui — TUI browser."""
+    from ..aiwf_ui import run_ui
+    run_ui()
+
+
 def _cmd_sync(args: argparse.Namespace) -> None:
     """aiwf sync — compile MD frontmatter into JSON machine state."""
     from ..core.index_ops import sync_index
@@ -48,6 +54,9 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
     p_sync = sub.add_parser("sync", help="sync MD frontmatter -> JSON (--check for dry-run)")
     p_sync.add_argument("--check", action="store_true", help="validate only, do not write")
     p_sync.set_defaults(func=_cmd_sync)
+
+    # ── ui ──
+    sub.add_parser("ui", help="TUI browser for governance structure").set_defaults(func=_cmd_ui)
 
     # ── status / install / doctor ──
     p_install = sub.add_parser("install", help="install AIWF integration (skills, hooks, agents, state, scripts)")

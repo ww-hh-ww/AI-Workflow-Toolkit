@@ -399,7 +399,8 @@ def _cmd_goal_create(args: argparse.Namespace) -> None:
     from ..core.index_ops import create_narrative_for_entity, parse_md, compute_content_hash, sync_index
     from ..core.state.goal_tree_ops import load_goal_tree, save_goal_tree, _find_goal
     path = create_narrative_for_entity(str(Path.cwd()), gid, "goal", title=title,
-                                       status=g.get("status", ""))
+                                       status=g.get("status", ""),
+                                       parent_goal_id=parent_id)
     # Bind doc_path + hash in goals.json so sync can find it
     full_path = Path.cwd() / path
     if full_path.exists():

@@ -26,7 +26,7 @@ Run `aiwf status --prompt`. It tells you: phase, active task, required skill, re
 - **After editing MD frontmatter, run `aiwf sync`** — this compiles MD into the JSON machine state that gates read.
 - Human manual edits are not intercepted. They are detected post-hoc by `aiwf doctor` and `aiwf task close`.
 
-Governance paths (always allowed for AI): `.aiwf/goals/`, `.aiwf/plans/`, `.aiwf/tasks/`, `.aiwf/milestones/`, `.aiwf/config/`, `.aiwf/state/`, `.aiwf/records/`, `.aiwf/runtime/`.
+Governance paths (always allowed for AI): `.aiwf/goals/`, `.aiwf/plans/`, `.aiwf/tasks/`, `.aiwf/milestones/`, `.aiwf/config/`, `.aiwf/assets/`, `.aiwf/state/`, `.aiwf/records/`, `.aiwf/runtime/`.
 
 Exception: the active Task.md (`.aiwf/tasks/<active_task_id>.md`) is read-only for AI during executing/testing/reviewing phases.
 

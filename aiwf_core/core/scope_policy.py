@@ -203,6 +203,7 @@ GOVERNANCE_ALLOWED_PREFIXES = [
     ".aiwf/tasks/",
     ".aiwf/milestones/",
     ".aiwf/config/",
+    ".aiwf/assets/",
 ]
 
 GOVERNANCE_UNKNOWN_POLICY = "deny"  # deny unknown .aiwf paths
