@@ -1,3 +1,6 @@
+> **LEGACY — not authoritative for AIWF V1.**
+> See docs/V1_DESIGN_CONTRACT.md for current rules.
+
 # AIWF Rooted Functional Tree Design Contract
 
 ## 0. Purpose

@@ -1,3 +1,6 @@
+> **LEGACY — not authoritative for AIWF V1.**
+> See docs/V1_DESIGN_CONTRACT.md for current rules.
+
 # AIWF 技术报告
 
 日期：2026-06-01

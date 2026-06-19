@@ -63,6 +63,12 @@ COMMAND_MANIFEST: Dict[str, Dict] = {
         "visible": True, "tested": "yes", "in_status_prompt": False,
         "keep": "evidence/testing/review/architecture-review",
     },
+    "sync": {
+        "tier": PRIMARY, "core": "infra",
+        "caller": "all", "trigger": "on-change",
+        "visible": True, "tested": "partial", "in_status_prompt": True,
+        "keep": "MD frontmatter -> JSON compiler",
+    },
     "milestone": {
         "tier": PRIMARY, "core": "goal_progress",
         "caller": "planner", "trigger": "on-milestone",

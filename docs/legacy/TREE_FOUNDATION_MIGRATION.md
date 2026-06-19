@@ -1,3 +1,6 @@
+> **LEGACY — not authoritative for AIWF V1.**
+> See docs/V1_DESIGN_CONTRACT.md for current rules.
+
 # Rooted Functional Tree — Migration & Implementation Strategy
 
 **Depends on:** `AIWF_DESIGN_AXIOMS.md`, `NODE_CONTRACT.md` (both must be frozen).

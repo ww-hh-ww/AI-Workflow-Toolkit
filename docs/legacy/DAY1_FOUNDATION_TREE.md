@@ -1,3 +1,6 @@
+> **LEGACY — not authoritative for AIWF V1.**
+> See docs/V1_DESIGN_CONTRACT.md for current rules.
+
 # Day-1 Foundation Tree — Stage 4.5 Design Contract
 
 **Status:** Stage 4.5: validate-only. Planner proposes, machine validates, human reviews.

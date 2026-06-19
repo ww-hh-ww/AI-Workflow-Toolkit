@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "description": "Commands that AI agents are mechanically blocked from running. Human users are not affected.",
+  "deny": [
+    {
+      "command": "aiwf task force-close",
+      "reason": "force-close bypasses all gates on the active task. Human emergency override only.",
+      "human_only": true
+    },
+    {
+      "command": "aiwf milestone confirm",
+      "reason": "milestone acceptance requires human confirmation. AI must not confirm milestones.",
+      "human_only": true
+    }
+  ]
+}

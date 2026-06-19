@@ -1,3 +1,6 @@
+> **LEGACY — not authoritative for AIWF V1.**
+> See docs/V1_DESIGN_CONTRACT.md for current rules.
+
 # AIWF Human Surface Contract
 
 AIWF has many machine state files. Humans should not read them all, and users

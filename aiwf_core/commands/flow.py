@@ -520,10 +520,10 @@ def _print_status_debug(root, state, goal, evidence, testing, review, fix_loop,
     topo = guidance.get("execution_topology", "")
     verif = guidance.get("verification_need", "")
     rev = guidance.get("review_need", "")
-    print(
-        f"  Routing: {guidance['workflow_level']} / complexity={guidance['complexity']} "
-        f"/ score={guidance['routing_score']}"
-    )
+    wl = guidance.get("workflow_level", "?")
+    cx = guidance.get("complexity", "?")
+    rs = guidance.get("routing_score", "?")
+    print(f"  Routing: {wl} / complexity={cx} / score={rs}")
     if topo or verif or rev:
         print(f"  Topology: exec={topo}  verify={verif}  review={rev}")
     factors = guidance.get("routing_factors", [])
@@ -564,7 +564,7 @@ def _print_status_debug(root, state, goal, evidence, testing, review, fix_loop,
     print("── Detail ──")
     print("  .aiwf/state + .aiwf/records   machine state")
     print()
-    print("  CLI: aiwf doctor | aiwf workspace scan | aiwf capability scan")
+    print("  CLI: aiwf doctor | aiwf status --prompt | aiwf sync --check")
 
 
 def _next_action(state, review, fix_loop, drift_pending, cap_high):

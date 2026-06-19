@@ -6,8 +6,35 @@ Does NOT integrate with task activation, task close, or status --prompt."""
 from __future__ import annotations
 
 import argparse
+from datetime import datetime, timezone
 from pathlib import Path
 import sys
+
+
+def _now_str() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _update_md_status(entity_type: str, entity_id: str, status: str,
+                      summary: str = "") -> None:
+    """Write status back to MD frontmatter and sync to JSON."""
+    from ..core.index_ops import parse_md, write_narrative_doc, sync_index
+    dir_map = {"goal": ".aiwf/goals", "plan": ".aiwf/plans",
+               "milestone": ".aiwf/milestones"}
+    subdir = dir_map.get(entity_type)
+    if not subdir:
+        return
+    doc = Path.cwd() / subdir / f"{entity_id}.md"
+    if not doc.exists():
+        return
+    fm, body = parse_md(doc)
+    if fm is None:
+        return
+    fm["status"] = status
+    if summary:
+        fm.setdefault("closure_summary", summary)
+    write_narrative_doc(doc, fm, body)
+    sync_index(str(Path.cwd()))
 
 
 def _cmd_goal_tree_help(args: argparse.Namespace) -> None:
@@ -290,6 +317,8 @@ def _cmd_relation_add(args: argparse.Namespace) -> None:
 
     r = result["relation"]
     tag = " (cross-parent)" if r.get("cross_parent") else ""
+    from ..core.index_ops import sync_index
+    sync_index(str(Path.cwd()))
     print(f"Relation: {r['source_id']} --[{r['type']}]--> {r['target_id']}{tag}")
 
 
@@ -298,6 +327,8 @@ def _cmd_relation_remove(args: argparse.Namespace) -> None:
 
     result = remove_relation(str(Path.cwd()), args.source_id, args.target_id)
     if result.get("removed"):
+        from ..core.index_ops import sync_index
+        sync_index(str(Path.cwd()))
         print(f"Relation removed: {args.source_id} → {args.target_id}")
     else:
         print(f"Relation not found: {args.source_id} → {args.target_id}")
@@ -365,10 +396,27 @@ def _cmd_goal_create(args: argparse.Namespace) -> None:
     g = result.get("goal", result)
     gid = g.get("id") or g.get("goal_id") or goal_id
     print(f"Goal created: {gid}")
-    if narrative:
-        from ..core.index_ops import create_narrative_for_entity
-        path = create_narrative_for_entity(str(Path.cwd()), gid, "goal", title=title)
-        print(f"  Narrative doc: {path}")
+    from ..core.index_ops import create_narrative_for_entity, parse_md, compute_content_hash, sync_index
+    from ..core.state.goal_tree_ops import load_goal_tree, save_goal_tree, _find_goal
+    path = create_narrative_for_entity(str(Path.cwd()), gid, "goal", title=title,
+                                       status=g.get("status", ""))
+    # Bind doc_path + hash in goals.json so sync can find it
+    full_path = Path.cwd() / path
+    if full_path.exists():
+        _, body = parse_md(full_path)
+        doc_hash = compute_content_hash(body) if body else ""
+        tree = load_goal_tree(str(Path.cwd()))
+        node = _find_goal(tree, gid)
+        if node:
+            node["doc_path"] = path
+            node["doc_hash"] = doc_hash
+            node["doc_updated_at"] = _now_str()
+            save_goal_tree(str(Path.cwd()), tree)
+    print(f"  Narrative doc: {path}")
+    sync_result = sync_index(str(Path.cwd()))
+    if sync_result["changes"]:
+        for c in sync_result["changes"][:5]:
+            print(f"  sync: {c}")
 
 
 def _cmd_goal_update(args: argparse.Namespace) -> None:
@@ -402,10 +450,10 @@ def _cmd_goal_cancel(args: argparse.Namespace) -> None:
     replaced_by = getattr(args, "replaced_by", "") or ""
     if replaced_by:
         node["replaced_by"] = replaced_by
-    # Clear active_goal_id if this was the active goal
     if tree.get("active_goal_id") == args.goal_id:
         tree["active_goal_id"] = None
     save_goal_tree(str(Path.cwd()), tree)
+    _update_md_status("goal", args.goal_id, "cancelled")
     print(f"Goal cancelled: {args.goal_id}")
     if reason:
         print(f"  Reason: {reason}")
@@ -415,14 +463,27 @@ def _cmd_goal_cancel(args: argparse.Namespace) -> None:
 
 def _cmd_goal_rename(args: argparse.Namespace) -> None:
     from ..core.state.goal_tree_ops import load_goal_tree, save_goal_tree, _find_goal
+    from ..core.index_ops import parse_md, write_narrative_doc, sync_index
+    goal_id = getattr(args, "goal_id", "")
+    new_title = getattr(args, "title", "") or ""
     tree = load_goal_tree(str(Path.cwd()))
-    node = _find_goal(tree, getattr(args, "goal_id", ""))
+    node = _find_goal(tree, goal_id)
     if not node:
-        print(f"Goal not found: {getattr(args, 'goal_id', '')}", file=sys.stderr)
+        print(f"Goal not found: {goal_id}", file=sys.stderr)
         raise SystemExit(1)
-    node["title"] = getattr(args, "title", "") or ""
+    node["title"] = new_title
     save_goal_tree(str(Path.cwd()), tree)
-    print(f"Goal renamed: {getattr(args, 'goal_id', '')}")
+    # Update MD frontmatter and sync
+    doc_path = node.get("doc_path", "")
+    if doc_path:
+        full_path = Path.cwd() / doc_path
+        if full_path.exists():
+            fm, body = parse_md(full_path)
+            if fm:
+                fm["title"] = new_title
+                write_narrative_doc(full_path, fm, body)
+    sync_index(str(Path.cwd()))
+    print(f"Goal renamed: {goal_id}")
 
 
 def _cmd_goal_close(args: argparse.Namespace) -> None:
@@ -436,6 +497,7 @@ def _cmd_goal_close(args: argparse.Namespace) -> None:
     node["status"] = "closed"
     node["closure"] = {"mode": "normal", "accepted": True, "summary": summary}
     save_goal_tree(str(Path.cwd()), tree)
+    _update_md_status("goal", getattr(args, "goal_id", ""), "closed", summary)
     print(f"Goal closed: {getattr(args, 'goal_id', '')}")
 
 

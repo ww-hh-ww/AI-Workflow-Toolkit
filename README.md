@@ -26,7 +26,7 @@ AIWF 是嵌入 Claude Code 与 Reasonix 的长周期工程治理层。
 → 独立 Review
 → 返工并重新验证（如果需要）
 → Planner Meta-critique
-→ prepare-close
+→ `aiwf task close`
 → task close
 → Current State 接力
 ```
@@ -64,7 +64,7 @@ AIWF 不会：
 | 独立角色 | `.claude/agents/` | `runAs: subagent` Skills |
 | Pre/Post Tool Hooks | 支持 | 支持 |
 | Stop 行为 | 在关闭尝试中再次验证 | 只报告，不作为阻塞门 |
-| 权威闭合门 | `prepare-close` + Stop 复核 | `prepare-close` |
+| 权威闭合门 | `aiwf task close` + Stop 复核 | `aiwf task close` |
 
 要求：
 
@@ -184,7 +184,7 @@ Plan 和 Context 准备好后：
 - Cleanup 在 Review 前完成
 - Reviewer 审查合同、实现、证据、测试和影响
 - Planner 处置对抗观察并管理返工
-- `prepare-close` 验证闭合条件
+- `aiwf task close` 验证闭合条件
 - `task close` 归档任务并产生下一轮接力状态
 
 这一层决定“实际怎么做、证据是什么、问题是否已修、是否允许闭合”。
@@ -280,13 +280,13 @@ Goal 与代码结构通过 PROJECT-MAP 集中连接：
 用户不需要日常进入 `.aiwf/` 翻文件。稳定入口是命令和 agent 摘要：
 
 ```bash
-aiwf project-map bind GOAL-NOTES \
+aiwf plan create GOAL-NOTES \
   --module src/notes \
   --entrypoint src/notes/index.ts \
   --interface "note repository"
-aiwf project-map relations
-aiwf project-map validate
-aiwf project-map show
+aiwf goal link
+aiwf sync --check
+aiwf status --debug
 ```
 
 ### 文档出口：生长文档与架构快照
@@ -610,8 +610,8 @@ aiwf doctor
 aiwf plan list
 aiwf plan show PLAN-001
 aiwf task status
-aiwf route explain
-aiwf workspace scan
+aiwf status --debug
+aiwf doctor
 ```
 
 ### Plan 与 Task
@@ -729,7 +729,7 @@ install
 → testing
 → cleanup
 → review
-→ prepare-close
+→ `aiwf task close`
 → task close
 → next cycle
 ```

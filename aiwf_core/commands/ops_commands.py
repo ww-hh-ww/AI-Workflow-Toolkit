@@ -98,11 +98,9 @@ def _cmd_fix_loop_help(args: argparse.Namespace) -> None:
     print("AIWF Fix-Loop")
     print()
     print("Available subcommands:")
-    print("  aiwf fixloop open       — open a fix-loop with route and required fixes")
-    print("  aiwf fixloop resolve    — resolve a fix-loop (re-validates required_fixes)")
-    print("  aiwf fixloop status     — show fix-loop status + fix validation")
-    print("  aiwf fixloop repair     — declare a repair target (opens repair window)")
-    print("  aiwf fixloop revalidate — re-validate required_fixes against current state")
+    print("  aiwf fixloop open    — open a fix-loop with route and required fixes")
+    print("  aiwf fixloop status  — show fix-loop status + fix validation")
+    print("  aiwf fixloop resolve — resolve a fix-loop (re-validates required_fixes)")
 
 
 def _cmd_fix_loop_repair(args: argparse.Namespace) -> None:
@@ -393,8 +391,28 @@ def _cmd_doctor(args: argparse.Namespace) -> None:
                 print(f"  [{issue.get('type', '?')}:{issue.get('id', '?')}] {issue.get('issue', '')}")
         print()
 
+    sync = results.get("sync", {})
+    if sync:
+        sync_healthy = sync.get("healthy", True)
+        sync_count = sync.get("error_count", 0)
+        warn_count = sync.get("warning_count", 0)
+        if sync_healthy:
+            if warn_count:
+                print(f"Sync: ⚠ MD frontmatter → JSON OK ({warn_count} warning(s))")
+                for w in sync.get("warnings", [])[:5]:
+                    print(f"  ⚠ {w}")
+            else:
+                print(f"Sync: {_icon(True)} MD frontmatter → JSON OK")
+        else:
+            print(f"Sync: {_icon(False)} {sync_count} error(s)")
+            for err in sync.get("errors", [])[:10]:
+                print(f"  {err}")
+        print()
+
     if overall == "healthy":
         print("✓ All checks passed. AIWF is ready.")
+    elif overall == "healthy_with_warnings":
+        print("⚠ All checks passed with warnings. AIWF is operational but attention needed.")
     else:
         print(f"✗ Some checks failed. Run: aiwf install {results.get('mode', 'claude')} --force    to fix.")
 

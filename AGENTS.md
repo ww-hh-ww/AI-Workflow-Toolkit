@@ -49,8 +49,8 @@ Install
 
 Review must not happen before cleanup.
 Testing must not be reduced to a review checklist.
-Adversarial observations must be dispositioned before prepare-close.
-Architecture review triggers periodically (~10 tasks, gravity ≥ 0.5, PROJECT-MAP stale).
+Adversarial observations must be dispositioned before task close.
+Architecture review triggers are advisory, signaled by status --prompt.
 
 ## Correct Mainlines
 

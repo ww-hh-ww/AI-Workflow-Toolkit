@@ -53,15 +53,19 @@ Read only what is needed for the planning decision:
 
 1. Read `aiwf status --prompt`.
 2. Decide whether the next action is structural planning, task activation, milestone gating, or returning to another skill.
-3. If creating a Task, write a contract with clear scope and gates.
-4. If the Task is high risk, include a Git rollback strategy.
-5. Activate only when Task.md is stable enough to freeze.
-6. After activation, stop and hand off to the required next skill.
+3. If creating or updating a Goal, Plan, Task, or Milestone, write the MD frontmatter first.
+4. Run `aiwf sync` after any frontmatter change — this compiles MD into the JSON machine state that gates read.
+5. If the Task is high risk, include a Git rollback strategy.
+6. Activate only when Task.md is stable enough to freeze.
+7. After activation, stop and hand off to the required next skill.
 
 ## Task.md minimum contract
 
 A ready Task.md must state:
 
+- `executor_required`, `tester_required`, `reviewer_required` — set deliberately. See `references/task-contract.md` for decision criteria.
+- `rollback_required` — true for high-risk surfaces. See `references/risk-and-rollback.md`.
+- `report_policy` — `silent_until_done` for routine milestone tasks, `ask` for tasks needing human attention.
 - Scope
 - Allowed Write
 - Forbidden Write

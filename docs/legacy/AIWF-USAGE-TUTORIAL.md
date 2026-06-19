@@ -1,3 +1,6 @@
+> **LEGACY — not authoritative for AIWF V1.**
+> See docs/V1_DESIGN_CONTRACT.md for current rules.
+
 # AIWF 使用教程：从会用到用好
 
 这份教程面向第一次拿到 AIWF 的项目使用者。你不需要记住所有命令，也不需要进入 `.aiwf/` 手工翻状态文件。日常入口很简单：

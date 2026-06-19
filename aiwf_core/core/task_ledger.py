@@ -237,10 +237,8 @@ def upsert_task(
     effective_plan = plan_id or parent_plan
     if effective_goal:
         task["goal_id"] = effective_goal
-        task["parent_goal"] = effective_goal
     if effective_plan:
         task["plan_id"] = effective_plan
-        task["parent_plan"] = effective_plan
     if milestone:
         task["milestone"] = milestone
     if milestone_id:
@@ -802,15 +800,15 @@ def activate_task(base_dir: str, task_id: str) -> Dict[str, Any]:
     task["status"] = "active"
     task["activated_at"] = _now()
     task["updated_at"] = _now()
-    # Freeze narrative doc hash on activation
+    # Freeze contract hash on activation (frontmatter + body)
     if task.get("doc_path"):
         from pathlib import Path as _Path
         doc = _Path(base_dir) / task["doc_path"]
         if doc.exists():
-            from .index_ops import parse_md, compute_content_hash
-            _, body = parse_md(doc)
+            from .index_ops import parse_md, compute_contract_hash
+            fm, body = parse_md(doc)
             if body:
-                task["frozen_doc_hash"] = compute_content_hash(body)
+                task["frozen_contract_hash"] = compute_contract_hash(fm or {}, body)
     # Sync plan task_status so plans.json doesn't drift from task-ledger
     if task.get("plan_id"):
         try:
@@ -960,19 +958,23 @@ def close_task(base_dir: str, task_id: str = "", note: str = "") -> Dict[str, An
             return {"closed": False, "task": task, "ledger": ledger,
                     "blockers": ["open fix-loop blocks task close"]}
 
-        # 2. Task.md must not have been modified during execution
-        frozen = task.get("frozen_doc_hash", "")
+        # 2. Active Task.md dirty check — warning only, does not block close
+        frozen = task.get("frozen_contract_hash", "")
         if frozen and task.get("doc_path"):
             from pathlib import Path as _Path
             doc = _Path(base_dir) / task["doc_path"]
             if doc.exists():
-                from .index_ops import parse_md, compute_content_hash
-                _, body = parse_md(doc)
+                from .index_ops import parse_md, compute_contract_hash
+                fm, body = parse_md(doc)
                 if body:
-                    current_hash = compute_content_hash(body)
+                    current_hash = compute_contract_hash(fm or {}, body)
                     if current_hash != frozen:
-                        return {"closed": False, "task": task, "ledger": ledger,
-                                "blockers": ["active Task.md was modified during execution (doc_hash != frozen_doc_hash)"]}
+                        warnings = task.setdefault("close_warnings", [])
+                        warnings.append(
+                            "active Task.md changed after activation. "
+                            "This close uses the frozen JSON contract from activation. "
+                            "Post-activation MD edits were ignored."
+                        )
 
         # 3. Requirements gates: executor, tester, reviewer
         reqs = task.get("requirements", {})

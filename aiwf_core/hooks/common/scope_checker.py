@@ -67,21 +67,16 @@ def check_file_write(event: NormalizedEvent) -> ScopeResult:
     from ...core.scope_policy import _is_governance_file, _normalize_path
     normalized = _normalize_path(file_path, str(cwd))
 
-    # ── Mechanical truth: must use CLI, never direct Write/Edit ──
-    protected_truth = {
-        ".aiwf/state/state.json",
-        ".aiwf/state/fix-loop.json",
-        ".aiwf/state/tasks.json",
-    }
-    if normalized in protected_truth:
+    # ── Mechanical truth: JSON run state must use CLI, never direct Write/Edit ──
+    _PROTECTED_JSON_PREFIXES = (".aiwf/state/", ".aiwf/records/")
+    if normalized.endswith(".json") and any(normalized.startswith(p) for p in _PROTECTED_JSON_PREFIXES):
         return ScopeResult(
             file_path=normalized,
             allowed=False,
             active_context_id=state.get("active_context_id") or "(none)",
             reason=(
-                f"mechanical truth '{normalized}' must be changed through aiwf CLI/state operations; "
-                "direct Write/Edit is denied so workflow gates cannot be bypassed. "
-                "Use the matching command: aiwf state ..., aiwf goal ..., aiwf task ..., or aiwf fix-loop ..."
+                f"mechanical truth '{normalized}' must be changed through aiwf CLI commands; "
+                "direct Write/Edit of .aiwf/state/*.json and .aiwf/records/*.json is denied."
             ),
         )
 
@@ -121,13 +116,13 @@ def check_file_write(event: NormalizedEvent) -> ScopeResult:
                         reason=f"fix-loop repair window: '{normalized}' is a required_fix target"
                     )
 
-    # ── Governance files: always allowed ──
+    # ── Governance files ──
     if _is_governance_file(normalized):
-        # Exception: active Task.md is read-only for AI during execution
         active_task_id = state.get("active_task_id")
+        # Only the active Task.md is frozen during execution
         if active_task_id:
             task_md_path = f".aiwf/tasks/{active_task_id}.md"
-            if normalized == task_md_path and state.get("phase") in ("executing", "testing", "reviewing"):
+            if normalized == task_md_path:
                 return ScopeResult(
                     file_path=normalized,
                     allowed=False,
@@ -135,9 +130,10 @@ def check_file_write(event: NormalizedEvent) -> ScopeResult:
                     reason=(
                         f"active Task.md '{normalized}' is frozen during execution. "
                         f"Do NOT modify the active Task.md. "
-                        f"Scope changes must go through Planner."
+                        f"Other governance MDs (goals, plans, milestones, other tasks) may be edited."
                     ),
                 )
+
         return ScopeResult(file_path=normalized, allowed=True,
                           reason="governance file — always allowed")
 
@@ -197,7 +193,68 @@ def check_bash(event: NormalizedEvent) -> Dict:
     if policy_result:
         return policy_result
 
+    # ── Active Task.md: block bash writes to frozen contract ──
+    active_lock_result = _check_active_task_md_bash(command, cwd)
+    if active_lock_result:
+        return active_lock_result
+
     return check_bash_command(command)
+
+
+def _check_active_task_md_bash(command: str, cwd: Path) -> Optional[Dict]:
+    """Block bash commands that write to or delete the active Task.md during execution."""
+    state_path = cwd / ".aiwf" / "state" / "state.json"
+    if not state_path.exists():
+        return None
+    try:
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    active_task_id = state.get("active_task_id", "")
+    if not active_task_id:
+        return None
+
+    import re
+    md_path = f".aiwf/tasks/{active_task_id}.md"
+    esc = re.escape(md_path)
+
+    # Destructive patterns targeting the active Task.md
+    deny_patterns = [
+        # Redirect/append: echo x >> path, echo x > path
+        rf">>?\s*{esc}",
+        # In-place edit: sed -i ... path, perl -i ... path
+        rf"(sed|perl)\s+.*-i[^ ]*\s+.*{esc}",
+        # Remove/unlink: rm path, rm -f path, unlink path
+        rf"\brm\s+[^;|&]*{esc}",
+        rf"\bunlink\s+{esc}",
+        # Move/rename: mv path dest, mv -f path dest
+        rf"\bmv\s+.*{esc}\s",
+        # Copy over: cp ... path (copies TO the locked file)
+        rf"\bcp\s+.*\s+{esc}",
+        # Tee overwrite: | tee path, tee path
+        rf"\btee\s+.*{esc}",
+        # Python write: open("path","w"), open('path','w')
+        rf"open\s*\(\s*['\"]{esc}['\"]\s*,\s*['\"]w",
+        # dd write: dd of=path
+        rf"\bdd\s+.*of={esc}",
+        # Truncate: truncate path, > path
+        rf"\btruncate\s+.*{esc}",
+    ]
+
+    for pattern in deny_patterns:
+        if re.search(pattern, command, re.IGNORECASE):
+            return {
+                "allowed": False,
+                "decision": "deny",
+                "command": command[:200],
+                "matched_pattern": pattern,
+                "reason": (
+                    f"Active Task.md '{md_path}' is frozen during execution. "
+                    f"Bash writes to the active Task.md are blocked. "
+                    f"Other governance files may be edited."
+                ),
+            }
+    return None
 
 
 def _check_command_policy(command: str, cwd: Path) -> Optional[Dict]:

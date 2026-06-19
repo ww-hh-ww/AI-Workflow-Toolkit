@@ -40,5 +40,7 @@ aiwf_core = [
   "embedded_templates/agents/*.md",
   "embedded_templates/scripts/*.py",
   "embedded_templates/shared/*.md",
+  "embedded_templates/config/*.json",
   "embedded_templates/skills/*/SKILL.md",
+  "embedded_templates/skills/*/references/*.md",
 ]

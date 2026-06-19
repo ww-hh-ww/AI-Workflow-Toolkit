@@ -1,3 +1,6 @@
+> **LEGACY — not authoritative for AIWF V1.**
+> See docs/V1_DESIGN_CONTRACT.md for current rules.
+
 # Execution Frontier — Stage 4.7 Design Contract
 
 **Depends on:** `CHANGE_ADMISSION.md`, `AIWF_DESIGN_AXIOMS.md`, `NODE_CONTRACT.md` (all frozen).

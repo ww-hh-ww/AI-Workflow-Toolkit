@@ -71,12 +71,12 @@ def recovery_lines(cwd, state, goal, review, fix_loop):
                 "REQUIRED NEXT: finish spike and record findings"]
     if state.get("external_research_required") and request_mode == "execution" and _research_unresolved(cwd):
         return blocked("user_decision", "planner", "resolve external research requirement",
-                       "promote a research record, or ask user to approve aiwf research skip",
+                       "promote a research record, or ask user whether to skip external research",
                        user=True)
     if active_task and state.get("phase") == "closed":
         return blocked("close_ledger_task", "planner",
                        f"close active ledger task {active_task}",
-                       f"run aiwf task close; task ledger is still active",
+                       f"run aiwf task close (active task must be closed)",
                        user=False)
     if not active_task and state.get("phase") in ("reviewing", "closing"):
         if review.get("result") == "accepted":
@@ -106,28 +106,8 @@ def recovery_lines(cwd, state, goal, review, fix_loop):
         # No active task: scope defaults to unrestricted.
         # forbidden_write is the recommended mechanism for restricting writes.
         return []  # Health: ok
-    if level in ("L2_standard_team", "L3_full_power"):
-        brief = goal.get("quality_brief", {}) or {}
-        evaluation = brief.get("evaluation_contract", {}) or {}
-        missing = [k for k in ("user_visible_outcome", "acceptance_criteria", "test_obligations", "review_obligations") if not evaluation.get(k)]
-        if missing:
-            return blocked("missing_contract", "planner", "complete Evaluation Contract",
-                           "record missing fields or ask the user for acceptance criteria",
-                           user=True)
-        testing = rj(cwd / ".aiwf" / "records" / "testing.json", {})
-        if testing.get("status") not in ("adequate", "passed"):
-            return blocked("missing_step", "tester", "call native Agent/Task tool with subagent_type=aiwf-tester",
-                           "closure recovery: do not re-dispatch Executor or rerun work just to attach task_id; AIWF infers task evidence from active task window and quality links when possible. Use native subagent_type=aiwf-tester. Do not dispatch Reviewer first or in parallel")
-        if not review.get("cleanup_verified_at"):
-            return blocked("wrong_order", "planner", "verify cleanup before Reviewer",
-                           "run cleanup checks and mark cleanup fresh before review")
-        if review.get("result") != "accepted":
-            return blocked("missing_step", "reviewer", "call native Agent/Task tool with subagent_type=aiwf-reviewer",
-                           "use native subagent_type=aiwf-reviewer after testing and cleanup; do not roleplay Reviewer or run Tester/Reviewer in parallel")
-        pending = [o for o in review.get("adversarial_observations", []) if isinstance(o, dict) and o.get("disposition") == "pending"]
-        if pending:
-            return blocked("missing_step", "planner", "disposition adversarial observations",
-                           "record meta-critique dispositions before task close")
+    # Recovery is derived from current phase + Task.requirements, not workflow_level
+    # Close gate checks (evidence/testing/review) are done mechanically in aiwf task close
     return out
 
 
@@ -189,7 +169,7 @@ def _milestone_signals(cwd, active_milestone_id):
             plan_count = len(m.get("plan_ids", []) or [])
             signals.append(
                 f"MILESTONE ACTIVATABLE {mid}: {len(covered)} goals, {plan_count} plans ready. "
-                f"aiwf milestone update {mid} --status active"
+                f"Load /aiwf-milestone to assess and close."
             )
 
     if active_milestone_id:
@@ -273,7 +253,6 @@ def _build_short_context(cwd, state, goal, review, fix_loop):
     No Mission, no full tree, no reports, no assets, no raw artifact content.
     """
     phase = state.get("phase", "planning")
-    # LEGACY: workflow_level is not a V1 runtime control path
     mode = state.get("request_mode", "execution")
     pattern = state.get("workflow_pattern", "linear")
     task_id, plan_id, goal_id, milestone_id = _node_ids(cwd, state)
@@ -336,11 +315,11 @@ def _build_short_context(cwd, state, goal, review, fix_loop):
         "executing": "EXECUTING - /aiwf-implement; read active Task.md, write code.",
         "testing": "TESTING - /aiwf-test; run commands, record evidence.",
         "reviewing": "REVIEWING - /aiwf-review chain.",
-        "closing": "CLOSING - /aiwf-close; prepare_close before task close.",
+        "closing": "CLOSING - /aiwf-close; verify gates, then aiwf task close.",
         "blocked": "BLOCKED - resolve blockers before continuing.",
         "closed": ("CLOSED - start next task or periodic Architect review."
                     if not state.get("active_task_id")
-                    else f"Closure gate passed. Next: run aiwf task close {state['active_task_id']}."),
+                    else "Closure gate passed. Next: run aiwf task close."),
         # V1 backward compat
         "discussing": "PLANNING - /aiwf-planner; shape Goal Tree, create Plan.",
         "planned": "PLANNING - /aiwf-planner; shape Goal Tree, create Plan.",
@@ -410,16 +389,15 @@ def _build_full_context(cwd, state, goal, review, fix_loop):
         lines.append("Quality brief: present")
     elif goal.get("confirmed"):
         lines.append("Quality brief: missing; planner should record before execution")
-    if state.get("test_template") and state.get("review_template"):
-        lines.append(f"Quality: {state.get('workflow_level', '?')} / {state.get('task_type', '?')}")
-        lines.append(f"Templates: test={state['test_template']}, review={state['review_template']}")
-        if state.get("quality_escalation_required"):
-            lines.append(f"ESCALATION REQUIRED: current={state.get('workflow_level', '?')}, recommended={state.get('recommended_minimum_level', '?')}")
-            if state.get("quality_escalation_reason"):
-                lines.append(f"Reason: {state['quality_escalation_reason'][:150]}")
-            lines.append("Planner must resolve/escalate before execution")
-    elif state.get("phase") in ("executing", "implementing", "testing", "reviewing"):
-        lines.append("Quality: not selected yet; planner should record quality policy before execution")
+    # Active task requirements summary
+    active_task = state.get("active_task_id")
+    if active_task:
+        tasks_data = rj(cwd / ".aiwf" / "state" / "tasks.json", {"tasks": []})
+        for t in tasks_data.get("tasks", []) or []:
+            if isinstance(t, dict) and t.get("id") == active_task:
+                reqs = t.get("requirements", {}) or {}
+                lines.append(f"  Reqs: executor={reqs.get('executor_required', True)}, tester={reqs.get('tester_required', True)}, reviewer={reqs.get('reviewer_required', True)}")
+                break
     phase = state.get("phase", "planning")
     gates = {"planning": "load /aiwf-planner to shape Goal Tree and create Plan",
              "discussing": "load /aiwf-planner to shape Goal Tree and create Plan",
@@ -490,34 +468,19 @@ def _build_agent_context(cwd, state, goal, review, fix_loop, json_mode=False):
         except Exception:
             pass
 
-    # Condition-triggered checklists
+    # Checklists derived from phase and milestone state, not workflow_level
     checklists = []
-    if level in ("L2_standard_team", "L3_full_power"):
-        if phase == "reviewing":
-            checklists.append("trace")
-            checklists.append("verify")
-        if phase in ("executing", "implementing") and state.get("active_plan_id"):
-            # Check if scope is set
-            plans = rj(cwd / ".aiwf" / "state" / "plans.json", {"plans": []})
-            for p in plans.get("plans", []) or []:
-                if (p.get("plan_id") or "") == state.get("active_plan_id"):
-                    if p.get("allowed_write") or p.get("forbidden_write"):
-                        checklists.append("scope")
-                    break
+    if phase == "reviewing":
+        checklists.append("trace")
+        checklists.append("verify")
     if phase == "closing" and blockers:
         checklists.append("recovery")
-    if level == "L3_full_power":
-        if phase == "reviewing":
-            checklists.append("output")
-        checklists.append("meta")
 
-    # Milestone signals
     milestone_id = state.get("active_milestone_id") or ""
     ms_signals = _milestone_signals(cwd, milestone_id) if milestone_id else []
     if any("CLOSABLE" in s for s in ms_signals):
         checklists.append("integration")
-        if level == "L3_full_power":
-            checklists.append("arch-review")
+        checklists.append("arch-review")
 
     # Hard gates (never skip)
     hard_gates = []
@@ -534,7 +497,7 @@ def _build_agent_context(cwd, state, goal, review, fix_loop, json_mode=False):
         "planned": "activate task", "executing": "implement within scope",
         "implementing": "implement within scope", "testing": "verify with tests",
         "reviewing": "review evidence and scope", "blocked": "resolve blockers",
-        "closing": "prepare and close task", "closed": "start next task or architect review",
+        "closing": "verify close gates and close active task", "closed": "start next task or architect review",
     }.get(phase, "check status")
 
     # Required read: active task narrative doc
@@ -629,7 +592,7 @@ def main():
             "executing": "EXECUTING - /aiwf-implement; read active Task.md, write code.",
             "testing": "TESTING - /aiwf-test; run commands, record evidence.",
             "reviewing": "REVIEWING - /aiwf-review chain.",
-            "closing": "CLOSING - /aiwf-close; prepare_close before task close.",
+            "closing": "CLOSING - /aiwf-close; verify gates, then aiwf task close.",
             "blocked": "BLOCKED - resolve blockers before continuing.",
             "closed": "CLOSED.",
             # V1 backward compat

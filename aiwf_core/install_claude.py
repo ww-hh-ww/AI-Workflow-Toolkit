@@ -804,6 +804,26 @@ def doctor(mode: str | None = None) -> Dict[str, Any]:
     except Exception as e:
         checks["index"] = {"healthy": False, "issues_count": 1, "issues": [str(e)]}
 
+    # Sync check (MD frontmatter -> JSON compiler)
+    try:
+        from .core.index_ops import sync_index
+        sync = sync_index(str(root), dry_run=True)
+        sync_errors = sync.get("errors", [])
+        sync_changes = sync.get("changes", [])
+        has_warnings = any("WARNING" in c for c in sync_changes)
+        checks["sync"] = {"healthy": len(sync_errors) == 0,
+                         "error_count": len(sync_errors),
+                         "warning_count": sum(1 for c in sync_changes if "WARNING" in c),
+                         "warnings": [c for c in sync_changes if "WARNING" in c][:5],
+                         "locked": sync.get("locked", False),
+                         "errors": sync_errors[:10]}
+    except Exception as e:
+        checks["sync"] = {"healthy": False, "error_count": 1, "errors": [str(e)],
+                         "warning_count": 0, "warnings": []}
+
+    sync_ok = checks.get("sync", {}).get("healthy", True)
+    sync_warnings = checks.get("sync", {}).get("warning_count", 0) > 0
+
     all_ok = (
         checks["instruction_md"]
         and checks["settings_json"]
@@ -813,8 +833,14 @@ def doctor(mode: str | None = None) -> Dict[str, Any]:
         and all(checks["state_files"].values())
         and all(v["exists"] and v["executable"] for v in checks["scripts"].values())
         and checks.get("index", {}).get("healthy", True)
+        and sync_ok
     )
-    checks["overall"] = "healthy" if all_ok else "issues_found"
+    if all_ok and sync_warnings:
+        checks["overall"] = "healthy_with_warnings"
+    elif all_ok:
+        checks["overall"] = "healthy"
+    else:
+        checks["overall"] = "issues_found"
 
     return checks
 

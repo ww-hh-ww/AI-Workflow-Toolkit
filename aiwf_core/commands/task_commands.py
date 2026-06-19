@@ -62,6 +62,11 @@ def _cmd_task_plan(args: argparse.Namespace) -> None:
     print(f"  Parallel safe: {task.get('parallel_safe', False)}")
     # V1: Task.md is the execution contract — always created on task create
     _write_task_narrative(Path.cwd(), task)
+    from ..core.index_ops import sync_index
+    sync_result = sync_index(str(Path.cwd()))
+    if sync_result["changes"]:
+        for c in sync_result["changes"][:5]:
+            print(f"  sync: {c}")
     if task.get("parent_goal"):
         print(f"  Parent goal: {task['parent_goal']}")
     else:
@@ -121,53 +126,90 @@ def _cmd_task_close(args: argparse.Namespace) -> None:
         for blocker in result["blockers"][:5]:
             print(f"  - {blocker}")
         raise SystemExit(1)
+    task = result.get("task") or {}
+    for w in task.get("close_warnings", []) or []:
+        print(f"  Warning: {w}")
 
-    # Goal progress: a task is an execution unit, not a goal unit.
-    # Every close must show where we are in the larger goal.
+    # Write close banner to Task.md (safe: lock released, task is closed)
+    doc_path = task.get("doc_path", "")
+    if doc_path:
+        doc = Path.cwd() / doc_path
+        if doc.exists():
+            text = doc.read_text(encoding="utf-8")
+            first = text.find("---\n", 4)
+            if first != -1:
+                fm_end = first + 4
+                from datetime import datetime, timezone
+                ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+                banner = (
+                    f"\n> **CLOSED** {ts} — "
+                    f"frozen contract from activation. "
+                    f"evidence={len(task.get('evidence_ids', []) or [])} records.\n"
+                )
+                doc.write_text(text[:fm_end] + banner + text[fm_end:], encoding="utf-8")
+
+    # report_policy: ask → report to human and wait; silent_until_done → auto-proceed
+    report_policy = (task.get("report_policy") or "ask").strip()
     gp = result.get("goal_progress", {}) or {}
     task_snapshot = result.get("task") or {}
-    verification_status = task_snapshot.get("verification_status", "")
-    if verification_status == "unverified":
-        gaps = task_snapshot.get("verification_gaps", []) or []
-        print("  Verification: unverified")
-        if gaps:
-            print(f"  Verification gaps: {', '.join(str(g) for g in gaps[:3])}")
-        print("  Note: task code may be complete, but runtime/system validation remains open.")
-    elif verification_status:
-        print(f"  Verification: {verification_status}")
     task_kind = task_snapshot.get("kind", "")
     task_ms_id = task_snapshot.get("milestone_id", "")
-    if task_kind == "milestone_verification" and task_ms_id:
-        print(f"  Task complete: yes")
-        print(f"  Milestone: {task_ms_id} — verification complete")
-        print(f"  Next: aiwf milestone close {task_ms_id}")
-    elif gp.get("parent_goal"):
-        done = "yes" if gp.get("goal_complete") else "no"
-        print(f"  Task complete: yes")
-        print(f"  Goal ({gp['parent_goal']}) complete: {done}")
-        print(f"  Progress: {gp.get('closed_count', 0)}/{gp.get('total_count', 0)} tasks closed")
-        remaining = gp.get("remaining_tasks", []) or []
-        if remaining:
-            print(f"  Remaining tasks: {' '.join(remaining[:3])}")
-        print(f"  Next: aiwf-planner")
-    else:
-        print(f"  Task complete: yes")
-        print(f"  Goal complete: unknown (no parent goal set on this task)")
-        print(f"  Hint: use --parent-goal GOAL-xxx when planning tasks")
-        print(f"  Next: aiwf-planner")
-
     pp = result.get("plan_progress", {}) or {}
+
+    if report_policy == "silent_until_done":
+        # Auto-proceed: Planner decides next action, no human reporting
+        remaining = gp.get("remaining_tasks", []) or []
+        ms_id = task_ms_id or pp.get("milestone_progress", {}).get("milestone", {}).get("milestone_id", "")
+        if remaining:
+            print(f"  → load /aiwf-planner, pick next task from [{', '.join(remaining[:5])}], activate and continue  (silent, do not report to human)")
+        elif ms_id:
+            print(f"  → load /aiwf-milestone, assess milestone {ms_id}  (silent batch complete, report milestone result to human)")
+        else:
+            print(f"  → all tasks complete, load /aiwf-planner for next cycle  (silent, report summary to human)")
+        return
+
+    # ask policy: summarize what was done, current state, next step, then wait for human
+    title = task_snapshot.get("title_cache") or task_snapshot.get("title") or task_id
+    kind = task_snapshot.get("kind", "")
+    print(f"  Task: {title}")
+    print(f"  Status: closed")
+    if kind == "milestone_verification":
+        print(f"  Kind: milestone verification for {task_ms_id}")
+    # What was accomplished
+    closure = task_snapshot.get("closure", {}) or {}
+    if closure.get("summary"):
+        print(f"  Summary: {closure['summary']}")
+    # Current phase
+    phase = task_snapshot.get("phase", "")
+    if not phase:
+        from pathlib import Path as _P
+        import json as _j
+        sp = _P.cwd() / ".aiwf" / "state" / "state.json"
+        if sp.exists():
+            phase = _j.loads(sp.read_text()).get("phase", "")
+    print(f"  Phase: {phase}")
+    # Goal progress
+    if gp.get("parent_goal"):
+        done = "yes" if gp.get("goal_complete") else "no"
+        remaining = gp.get("remaining_tasks", []) or []
+        print(f"  Goal: {gp['parent_goal']} — {gp.get('closed_count', 0)}/{gp.get('total_count', 0)} tasks closed ({'complete' if done == 'yes' else f'{len(remaining)} remaining'})")
+        if remaining:
+            print(f"  Remaining tasks: {' '.join(remaining[:5])}")
+    # Plan progress
     if pp.get("reconciled"):
         plan = pp.get("plan", {}) or {}
-        print(f"  Plan ({plan.get('plan_id', '')}) progress: {pp.get('closed_count', 0)}/{pp.get('total_count', 0)} tasks closed")
-        remaining = pp.get("remaining_task_ids", []) or []
-        if remaining:
-            print(f"  Plan remaining: {' '.join(remaining[:3])}")
-        mp = pp.get("milestone_progress", {}) or {}
-        if mp.get("reconciled"):
-            milestone = mp.get("milestone", {}) or {}
-            rollup = milestone.get("evidence_rollup", {}) or {}
-            print(f"  Milestone ({milestone.get('milestone_id', '')}) progress: {rollup.get('summary', '')}")
+        print(f"  Plan: {plan.get('plan_id', '')} — {pp.get('closed_count', 0)}/{pp.get('total_count', 0)} tasks closed")
+    # Milestone progress
+    mp = pp.get("milestone_progress", {}) or {}
+    if mp.get("reconciled"):
+        ms = mp.get("milestone", {}) or {}
+        print(f"  Milestone: {ms.get('milestone_id', '')} — {ms.get('evidence_rollup', {}).get('summary', '')}")
+    # Next action
+    if kind == "milestone_verification" and task_ms_id:
+        print(f"  Next: aiwf milestone close {task_ms_id}")
+    else:
+        print(f"  Next: aiwf-planner")
+    print(f"  → Report this summary to the human and wait for instructions.")
 
     # Granularity warnings
     for w in result.get("granularity_warnings", []) or []:
@@ -219,6 +261,8 @@ def _cmd_task_rename(args: argparse.Namespace) -> None:
             t["title"] = title
             t["title_cache"] = title
             save_ledger(str(Path.cwd()), ledger)
+            from ..core.index_ops import sync_index
+            sync_index(str(Path.cwd()))
             print(f"Task renamed: {task_id} -> {title}")
             return
     print(f"Task not found: {task_id}", file=sys.stderr)
@@ -377,121 +421,30 @@ def _cmd_task_help(args: argparse.Namespace) -> None:
 
 
 def _write_task_narrative(cwd: Path, task: dict) -> None:
-    from ..core.index_ops import (
-        generate_narrative_doc_path, write_narrative_doc,
-    )
+    from ..core.index_ops import create_narrative_for_entity
     from ..core.task_ledger import load_ledger, save_ledger
 
-    doc_path_str = generate_narrative_doc_path(task["id"], "task")
-    fm = {"id": task["id"], "type": "task"}
-    task_kind = task.get("kind", "")
-    if task_kind == "milestone_verification":
-        ms_id = task.get("milestone_id", "MS-ID")
-        body = f"""# {task['id']} — {task.get('title', '')}
-
-This task verifies {ms_id} against `.aiwf/milestones/{ms_id}.md`.
-Do NOT implement feature changes here.
-Run integration and architecture review sub-steps through `/aiwf-milestone`.
-
-## Objective
-
-Verify milestone {ms_id}.
-
-## Milestone Reference
-
-- Milestone: {ms_id}
-- This task is: kind=milestone_verification
-
-## Pass Standard Source
-
-The authoritative Pass Standard is in `.aiwf/milestones/{ms_id}.md`.
-
-## Integration Test Requirements
-
-(fill — what must the integration tester verify?)
-
-## Architect Review Requirements
-
-(fill — is architecture review required? what must be checked?)
-
-## Milestone Review Requirements
-
-(fill — what must the final milestone reviewer verify?)
-
-## Residual Risk Handling
-
-(fill — which risks are acceptable? which block?)
-
-## Human Acceptance Check
-
-(fill — is explicit human acceptance required?)
-
-## Done When
-
-- [ ] Integration test passed and testing record exists (aiwf record testing)
-- [ ] Architecture review intact (if required)
-- [ ] Milestone review passed and review record exists (aiwf record review)
-- [ ] Records in records/review.json, records/architecture-review.json
-- [ ] Assessment recorded: aiwf milestone assess {ms_id} --verdict PASS
-
-Note: This task has executor_required=false by default — no executor evidence needed.
-If Planner overrides executor_required=true, executor evidence must also be recorded.
-"""
-    else:
-        body = f"""# {task['id']} — {task.get('title', '')}
-
-## Objective
-
-(fill)
-
-## Scope
-
-(fill)
-
-## Non-goals
-
-(fill)
-
-## Forbidden Write
-
-(fill)
-
-## Executor Requirements
-
-(fill)
-
-## Tester Requirements
-
-(fill)
-
-## Reviewer Requirements
-
-(fill)
-
-## Done When
-
-(fill)
-
-## Validation
-
-(fill)
-
-## Notes
-
-(fill)
-"""
-    full_path = cwd / doc_path_str
-    doc_hash = write_narrative_doc(full_path, fm, body)
+    path = create_narrative_for_entity(str(cwd), task["id"], "task",
+                                       title=task.get("title", ""),
+                                       goal_id=task.get("goal_id", ""),
+                                       plan_id=task.get("plan_id", ""),
+                                       milestone_id=task.get("milestone_id", ""),
+                                       kind=task.get("kind", ""))
+    # Update ledger with doc path and hash
+    from ..core.index_ops import parse_md, compute_content_hash
+    full_path = cwd / path
+    _, body = parse_md(full_path)
+    doc_hash = compute_content_hash(body) if body else ""
 
     ledger = load_ledger(str(cwd))
     for t in ledger.get("tasks", []):
         if t.get("id") == task["id"]:
-            t["doc_path"] = doc_path_str
+            t["doc_path"] = path
             t["doc_hash"] = doc_hash
             t["doc_updated_at"] = _now_str()
             break
     save_ledger(str(cwd), ledger)
-    print(f"  Narrative doc: {doc_path_str}")
+    print(f"  Narrative doc: {path}")
 
 
 def _now_str() -> str:

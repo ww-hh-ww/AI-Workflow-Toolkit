@@ -55,8 +55,15 @@ def _cmd_plan_create(args: argparse.Namespace) -> None:
     print(f"  Goal: {result.get('target_goal_id', result.get('goal_id', ''))}")
     if result.get("task_ids"):
         print(f"  Tasks: {', '.join(result['task_ids'])}")
-    if getattr(args, "narrative", False):
-        _write_plan_narrative(Path.cwd(), effective_id)
+    _write_plan_narrative(Path.cwd(), effective_id,
+                          title=getattr(args, "title", ""),
+                          goal_id=getattr(args, "goal_id", ""),
+                          milestone_id=getattr(args, "milestone_id", ""))
+    from ..core.index_ops import sync_index
+    sync_result = sync_index(str(Path.cwd()))
+    if sync_result["changes"]:
+        for c in sync_result["changes"][:5]:
+            print(f"  sync: {c}")
     print("  Note: Plan.md is the semantic document; JSON indexes it.")
 
 
@@ -123,16 +130,29 @@ def _cmd_plan_list(args: argparse.Namespace) -> None:
 
 def _cmd_plan_dep_add(args: argparse.Namespace) -> None:
     from ..core.state.plan_ops import add_plan_dependency
+    from ..core.index_ops import parse_md, write_narrative_doc, sync_index
     try:
         result = add_plan_dependency(str(Path.cwd()), args.plan_id, args.dependency_id)
     except ValueError as e:
         print(f"Plan dependency add blocked: {e}", file=sys.stderr)
         raise SystemExit(1)
+    # Update Plan.md frontmatter
+    plan_doc = Path.cwd() / ".aiwf" / "plans" / f"{args.plan_id}.md"
+    if plan_doc.exists():
+        fm, body = parse_md(plan_doc)
+        if fm is not None:
+            deps = list(fm.get("dependencies") or [])
+            if args.dependency_id not in deps:
+                deps.append(args.dependency_id)
+            fm["dependencies"] = deps
+            write_narrative_doc(plan_doc, fm, body)
+    sync_index(str(Path.cwd()))
     print(f"Plan dependency added: {args.plan_id} -> {result['dependency_id']}")
 
 
 def _cmd_plan_dep_remove(args: argparse.Namespace) -> None:
     from ..core.state.plan_ops import remove_plan_dependency
+    from ..core.index_ops import parse_md, write_narrative_doc, sync_index
     try:
         result = remove_plan_dependency(
             str(Path.cwd()), args.plan_id, args.dependency_id, args.reason,
@@ -140,6 +160,16 @@ def _cmd_plan_dep_remove(args: argparse.Namespace) -> None:
     except ValueError as e:
         print(f"Plan dependency remove blocked: {e}", file=sys.stderr)
         raise SystemExit(1)
+    plan_doc = Path.cwd() / ".aiwf" / "plans" / f"{args.plan_id}.md"
+    if plan_doc.exists():
+        fm, body = parse_md(plan_doc)
+        if fm is not None:
+            deps = list(fm.get("dependencies") or [])
+            if args.dependency_id in deps:
+                deps.remove(args.dependency_id)
+            fm["dependencies"] = deps
+            write_narrative_doc(plan_doc, fm, body)
+    sync_index(str(Path.cwd()))
     print(f"Plan dependency removed: {args.plan_id} -> {result['dependency_id']}")
     print(f"  Reason: {result['reason']}")
 
@@ -176,8 +206,9 @@ def _cmd_plan_rebase(args: argparse.Namespace) -> None:
 
 
 def _cmd_plan_attach(args: argparse.Namespace) -> None:
-    """Attach a task to an existing Plan."""
+    """Attach a task to an existing Plan — sets Task.md frontmatter plan_id, sync derives Plan.task_ids."""
     from ..core.state.plan_ops import attach_task_to_plan
+    from ..core.index_ops import parse_md, write_narrative_doc, sync_index
     plan_id = getattr(args, "plan_id", "") or ""
     task_id = getattr(args, "task_id", "") or ""
     if not plan_id or not task_id:
@@ -185,6 +216,14 @@ def _cmd_plan_attach(args: argparse.Namespace) -> None:
         raise SystemExit(1)
     result = attach_task_to_plan(str(Path.cwd()), plan_id, task_id)
     if result.get("attached"):
+        # Update Task.md frontmatter — plan_id is the master input
+        task_doc = Path.cwd() / ".aiwf" / "tasks" / f"{task_id}.md"
+        if task_doc.exists():
+            fm, body = parse_md(task_doc)
+            if fm is not None:
+                fm["plan_id"] = plan_id
+                write_narrative_doc(task_doc, fm, body)
+        sync_index(str(Path.cwd()))
         print(f"Task {task_id} attached to Plan {plan_id}.")
     else:
         print(f"Failed: {result.get('reason', 'unknown')}")
@@ -192,8 +231,9 @@ def _cmd_plan_attach(args: argparse.Namespace) -> None:
 
 
 def _cmd_plan_detach(args: argparse.Namespace) -> None:
-    """Detach a task from a Plan."""
+    """Detach a task from a Plan — clears Task.md frontmatter plan_id, sync updates Plan.task_ids."""
     from ..core.state.plan_ops import detach_task_from_plan
+    from ..core.index_ops import parse_md, write_narrative_doc, sync_index
     plan_id = getattr(args, "plan_id", "") or ""
     task_id = getattr(args, "task_id", "") or ""
     if not plan_id or not task_id:
@@ -201,6 +241,13 @@ def _cmd_plan_detach(args: argparse.Namespace) -> None:
         raise SystemExit(1)
     result = detach_task_from_plan(str(Path.cwd()), plan_id, task_id)
     if result.get("detached"):
+        task_doc = Path.cwd() / ".aiwf" / "tasks" / f"{task_id}.md"
+        if task_doc.exists():
+            fm, body = parse_md(task_doc)
+            if fm is not None:
+                fm["plan_id"] = ""
+                write_narrative_doc(task_doc, fm, body)
+        sync_index(str(Path.cwd()))
         print(f"Task {task_id} detached from Plan {plan_id}.")
     else:
         print(f"Failed: {result.get('reason', 'unknown')}")
@@ -248,10 +295,33 @@ def _cmd_plan_rename(args: argparse.Namespace) -> None:
             p["title_cache"] = title
             p["updated_at"] = datetime.now(timezone.utc).isoformat()
             save_plans(str(Path.cwd()), data)
+            from ..core.index_ops import sync_index
+            sync_index(str(Path.cwd()))
             print(f"Plan renamed: {plan_id} -> {title}")
             return
     print(f"Plan not found: {plan_id}", file=sys.stderr)
     raise SystemExit(1)
+
+
+def _update_md_status(entity_type: str, entity_id: str, status: str,
+                      summary: str = "") -> None:
+    from ..core.index_ops import parse_md, write_narrative_doc, sync_index
+    from pathlib import Path as _P
+    dir_map = {"plan": ".aiwf/plans", "milestone": ".aiwf/milestones"}
+    subdir = dir_map.get(entity_type)
+    if not subdir:
+        return
+    doc = _P.cwd() / subdir / f"{entity_id}.md"
+    if not doc.exists():
+        return
+    fm, body = parse_md(doc)
+    if fm is None:
+        return
+    fm["status"] = status
+    if summary:
+        fm.setdefault("closure_summary", summary)
+    write_narrative_doc(doc, fm, body)
+    sync_index(str(_P.cwd()))
 
 
 def _cmd_plan_close(args: argparse.Namespace) -> None:
@@ -266,6 +336,7 @@ def _cmd_plan_close(args: argparse.Namespace) -> None:
             p["closure"] = {"mode": "normal", "accepted": True, "summary": summary}
             p["updated_at"] = datetime.now(timezone.utc).isoformat()
             save_plans(str(Path.cwd()), data)
+            _update_md_status("plan", plan_id, "closed", summary)
             print(f"Plan closed: {plan_id}")
             return
     print(f"Plan not found: {plan_id}", file=sys.stderr)
@@ -287,6 +358,7 @@ def _cmd_plan_cancel(args: argparse.Namespace) -> None:
                 p["replaced_by"] = replaced_by
             p["updated_at"] = datetime.now(timezone.utc).isoformat()
             save_plans(str(Path.cwd()), data)
+            _update_md_status("plan", plan_id, "cancelled")
             print(f"Plan cancelled: {plan_id}")
             if reason:
                 print(f"  Reason: {reason}")
@@ -305,53 +377,31 @@ def _cmd_plan_deactivate(args: argparse.Namespace) -> None:
     print("  Phase set to discussing. All plans are now inactive.")
 
 
-def _write_plan_narrative(cwd: Path, plan_id: str) -> None:
-    from ..core.index_ops import (
-        generate_narrative_doc_path, write_narrative_doc,
-    )
+def _write_plan_narrative(cwd: Path, plan_id: str, title: str = "",
+                          goal_id: str = "", milestone_id: str = "") -> str:
+    from ..core.index_ops import create_narrative_for_entity, parse_md, compute_content_hash
     from ..core.state.plan_ops import load_plans, save_plans
 
-    doc_path_str = generate_narrative_doc_path(plan_id, "plan")
-    fm = {"id": plan_id, "type": "plan"}
-    body = f"""# {plan_id}
+    path = create_narrative_for_entity(str(cwd), plan_id, "plan",
+                                       title=title, goal_id=goal_id,
+                                       milestone_id=milestone_id)
+    full_path = cwd / path
+    _, body = parse_md(full_path)
+    doc_hash = compute_content_hash(body) if body else ""
+    data = load_plans(str(cwd))
+    for p in data.get("plans", []) or []:
+        if p.get("plan_id") == plan_id or p.get("id") == plan_id:
+            p["doc_path"] = path
+            p["doc_hash"] = doc_hash
+            p["doc_updated_at"] = _now_str()
+            break
+    save_plans(str(cwd), data)
+    return path
 
-## Intent
+from datetime import datetime, timezone
 
-(fill)
-
-## Current Problems
-
-(fill)
-
-## Target Design
-
-(fill)
-
-## Key Decisions
-
-(fill)
-
-## Non-goals
-
-(fill)
-
-## Task Breakdown
-
-(fill)
-
-## Risks
-
-(fill)
-
-## Validation Strategy
-
-(fill)
-
-## Open Questions
-
-(fill)
-"""
-    full_path = cwd / doc_path_str
+def _now_str() -> str:
+    return datetime.now(timezone.utc).isoformat()
     doc_hash = write_narrative_doc(full_path, fm, body)
 
     plans = load_plans(str(cwd))

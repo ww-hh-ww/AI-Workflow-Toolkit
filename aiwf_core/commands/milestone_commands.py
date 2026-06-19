@@ -28,11 +28,16 @@ def _cmd_milestone_create(args: argparse.Namespace) -> None:
         raise SystemExit(1)
     m = result["milestone"]
     print(f"Milestone: {m['milestone_id']} status={m['status']}")
-    if getattr(args, "narrative", False):
-        from ..core.index_ops import create_narrative_for_entity
-        path = create_narrative_for_entity(str(Path.cwd()), args.milestone_id, "milestone",
-                                           title=args.title or "", status=m.get("status", ""))
-        print(f"  Narrative doc: {path}")
+    from ..core.index_ops import create_narrative_for_entity, sync_index
+    path = create_narrative_for_entity(str(Path.cwd()), args.milestone_id, "milestone",
+                                       title=getattr(args, "title", "") or "",
+                                       goal_id=getattr(args, "goal_id", "") or "",
+                                       status=m.get("status", ""))
+    print(f"  Narrative doc: {path}")
+    sync_result = sync_index(str(Path.cwd()))
+    if sync_result["changes"]:
+        for c in sync_result["changes"][:5]:
+            print(f"  sync: {c}")
     print(f"  Goal: {m.get('goal_id', '')}")
     print(f"  Plans: {len(m.get('plan_ids', []) or [])}")
     print(f"  Tasks: {len(m.get('task_ids', []) or [])}")
@@ -143,6 +148,7 @@ def _cmd_milestone_cancel(args: argparse.Namespace) -> None:
             if data.get("active_milestone_id") == args.milestone_id:
                 data["active_milestone_id"] = None
             save_milestones(str(Path.cwd()), data)
+            _update_milestone_md(args.milestone_id, status="cancelled")
             print(f"Milestone cancelled: {args.milestone_id}")
             if reason:
                 print(f"  Reason: {reason}")
@@ -151,27 +157,65 @@ def _cmd_milestone_cancel(args: argparse.Namespace) -> None:
     raise SystemExit(1)
 
 
+def _update_milestone_md(milestone_id: str, plan_ids=None, task_ids=None,
+                        status: str = "", summary: str = "") -> None:
+    """Update Milestone.md frontmatter fields, then sync to JSON."""
+    from ..core.index_ops import parse_md, write_narrative_doc, sync_index
+    ms_doc = Path.cwd() / ".aiwf" / "milestones" / f"{milestone_id}.md"
+    if not ms_doc.exists():
+        return
+    fm, body = parse_md(ms_doc)
+    if fm is None:
+        return
+    if plan_ids is not None:
+        fm["plan_ids"] = list(plan_ids)
+    if task_ids is not None:
+        fm["task_ids"] = list(task_ids)
+    if status:
+        fm["status"] = status
+    if summary:
+        fm.setdefault("closure_summary", summary)
+    write_narrative_doc(ms_doc, fm, body)
+    sync_index(str(Path.cwd()))
+
+
 def _cmd_milestone_link_plan(args: argparse.Namespace) -> None:
     from ..core.state.milestone_ops import link_milestone_plan
     result = link_milestone_plan(str(Path.cwd()), args.milestone_id, args.plan_id)
+    if result.get("linked"):
+        from ..core.state.milestone_ops import get_milestone
+        ms = get_milestone(str(Path.cwd()), args.milestone_id)
+        _update_milestone_md(args.milestone_id, plan_ids=ms.get("plan_ids", []))
     print(f"Milestone link-plan: {args.milestone_id} <- {args.plan_id} linked={result.get('linked', False)}")
 
 
 def _cmd_milestone_unlink_plan(args: argparse.Namespace) -> None:
     from ..core.state.milestone_ops import unlink_milestone_plan
     result = unlink_milestone_plan(str(Path.cwd()), args.milestone_id, args.plan_id)
+    if result.get("unlinked"):
+        from ..core.state.milestone_ops import get_milestone
+        ms = get_milestone(str(Path.cwd()), args.milestone_id)
+        _update_milestone_md(args.milestone_id, plan_ids=ms.get("plan_ids", []))
     print(f"Milestone unlink-plan: {args.milestone_id} -/-> {args.plan_id} unlinked={result.get('unlinked', False)}")
 
 
 def _cmd_milestone_link_task(args: argparse.Namespace) -> None:
     from ..core.state.milestone_ops import link_milestone_task
     result = link_milestone_task(str(Path.cwd()), args.milestone_id, args.task_id)
+    if result.get("linked"):
+        from ..core.state.milestone_ops import get_milestone
+        ms = get_milestone(str(Path.cwd()), args.milestone_id)
+        _update_milestone_md(args.milestone_id, task_ids=ms.get("task_ids", []))
     print(f"Milestone link-task: {args.milestone_id} <- {args.task_id} linked={result.get('linked', False)}")
 
 
 def _cmd_milestone_unlink_task(args: argparse.Namespace) -> None:
     from ..core.state.milestone_ops import unlink_milestone_task
     result = unlink_milestone_task(str(Path.cwd()), args.milestone_id, args.task_id)
+    if result.get("unlinked"):
+        from ..core.state.milestone_ops import get_milestone
+        ms = get_milestone(str(Path.cwd()), args.milestone_id)
+        _update_milestone_md(args.milestone_id, task_ids=ms.get("task_ids", []))
     print(f"Milestone unlink-task: {args.milestone_id} -/-> {args.task_id} unlinked={result.get('unlinked', False)}")
 
 
@@ -210,6 +254,7 @@ def _cmd_milestone_close(args: argparse.Namespace) -> None:
         print(f"  - {blocker}")
     if result.get("blockers"):
         raise SystemExit(1)
+    _update_milestone_md(args.milestone_id, status="closed")
     print()
     print("Milestone closed.")
     print("Recommended human action:")
@@ -334,27 +379,65 @@ def _cmd_milestone_archive(args: argparse.Namespace) -> None:
     print(f"Milestone archived: {m['milestone_id']} reason={args.reason}")
 
 
+def _update_milestone_md(milestone_id: str, plan_ids=None, task_ids=None,
+                        status: str = "", summary: str = "") -> None:
+    """Update Milestone.md frontmatter fields, then sync to JSON."""
+    from ..core.index_ops import parse_md, write_narrative_doc, sync_index
+    ms_doc = Path.cwd() / ".aiwf" / "milestones" / f"{milestone_id}.md"
+    if not ms_doc.exists():
+        return
+    fm, body = parse_md(ms_doc)
+    if fm is None:
+        return
+    if plan_ids is not None:
+        fm["plan_ids"] = list(plan_ids)
+    if task_ids is not None:
+        fm["task_ids"] = list(task_ids)
+    if status:
+        fm["status"] = status
+    if summary:
+        fm.setdefault("closure_summary", summary)
+    write_narrative_doc(ms_doc, fm, body)
+    sync_index(str(Path.cwd()))
+
+
 def _cmd_milestone_link_plan(args: argparse.Namespace) -> None:
     from ..core.state.milestone_ops import link_milestone_plan
     result = link_milestone_plan(str(Path.cwd()), args.milestone_id, args.plan_id)
+    if result.get("linked"):
+        from ..core.state.milestone_ops import get_milestone
+        ms = get_milestone(str(Path.cwd()), args.milestone_id)
+        _update_milestone_md(args.milestone_id, plan_ids=ms.get("plan_ids", []))
     print(f"Milestone link-plan: {args.milestone_id} <- {args.plan_id} linked={result.get('linked', False)}")
 
 
 def _cmd_milestone_unlink_plan(args: argparse.Namespace) -> None:
     from ..core.state.milestone_ops import unlink_milestone_plan
     result = unlink_milestone_plan(str(Path.cwd()), args.milestone_id, args.plan_id)
+    if result.get("unlinked"):
+        from ..core.state.milestone_ops import get_milestone
+        ms = get_milestone(str(Path.cwd()), args.milestone_id)
+        _update_milestone_md(args.milestone_id, plan_ids=ms.get("plan_ids", []))
     print(f"Milestone unlink-plan: {args.milestone_id} -/-> {args.plan_id} unlinked={result.get('unlinked', False)}")
 
 
 def _cmd_milestone_link_task(args: argparse.Namespace) -> None:
     from ..core.state.milestone_ops import link_milestone_task
     result = link_milestone_task(str(Path.cwd()), args.milestone_id, args.task_id)
+    if result.get("linked"):
+        from ..core.state.milestone_ops import get_milestone
+        ms = get_milestone(str(Path.cwd()), args.milestone_id)
+        _update_milestone_md(args.milestone_id, task_ids=ms.get("task_ids", []))
     print(f"Milestone link-task: {args.milestone_id} <- {args.task_id} linked={result.get('linked', False)}")
 
 
 def _cmd_milestone_unlink_task(args: argparse.Namespace) -> None:
     from ..core.state.milestone_ops import unlink_milestone_task
     result = unlink_milestone_task(str(Path.cwd()), args.milestone_id, args.task_id)
+    if result.get("unlinked"):
+        from ..core.state.milestone_ops import get_milestone
+        ms = get_milestone(str(Path.cwd()), args.milestone_id)
+        _update_milestone_md(args.milestone_id, task_ids=ms.get("task_ids", []))
     print(f"Milestone unlink-task: {args.milestone_id} -/-> {args.task_id} unlinked={result.get('unlinked', False)}")
 
 

@@ -23,6 +23,7 @@ Run `aiwf status --prompt`. It tells you: phase, active task, required skill, re
 - **Project writes by AI require an active task.**
 - **Governance/planning writes do not require an active task.**
 - **Active Task.md is frozen during execution** — do NOT modify it.
+- **After editing MD frontmatter, run `aiwf sync`** — this compiles MD into the JSON machine state that gates read.
 - Human manual edits are not intercepted. They are detected post-hoc by `aiwf doctor` and `aiwf task close`.
 
 Governance paths (always allowed for AI): `.aiwf/goals/`, `.aiwf/plans/`, `.aiwf/tasks/`, `.aiwf/milestones/`, `.aiwf/config/`, `.aiwf/state/`, `.aiwf/records/`, `.aiwf/runtime/`.
@@ -50,7 +51,7 @@ Models MUST read active Task.md before project writes. JSON is system state/inde
 
 - AI project writes require active task
 - Active Task.md frozen during execution
-- Close requires: Task.md hash unchanged, evidence (if executor_required), testing (if tester_required), review accepted with no blockers (if reviewer_required), fix-loop not open
+- Close requires: evidence (if executor_required), testing (if tester_required), review accepted with no blockers (if reviewer_required), fix-loop not open. Task.md contract hash changes trigger a warning but do not block close (contract uses frozen activation state).
 - Fix-loop open blocks close
 - Scope violations block activation
 
@@ -60,7 +61,7 @@ Models MUST read active Task.md before project writes. JSON is system state/inde
 - No closure from prose — `aiwf task close` is the authoritative close gate.
 - Fix-loop resolution requires mechanical verification.
 - Scope violations clear only after Git confirms reverting.
-- **FORBIDDEN: `aiwf route override` unless the user explicitly orders it for a specific task.**
+- **FORBIDDEN: routing downgrades unless the user explicitly orders it for a specific task.**
 - **FORBIDDEN: `aiwf task force-close` — human emergency override only. AI is mechanically blocked by command-policy.json.**
 - Plan.allowed_write is not a runtime write gate.
 - `aiwf task close` is the authoritative close gate. No separate preparation step is needed.

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+from pathlib import Path
 
 from .flow import cmd_status
 from .ops_commands import _cmd_doctor, _cmd_fix_loop_help, _cmd_fix_loop_open, _cmd_fix_loop_resolve, _cmd_fix_loop_status, _cmd_install
@@ -14,6 +15,25 @@ from .task_commands import _cmd_task_activate, _cmd_task_cancel, _cmd_task_close
 from ..constants import VERSION
 
 
+def _cmd_sync(args: argparse.Namespace) -> None:
+    """aiwf sync — compile MD frontmatter into JSON machine state."""
+    from ..core.index_ops import sync_index
+    result = sync_index(str(Path.cwd()), dry_run=bool(args.check))
+    if result["errors"]:
+        print(f"Sync: {len(result['errors'])} error(s)")
+        for e in result["errors"]:
+            print(f"  ERROR: {e}")
+        raise SystemExit(1)
+    if args.check:
+        print(f"Sync check: {result['synced']} entities would be synced")
+    else:
+        print(f"Synced: {result['synced']} entities")
+    for change in result.get("changes", [])[:20]:
+        print(f"  {change}")
+    for lock_msg in result.get("lock_messages", []):
+        print(f"  {lock_msg}")
+
+
 def build_parser(cmd_init) -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="aiwf",
@@ -24,8 +44,12 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="cmd")
     sub.required = False
 
+    # ── sync ──
+    p_sync = sub.add_parser("sync", help="sync MD frontmatter -> JSON (--check for dry-run)")
+    p_sync.add_argument("--check", action="store_true", help="validate only, do not write")
+    p_sync.set_defaults(func=_cmd_sync)
+
     # ── status / install / doctor ──
-    sub.add_parser("init", help="initialize .aiwf state files").set_defaults(func=cmd_init)
     p_install = sub.add_parser("install", help="install AIWF integration (skills, hooks, agents, state, scripts)")
     p_install.add_argument("mode", choices=["claude", "reasonix"], help="installation mode")
     p_install.add_argument("--force", action="store_true", help="force overwrite")
@@ -185,6 +209,7 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
     p_re_ev.add_argument("--role", required=True, choices=["executor","tester","reviewer","planner"])
     p_re_ev.add_argument("--summary", required=True, help="short evidence summary")
     p_re_ev.add_argument("--command", default="", help="command or action observed")
+    p_re_ev.add_argument("--status", default="accepted", choices=["pending","accepted","rejected"], help="evidence status")
     p_re_ev.set_defaults(func=_cmd_record_role_evidence)
     p_re_te = p_rec_sub.add_parser("testing", help="record testing results")
     p_re_te.add_argument("--status", required=True, choices=["missing","partial","adequate","passed","failed"])
@@ -194,7 +219,16 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
     p_re_rv = p_rec_sub.add_parser("review", help="record review results")
     p_re_rv.add_argument("--result", required=True, choices=["accepted","needs_fix","rejected"])
     p_re_rv.add_argument("--summary", default="", help="review summary")
-    p_re_rv.add_argument("--blocker", action="append", default=[], dest="blockers")
+    p_re_rv.add_argument("--blocker", action="append", default=[], dest="blockers", help="specific blocker reason")
+    p_re_rv.add_argument("--verdict", default="", choices=["PASS","PASS_WITH_RISK","REVISE","REJECT"], help="verdict (milestone-level)")
+    p_re_rv.add_argument("--adversarial-observations", action="append", default=[], dest="adversarial_observations", help="adversarial observations: severity:::kind:::message")
+    p_re_rv.add_argument("--closure-allowed", action="store_true", default=False, dest="closure_allowed", help="set closure as allowed")
+    p_re_rv.add_argument("--accepted-evidence-ids", action="append", default=[], dest="accepted_evidence_ids", help="accepted evidence IDs")
+    p_re_rv.add_argument("--rejected-evidence-ids", action="append", default=[], dest="rejected_evidence_ids", help="rejected evidence IDs")
+    p_re_rv.add_argument("--cleanup-status", default="", help="cleanup status")
+    p_re_rv.add_argument("--structure-status", default="", help="structure status")
+    p_re_rv.add_argument("--context-id", default="", help="context ID")
+    p_re_rv.add_argument("--force", action="store_true", help="override L2/L3 guard")
     p_re_rv.set_defaults(func=_cmd_record_review)
     p_re_ar = p_rec_sub.add_parser("architecture-review", help="record architecture review")
     p_re_ar.add_argument("--status", required=True, choices=["intact","issues_found"])

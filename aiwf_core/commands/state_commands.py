@@ -117,7 +117,7 @@ def _cmd_start_context(args: argparse.Namespace) -> None:
             return out or None
 
         ctxs = start_context(
-            str(Path.cwd()), args.context_id, args.label or "",
+            str(Path.cwd()), getattr(args, "context_id", ""), args.label or "",
             note=args.note or "",
             purpose=args.purpose or "",
             read_hints=_split_csv(args.read_hints),
@@ -176,28 +176,28 @@ def _cmd_record_testing(args: argparse.Namespace) -> None:
                     )
                     raise SystemExit(1)
 
-    testing = record_testing(str(Path.cwd()), args.context_id, args.status,
+    testing = record_testing(str(Path.cwd()), getattr(args, "context_id", ""), args.status,
                    commands=args.commands or None,
-                   evidence_ids=args.evidence_ids or None,
-                   untested_risks=args.untested_risks or None,
-                   coverage_summary=args.coverage_summary or "",
-                   failure_summary=args.failure_summary or "",
-                   failed_obligations=args.failed_obligations or None,
-                   failed_commands=args.failed_commands or None,
-                   suspected_route=args.suspected_route or "",
-                   required_verification=args.required_verification or None,
-                   acceptance_coverage=args.acceptance_coverage or None,
-                   system_coverage=args.system_coverage or None,
-                   validation_layers=args.validation_layers or None,
-                   full_suite_status=args.full_suite_status or "",
-                   full_suite_reason=args.full_suite_reason or "",
-                   real_usage_status=args.real_usage_status or "",
-                   real_usage_reason=args.real_usage_reason or "",
-                   inferred_surfaces=args.inferred_surfaces or None,
-                   missing_surface_notes=args.missing_surface_notes or None,
-                   cross_task_risks=args.cross_task_risks or None,
-                   testing_debt=args.testing_debt or None,
-                   repeated_change_hotspots=args.repeated_change_hotspots or None,
+                   evidence_ids=getattr(args, "evidence_ids", None) or None,
+                   untested_risks=getattr(args, "untested_risks", None) or None,
+                   coverage_summary=getattr(args, "coverage_summary", "") or "",
+                   failure_summary=getattr(args, "failure_summary", "") or "",
+                   failed_obligations=getattr(args, "failed_obligations", None) or None,
+                   failed_commands=getattr(args, "failed_commands", None) or None,
+                   suspected_route=getattr(args, "suspected_route", "") or "",
+                   required_verification=getattr(args, "required_verification", None) or None,
+                   acceptance_coverage=getattr(args, "acceptance_coverage", None) or None,
+                   system_coverage=getattr(args, "system_coverage", None) or None,
+                   validation_layers=getattr(args, "validation_layers", None) or None,
+                   full_suite_status=getattr(args, "full_suite_status", "") or "",
+                   full_suite_reason=getattr(args, "full_suite_reason", "") or "",
+                   real_usage_status=getattr(args, "real_usage_status", "") or "",
+                   real_usage_reason=getattr(args, "real_usage_reason", "") or "",
+                   inferred_surfaces=getattr(args, "inferred_surfaces", None) or None,
+                   missing_surface_notes=getattr(args, "missing_surface_notes", None) or None,
+                   cross_task_risks=getattr(args, "cross_task_risks", None) or None,
+                   testing_debt=getattr(args, "testing_debt", None) or None,
+                   repeated_change_hotspots=getattr(args, "repeated_change_hotspots", None) or None,
                    adversarial_mode=bool(getattr(args, 'adversarial_mode', False)),
                    delta_verification=getattr(args, 'delta_verification', '') or '',
                    reused_evidence_ids=getattr(args, 'reused_evidence_ids', None) or None,
@@ -206,20 +206,20 @@ def _cmd_record_testing(args: argparse.Namespace) -> None:
                    supports_goal=getattr(args, 'supports_goal', '') or '')
     print(f"Testing recorded: status={args.status}")
     if testing.get("evidence_id"): print(f"  Evidence: {testing['evidence_id']} (tester)")
-    if args.commands: print(f"  Commands: {len(args.commands)}")
-    if args.untested_risks: print(f"  Untested risks: {len(args.untested_risks)}")
-    if args.failure_summary: print(f"  Failure: {args.failure_summary[:120]}")
-    if args.failed_obligations: print(f"  Failed obligations: {len(args.failed_obligations)}")
-    if args.suspected_route: print(f"  Suspected route: {args.suspected_route}")
-    if args.system_coverage: print(f"  System coverage: {len(args.system_coverage)} items")
-    if args.validation_layers: print(f"  Validation layers: {', '.join(args.validation_layers)}")
-    if args.full_suite_status: print(f"  Full suite: {args.full_suite_status}")
-    if args.real_usage_status: print(f"  Real usage: {args.real_usage_status}")
+    if getattr(args, "commands", None): print(f"  Commands: {len(args.commands)}")
+    if getattr(args, "untested_risks", None): print(f"  Untested risks: {len(args.untested_risks)}")
+    if getattr(args, "failure_summary", ""): print(f"  Failure: {args.failure_summary[:120]}")
+    if getattr(args, "failed_obligations", None): print(f"  Failed obligations: {len(args.failed_obligations)}")
+    if getattr(args, "suspected_route", ""): print(f"  Suspected route: {args.suspected_route}")
+    if getattr(args, "system_coverage", None): print(f"  System coverage: {len(args.system_coverage)} items")
+    if getattr(args, "validation_layers", None): print(f"  Validation layers: {', '.join(args.validation_layers)}")
+    if getattr(args, "full_suite_status", ""): print(f"  Full suite: {args.full_suite_status}")
+    if getattr(args, "real_usage_status", ""): print(f"  Real usage: {args.real_usage_status}")
     if getattr(args, 'supports_plan', ''): print(f"  Supports plan: {args.supports_plan}")
     if getattr(args, 'supports_goal', ''): print(f"  Supports goal: {args.supports_goal}")
-    if args.inferred_surfaces: print(f"  Inferred surfaces: {', '.join(args.inferred_surfaces)}")
-    if args.cross_task_risks: print(f"  Cross-task risks: {len(args.cross_task_risks)}")
-    if args.testing_debt: print(f"  Testing debt: {len(args.testing_debt)}")
+    if getattr(args, "inferred_surfaces", None): print(f"  Inferred surfaces: {', '.join(args.inferred_surfaces)}")
+    if getattr(args, "cross_task_risks", None): print(f"  Cross-task risks: {len(args.cross_task_risks)}")
+    if getattr(args, "testing_debt", None): print(f"  Testing debt: {len(args.testing_debt)}")
     delta = getattr(args, 'delta_verification', '') or ''
     if delta: print(f"  Delta verification: {delta[:120]}")
     reused = getattr(args, 'reused_evidence_ids', None) or []
@@ -299,7 +299,7 @@ def _cmd_record_review(args: argparse.Namespace) -> None:
 
     observations = []
     valid_observation_severities = {"critical", "high", "warn", "low"}
-    for idx, raw in enumerate(args.adversarial_observations or [], start=1):
+    for idx, raw in enumerate(getattr(args, "adversarial_observations", None) or [], start=1):
         parts = raw.split(":::", 2)
         if len(parts) == 3:
             severity, kind, msg = (part.strip() for part in parts)
@@ -497,6 +497,9 @@ def _cmd_record_review(args: argparse.Namespace) -> None:
                 )
                 raise SystemExit(1)
 
+    # closure_allowed is derived from result: accepted+no blockers → true
+    effective_closure = (args.result == "accepted" and not args.blockers)
+
     try:
         review = record_review(
             str(Path.cwd()),
@@ -504,7 +507,7 @@ def _cmd_record_review(args: argparse.Namespace) -> None:
             verdict=getattr(args, "verdict", "") or "",
             quality_dimensions=dims or None,
             review_basis=basis or None,
-            closure_allowed=bool(args.closure_allowed),
+            closure_allowed=effective_closure,
             accepted_evidence_ids=args.accepted_evidence_ids or None,
             rejected_evidence_ids=args.rejected_evidence_ids or None,
             blockers=args.blockers or None,
@@ -542,13 +545,13 @@ def _cmd_record_role_evidence(args: argparse.Namespace) -> None:
             args.role,
             summary=args.summary or "",
             command=args.command or "",
-            changed_files=args.changed_files or None,
-            session_id=args.session_id or "",
-            agent_id=args.agent_id or "",
-            agent_type=args.agent_type or "",
-            context_id=args.context_id or "",
-            status=args.status,
-            exit_code=args.exit_code,
+            changed_files=getattr(args, "changed_files", None) or None,
+            session_id=getattr(args, "session_id", "") or "",
+            agent_id=getattr(args, "agent_id", "") or "",
+            agent_type=getattr(args, "agent_type", "") or "",
+            context_id=getattr(args, "context_id", "") or "",
+            status=getattr(args, "status", None),
+            exit_code=getattr(args, "exit_code", None),
             scan_git=bool(getattr(args, "scan_git", False)),
             supports_plan=getattr(args, "supports_plan", "") or "",
             supports_goal=getattr(args, "supports_goal", "") or "",
@@ -700,7 +703,7 @@ def _cmd_record_meta_critique(args: argparse.Namespace) -> None:
 def _cmd_record_architecture_review(args: argparse.Namespace) -> None:
     from ..core.state_ops import record_architecture_review
     issues = []
-    for raw in args.issue or []:
+    for raw in getattr(args, "issue", None) or []:
         parts = raw.split(":::", 1)
         if len(parts) != 2:
             print("Architecture review blocked: --issue requires SEVERITY:::DESCRIPTION", file=sys.stderr)
@@ -709,13 +712,11 @@ def _cmd_record_architecture_review(args: argparse.Namespace) -> None:
     try:
         result = record_architecture_review(
             str(Path.cwd()),
-            task_id=args.task_id,
             status=args.status,
             issues=issues,
             summary=args.summary or "",
-            resolution=args.resolution or "",
-            resolution_evidence_ids=args.resolution_evidence_ids or None,
-            resolved_task_ids=args.resolved_task_ids or None,
+            resolution=getattr(args, "resolution", "") or "",
+            resolution_evidence_ids=getattr(args, "resolution_evidence_ids", None) or None,
         )
     except ValueError as exc:
         print(f"Architecture review blocked: {exc}", file=sys.stderr)

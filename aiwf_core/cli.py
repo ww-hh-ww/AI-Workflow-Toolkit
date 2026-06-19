@@ -15,29 +15,6 @@ from .core.state_schema import MVP_STATE_FILES
 from .core.project_root import resolve_aiwf_project_root
 
 
-def cmd_init(args: argparse.Namespace) -> None:
-    root = Path.cwd()
-    state_dir = root / ".aiwf"
-    state_dir.mkdir(parents=True, exist_ok=True)
-    created = []
-    for filename, default_fn in MVP_STATE_FILES.items():
-        target = state_dir / filename
-        if not target.exists():
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(json.dumps(default_fn(), ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-            created.append(target)
-    print(f"# AIWF V{VERSION} embedded state initialized")
-    print()
-    if created:
-        print("Created:")
-        for path in created:
-            print(f"- {path.relative_to(root)}")
-    else:
-        print("No state files needed creation.")
-    print()
-    print("Next: aiwf install claude (or reasonix)  # install skills, hooks, agents, and scripts")
-
-
 def _show_planner_facade() -> None:
     """Default aiwf output: embedded mainline status or install guidance."""
     root = Path.cwd()
@@ -62,7 +39,7 @@ def _show_planner_facade() -> None:
 
 def main(argv: Optional[List[str]] = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
-    if not argv or argv[0] not in {"install", "init", "--version", "version", "--help", "-h", "help"}:
+    if not argv or argv[0] not in {"install", "--version", "version", "--help", "-h", "help"}:
         os.chdir(resolve_aiwf_project_root(Path.cwd()))
     if not argv:
         try:
@@ -92,15 +69,11 @@ def main(argv: Optional[List[str]] = None) -> int:
         return 0
 
     known = set(COMMAND_MANIFEST.keys())
-    # Also accept "next" which is a convenience alias
-    known.add("next")
-    if "audit-archive" not in known:
-        known.add("audit-archive")
     if argv and argv[0] not in known and not argv[0].startswith("-"):
         print(f"Unknown command: {argv[0]}", file=sys.stderr)
         print("Run 'aiwf --help' to see available commands.", file=sys.stderr)
         return 2
-    parser = build_parser(cmd_init)
+    parser = build_parser(None)
     args = parser.parse_args(argv)
     if not hasattr(args, "func"):
         parser.print_help()

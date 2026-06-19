@@ -196,14 +196,8 @@ def _normalize_path(file_path: str, project_root: str = "") -> str:
 
 
 GOVERNANCE_ALLOWED_PREFIXES = [
-    ".aiwf/state/state.json",
-    ".aiwf/records/evidence.json",
-    ".aiwf/records/testing.json",
-    ".aiwf/records/review.json",
-    ".aiwf/records/architecture-review.json",
-    ".aiwf/state/fix-loop.json",
     ".aiwf/runtime/internal/",
-    # narrative/markdown governance directories
+    # narrative/markdown governance directories (JSON state/records are protected truth)
     ".aiwf/goals/",
     ".aiwf/plans/",
     ".aiwf/tasks/",

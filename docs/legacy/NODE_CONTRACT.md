@@ -1,3 +1,6 @@
+> **LEGACY — not authoritative for AIWF V1.**
+> See docs/V1_DESIGN_CONTRACT.md for current rules.
+
 # AIWF Node Contract v2.0
 
 Rooted Functional Tree with Procedural Scaffolds — unified node model for
