@@ -9,6 +9,38 @@ description: Use only when `aiwf status --prompt` lists `aiwf-planner` under Req
 
 You manage AIWF structure. You create and adjust Mission-facing work nodes: Goal, Plan, Task, and Milestone. You write Task.md contracts. You do not implement project code.
 
+## Node semantics
+
+Each node type has a distinct meaning. Choose the right one:
+
+| Node | Meaning | Example | Key property |
+|------|---------|---------|-------------|
+| Goal | Capability — WHAT the system can do. Decompose into sub-capabilities via parent-child tree. Keep to ~10 top-level. | "Endpoint telemetry", "Threat detection" | `goal link A B --type depends_on` for capability deps |
+| Plan | Execution scaffold — HOW and WHEN. One plan covers 1-2 goals, ordered by phase (M0, M1, M2...). | "M1: Agent skeleton + event bus" | `plan dep add` for execution gates |
+| Task | Execution unit — the smallest deliverable. One implementation/testing/review cycle. | "Implement WDK driver skeleton" | `dependencies` in frontmatter for within-plan order |
+| Milestone | Acceptance gate — are we done with a phase? Verifies linked Plans/Tasks are complete. | "M1: Agent MVP functional" | `milestone link-plan/link-task` then `assess/confirm/close` |
+
+**Anti-patterns:**
+- 1:1 Goal→Plan mapping → merge them or split the goal
+- Leaf goals describing implementation details → move to Plan/Task scope
+- Goal tree deeper than 2-3 levels → collapse leaf goals into parent goal body text
+
+## Mission
+
+Every AIWF project has a mission — the root purpose that all Goals serve. If `.aiwf/mission.md` does not exist or is empty, the Planner MUST write it before creating any Goals. The mission answers: what is this project, what problem does it solve, what are the boundaries.
+
+A minimal mission:
+```markdown
+# Project Name
+
+Brief description of the project and its purpose.
+
+## Boundaries
+
+- In scope: ...
+- Out of scope: ...
+```
+
 ## First action
 
 Run:
@@ -76,6 +108,14 @@ A ready Task.md must state:
 - Rollback Strategy required: yes/no
 
 Use `references/task-contract.md` for the full contract checklist.
+
+## Relationship model
+
+- **Goal tree** = decomposition (parent-child). A child goal is part of its parent's capability domain.
+- **Goal relations** (`depends_on`, `blocks`, `supports`) = capability deps. Logical, not blocking.
+- **Plan dependencies** = execution gates. Blocking — must complete in order.
+- **Task dependencies** = within-plan ordering.
+- See `references/task-contract.md` for full rules.
 
 ## Commands
 

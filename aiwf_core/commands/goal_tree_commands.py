@@ -308,7 +308,7 @@ def _cmd_relation_add(args: argparse.Namespace) -> None:
             args.source_id,
             args.target_id,
             rel_type=args.rel_type,
-            reason=args.reason or "",
+            reason="",
             allow_cross=getattr(args, "cross", False),
         )
     except ValueError as e:

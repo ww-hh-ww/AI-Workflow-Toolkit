@@ -115,7 +115,7 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
     p_gl = p_goal_sub.add_parser("link", help="link two goals")
     p_gl.add_argument("source_id", help="source goal ID")
     p_gl.add_argument("target_id", help="target goal ID")
-    p_gl.add_argument("--type", default="supports", choices=["depends_on","blocks","conflicts_with","invalidates","supports"])
+    p_gl.add_argument("--type", default="supports", dest="rel_type", choices=["depends_on","blocks","conflicts_with","invalidates","supports"])
     p_gl.set_defaults(func=_cmd_relation_add)
     p_gul = p_goal_sub.add_parser("unlink", help="unlink two goals")
     p_gul.add_argument("source_id", help="source goal ID")

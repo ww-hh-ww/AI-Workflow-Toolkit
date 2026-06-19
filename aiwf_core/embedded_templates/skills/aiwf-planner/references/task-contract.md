@@ -2,6 +2,20 @@
 
 Task.md is the execution contract. The active Task.md is frozen by hash at activation and must not be edited by the model during execution.
 
+## Three-layer relationship model
+
+Planner must understand the semantic difference between three kinds of relationships:
+
+| Layer | Relationship | Meaning | CLI | Example |
+|-------|-------------|---------|-----|---------|
+| Goal | `depends_on`, `blocks`, `supports` | Capability dependency — logical, NOT blocking. "Detection needs Telemetry to exist" | `aiwf goal link A B --type depends_on` | `GOAL-DETECTION needs -> GOAL-TELEMETRY` |
+| Plan | `dependencies` in frontmatter | Execution gate — BLOCKING. "M2 cannot start until M1 closes" | `aiwf plan dep add PLAN-2 PLAN-1` | `PLAN-M2 depends on PLAN-M1` |
+| Task | `dependencies` in frontmatter | Within-plan ordering. "Task 3 cannot activate until Task 1 and 2 close" | Set in `Task.md` frontmatter | `TASK-003 depends on TASK-001, TASK-002` |
+
+**Tree hierarchy** (parent-child): Decomposition only. A child goal is part of its parent's capability domain, not a dependency.
+
+**Key rule**: Goal deps explain WHY Plan deps are structured the way they are, but Goal deps do NOT mechanically block anything. Plan deps are the actual execution gates.
+
 ## Required sections
 
 ### Scope
