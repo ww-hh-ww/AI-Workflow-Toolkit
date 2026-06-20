@@ -239,11 +239,6 @@ def check_bash(event: NormalizedEvent) -> Dict:
     if active_lock_result:
         return active_lock_result
 
-    # ── Active task required for file-modifying bash commands ──
-    result = _check_active_task_for_bash(command, cwd)
-    if result:
-        return result
-
     return check_bash_command(command)
 
 
@@ -300,54 +295,6 @@ def _check_active_task_md_bash(command: str, cwd: Path) -> Optional[Dict]:
                     f"Other governance files may be edited."
                 ),
             }
-    return None
-
-
-def _check_active_task_for_bash(command: str, cwd: Path) -> Optional[Dict]:
-    """Warn when bash modifies files without an active task.
-
-    The Write/Edit gate blocks direct writes without an active task.
-    Bash is harder to gate because many commands are read-only. This
-    catches common file-modifying patterns and warns the model.
-    """
-    import re
-    # Patterns that indicate file modification
-    write_patterns = [
-        r'>\s*\S',           # redirect to file: > path, >> path, >path
-        r'\btee\b',          # tee writes files
-        r'\bsed\s+.*-i',     # sed -i modifies in-place
-        r'\bperl\s+.*-i',    # perl -i modifies in-place
-        r'\btouch\b',        # touch creates/modifies files
-        r'\bmkdir\b',        # mkdir creates directories
-        r'\bcp\s',           # cp copies files
-        r'\bmv\s',           # mv moves/renames files
-        r'\bdd\s',           # dd writes to files
-        r'\binstall\b',      # install writes binaries
-    ]
-    for pattern in write_patterns:
-        if re.search(pattern, command):
-            state_path = cwd / ".aiwf" / "state" / "state.json"
-            if not state_path.exists():
-                return None
-            try:
-                import json
-                state = json.loads(state_path.read_text(encoding="utf-8"))
-            except Exception:
-                return None
-            if not state.get("active_task_id"):
-                return {
-                    "allowed": True,
-                    "decision": "ask",
-                    "command": command[:200],
-                    "matched_pattern": pattern,
-                    "reason": (
-                        "No active task. Bash commands that modify project files "
-                        "should be run under an active task. Proceed only if this "
-                        "is a read-only or infrastructure command, or activate a "
-                        "task first: aiwf task activate <TASK-ID>"
-                    ),
-                }
-            return None
     return None
 
 
