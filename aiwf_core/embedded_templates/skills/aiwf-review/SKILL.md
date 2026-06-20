@@ -7,9 +7,12 @@ description: Use only when `aiwf status --prompt` lists `aiwf-review` under Requ
 
 1. `aiwf status --prompt`
 2. Read active Task.md. Extract Context, Done When, and Reviewer Requirements.
+   Paste into the dispatch prompt.
 3. Read `.aiwf/records/evidence.json` and `.aiwf/records/testing.json` —
-   filter by current task_id. Only this task's data.
+   filter by current task_id. The reviewer subagent reads these itself;
+   you pass summaries for context.
 4. If `reviewer_required`:
-   `Agent({subagent_type: "aiwf-reviewer", prompt: "Active Task.md: .aiwf/tasks/<TASK-ID>.md\nContext: <paste Context section from Task.md>\nExecutor changed: [...files]\nExecutor summary: <summary>\nTesting: <passed|failed|adequate> — <findings>"})`
-   The subagent records its own review (see agent file). Do NOT record again.
+   `Agent({subagent_type: "aiwf-reviewer", prompt: "Active Task.md: .aiwf/tasks/<TASK-ID>.md\nContext: <paste Context from Task.md>\nReviewer Requirements: <paste from Task.md>\nExecutor evidence: <paste summary from evidence.json>\nTesting result: <paste from testing.json>"})`
+   The subagent reads evidence/testing and records its own review (see agent file).
+   Do NOT record again.
 5. If not — read `inline-execution.md`, review inline, record review as described there.
