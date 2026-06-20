@@ -310,7 +310,7 @@ def check_and_record_missing_active_task(changed_files: list, base: Path) -> lis
         return []
     state_path = base / ".aiwf" / "state" / "state.json"
     state = _read_json(state_path, {})
-    if state.get("workflow_level") == "L0_direct" or state.get("active_task_id"):
+    if state.get("active_task_id"):
         return []
     state["scope_violation"] = True
     _write_json(state_path, state)
