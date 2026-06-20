@@ -37,16 +37,36 @@ def _is_gitignored(file_path: str, cwd: Path) -> bool:
 
 
 def _get_active_task_requirements(cwd: Path) -> Optional[Dict[str, Any]]:
-    """Read the active task's requirements from tasks.json."""
+    """Read the active task's requirements from Task.md frontmatter.
+
+    Reads directly from the MD contract, not from synced JSON. This means
+    editing Task.md and changing executor_required takes effect immediately
+    without needing aiwf sync — same as forbidden_write already works.
+    """
     state = _read_json(cwd / ".aiwf" / "state" / "state.json", {})
     task_id = state.get("active_task_id")
     if not task_id:
         return None
-    tasks_data = _read_json(cwd / ".aiwf" / "state" / "tasks.json", {"tasks": []})
-    for t in tasks_data.get("tasks", []) or []:
-        if isinstance(t, dict) and t.get("id") == task_id:
-            return t.get("requirements", {})
-    return None
+    task_md = cwd / ".aiwf" / "tasks" / f"{task_id}.md"
+    if not task_md.exists():
+        return None
+    try:
+        text = task_md.read_text(encoding="utf-8")
+        if not text.startswith("---\n"):
+            return None
+        end_idx = text.find("\n---\n", 4)
+        if end_idx == -1:
+            return None
+        import yaml
+        fm = yaml.safe_load(text[4:end_idx]) or {}
+        reqs = {}
+        for key in ("executor_required", "tester_required", "reviewer_required"):
+            val = fm.get(key)
+            if isinstance(val, bool):
+                reqs[key] = val
+        return reqs or None
+    except Exception:
+        return None
 
 
 def _get_task_forbidden_write(cwd: Path, task_id: str) -> list:
