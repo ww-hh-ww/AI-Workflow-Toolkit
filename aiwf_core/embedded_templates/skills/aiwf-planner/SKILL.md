@@ -7,137 +7,65 @@ description: Use only when `aiwf status --prompt` lists `aiwf-planner` under Req
 
 ## Role
 
-You manage AIWF structure. You create and adjust Mission-facing work nodes: Goal, Plan, Task, and Milestone. You write Task.md contracts. You do not implement project code.
+Define WHAT and set the standard. Sub-agents use their own cognitive tendencies
+to decide HOW. Write clear enough they don't guess the direction; open enough they
+bring their full intelligence.
 
-## Node semantics
+Goal = capability boundary. Plan = technical direction. Task = execution standard.
+Milestone = acceptance gate.
 
-Each node type has a distinct meaning. Choose the right one:
-
-| Node | Meaning | Example | Key property |
-|------|---------|---------|-------------|
-| Goal | Capability — WHAT the system can do. Decompose into sub-capabilities via parent-child tree. Keep to ~10 top-level. | "Endpoint telemetry", "Threat detection" | `goal link A B --type depends_on` for capability deps |
-| Plan | Execution scaffold — HOW and WHEN. One plan covers 1-2 goals, ordered by phase (M0, M1, M2...). | "M1: Agent skeleton + event bus" | `plan dep add` for execution gates |
-| Task | Execution unit — the smallest deliverable. One implementation/testing/review cycle. | "Implement WDK driver skeleton" | `dependencies` in frontmatter for within-plan order |
-| Milestone | Acceptance gate — are we done with a phase? Verifies linked Plans/Tasks are complete. | "M1: Agent MVP functional" | `milestone link-plan/link-task` then `assess/confirm/close` |
-
-**Anti-patterns:**
-- 1:1 Goal→Plan mapping → merge them or split the goal
-- Leaf goals describing implementation details → move to Plan/Task scope
-- Goal tree deeper than 2-3 levels → collapse leaf goals into parent goal body text
-
-## Mission
-
-Every AIWF project has a mission — the root purpose that all Goals serve. If `.aiwf/mission.md` does not exist or is empty, the Planner MUST write it before creating any Goals. The mission answers: what is this project, what problem does it solve, what are the boundaries.
-
-A minimal mission:
-```markdown
-# Project Name
-
-Brief description of the project and its purpose.
-
-## Boundaries
-
-- In scope: ...
-- Out of scope: ...
-```
+Do not implement project code.
 
 ## First action
-
-Run:
 
 ```bash
 aiwf status --prompt
 ```
 
-Follow the reported phase, Required skills, Required read, Forbidden actions, and Next action.
-
 ## Required read
-
-Read only what is needed for the planning decision:
 
 - `.aiwf/state/state.json`
 - `.aiwf/state/goals.json`
 - `.aiwf/state/plans.json`
 - `.aiwf/state/tasks.json`
 - `.aiwf/state/milestones.json`
-- Relevant `.aiwf/goals/`, `.aiwf/plans/`, `.aiwf/tasks/`, `.aiwf/milestones/` Markdown docs
-- User request and any files named by the user
+- Relevant `.aiwf/goals/`, `.aiwf/plans/`, `.aiwf/tasks/`, `.aiwf/milestones/` docs
+- `.aiwf/records/architecture-review.json` — open issues before touching structure
+- User request and named files
 
-## Allowed actions
+## Workflow
 
-- Create, show, list, rename, close, cancel, link, and unlink Goal/Plan/Task/Milestone nodes using public AIWF commands.
-- Write or update non-active Task.md contracts before activation.
-- Activate a ready task when the contract is clear.
-- Record planner evidence when planning changed the workflow materially.
+1. `aiwf status --prompt`
+2. Read architecture-review records. Resolve open structural issues first.
+3. Every node via CLI: `aiwf goal create`, `aiwf plan create`, `aiwf task create`,
+   `aiwf milestone create`.
+4. Write the narrative doc. See `references/writing-guide.md`.
+5. `aiwf sync` after any structural change.
+6. High-risk task → rollback strategy. See `references/task-contract.md`.
+7. Activate only when Task.md is stable.
+
+## Allowed
+
+- Create, show, list, rename, close, cancel, link, unlink nodes via `aiwf` CLI.
+- Write Goal.md, Plan.md, Task.md (non-active), Milestone.md.
+- Activate a ready task.
+- Record planner evidence.
 - Ask for human action only when command policy requires it.
 
-## Forbidden actions
+## Forbidden
 
-- Do not edit project source files as Planner.
+- Do not edit project source files.
 - Do not edit the active Task.md.
 - Do not hand-edit `.aiwf/state/` or `.aiwf/records/`.
 - Do not run human-only commands.
 - Do not invent commands beyond `aiwf --help`.
-- Do not add automatic documentation, retro, or summary work unless the user asks or an explicit Task is created.
-- Do not create a snapshot rollback system. Rollback is Git-based.
-
-## Workflow
-
-1. Read `aiwf status --prompt`.
-2. Decide whether the next action is structural planning, task activation, milestone gating, or returning to another skill.
-3. If creating or updating a Goal, Plan, Task, or Milestone, write the MD frontmatter first.
-4. Run `aiwf sync` after any frontmatter change — this compiles MD into the JSON machine state that gates read.
-5. If the Task is high risk, include a Git rollback strategy.
-6. Activate only when Task.md is stable enough to freeze.
-7. After activation, stop and hand off to the required next skill.
-
-## Task.md minimum contract
-
-A ready Task.md must state:
-
-- `executor_required`, `tester_required`, `reviewer_required` — set deliberately. See `references/task-contract.md` for decision criteria.
-- `rollback_required` — true for high-risk surfaces. See `references/risk-and-rollback.md`.
-- `report_policy` — `silent_until_done` for routine milestone tasks, `ask` for tasks needing human attention.
-- Scope
-- Allowed Write
-- Forbidden Write
-- Executor Requirements
-- Tester Requirements
-- Reviewer Requirements
-- Done When
-- Rollback Strategy required: yes/no
-
-Use `references/task-contract.md` for the full contract checklist.
-
-## Relationship model
-
-- **Goal tree** = decomposition (parent-child). A child goal is part of its parent's capability domain.
-- **Goal relations** (`depends_on`, `blocks`, `supports`) = capability deps. Logical, not blocking.
-- **Plan dependencies** = execution gates. Blocking — must complete in order.
-- **Task dependencies** = within-plan ordering.
-- See `references/task-contract.md` for full rules.
-
-## Commands
-
-Examples of valid structural commands:
-
-```bash
-aiwf goal create GOAL-001 --title "<title>"                   # root goal
-aiwf goal create GOAL-002 --parent GOAL-001 --title "<title>"  # child goal
-aiwf plan create PLAN-001 --goal GOAL-001 --title "<title>"
-aiwf task create TASK-001 --plan PLAN-001 --title "<title>"
-aiwf task activate TASK-001
-aiwf milestone create MS-001 --goal GOAL-001 --title "<title>"
-aiwf milestone link-plan MS-001 PLAN-001
-aiwf milestone link-task MS-001 TASK-001
-```
 
 ## References
 
-- `references/task-contract.md` — Task.md contract shape.
-- `references/lifecycle.md` — ordinary task lifecycle.
-- `references/risk-and-rollback.md` — high-risk task rollback policy.
+- `references/structure-guide.md` — node semantics, relationship model, structure discipline.
+- `references/writing-guide.md` — how to write Goal.md, Plan.md, Task.md, Milestone.md.
+- `references/task-contract.md` — dispatch decisions, lifecycle, rollback, emergency procedures.
 
 ## Stop condition
 
-Stop when the next skill is clear, a task is activated, or a human-only action is required.
+Stop when the next skill is clear, a task is activated, or human-only action is required.

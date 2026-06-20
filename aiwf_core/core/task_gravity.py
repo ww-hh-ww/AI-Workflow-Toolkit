@@ -411,28 +411,19 @@ def should_trigger_architecture_review(base_dir: str) -> Dict[str, Any]:
 
     Trigger conditions (any one):
       1. Closed task count % cadence == 0 (default cadence=10)
-      2. Gravity weight >= 0.5 for the first time
-      3. PROJECT-MAP Architecture Direction last updated > 30 days ago
-      4. 3+ active escalate signals from cross-task quality
-      5. New module surface expansion detected in trends
+      2. PROJECT-MAP last updated > 30 days ago
 
     Returns dict with should_trigger, reasons, and recommended action.
     """
-    import json
     from datetime import datetime, timezone
-    from .cross_task_quality import evaluate_cross_task_quality
 
     root = Path(base_dir)
     history_path = root / ".aiwf" / "state" / "tasks.json"
     pm_path = root / ".aiwf" / "records" / "项目地图.md"
-    state_path = root / ".aiwf" / "state" / "state.json"
-    review_path = root / ".aiwf" / "records" / "review.json"
 
     history = _read(history_path, {"tasks": []})
     tasks = history.get("tasks", []) if isinstance(history.get("tasks"), list) else []
     closed_count = len(tasks)
-    state = _read(state_path, {})
-    review = _read(review_path, {})
 
     reasons = []
     cadence = 10
@@ -441,14 +432,7 @@ def should_trigger_architecture_review(base_dir: str) -> Dict[str, Any]:
     if closed_count > 0 and closed_count % cadence == 0:
         reasons.append(f"milestone: {closed_count} closed tasks")
 
-    # ── 2. Gravity tipping point ──
-    quality = evaluate_cross_task_quality(base_dir)
-    gravity = task_gravity(base_dir)
-    gravity_weight = gravity.get("history_weight", min(closed_count / 20.0, 1.0))
-    if gravity_weight >= 0.5:
-        reasons.append(f"gravity weight {gravity_weight:.2f} — project is maturing")
-
-    # ── 3. PROJECT-MAP staleness ──
+    # ── 2. PROJECT-MAP staleness ──
     if pm_path.exists():
         try:
             pm_mtime = pm_path.stat().st_mtime
@@ -460,20 +444,7 @@ def should_trigger_architecture_review(base_dir: str) -> Dict[str, Any]:
     elif closed_count >= 5:
         reasons.append("PROJECT-MAP.md missing after 5+ tasks")
 
-    # ── 4. Escalate signal accumulation ──
-    signals = quality.get("signals", []) or []
-    escalate_count = sum(1 for s in signals if s.get("severity") == "escalate")
-    if escalate_count >= 3:
-        reasons.append(f"{escalate_count} active escalate signals")
-
-    # ── 5. Architecture surface expansion ──
-    trends = architecture_trend_signals(base_dir)
-    expansion = next((t for t in trends if t.get("kind") == "surface_expansion"), None)
-    if expansion:
-        reasons.append(f"surface expansion: {expansion['message'][:100]}")
-
-    # ── Check if a machine-recorded intact review was recently completed ──
-    # Closing an ARCH-* task by name is not enough: findings must be recorded.
+    # ── Skip if an intact review was recently completed ──
     architecture_review = _read(
         root / ".aiwf" / "records" / "architecture-review.json",
         {},

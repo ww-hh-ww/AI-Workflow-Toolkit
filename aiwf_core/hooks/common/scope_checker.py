@@ -49,6 +49,30 @@ def _get_active_task_requirements(cwd: Path) -> Optional[Dict[str, Any]]:
     return None
 
 
+def _get_task_forbidden_write(cwd: Path, task_id: str) -> list:
+    """Read forbidden_write from active Task.md frontmatter."""
+    task_md = cwd / ".aiwf" / "tasks" / f"{task_id}.md"
+    if not task_md.exists():
+        return []
+    try:
+        text = task_md.read_text(encoding="utf-8")
+        if not text.startswith("---\n"):
+            return []
+        end_idx = text.find("\n---\n", 4)
+        if end_idx == -1:
+            return []
+        import yaml
+        fm = yaml.safe_load(text[4:end_idx]) or {}
+        fw = fm.get("forbidden_write", [])
+        if isinstance(fw, list):
+            return [str(x).strip() for x in fw if str(x).strip()]
+        if isinstance(fw, str) and fw.strip():
+            return [s.strip() for s in fw.replace(",", " ").split() if s.strip()]
+        return []
+    except Exception:
+        return []
+
+
 def check_file_write(event: NormalizedEvent) -> ScopeResult:
     """Check if a file write/edit is within active scope.
 
@@ -164,7 +188,24 @@ def check_file_write(event: NormalizedEvent) -> ScopeResult:
             ),
         )
 
-    # ── Project file: allowed (guarded by active_task_id + executor_required above) ──
+    # ── Forbidden write: mechanically enforce Task.md forbidden_write patterns ──
+    forbidden = _get_task_forbidden_write(cwd, active_task_id)
+    if forbidden:
+        from ...core.scope_policy import _matches
+        for pattern in forbidden:
+            if _matches(normalized, pattern):
+                return ScopeResult(
+                    file_path=normalized,
+                    allowed=False,
+                    active_context_id=active_task_id,
+                    reason=(
+                        f"'{normalized}' matches Forbidden Write pattern '{pattern}' "
+                        f"from active Task.md ({active_task_id}). "
+                        f"Task contract prohibits writing to this path."
+                    ),
+                )
+
+    # ── Project file: allowed (guarded by active_task_id + executor_required + forbidden_write above) ──
     return ScopeResult(file_path=normalized, allowed=True,
                       reason=f"project write allowed (task={active_task_id}, executor_required={reqs.get('executor_required', False)})")
 

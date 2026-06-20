@@ -285,7 +285,7 @@ def _print_status_prompt(root, state, goal, testing, review, fix_loop):
     reminders = []
     if _architect_due(root, state):
         skills = signal_skills.get("architect_due", ["aiwf-architect"])
-        reminders.append(f"Architect review due: run /{' /'.join(skills)} (read-only, advisory)")
+        reminders.append(f"Architect review due. Choose scope: /{' /'.join(skills)} (code / design / structure / full)")
     if _milestone_due(root, state):
         skills = signal_skills.get("milestone_due", ["aiwf-milestone"])
         reminders.append(f"Milestone checks due. Available: /{' /'.join(skills)}")
