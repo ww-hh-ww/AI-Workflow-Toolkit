@@ -6,6 +6,9 @@ description: Use only when `aiwf status --prompt` lists `aiwf-implement` under R
 ## Workflow
 
 1. `aiwf status --prompt`
-2. If `executor_required` — `Agent({subagent_type: "aiwf-executor", prompt: "Active Task.md: .aiwf/tasks/<TASK-ID>.md"})`
-3. If not — read `inline-execution.md`, implement inline.
-4. `aiwf record evidence --role executor --summary "<what changed>" --command "<command>"`
+2. Read `.aiwf/records/evidence.json` — last executor evidence (changed files, summary).
+   Read `.aiwf/records/testing.json` — if previous test failed, include what failed.
+3. If `executor_required`:
+   `Agent({subagent_type: "aiwf-executor", prompt: "Active Task.md: .aiwf/tasks/<TASK-ID>.md\nChanged last cycle: [...files]\nLast evidence: <summary>\n[if fix: Test failed: <what failed>]"})`
+4. If not — read `inline-execution.md`, implement inline.
+5. `aiwf record evidence --role executor --summary "<what changed>" --command "<command>"`
