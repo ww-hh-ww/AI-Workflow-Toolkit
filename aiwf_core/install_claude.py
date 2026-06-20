@@ -159,6 +159,7 @@ def _build_settings_json(target: EmbedTarget | None = None) -> Dict[str, Any]:
     q_status       = qs + '/aiwf_status.py" --short'
     q_scope_check  = qs + '/aiwf_scope_check.py"'
     q_bash_guard   = qs + '/aiwf_bash_guard.py"'
+    q_agent_log    = qs + '/aiwf_agent_log.py"'
     q_auto_sync    = qs + '/aiwf_auto_sync.py"'
     q_review_gate  = qs + '/aiwf_review_gate.py"'
 
@@ -173,9 +174,10 @@ def _build_settings_json(target: EmbedTarget | None = None) -> Dict[str, Any]:
                     {"command": pf + q_scope_check,  "match": "^(write|edit|edit_file|multi_edit|Write|Edit|MultiEdit)$", "description": "Block writes outside the active AIWF context scope", "timeout": 5000},
                     {"command": pf + q_bash_guard,   "match": "^(bash|Bash)$", "description": "Block dangerous shell commands before execution", "timeout": 5000},
                 ],
-                "PostToolUse": [{
-                    "command": pf + q_auto_sync, "match": "^(write|edit|edit_file|multi_edit|Write|Edit|MultiEdit)$", "description": "Auto-sync AIWF MD to JSON after governance file edits", "timeout": 15000,
-                }],
+                "PostToolUse": [
+                    {"command": pf + q_agent_log, "match": "^(agent|task|Agent|Task)$", "description": "Log Agent/Task dispatch for close-gate enforcement", "timeout": 5000},
+                    {"command": pf + q_auto_sync, "match": "^(write|edit|edit_file|multi_edit|Write|Edit|MultiEdit)$", "description": "Auto-sync AIWF MD to JSON after governance file edits", "timeout": 15000},
+                ],
                 "Stop": [{
                     "command": pf + q_review_gate, "description": "Report AIWF closure gate status on session exit (Reasonix Stop is non-gating)", "timeout": 5000,
                 }],
@@ -190,6 +192,7 @@ def _build_settings_json(target: EmbedTarget | None = None) -> Dict[str, Any]:
                 {"matcher": "Bash",                                 **_h(q_bash_guard)},
             ],
             "PostToolUse": [
+                {"matcher": "Agent|Task",                           **_h(q_agent_log)},
                 {"matcher": "Write|Edit|MultiEdit",                 **_h(q_auto_sync)},
             ],
             "Stop": [_h(q_review_gate)],
@@ -203,6 +206,7 @@ def _build_settings_json(target: EmbedTarget | None = None) -> Dict[str, Any]:
                 "Bash(scripts/aiwf_bash_guard.py:*)",
 
                 "Bash(scripts/aiwf_review_gate.py:*)",
+                "Bash(scripts/aiwf_agent_log.py:*)",
                 "Bash(scripts/aiwf_auto_sync.py:*)",
                 "Read(.aiwf/**)",
                 "Write(.aiwf/**)",
@@ -287,6 +291,7 @@ SCRIPT_TEMPLATES = {
     "aiwf_bash_guard.py": "scripts/aiwf_bash_guard.py",
 
     "aiwf_review_gate.py": "scripts/aiwf_review_gate.py",
+    "aiwf_agent_log.py": "scripts/aiwf_agent_log.py",
     "aiwf_auto_sync.py": "scripts/aiwf_auto_sync.py",
 }
 
@@ -787,8 +792,8 @@ def doctor(mode: str | None = None) -> Dict[str, Any]:
         checks["state_files"][sf] = path.exists()
 
     for script in ["aiwf_status.py", "aiwf_scope_check.py",
-                    "aiwf_bash_guard.py", "aiwf_auto_sync.py",
-                    "aiwf_review_gate.py"]:
+                    "aiwf_bash_guard.py", "aiwf_agent_log.py",
+                    "aiwf_auto_sync.py", "aiwf_review_gate.py"]:
         path = root / "scripts" / script
         exists = path.exists()
         executable = exists and (path.stat().st_mode & 0o111)

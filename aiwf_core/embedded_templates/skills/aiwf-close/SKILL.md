@@ -19,31 +19,15 @@ aiwf status --prompt
 
 Confirm the current phase and active task.
 
-## Self-check (before closing)
-
-Read the active Task.md frontmatter. Check whether each requirement was fulfilled:
-
-1. `executor_required: true/false` → check `.aiwf/records/evidence.json`
-   for an executor record with this task_id.
-2. `tester_required: true/false` → check `.aiwf/records/testing.json`
-   for a testing record.
-3. `reviewer_required: true/false` → check `.aiwf/records/review.json`
-   for a review record with result=accepted.
-
-State out loud: "Contract: executor=Y/N, tester=Y/N, reviewer=Y/N.
-Fulfilled: executor=✓/✗, tester=✓/✗, reviewer=✓/✗."
-
-If any required role has no record, STOP. Do not proceed to close.
-Go back and dispatch that role.
-
 ## Command
 
 ```bash
 aiwf task close
 ```
 
-The machine gate re-checks everything above. If self-check passed but
-close fails, the gate output tells you what's missing.
+The command checks: dispatch log (were required subagents actually spawned?)
+and the standard evidence/testing/review/fix-loop gates. If it fails, it
+tells you exactly which role was never dispatched and which skill to load.
 
 ## Forbidden
 

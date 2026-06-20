@@ -121,7 +121,9 @@ def _cmd_task_close(args: argparse.Namespace) -> None:
     from ..core.task_ledger import close_task
     task_id = getattr(args, "task_id", "") or getattr(args, "task_id_pos", "") or ""
 
-    # Self-check: report contract requirements vs what's on disk before the gate runs
+    # Dispatch gate: check that required subagents were actually dispatched.
+    # This catches the model running tests/review inline and recording evidence
+    # without ever calling Agent() to spawn the independent role.
     import json as _json
     cwd = Path.cwd()
     try:
@@ -140,26 +142,44 @@ def _cmd_task_close(args: argparse.Namespace) -> None:
                         tr = fm.get("tester_required", False)
                         rr = fm.get("reviewer_required", False)
 
-                        ev = _json.loads((cwd / ".aiwf" / "records" / "evidence.json").read_text()) if (cwd / ".aiwf" / "records" / "evidence.json").exists() else {"records": []}
-                        te = _json.loads((cwd / ".aiwf" / "records" / "testing.json").read_text()) if (cwd / ".aiwf" / "records" / "testing.json").exists() else {}
-                        rv = _json.loads((cwd / ".aiwf" / "records" / "review.json").read_text()) if (cwd / ".aiwf" / "records" / "review.json").exists() else {}
+                        dispatch_log = cwd / ".aiwf" / "runtime" / "internal" / "agent-dispatch.jsonl"
+                        dispatched = set()
+                        if dispatch_log.exists():
+                            for line in dispatch_log.read_text().strip().split("\n"):
+                                try:
+                                    d = _json.loads(line)
+                                    if d.get("task_id") == active_id:
+                                        dispatched.add(d.get("subagent_type", ""))
+                                except Exception:
+                                    pass
 
-                        ev_ok = bool([r for r in ev.get("records", []) if r.get("task_id") == active_id])
-                        te_ok = te.get("status", "missing") in ("passed", "adequate")
-                        rv_ok = rv.get("result") == "accepted"
-
-                        print(f"Self-check (contract vs records):")
-                        print(f"  executor_required: {er} → evidence: {'✓' if ev_ok else '✗'}")
-                        print(f"  tester_required:   {tr} → testing:  {'✓' if te_ok else '✗'}")
-                        print(f"  reviewer_required: {rr} → review:   {'✓' if rv_ok else '✗'}")
-                        missing = []
-                        if er and not ev_ok: missing.append("executor → load /aiwf-implement, dispatch aiwf-executor, record evidence")
-                        if tr and not te_ok: missing.append("tester → load /aiwf-test, dispatch aiwf-tester, record testing")
-                        if rr and not rv_ok: missing.append("reviewer → load /aiwf-review, dispatch aiwf-reviewer, record review")
-                        if missing:
-                            print("MISSING — go back and complete before close:")
-                            for m in missing:
-                                print(f"  ✗ {m}")
+                        print("Dispatch check (was Agent() called?):")
+                        if er:
+                            ok = "aiwf-executor" in dispatched
+                            print(f"  executor_required: true → dispatched: {'✓' if ok else '✗'} (aiwf-executor)")
+                            if not ok:
+                                raise SystemExit(
+                                    "executor_required but aiwf-executor never dispatched.\n"
+                                    "  → load /aiwf-implement, dispatch aiwf-executor, record evidence."
+                                )
+                        if tr:
+                            ok = "aiwf-tester" in dispatched
+                            print(f"  tester_required:   true → dispatched: {'✓' if ok else '✗'} (aiwf-tester)")
+                            if not ok:
+                                raise SystemExit(
+                                    "tester_required but aiwf-tester never dispatched.\n"
+                                    "  → load /aiwf-test, dispatch aiwf-tester, record testing."
+                                )
+                        if rr:
+                            ok = "aiwf-reviewer" in dispatched
+                            print(f"  reviewer_required: true → dispatched: {'✓' if ok else '✗'} (aiwf-reviewer)")
+                            if not ok:
+                                raise SystemExit(
+                                    "reviewer_required but aiwf-reviewer never dispatched.\n"
+                                    "  → load /aiwf-review, dispatch aiwf-reviewer, record review."
+                                )
+    except SystemExit:
+        raise
     except Exception:
         pass
 
