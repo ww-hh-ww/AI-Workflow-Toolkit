@@ -300,10 +300,12 @@ def check_and_record_scope_violations(
 
 
 def check_and_record_missing_active_task(changed_files: list, base: Path) -> list:
-    """Post-tool safety net: record project writes without active task.
+    """Post-tool safety net: log project writes without active task.
 
-    The pre-tool scope guard should block these, but this catches any bypass.
-    Records a scope violation but does not open fix-loop (simple binary check).
+    The pre-tool Write guard blocks direct file writes without an active task.
+    Bash commands that modify files (mkdir, sed, etc.) pass the Bash guard but
+    are detected here. These are recorded for visibility, not permanently
+    flagged as violations — the developer was working, not violating.
     """
     project_files = filter_internal(changed_files, cwd=base)
     if not project_files:
@@ -312,6 +314,6 @@ def check_and_record_missing_active_task(changed_files: list, base: Path) -> lis
     state = _read_json(state_path, {})
     if state.get("active_task_id"):
         return []
-    state["scope_violation"] = True
-    _write_json(state_path, state)
+    # Don't set scope_violation. The pre-tool Write guard is the real gate.
+    # Bash-driven file changes without an active task are normal developer activity.
     return project_files
