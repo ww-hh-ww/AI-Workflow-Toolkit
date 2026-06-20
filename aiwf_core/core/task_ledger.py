@@ -836,6 +836,21 @@ def activate_task(base_dir: str, task_id: str) -> Dict[str, Any]:
     _sync_active_ids(ledger)
     state_path = Path(base_dir) / ".aiwf" / "state" / "state.json"
     state = _read(state_path, {})
+    # Record baseline git refs for per-role evidence diff.
+    # evidence_origin_ref: task start — never moves (for cumulative diff).
+    # evidence_baseline_ref: advances after each role records evidence (for incremental diff).
+    try:
+        import subprocess
+        r = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            capture_output=True, text=True, cwd=str(Path(base_dir)), timeout=10,
+        )
+        if r.returncode == 0:
+            ref = r.stdout.strip()
+            state["evidence_origin_ref"] = ref
+            state["evidence_baseline_ref"] = ref
+    except Exception:
+        pass
     if task.get("suspended_context"):
         for key, value in task["suspended_context"].items():
             state[key] = value

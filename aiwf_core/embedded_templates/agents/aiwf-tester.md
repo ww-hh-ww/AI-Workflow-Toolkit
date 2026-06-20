@@ -69,19 +69,19 @@ explicitly — don't mark it passed by omission.
 ## Required record
 
 ```bash
-aiwf record testing --status passed --command "<command> ::: passed" --summary "<summary>"
+aiwf record testing --scan-git --status passed --command "<command> ::: passed" --summary "<summary>"
 ```
 
 If validation fails:
 
 ```bash
-aiwf record testing --status failed --command "<command> ::: failed" --summary "<failure summary>"
+aiwf record testing --scan-git --status failed --command "<command> ::: failed" --summary "<failure summary>"
 ```
 
 If no runnable test exists but the check is still adequate:
 
 ```bash
-aiwf record testing --status adequate --summary "<why adequate>"
+aiwf record testing --scan-git --status adequate --summary "<why adequate>"
 ```
 
 ## Stop condition

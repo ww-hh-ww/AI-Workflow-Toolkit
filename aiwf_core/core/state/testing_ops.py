@@ -40,8 +40,11 @@ def record_testing(
     invalidated_evidence_ids: Optional[List[str]] = None,
     supports_plan: str = "",
     supports_goal: str = "",
+    scan_git: bool = True,
 ) -> Dict[str, Any]:
-    """Write testing.json consistently. Returns testing dict."""
+    """Write testing.json consistently. Returns testing dict.
+    scan_git: when True (default), records a git snapshot and advances
+    the evidence baseline. Tester writes new tests — capture their diff."""
     base = Path(base_dir)
     testing_path = base / ".aiwf" / "records" / "testing.json"
 
@@ -101,6 +104,7 @@ def record_testing(
         exit_code=0 if status in ("adequate", "passed") else 1 if status == "failed" else 0,
         supports_plan=supports_plan,
         supports_goal=supports_goal,
+        scan_git=scan_git,
     )
     testing["evidence_id"] = ev["id"]
     _write(testing_path, testing)

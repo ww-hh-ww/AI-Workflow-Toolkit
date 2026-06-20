@@ -64,7 +64,7 @@ issues is a fix-loop; a lazy minimal change that predictably breaks things is wa
 Use the AIWF command, not hand-written JSON:
 
 ```bash
-aiwf record evidence --role executor --summary "<what changed>" --command "<important command or action>"
+aiwf record evidence --role executor --scan-git --summary "<what changed>" --command "<important command or action>"
 ```
 
 ## Stop condition

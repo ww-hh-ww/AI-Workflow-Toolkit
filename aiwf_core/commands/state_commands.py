@@ -203,7 +203,8 @@ def _cmd_record_testing(args: argparse.Namespace) -> None:
                    reused_evidence_ids=getattr(args, 'reused_evidence_ids', None) or None,
                    invalidated_evidence_ids=getattr(args, 'invalidated_evidence_ids', None) or None,
                    supports_plan=getattr(args, 'supports_plan', '') or '',
-                   supports_goal=getattr(args, 'supports_goal', '') or '')
+                   supports_goal=getattr(args, 'supports_goal', '') or '',
+                   scan_git=bool(getattr(args, 'scan_git', False)))
     print(f"Testing recorded: status={args.status}")
     if testing.get("evidence_id"): print(f"  Evidence: {testing['evidence_id']} (tester)")
     if getattr(args, "commands", None): print(f"  Commands: {len(args.commands)}")

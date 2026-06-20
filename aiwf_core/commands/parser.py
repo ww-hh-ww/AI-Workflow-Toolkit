@@ -224,6 +224,7 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
     p_re_te.add_argument("--status", required=True, choices=["missing","partial","adequate","passed","failed"])
     p_re_te.add_argument("--command", action="append", default=[], dest="commands")
     p_re_te.add_argument("--summary", default="", help="testing summary")
+    p_re_te.add_argument("--scan-git", action="store_true", default=False, dest="scan_git", help="capture git snapshot of tester's changes")
     p_re_te.set_defaults(func=_cmd_record_testing)
     p_re_rv = p_rec_sub.add_parser("review", help="record review results")
     p_re_rv.add_argument("--result", required=True, choices=["accepted","needs_fix","rejected"])

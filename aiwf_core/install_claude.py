@@ -157,10 +157,8 @@ def _build_settings_json(target: EmbedTarget | None = None) -> Dict[str, Any]:
     # Pre-compute shell-quoted paths: "${CLAUDE_PROJECT_DIR}/scripts/aiwf_xxx.py"
     qs = f'"{scripts}'
     q_status       = qs + '/aiwf_status.py" --short'
-    q_pre_snapshot = qs + '/aiwf_pre_snapshot.py"'
     q_scope_check  = qs + '/aiwf_scope_check.py"'
     q_bash_guard   = qs + '/aiwf_bash_guard.py"'
-    q_capture      = qs + '/aiwf_capture_evidence.py"'
     q_review_gate  = qs + '/aiwf_review_gate.py"'
 
     if target.mode == "reasonix":
@@ -171,13 +169,9 @@ def _build_settings_json(target: EmbedTarget | None = None) -> Dict[str, Any]:
                     "command": pf + q_status, "description": "Inject compact AIWF workflow status before Reasonix handles the prompt", "timeout": 5000,
                 }],
                 "PreToolUse": [
-                    {"command": pf + q_pre_snapshot, "match": "^(write|edit|edit_file|multi_edit|bash|agent|task|Write|Edit|MultiEdit|Bash|Agent|Task)$", "description": "Capture a pre-tool filesystem snapshot for AIWF evidence", "timeout": 5000},
                     {"command": pf + q_scope_check,  "match": "^(write|edit|edit_file|multi_edit|Write|Edit|MultiEdit)$", "description": "Block writes outside the active AIWF context scope", "timeout": 5000},
                     {"command": pf + q_bash_guard,   "match": "^(bash|Bash)$", "description": "Block dangerous shell commands before execution", "timeout": 5000},
                 ],
-                "PostToolUse": [{
-                    "command": pf + q_capture, "match": "^(write|edit|edit_file|multi_edit|bash|agent|task|Write|Edit|MultiEdit|Bash|Agent|Task)$", "description": "Capture git-diff evidence after file or shell tools", "timeout": 30000,
-                }],
                 "Stop": [{
                     "command": pf + q_review_gate, "description": "Report AIWF closure gate status on session exit (Reasonix Stop is non-gating)", "timeout": 5000,
                 }],
@@ -188,12 +182,8 @@ def _build_settings_json(target: EmbedTarget | None = None) -> Dict[str, Any]:
         "hooks": {
             "UserPromptSubmit": [_h(q_status)],
             "PreToolUse": [
-                {"matcher": "Write|Edit|MultiEdit|Bash|Agent|Task", **_h(q_pre_snapshot)},
                 {"matcher": "Write|Edit|MultiEdit",                 **_h(q_scope_check)},
                 {"matcher": "Bash",                                 **_h(q_bash_guard)},
-            ],
-            "PostToolUse": [
-                {"matcher": "Write|Edit|MultiEdit|Bash|Agent|Task", **_h(q_capture)},
             ],
             "Stop": [_h(q_review_gate)],
         },
@@ -201,10 +191,10 @@ def _build_settings_json(target: EmbedTarget | None = None) -> Dict[str, Any]:
             "allow": [
                 "Bash(aiwf:*)",
                 "Bash(scripts/aiwf_status.py:*)",
-                "Bash(scripts/aiwf_pre_snapshot.py:*)",
+
                 "Bash(scripts/aiwf_scope_check.py:*)",
                 "Bash(scripts/aiwf_bash_guard.py:*)",
-                "Bash(scripts/aiwf_capture_evidence.py:*)",
+
                 "Bash(scripts/aiwf_review_gate.py:*)",
                 "Read(.aiwf/**)",
                 "Write(.aiwf/**)",
@@ -284,10 +274,10 @@ AGENT_TEMPLATES = {
 
 SCRIPT_TEMPLATES = {
     "aiwf_status.py": "scripts/aiwf_status.py",
-    "aiwf_pre_snapshot.py": "scripts/aiwf_pre_snapshot.py",
+
     "aiwf_scope_check.py": "scripts/aiwf_scope_check.py",
     "aiwf_bash_guard.py": "scripts/aiwf_bash_guard.py",
-    "aiwf_capture_evidence.py": "scripts/aiwf_capture_evidence.py",
+
     "aiwf_review_gate.py": "scripts/aiwf_review_gate.py",
 }
 
@@ -787,9 +777,8 @@ def doctor(mode: str | None = None) -> Dict[str, Any]:
         path = root / ".aiwf" / sf
         checks["state_files"][sf] = path.exists()
 
-    for script in ["aiwf_status.py", "aiwf_pre_snapshot.py", "aiwf_scope_check.py",
-                    "aiwf_bash_guard.py", "aiwf_capture_evidence.py",
-                    "aiwf_review_gate.py"]:
+    for script in ["aiwf_status.py", "aiwf_scope_check.py",
+                    "aiwf_bash_guard.py", "aiwf_review_gate.py"]:
         path = root / "scripts" / script
         exists = path.exists()
         executable = exists and (path.stat().st_mode & 0o111)

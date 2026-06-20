@@ -10,5 +10,5 @@ description: Use only when `aiwf status --prompt` lists `aiwf-test` under Requir
    executor record (changed files, summary).
 3. If `tester_required`:
    `Agent({subagent_type: "aiwf-tester", prompt: "Active Task.md: .aiwf/tasks/<TASK-ID>.md\nExecutor changed: [...files]\nExecutor summary: <summary>"})`
-4. If not — read `inline-execution.md`, test inline.
-5. `aiwf record testing --status passed|failed|adequate ...`
+   The subagent records its own testing (see agent file). Do NOT record again.
+4. If not — read `inline-execution.md`, test inline, record testing as described there.

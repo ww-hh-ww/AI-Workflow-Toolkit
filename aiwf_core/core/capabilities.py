@@ -16,9 +16,8 @@ DANGEROUS_WORDS = ["deploy", "publish", "push", "commit", "delete", "rm ", "sudo
 AIWF_HOOK_EVENTS = {"UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop"}
 
 AIWF_INTERNAL_PREFIXES = ("aiwf-",)
-AIWF_SCRIPT_HOOKS = {"scripts/aiwf_status.py", "scripts/aiwf_pre_snapshot.py",
-                      "scripts/aiwf_scope_check.py", "scripts/aiwf_bash_guard.py",
-                      "scripts/aiwf_capture_evidence.py", "scripts/aiwf_review_gate.py"}
+AIWF_SCRIPT_HOOKS = {"scripts/aiwf_status.py", "scripts/aiwf_scope_check.py",
+                      "scripts/aiwf_bash_guard.py", "scripts/aiwf_review_gate.py"}
 
 RISK_MAP = {"docs": "read_only_context", "read": "read_only_context",
             "search": "read_only_context", "fetch": "read_only_context",

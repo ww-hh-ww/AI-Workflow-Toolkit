@@ -189,6 +189,102 @@ def _intent_forbidden_changes(intent: str) -> List[str]:
     """Return derived forbidden_changes for a given work_intent."""
     return _INTENT_FORBIDDEN_MAP.get(intent, [])
 
+def _git_diff_baseline(base: Path, baseline_ref: str) -> Dict[str, Any]:
+    """Get files changed since the evidence baseline ref.
+
+    Returns dict with files, source, and evidence_head_ref.
+    evidence_head_ref is a git stash create snapshot — a lightweight
+    commit object capturing the working tree at evidence time. Store it
+    to enable `git diff baseline_ref..evidence_head_ref` later.
+    """
+    import subprocess
+    result: Dict[str, Any] = {"files": [], "source": "baseline_diff", "evidence_head_ref": ""}
+    try:
+        r = subprocess.run(
+            ["git", "diff", "--name-only", baseline_ref, "HEAD"],
+            capture_output=True, text=True, cwd=str(base), timeout=10,
+        )
+        committed = [f.strip() for f in r.stdout.split("\n") if f.strip()] if r.returncode == 0 else []
+
+        r2 = subprocess.run(
+            ["git", "diff", "--name-only", "HEAD"],
+            capture_output=True, text=True, cwd=str(base), timeout=10,
+        )
+        dirty = [f.strip() for f in r2.stdout.split("\n") if f.strip()] if r2.returncode == 0 else []
+
+        r3 = subprocess.run(
+            ["git", "ls-files", "--others", "--exclude-standard"],
+            capture_output=True, text=True, cwd=str(base), timeout=10,
+        )
+        untracked = [f.strip() for f in r3.stdout.split("\n") if f.strip()] if r3.returncode == 0 else []
+
+        from ...hooks.common.diff_snapshot import filter_internal
+        all_files = list(set(committed + dirty + untracked))
+        result["files"] = sorted(filter_internal(all_files, cwd=base))
+
+        # Capture working tree snapshot for later diff backtracking.
+        # git stash create returns a commit hash without touching the stash stack.
+        r4 = subprocess.run(
+            ["git", "stash", "create"],
+            capture_output=True, text=True, cwd=str(base), timeout=10,
+        )
+        if r4.returncode == 0 and r4.stdout.strip():
+            result["evidence_head_ref"] = r4.stdout.strip()
+    except Exception:
+        result["source"] = "baseline_diff_failed"
+    return result
+
+
+def _check_forbidden_write_violations(
+    changed_files: List[str],
+    forbidden_patterns: List[str],
+    base: Path,
+    task_id: str,
+) -> List[str]:
+    """Check changed files against Task.md forbidden_write patterns.
+
+    Returns list of violating file paths. Records violations in review.json
+    and opens fix-loop when violations found.
+    """
+    from ...hooks.common.diff_snapshot import filter_internal
+    from ...core.scope_policy import _matches
+
+    project_files = filter_internal(changed_files, cwd=base)
+    violations = []
+    for f in project_files:
+        for pattern in forbidden_patterns:
+            if _matches(f, pattern):
+                violations.append(f)
+                break
+
+    if violations:
+        state_path = base / ".aiwf" / "state" / "state.json"
+        state = _read(state_path, {})
+        state["scope_violation"] = True
+        _write(state_path, state)
+
+        fix_path = base / ".aiwf" / "state" / "fix-loop.json"
+        from ...core.state_schema import default_fix_loop
+        fix_loop = _read(fix_path, default_fix_loop())
+        if fix_loop.get("status") != "open":
+            fix_loop["status"] = "open"
+            fix_loop["required_fixes"] = [
+                f"Revert: {vf} — matched Forbidden Write pattern from {task_id}.md" for vf in violations
+            ]
+            fix_loop["route"] = "planner"
+            _write(fix_path, fix_loop)
+
+        review_path = base / ".aiwf" / "records" / "review.json"
+        from ...core.state_schema import default_review
+        from ...core.review_contract import add_scope_violation_blocker
+        review = _read(review_path, default_review())
+        for vf in violations:
+            add_scope_violation_blocker(review, vf, task_id)
+        _write(review_path, review)
+
+    return violations
+
+
 def record_role_evidence(
     base_dir: str,
     role: str,
@@ -206,7 +302,11 @@ def record_role_evidence(
     supports_goal: str = "",
     task_id: str = "",
 ) -> Dict[str, Any]:
-    """Append machine-recorded role evidence for subagent/hook coverage gaps."""
+    """Append one role-scoped evidence record per phase (not per tool call).
+
+    When scan_git=True, diffs against the evidence_baseline_ref recorded at
+    task activation time — capturing all changes the executor made in one shot.
+    """
     role = role.strip().lower()
     if role not in ("executor", "tester", "reviewer", "planner"):
         raise ValueError(f"unknown role evidence role: {role}")
@@ -233,26 +333,61 @@ def record_role_evidence(
             pass
     effective_plan = supports_plan or inferred_plan
     effective_goal = supports_goal or inferred_goal
-    # Use explicit --session-id when available. Otherwise use the context
-    # as session marker. Role-based suffixes are NOT auto-generated here —
-    # that would let the main session fake independent sessions by running
-    # three CLI commands. Real session diversity comes from hook-captured
-    # evidence in subagent sessions (each has a distinct Claude session_id).
     synthetic_session = session_id or active_context or "aiwf"
+
     scanned_files: List[str] = []
     scanned_source = "not_scanned"
+    evidence_origin_ref = state.get("evidence_origin_ref", "")
+    evidence_baseline_ref = ""
+    evidence_head_ref = ""
+
     if scan_git:
-        try:
-            from ...hooks.common.diff_snapshot import detect_changed_files_with_baseline
-            scan = detect_changed_files_with_baseline(base)
-            scanned_files = list(scan.get("files", []) or [])
-            scanned_source = str(scan.get("source", "") or "git_diff")
-        except Exception:
-            scanned_files = []
-            scanned_source = "scan_failed"
+        baseline_ref = state.get("evidence_baseline_ref", "")
+        if baseline_ref:
+            evidence_baseline_ref = baseline_ref
+            try:
+                scan = _git_diff_baseline(base, baseline_ref)
+                scanned_files = list(scan.get("files", []) or [])
+                scanned_source = str(scan.get("source", "") or "baseline_diff")
+                evidence_head_ref = str(scan.get("evidence_head_ref", "") or "")
+                # Pin the snapshot ref so git gc won't collect it.
+                # refs/aiwf/evidence/* is local-only, never pushed.
+                if evidence_head_ref and active_task_id:
+                    import subprocess
+                    subprocess.run(
+                        ["git", "update-ref", f"refs/aiwf/evidence/{active_task_id}", evidence_head_ref],
+                        capture_output=True, cwd=str(base), timeout=10,
+                    )
+            except Exception:
+                scanned_files = []
+                scanned_source = "baseline_diff_failed"
+        else:
+            # Fallback: no baseline recorded (pre-existing active task)
+            try:
+                from ...hooks.common.diff_snapshot import detect_changed_files_with_baseline
+                scan = detect_changed_files_with_baseline(base)
+                scanned_files = list(scan.get("files", []) or [])
+                scanned_source = str(scan.get("source", "") or "git_diff")
+            except Exception:
+                scanned_files = []
+                scanned_source = "scan_failed"
+
     delivered_files = list(changed_files or [])
     effective_changed = delivered_files or scanned_files
-    # Determine trust level from capture method
+
+    # Scope violation check for executor: verify no changed file matches
+    # forbidden_write from active Task.md. This is the safety net behind
+    # the pre-tool Write gate.
+    if role == "executor" and effective_changed and active_task_id:
+        try:
+            from ...hooks.common.scope_checker import _get_task_forbidden_write
+            forbidden = _get_task_forbidden_write(base, active_task_id)
+            if forbidden:
+                _check_forbidden_write_violations(
+                    effective_changed, forbidden, base, active_task_id)
+        except Exception:
+            pass
+
     trust_lvl = "role_recorded"
     if command and scan_git:
         trust_lvl = "command_observed"
@@ -299,6 +434,9 @@ def record_role_evidence(
             "task_id": active_task_id,
             "supports_plan": effective_plan,
             "supports_goal": effective_goal,
+            "evidence_origin_ref": evidence_origin_ref,
+            "evidence_baseline_ref": evidence_baseline_ref,
+            "evidence_head_ref": evidence_head_ref,
         }
         records.append(record)
         evidence["records"] = records
@@ -306,6 +444,12 @@ def record_role_evidence(
         return record
 
     record = _locked_json_update(evidence_path, {"records": []}, _append)
+
+    # Advance baseline so the next role's diff is incremental.
+    # Each role's evidence captures only what THEY added.
+    if evidence_head_ref and scan_git:
+        state["evidence_baseline_ref"] = evidence_head_ref
+        _write(base / ".aiwf" / "state" / "state.json", state)
 
     # Advance phase after executor evidence
     if role == "executor" and state.get("phase") not in ("closing", "closed"):
