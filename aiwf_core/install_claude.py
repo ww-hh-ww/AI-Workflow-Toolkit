@@ -253,20 +253,25 @@ SKILL_TEMPLATES = {
 SKILL_REFERENCE_TEMPLATES = {
     "aiwf-planner": {
         "references/task-contract.md": "skills/aiwf-planner/references/task-contract.md",
-        "references/lifecycle.md": "skills/aiwf-planner/references/lifecycle.md",
-        "references/risk-and-rollback.md": "skills/aiwf-planner/references/risk-and-rollback.md",
+        "references/structure-guide.md": "skills/aiwf-planner/references/structure-guide.md",
+        "references/writing-guide.md": "skills/aiwf-planner/references/writing-guide.md",
+    },
+    "aiwf-implement": {
+        "inline-execution.md": "shared/inline-execution.md",
+    },
+    "aiwf-test": {
+        "inline-execution.md": "shared/inline-execution.md",
     },
     "aiwf-review": {
         "references/review-output.md": "skills/aiwf-review/references/review-output.md",
         "references/trace-checklist.md": "skills/aiwf-review/references/trace-checklist.md",
         "references/verify-checklist.md": "skills/aiwf-review/references/verify-checklist.md",
-    },
-    "aiwf-milestone": {
-        "references/integration.md": "skills/aiwf-milestone/references/integration.md",
-        "references/architecture-review.md": "skills/aiwf-milestone/references/architecture-review.md",
+        "inline-execution.md": "shared/inline-execution.md",
     },
     "aiwf-architect": {
-        "references/architecture-checklist.md": "skills/aiwf-architect/references/architecture-checklist.md",
+        "references/code-review.md": "skills/aiwf-architect/references/code-review.md",
+        "references/design-review.md": "skills/aiwf-architect/references/design-review.md",
+        "references/structure-review.md": "skills/aiwf-architect/references/structure-review.md",
     },
 }
 

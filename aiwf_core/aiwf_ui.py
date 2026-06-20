@@ -42,6 +42,12 @@ def load_all(root: Path) -> dict:
     }
 
 
+_SHOW_CANCELLED = False
+
+def set_show_cancelled(v):
+    global _SHOW_CANCELLED
+    _SHOW_CANCELLED = v
+
 # ── tree builder ───────────────────────────────────────────────────────
 
 def build_tree(data: dict) -> list:
@@ -98,22 +104,30 @@ def build_tree(data: dict) -> list:
             return
         added_goals.add(gid)
         g = goal_by_id.get(gid, {})
-        title = g.get("title_cache") or g.get("title") or gid
         gstatus = g.get("status", "open")
+        if not _SHOW_CANCELLED and gstatus in ("cancelled", "closed"):
+            return  # skip cancelled/closed goals entirely
+        title = g.get("title_cache") or g.get("title") or gid
         nodes.append({"kind": "goal", "id": gid, "title": title,
                       "indent": base_indent, "status": gstatus, "active": False})
 
         # Plans under this goal
         for pid, p in plan_by_goal.get(gid, []):
             pstatus = p.get("status", "open")
+            if not _SHOW_CANCELLED and pstatus in ("cancelled", "closed"):
+                continue
+            ptitle = (p.get("title_cache") or p.get("title") or pid)[:40]
             nodes.append({"kind": "plan", "id": pid,
-                          "title": p.get("title_cache", p.get("title", pid)),
+                          "title": f"{pid}  {ptitle}",
                           "indent": base_indent + 1, "status": pstatus, "active": False})
             for tid in p.get("task_ids", []) or []:
                 t = task_by_id.get(tid, {})
                 tstatus = t.get("status", "ready")
+                if not _SHOW_CANCELLED and tstatus in ("cancelled",):
+                    continue
+                ttitle = (t.get("title_cache") or t.get("title") or tid)[:40]
                 nodes.append({"kind": "task", "id": tid,
-                              "title": t.get("title_cache", t.get("title", tid)),
+                              "title": f"{tid}  {ttitle}",
                               "indent": base_indent + 2, "status": tstatus,
                               "active": tid == active_task_id})
 
@@ -132,20 +146,40 @@ def build_tree(data: dict) -> list:
         _add_goal(g.get("id", ""), 1)
 
     # Orphan tasks: linked to plan but plan's goal missing from tree
+    # Also filter by parent plan/goal cancelled status
+    cancelled_plans = set()
+    cancelled_goals = set()
+    if not _SHOW_CANCELLED:
+        for p in plan_list:
+            if p.get("status") in ("cancelled", "closed"):
+                cancelled_plans.add(p.get("plan_id") or p.get("id") or "")
+        for g in goal_list:
+            if g.get("status") in ("cancelled", "closed"):
+                cancelled_goals.add(g.get("id", ""))
     for t in task_list:
         tid = t.get("id", "")
         if not any(n["id"] == tid for n in nodes):
             tstatus = t.get("status", "ready")
+            if not _SHOW_CANCELLED:
+                if tstatus in ("cancelled",):
+                    continue
+                pid = t.get("plan_id") or ""
+                gid = t.get("goal_id") or ""
+                if pid in cancelled_plans or gid in cancelled_goals:
+                    continue
+            ttitle = (t.get("title_cache") or t.get("title") or tid)[:40]
             nodes.append({"kind": "task", "id": tid,
-                          "title": t.get("title_cache", t.get("title", tid)),
+                          "title": f"{tid}  {ttitle}",
                           "indent": 2, "status": tstatus,
                           "active": tid == active_task_id})
 
-    # Milestones (appended after tree)
+    # Milestones (appended after tree, skip cancelled/closed)
     ms_list = data["milestones"].get("milestones", []) or []
     for m in ms_list:
         mid = m.get("id") or m.get("milestone_id") or "?"
         mstatus = m.get("status", "pending")
+        if not _SHOW_CANCELLED and mstatus in ("cancelled", "closed"):
+            continue
         nodes.append({"kind": "milestone", "id": mid,
                       "title": m.get("title_cache", m.get("title", mid)),
                       "indent": 1, "status": mstatus,
@@ -200,9 +234,7 @@ _COL_GOAL = 3
 _COL_PLAN = 4
 _COL_TASK = 5
 _COL_MILESTONE = 6
-_COL_GRAY = 1
-_COL_ACTIVE = 7
-_COL_DIVIDER = 8
+_COL_DIVIDER = 1
 
 def _init_colors():
     if not curses.has_colors():
@@ -218,24 +250,19 @@ def _init_colors():
         curses.init_pair(n, fg, bg)
 
     if has_256:
-        _pair(_COL_GRAY, 245, -1)
         _pair(_COL_MISSION, 6, -1)
         _pair(_COL_GOAL, 4, -1)
         _pair(_COL_PLAN, 2, -1)
         _pair(_COL_TASK, 3, -1)
         _pair(_COL_MILESTONE, 5, -1)
-        _pair(_COL_ACTIVE, 15, -1)
         _pair(_COL_DIVIDER, 245, -1)
     else:
-        # 8-color fallback — uses standard ANSI colors
-        _pair(_COL_GRAY, 7, -1)        # white as gray substitute
-        _pair(_COL_MISSION, 6, -1)     # cyan
-        _pair(_COL_GOAL, 4, -1)        # blue
-        _pair(_COL_PLAN, 2, -1)        # green
-        _pair(_COL_TASK, 3, -1)        # yellow
-        _pair(_COL_MILESTONE, 5, -1)   # magenta
-        _pair(_COL_ACTIVE, 7, -1)      # white
-        _pair(_COL_DIVIDER, 7, -1)     # white as divider
+        _pair(_COL_MISSION, 6, -1)
+        _pair(_COL_GOAL, 4, -1)
+        _pair(_COL_PLAN, 2, -1)
+        _pair(_COL_TASK, 3, -1)
+        _pair(_COL_MILESTONE, 5, -1)
+        _pair(_COL_DIVIDER, 7, -1)
 
 
 def _kind_color(kind):
@@ -248,10 +275,13 @@ def status_icon(status):
             "ready": "○", "open": "○", "pending": "○"}.get(status, "○")
 
 
-def render_tree(stdscr, nodes, selected_idx, scroll_offset, max_rows, view_mode, milestone_view=False, detail_scroll=0):
+def render_tree(stdscr, nodes, selected_idx, scroll_offset, max_rows, detail_scroll=0, tree_mode=0, detail_visible=True, show_cancelled=False):
     stdscr.erase()
     h, w = stdscr.getmaxyx()
-    tree_w = min(w * 2 // 3, 55)
+    if detail_visible:
+        tree_w = min(w * 2 // 3, 55)
+    else:
+        tree_w = w - 2
     detail_x = tree_w + 1
     has_color = curses.has_colors()
 
@@ -267,39 +297,30 @@ def render_tree(stdscr, nodes, selected_idx, scroll_offset, max_rows, view_mode,
 
         line = f"{prefix} {icon} {title}"
 
-        # Color by layer
-        attr = curses.A_REVERSE if i == selected_idx else 0
+        # Color by node type, with status modifiers
         col = _kind_color(node["kind"])
+        attr = curses.A_REVERSE if i == selected_idx else 0
+        attr |= curses.color_pair(col) if has_color else 0
         if node["active"]:
-            attr |= curses.color_pair(_COL_ACTIVE) if has_color else curses.A_BOLD
-        elif node["status"] in ("closed", "cancelled"):
-            attr |= curses.color_pair(_COL_GRAY) if has_color else 0
-        else:
-            attr |= curses.color_pair(col) if has_color else 0
+            attr |= curses.A_BOLD
+        if node["status"] in ("closed", "cancelled"):
+            attr |= curses.A_DIM
 
         try:
             stdscr.addstr(y, 0, line[:tree_w].ljust(tree_w), attr)
         except curses.error:
             pass
 
-    # Vertical divider ─ persistent, not tree-connected
-    for y in range(max_rows - 2):
-        try:
-            stdscr.addstr(y, tree_w, "│", curses.color_pair(_COL_DIVIDER) if has_color else 0)
-        except curses.error:
-            pass
-
-    # ── Right panel: depends on view mode ──
-    if 0 <= selected_idx < len(nodes):
-        node = nodes[selected_idx]
-        if milestone_view:
-            _render_milestone_detail(stdscr, detail_x, w, max_rows, node, data, detail_scroll)
-        elif view_mode == 1:
-            _render_tree_detail(stdscr, detail_x, w, max_rows, node, data, detail_scroll)
-        elif view_mode == 2:
-            _render_deps_view(stdscr, detail_x, w, max_rows, node, data, detail_scroll)
-        elif view_mode == 3:
-            _render_relations_view(stdscr, detail_x, w, max_rows, data, detail_scroll)
+    # Vertical divider + detail (only when visible)
+    if detail_visible:
+        for y in range(max_rows - 2):
+            try:
+                stdscr.addstr(y, tree_w, "│", curses.color_pair(_COL_DIVIDER) if has_color else 0)
+            except curses.error:
+                pass
+        if 0 <= selected_idx < len(nodes):
+            node = nodes[selected_idx]
+            _render_node_detail(stdscr, detail_x, w, max_rows, node, data, detail_scroll)
 
     # ── Bottom bar ──
     bar_y = max_rows - 2
@@ -310,8 +331,10 @@ def render_tree(stdscr, nodes, selected_idx, scroll_offset, max_rows, view_mode,
         pass
 
     # ── Help line ──
-    view_hint = {1: "detail", 2: "deps", 3: "relations"}.get(view_mode, "")
-    help_text = f"j/k:tree  1:detail  2:deps  3:ms  Enter/e:edit  r:records  s:sync  shift+J/K:scroll right  Tab:ms  q:quit  [{view_hint}]"
+    mode_labels = {0:"Main",1:"Milestones",2:"Tasks",3:"PlanChain",4:"GoalDeps"}
+    canc_hint = "[+cancelled]" if show_cancelled else ""
+    detail_hint = "[detail]" if detail_visible else "[full]"
+    help_text = f"Tab:{mode_labels.get(tree_mode,'?')}{canc_hint}  j/k:nav  e:edit  r:rec  s:sync  d:toggle  x:cancelled  q:quit  {detail_hint}"
     try:
         stdscr.addstr(max_rows - 1, 0, help_text[:w - 1], curses.A_DIM)
     except curses.error:
@@ -320,101 +343,182 @@ def render_tree(stdscr, nodes, selected_idx, scroll_offset, max_rows, view_mode,
     stdscr.refresh()
 
 
-def _render_tree_detail(stdscr, x, w, max_rows, node, data, detail_scroll=0):
-    """View 1: selected node detail — key fields."""
-    lines = _node_summary(node, data)
+def _render_node_detail(stdscr, x, w, max_rows, node, data, detail_scroll=0):
+    """Right panel: show MD body of selected node."""
+    md_path = _md_path_for(node)
+    lines = []
+    if md_path:
+        from pathlib import Path as _P
+        doc = _P.cwd() / md_path
+        if doc.exists():
+            text = doc.read_text(encoding="utf-8")
+            # Show frontmatter keys as a header, then body
+            if text.startswith("---\n"):
+                end = text.find("\n---\n", 4)
+                if end != -1:
+                    fm_text = text[4:end]
+                    body = text[end + 5:].strip()
+                    # One-line summary from frontmatter
+                    fm_lines = fm_text.strip().split("\n")
+                    for fl in fm_lines[:3]:
+                        lines.append(fl.strip())
+                    lines.append("")
+                    # MD body (scrollable)
+                    for bl in body.split("\n"):
+                        lines.append(bl)
+            if not lines:
+                lines = text.split("\n")
+    if not lines:
+        lines = _node_summary(node, data)
     for i, line in enumerate(lines):
         di = i - detail_scroll
         if di < 0 or di >= max_rows - 2:
             continue
         try:
-            stdscr.addstr(i, x, line[:w - x - 1])
+            stdscr.addstr(di, x, line[:w - x - 1])
         except curses.error:
             pass
 
 
-def _render_deps_view(stdscr, x, w, max_rows, node, data, detail_scroll=0):
-    """View 2: dependency order — tasks by wave, plans by chain."""
-    lines = ["── Dependencies ──", ""]
+def _render_deps_view(stdscr, x, w, max_rows, node, data, detail_scroll=0, deps_sub=0):
+    """View 2: dependency order — press 2 to cycle Tasks(0)/Plans(1)/Goals(2)."""
+    sub_labels = {0: "Plans", 1: "Tasks", 2: "Goals"}
+    lines = [f"── Dependencies ({sub_labels.get(deps_sub, '?')})  [press 2 to switch] ──", ""]
     task_list = data["tasks"].get("tasks", []) or []
     plan_list = data["plans"].get("plans", []) or []
     nid = node["id"]
-    has_any = False
 
-    # Task dependencies — always show, not just when node is task
-    waves = {}
-    for t in task_list:
-        wv = _task_wave(data, t.get("id"))
-        if wv is not None:
-            waves.setdefault(wv, []).append(t)
-    if waves:
-        has_any = True
-        lines.append("Task order:")
-        for wv in sorted(waves.keys()):
-            labels = {0: "Wave 0 (no deps)", 1: "Wave 1", 2: "Wave 2", 3: "Wave 3"}
-            lines.append(f"  {labels.get(wv, f'第{wv}波')}")
-            for t in waves[wv]:
-                icon = status_icon(t.get("status", ""))
-                title = t.get("title_cache", t.get("title", t.get("id", "?")))
-                mark = " ◀" if t.get("id") == nid else ""
-                deps = t.get("dependencies", []) or []
-                dep_str = f" deps→[{', '.join(deps)}]" if deps else ""
-                lines.append(f"    {icon} {t['id']}{mark}{dep_str}")
-            lines.append("")
-    else:
-        lines.append("  (暂无任务依赖关系)")
+    if deps_sub == 0:
+        # ── Plan chain — each plan shown once, at the end of its longest dep path ──
+        plan_by_id = {}
+        for p in plan_list:
+            pid = p.get("plan_id") or p.get("id") or ""
+            if pid:
+                plan_by_id[pid] = p
 
-    # Plan dependency chain — tree form with box drawing + titles
-    plan_dep_map = {}
-    plan_by_id = {}
-    for p in plan_list:
-        pid = p.get("plan_id") or p.get("id") or ""
-        if pid:
-            plan_by_id[pid] = p
-            for d in (p.get("dependencies", []) or []):
-                plan_dep_map.setdefault(d, []).append(pid)  # d depends on → [kids]
-
-    if plan_dep_map:
-        has_any = True
-        # Roots: plans that are not depended-on by anyone
-        all_kids = {k for kids in plan_dep_map.values() for k in kids}
-        roots = sorted([pid for pid in plan_by_id if pid not in all_kids and pid in plan_dep_map or plan_by_id[pid].get("dependencies")])
-
-        def _deps_tree(pid, prefix, is_last, visited):
-            if pid in visited:
-                return [f"{prefix}{pid} (cycle)"]
-            visited.add(pid)
+        # Compute depth = longest path from any root
+        def _plan_depth(pid, depth_cache=None):
+            if depth_cache is None:
+                depth_cache = {}
+            if pid in depth_cache:
+                return depth_cache[pid]
             p = plan_by_id.get(pid, {})
-            title = (p.get("title_cache") or p.get("title") or pid)[:35]
-            branch = "└─ " if is_last else "├─ "
-            result = [f"{prefix}{branch}{pid}  {title}"]
-            kids = plan_dep_map.get(pid, [])
-            for i, k in enumerate(kids):
-                last_kid = (i == len(kids) - 1)
-                new_prefix = prefix + ("   " if is_last else "│  ")
-                result.extend(_deps_tree(k, new_prefix, last_kid, visited.copy()))
-            return result
+            deps = p.get("dependencies", []) or []
+            if not deps:
+                depth_cache[pid] = 0
+                return 0
+            d = max(_plan_depth(d, depth_cache) for d in deps) + 1
+            depth_cache[pid] = d
+            return d
 
-        lines.append("")
-        lines.append("Plan dependency tree:")
-        for i, root in enumerate(roots):
-            result_lines = _deps_tree(root, "", i == len(roots) - 1, set())
-            lines.extend(result_lines)
+        depths = {}
+        for pid in plan_by_id:
+            depths[pid] = _plan_depth(pid, depths)
 
-    # Cross-reference: which tasks link to which plans
-    task_plan = {}
-    for t in task_list:
-        pid = t.get("plan_id") or ""
-        if pid:
-            task_plan.setdefault(pid, []).append(t.get("id"))
-    if task_plan and len(task_plan) > 1:
-        lines.append("")
-        lines.append("Task→Plan 归属:")
-        for pid, tids in sorted(task_plan.items()):
-            lines.append(f"  {pid}: {', '.join(tids)}")
+        # Build a tree where each child's primary parent is its deepest dep
+        primary_parent = {}  # pid -> parent_pid (the dep with max depth)
+        for pid in plan_by_id:
+            p = plan_by_id[pid]
+            deps = p.get("dependencies", []) or []
+            if deps:
+                best = max(deps, key=lambda d: depths.get(d, 0))
+                primary_parent[pid] = best
 
-    if not has_any and not (task_plan and len(task_plan) > 1):
-        lines.append("  No dependencies.在 Plan.md frontmatter 中设置 dependencies 字段。")
+        # Children keyed by primary parent
+        children_of = {}
+        roots = []
+        for pid in plan_by_id:
+            pp = primary_parent.get(pid)
+            if pp:
+                children_of.setdefault(pp, []).append(pid)
+            elif pid not in primary_parent:
+                roots.append(pid)
+        roots = sorted(roots)
+
+        if roots:
+            def _draw(pid, prefix, is_last, visited):
+                if pid in visited:
+                    return [f"{prefix}{pid} (cycle)"]
+                visited.add(pid)
+                p = plan_by_id.get(pid, {})
+                title = (p.get("title_cache") or p.get("title") or "")[:40]
+                label = f"{pid}  {title}" if title else pid
+                branch = "└─ " if is_last else "├─ "
+                result = [f"{prefix}{branch}{label}"]
+                kids = children_of.get(pid, [])
+                # Sort kids by depth descending so deepest branch comes first
+                kids.sort(key=lambda k: -depths.get(k, 0))
+                for i, k in enumerate(kids):
+                    lk = (i == len(kids) - 1)
+                    np = prefix + ("   " if is_last else "│  ")
+                    result.extend(_draw(k, np, lk, visited.copy()))
+                return result
+
+            for i, root in enumerate(roots):
+                for ll in _draw(root, "", i == len(roots) - 1, set()):
+                    lines.append(ll)
+        else:
+            lines.append("  No plan dependencies. Set in Plan.md frontmatter.")
+
+    elif deps_sub == 1:
+        # ── Tasks grouped by Plan ──
+        plan_task_map = {}
+        for t in task_list:
+            pid = t.get("plan_id") or ""
+            if pid:
+                plan_task_map.setdefault(pid, []).append(t)
+        if plan_task_map:
+            sorted_plans = sorted(plan_task_map.keys())
+            for pid in sorted_plans:
+                ptitle = ""
+                for p in plan_list:
+                    if (p.get("plan_id") or p.get("id")) == pid:
+                        ptitle = (p.get("title_cache") or p.get("title") or "")[:40]
+                        break
+                label = f"{pid}  {ptitle}" if ptitle else pid
+                lines.append(label + ":")
+                tasks = plan_task_map[pid]
+                task_dep_order = {}
+                for t in tasks:
+                    wv = _task_wave(data, t.get("id"))
+                    task_dep_order[t.get("id")] = wv if wv is not None else 0
+                sorted_tasks = sorted(tasks, key=lambda t: task_dep_order.get(t.get("id"), 0))
+                for t in sorted_tasks:
+                    icon = status_icon(t.get("status", ""))
+                    title = (t.get("title_cache") or t.get("title") or "")[:45]
+                    deps = t.get("dependencies", []) or []
+                    plan_ids = [d for d in deps if any(t2.get("plan_id") == pid and t2.get("id") == d for t2 in task_list)]
+                    plan_labels = []
+                    for d in plan_ids:
+                        dt = next((t2 for t2 in task_list if t2.get("id") == d), {})
+                        dtitle = (dt.get("title_cache") or dt.get("title") or "")[:25]
+                        plan_labels.append(f"{d} ({dtitle})" if dtitle else d)
+                    dep_str = f"  ← {', '.join(plan_labels)}" if plan_labels else ""
+                    mark = " ◀" if t.get("id") == nid else ""
+                    lines.append(f"  {icon} {t['id']}{mark}  {title}{dep_str}")
+                lines.append("")
+        else:
+            lines.append("  No task dependencies. Set in Task.md frontmatter.")
+
+    elif deps_sub == 2:
+        # ── Goal capability deps ──
+        tree_relations = data["goals"].get("relations", []) or []
+        goal_by_id = {}
+        for g in data["goals"].get("goals", []) or []:
+            goal_by_id[g.get("id","")] = g
+        if tree_relations:
+            lines.append("Goal capability deps (X depends on Y):")
+            for r in tree_relations:
+                if isinstance(r, dict):
+                    src = r.get("source_id","?")
+                    tgt = r.get("target_id","?")
+                    typ = r.get("type","?")
+                    stitle = (goal_by_id.get(src,{}).get("title_cache") or goal_by_id.get(src,{}).get("title") or "")[:35]
+                    ttitle = (goal_by_id.get(tgt,{}).get("title_cache") or goal_by_id.get(tgt,{}).get("title") or "")[:35]
+                    lines.append(f"  {src} ({stitle})")
+                    lines.append(f"    depends on → {tgt} ({ttitle})")
+        else:
+            lines.append("  No goal relations. Use: aiwf goal link <A> <B> --type depends_on")
 
     for i, line in enumerate(lines):
         di = i - detail_scroll
@@ -550,25 +654,31 @@ def _node_summary(node, data):
     goal_list = data["goals"].get("goals", []) or []
     ms_list = data["milestones"].get("milestones", []) or []
 
-    if kind == "task":
+    if kind == "mission":
+        lines.append(f"Title: {data.get('mission_title', 'Mission')}")
+        lines.append(f"Path: .aiwf/mission.md")
+        lines.append(f"")
+        lines.append(f"Press e to edit mission.")
+
+    elif kind == "task":
         task = next((t for t in task_list if t.get("id") == nid), {})
-        lines.append(f"标题: {task.get('title','')}")
-        lines.append(f"状态: {stlabel.get(task.get('status',''), task.get('status','?'))}")
+        lines.append(f"Title: {task.get('title','')}")
+        lines.append(f"Status: {task.get('status','?')}")
         deps = task.get("dependencies", []) or []
         if deps:
             satisfied = all(_find_task(data, d).get("status") == "closed" for d in deps)
-            lines.append(f"依赖: [{'✓ 已满足' if satisfied else '✗ 未满足'}] {', '.join(deps)}")
+            lines.append(f"Deps: [{'OK' if satisfied else 'BLOCKED'}] {', '.join(deps)}")
         ms_ids = [m.get("id") or m.get("milestone_id") for m in ms_list if nid in (m.get("task_ids", []) or [])]
         if ms_ids:
-            lines.append(f"所属里程碑: {', '.join(ms_ids)}")
+            lines.append(f"Milestones: {', '.join(ms_ids)}")
 
     elif kind == "plan":
         plan = next((p for p in plan_list if (p.get("plan_id") or p.get("id")) == nid), {})
-        lines.append(f"标题: {plan.get('title','')}")
-        lines.append(f"状态: {stlabel.get(plan.get('status',''), plan.get('status','?'))}")
+        lines.append(f"Title: {plan.get('title','')}")
+        lines.append(f"Status: {plan.get('status','?')}")
         task_ids = plan.get("task_ids", []) or []
         closed = _count_closed(data, task_ids)
-        lines.append(f"任务: {closed}/{len(task_ids)} 已完成")
+        lines.append(f"Tasks: {closed}/{len(task_ids)} closed")
         deps = plan.get("dependencies", []) or []
         if deps:
             dep_list = []
@@ -736,10 +846,10 @@ def main(stdscr):
     root = Path.cwd()
     selected = 0
     scroll = 0
-    view_mode = 1           # 1=detail, 2=deps, 3=relations
-    deps_sub = 0            # 0=tasks, 1=plans, 2=goals (cycle within deps view)
     detail_scroll = 0       # independent scroll for right panel
-    milestone_view = False  # Tab toggles between tree and milestone-only view
+    detail_visible = True   # d toggles detail panel
+    show_cancelled = False  # x toggles cancelled nodes
+    tree_mode = 0  # 0=Main 1=MS 2=TasksByPlan 3=PlanChain 4=GoalDeps
 
     nodes_cache = []
     nodes_cache_key = ""
@@ -747,21 +857,22 @@ def main(stdscr):
 
     while True:
         # Only reload data when files changed (check state.json mtime)
-        state_mtime = (root / ".aiwf" / "state" / "state.json").stat().st_mtime
+        try:
+            state_mtime = (root / ".aiwf" / "state" / "state.json").stat().st_mtime
+        except Exception:
+            state_mtime = 0
         if state_mtime != last_data_mtime:
             last_data_mtime = state_mtime
             data = load_all(root)
             data["mission_title"] = _read_mission_title(root)
-            all_nodes = build_tree(data)
-            _precompute_tree_prefixes(all_nodes)
-            milestone_nodes = [n for n in all_nodes if n["kind"] == "milestone"]
-            nodes_cache_key = ""
+            t0 = build_tree(data); _precompute_tree_prefixes(t0)
+            t1 = _build_ms_tree(data); _precompute_tree_prefixes(t1)
+            t2 = _build_tasks_tree(data); _precompute_tree_prefixes(t2)
+            t3 = _build_plan_chain(data); _precompute_tree_prefixes(t3)
+            t4 = _build_goal_deps(data); _precompute_tree_prefixes(t4)
 
-        # Filter
-        if milestone_view:
-            nodes = milestone_nodes
-        else:
-            nodes = all_nodes
+        trees = [t0, t1, t2, t3, t4]
+        nodes = trees[tree_mode] if tree_mode < len(trees) else t0
 
         h, w = stdscr.getmaxyx()
         max_rows = h
@@ -774,21 +885,14 @@ def main(stdscr):
         elif selected >= scroll + max_rows - 3:
             scroll = selected - max_rows + 4
 
-        render_tree(stdscr, nodes, selected, scroll, max_rows, view_mode, milestone_view, detail_scroll)
+        render_tree(stdscr, nodes, selected, scroll, max_rows, detail_scroll, tree_mode, detail_visible, show_cancelled)
 
         key = stdscr.getch()
+        if key == -1:  # timeout, just re-render
+            continue
 
         if key == ord("q"):
             break
-        elif key == ord("1"):
-            view_mode = 1; detail_scroll = 0
-        elif key == ord("2"):
-            if view_mode == 2:
-                deps_sub = (deps_sub + 1) % 3  # cycle tasks→plans→goals
-            view_mode = 2; detail_scroll = 0
-        elif key == ord("3"):
-            view_mode = 3; detail_scroll = 0
-            view_mode = 3
         elif key == ord("J"):  # Shift+J → scroll right panel down
             detail_scroll += 1
         elif key == ord("K"):  # Shift+K → scroll right panel up
@@ -803,14 +907,18 @@ def main(stdscr):
         elif key == ord("G"):
             selected = len(nodes) - 1
         elif key == 9:  # Tab
-            milestone_view = not milestone_view
+            tree_mode = (tree_mode + 1) % 5; last_data_mtime = 0
             selected = 0; scroll = 0; detail_scroll = 0
         elif key in (ord("\n"), ord("e")):
             # Edit MD in $EDITOR, auto-sync on return
             if 0 <= selected < len(nodes):
                 node = nodes[selected]
                 md_path = _md_path_for(node)
-                if md_path and (root / md_path).exists():
+                if md_path:
+                    full = root / md_path
+                    if not full.exists():
+                        full.parent.mkdir(parents=True, exist_ok=True)
+                        full.write_text(f"# {node['title']}\n\n(fill)\n", encoding="utf-8")
                     _edit_and_sync(root, md_path)
                     # Auto-refresh: reload data after sync
         elif key == ord("s"):
@@ -820,24 +928,32 @@ def main(stdscr):
                 node = nodes[selected]
                 if node["kind"] == "task":
                     _show_records_inline(stdscr, data, node["id"])
-        elif key == ord("R"):
+        elif key == ord("d"): detail_visible = not detail_visible; last_data_mtime = 0
+        elif key == ord("x"): show_cancelled = not show_cancelled; set_show_cancelled(show_cancelled); last_data_mtime = 0
             # Force full refresh (reread all JSON)
-            pass  # data reload happens at top of loop
 
 
 def _read_mission_title(root):
     ms = root / ".aiwf" / "mission.md"
     if ms.exists():
-        first = ms.read_text().split("\n")[0]
-        if first.startswith("# "):
-            return first[2:].strip()
+        text = ms.read_text(encoding="utf-8")
+        # Skip YAML frontmatter
+        if text.startswith("---\n"):
+            end = text.find("\n---\n", 4)
+            if end != -1:
+                text = text[end + 5:]
+        for line in text.split("\n"):
+            if line.startswith("# "):
+                return line[2:].strip()
     return "Mission"
 
 
 def _md_path_for(node):
     kind = node["kind"]
     nid = node["id"]
-    if kind == "goal":
+    if kind == "mission":
+        return ".aiwf/mission.md"
+    elif kind == "goal":
         return f".aiwf/goals/{nid}.md"
     elif kind == "plan":
         return f".aiwf/plans/{nid}.md"
@@ -927,3 +1043,304 @@ def run_ui():
 
 if __name__ == "__main__":
     run_ui()
+
+def _build_ms_tree(data: dict) -> list:
+    """Build a milestone-rooted tree: Milestone → Goal → Plan → Task.
+
+    Each milestone shows the complete hierarchy: all Goals involved, their
+    Plans, and the Tasks under each Plan. Tasks linked directly to a milestone
+    are placed under their Goal (or directly under the milestone if no Goal).
+    """
+    nodes = []
+    state = data["state"]
+    active_milestone_id = state.get("active_milestone_id", "")
+    active_task_id = state.get("active_task_id", "")
+
+    ms_list = data["milestones"].get("milestones", []) or []
+    goal_by_id = {g.get("id", ""): g for g in (data["goals"].get("goals", []) or [])}
+    plan_by_id = {}
+    for p in (data["plans"].get("plans", []) or []):
+        pid = p.get("plan_id") or p.get("id") or ""
+        if pid:
+            plan_by_id[pid] = p
+    task_by_id = {t.get("id", ""): t for t in (data["tasks"].get("tasks", []) or [])}
+
+    nodes.append({"kind": "mission", "id": "milestones", "title": "Milestones",
+                  "indent": 0, "status": "", "active": False})
+
+    for ms in ms_list:
+        mid = ms.get("id") or ms.get("milestone_id") or "?"
+        mstatus = ms.get("status", "pending")
+        if not _SHOW_CANCELLED and mstatus in ("cancelled", "closed"):
+            continue
+        nodes.append({"kind": "milestone", "id": mid,
+                      "title": ms.get("title_cache", ms.get("title", mid)),
+                      "indent": 1, "status": mstatus,
+                      "active": mid == active_milestone_id})
+
+        # ── Collect plans and tasks linked to this milestone ──
+        linked_plan_ids = list(ms.get("plan_ids", []) or [])
+        linked_task_ids = set(ms.get("task_ids", []) or [])
+
+        # Group plans by goal, collect tasks from plan.task_ids (sync-derived)
+        goal_plans = {}   # gid → [plan]
+        plan_tasks = {}   # pid → [task]
+        plan_task_ids = set()
+        for pid in linked_plan_ids:
+            p = plan_by_id.get(pid, {})
+            if not p:
+                continue
+            pstatus = p.get("status", "open")
+            if not _SHOW_CANCELLED and pstatus in ("cancelled", "closed"):
+                continue
+            gid = p.get("goal_id") or ""
+            goal_plans.setdefault(gid, []).append(p)
+            for tid in (p.get("task_ids", []) or []):
+                t = task_by_id.get(tid, {})
+                if not t or (not _SHOW_CANCELLED and t.get("status") in ("cancelled",)):
+                    continue
+                plan_tasks.setdefault(pid, []).append(t)
+                plan_task_ids.add(tid)
+
+        # Direct tasks (linked to milestone, not already under a plan)
+        goal_direct_tasks = {}
+        for tid in sorted(linked_task_ids - plan_task_ids):
+            t = task_by_id.get(tid, {})
+            if not t or (not _SHOW_CANCELLED and t.get("status") in ("cancelled",)):
+                continue
+            gid = t.get("goal_id") or ""
+            goal_direct_tasks.setdefault(gid, []).append(t)
+
+        # ── Render: Goal → Plan → Task ──
+        all_gids = sorted(set(list(goal_plans.keys()) + list(goal_direct_tasks.keys())))
+        for gid in all_gids:
+            g = goal_by_id.get(gid) if gid else None
+            gstatus = g.get("status", "open") if g else "open"
+            if g and (_SHOW_CANCELLED or gstatus not in ("cancelled", "closed")):
+                gtitle = g.get("title_cache") or g.get("title") or gid
+                nodes.append({"kind": "goal", "id": gid,
+                              "title": f"{gid}  {gtitle}",
+                              "indent": 2, "status": gstatus, "active": False})
+
+            for p in goal_plans.get(gid, []):
+                pid = p.get("plan_id") or p.get("id") or ""
+                ptitle = (p.get("title_cache") or p.get("title") or pid)[:40]
+                nodes.append({"kind": "plan", "id": pid,
+                              "title": f"{pid}  {ptitle}",
+                              "indent": 3, "status": p.get("status", "open"),
+                              "active": False})
+                for t in plan_tasks.get(pid, []):
+                    tid = t.get("id", "")
+                    ttitle = (t.get("title_cache") or t.get("title") or tid)[:40]
+                    nodes.append({"kind": "task", "id": tid,
+                                  "title": f"{tid}  {ttitle}",
+                                  "indent": 4, "status": t.get("status", "ready"),
+                                  "active": tid == active_task_id})
+
+            for t in goal_direct_tasks.get(gid, []):
+                tid = t.get("id", "")
+                ttitle = (t.get("title_cache") or t.get("title") or tid)[:40]
+                nodes.append({"kind": "task", "id": tid,
+                              "title": f"{tid}  {ttitle}",
+                              "indent": 3, "status": t.get("status", "ready"),
+                              "active": tid == active_task_id})
+
+    return nodes
+"""Dependency tree builder for AIWF TUI."""
+def _old_deps_tree(data: dict) -> list:
+    nodes = []
+    state = data["state"]
+    active_task_id = state.get("active_task_id", "")
+
+    plan_list = data["plans"].get("plans", []) or []
+    task_list = data["tasks"].get("tasks", []) or []
+
+    plan_by_id = {}
+    for p in plan_list:
+        pid = p.get("plan_id") or p.get("id") or ""
+        if pid:
+            plan_by_id[pid] = p
+
+    def _depth(pid, cache=None):
+        if cache is None:
+            cache = {}
+        if pid in cache:
+            return cache[pid]
+        p = plan_by_id.get(pid, {})
+        deps = p.get("dependencies", []) or []
+        if not deps:
+            cache[pid] = 0
+            return 0
+        d = max(_depth(d, cache) for d in deps) + 1
+        cache[pid] = d
+        return d
+
+    depths = {}
+    for pid in plan_by_id:
+        depths[pid] = _depth(pid, depths)
+
+    primary = {}
+    for pid in plan_by_id:
+        deps = plan_by_id[pid].get("dependencies", []) or []
+        if deps:
+            primary[pid] = max(deps, key=lambda d: depths.get(d, 0))
+
+    children_of = {}
+    roots = []
+    for pid in plan_by_id:
+        pp = primary.get(pid)
+        if pp:
+            children_of.setdefault(pp, []).append(pid)
+        elif pid not in primary:
+            roots.append(pid)
+    roots.sort()
+
+    task_by_plan = {}
+    for t in task_list:
+        pid = t.get("plan_id") or ""
+        if pid:
+            task_by_plan.setdefault(pid, []).append(t)
+
+    nodes.append({"kind": "mission", "id": "deps", "title": "Dependencies",
+                  "indent": 0, "status": "", "active": False})
+
+    added = set()
+
+    def _add(pid, depth):
+        if pid in added:
+            return
+        added.add(pid)
+        p = plan_by_id.get(pid, {})
+        title = (p.get("title_cache") or p.get("title") or pid)[:50]
+        pstatus = p.get("status", "open")
+        nodes.append({"kind": "plan", "id": pid, "title": title,
+                      "indent": depth + 1, "status": pstatus, "active": False})
+        for tid in (p.get("task_ids", []) or []):
+            tdata = next((t for t in task_list if t.get("id") == tid), {})
+            if not tdata or tdata.get("status") in ("cancelled",):
+                continue
+            tstatus = tdata.get("status", "ready")
+            ttitle = (tdata.get("title_cache") or tdata.get("title") or tid)[:50]
+            nodes.append({"kind": "task", "id": tid, "title": ttitle,
+                          "indent": depth + 2, "status": tstatus,
+                          "active": tid == active_task_id})
+        kids = children_of.get(pid, [])
+        kids.sort(key=lambda k: -depths.get(k, 0))
+        for k in kids:
+            _add(k, depth + 1)
+
+    for root in roots:
+        _add(root, 0)
+
+    return nodes
+
+def _build_tasks_tree(data: dict) -> list:
+    """Tasks grouped by Plan — each plan shows its tasks with deps."""
+    nodes = []
+    task_list = data["tasks"].get("tasks", []) or []
+    plan_list = data["plans"].get("plans", []) or []
+    active_task_id = data["state"].get("active_task_id", "")
+    plan_task_map = {}
+    for t in task_list:
+        pid = t.get("plan_id") or ""
+        if pid:
+            plan_task_map.setdefault(pid, []).append(t)
+    nodes.append({"kind": "mission", "id": "tasks", "title": "Tasks by Plan",
+                  "indent": 0, "status": "", "active": False})
+    for pid in sorted(plan_task_map.keys()):
+        p = next((p for p in plan_list if (p.get("plan_id") or p.get("id")) == pid), {})
+        if not _SHOW_CANCELLED and p.get("status") in ("cancelled", "closed"):
+            continue
+        ptitle = (p.get("title_cache") or p.get("title") or pid)[:40]
+        nodes.append({"kind": "plan", "id": pid, "title": f"{pid}  {ptitle}",
+                      "indent": 1, "status": p.get("status", "open"), "active": False})
+        def _twave(tid):
+            return _task_wave(data, tid) or 0
+        for t in sorted(plan_task_map[pid], key=lambda t: _twave(t.get("id"))):
+            tid = t.get("id", "")
+            if not _SHOW_CANCELLED and t.get("status") in ("cancelled",):
+                continue
+            ttitle = (t.get("title_cache") or t.get("title") or tid)[:40]
+            dep_ids = [d for d in (t.get("dependencies", []) or []) if any(
+                t2.get("plan_id") == pid and t2.get("id") == d for t2 in task_list)]
+            dep_labels = []
+            for d in dep_ids:
+                dt = next((t2 for t2 in task_list if t2.get("id") == d), {})
+                dtitle = (dt.get("title_cache") or dt.get("title") or "")[:30]
+                dep_labels.append(f"{d} ({dtitle})" if dtitle else d)
+            dep_str = f"  ← {', '.join(dep_labels)}" if dep_labels else ""
+            nodes.append({"kind": "task", "id": tid, "title": f"{tid}  {ttitle}{dep_str}",
+                          "indent": 2, "status": t.get("status", "ready"),
+                          "active": tid == active_task_id})
+    return nodes
+
+
+def _build_plan_chain(data: dict) -> list:
+    """Plan dependency chain — each plan once at its topological position."""
+    nodes = []
+    plan_list = data["plans"].get("plans", []) or []
+    plan_by_id = {}
+    for p in plan_list:
+        pid = p.get("plan_id") or p.get("id") or ""
+        if pid: plan_by_id[pid] = p
+    def _depth(pid, cache=None):
+        if cache is None: cache = {}
+        if pid in cache: return cache[pid]
+        deps = plan_by_id.get(pid, {}).get("dependencies", []) or []
+        if not deps: cache[pid] = 0; return 0
+        d = max(_depth(d, cache) for d in deps) + 1; cache[pid] = d; return d
+    depths = {pid: _depth(pid, {}) for pid in plan_by_id}
+    primary = {}
+    for pid in plan_by_id:
+        deps = plan_by_id[pid].get("dependencies", []) or []
+        if deps: primary[pid] = max(deps, key=lambda d: depths.get(d, 0))
+    children_of = {}
+    roots = []
+    for pid in plan_by_id:
+        pp = primary.get(pid)
+        if pp: children_of.setdefault(pp, []).append(pid)
+        elif pid not in primary: roots.append(pid)
+    roots.sort()
+    nodes.append({"kind": "mission", "id": "planchain", "title": "Plan Chain",
+                  "indent": 0, "status": "", "active": False})
+    added = set()
+    def _add(pid, depth):
+        if pid in added: return
+        added.add(pid)
+        p = plan_by_id.get(pid, {})
+        if not _SHOW_CANCELLED and p.get("status") in ("cancelled", "closed"):
+            return
+        title = (p.get("title_cache") or p.get("title") or pid)[:45]
+        nodes.append({"kind": "plan", "id": pid, "title": f"{pid}  {title}",
+                      "indent": depth + 1, "status": p.get("status", "open"), "active": False})
+        kids = children_of.get(pid, [])
+        kids.sort(key=lambda k: -depths.get(k, 0))
+        for k in kids:
+            _add(k, depth + 1)
+    for root in roots:
+        _add(root, 0)
+    return nodes
+
+
+def _build_goal_deps(data: dict) -> list:
+    """Goal capability dependencies."""
+    nodes = []
+    goal_list = data["goals"].get("goals", []) or []
+    rels = data["goals"].get("relations", []) or []
+    goal_by_id = {g.get("id", ""): g for g in goal_list}
+    nodes.append({"kind": "mission", "id": "goaldeps", "title": "Goal Deps",
+                  "indent": 0, "status": "", "active": False})
+    for r in rels:
+        if not isinstance(r, dict): continue
+        src = r.get("source_id", "?"); tgt = r.get("target_id", "?")
+        stitle = (goal_by_id.get(src, {}).get("title_cache") or goal_by_id.get(src, {}).get("title") or "")[:30]
+        ttitle = (goal_by_id.get(tgt, {}).get("title_cache") or goal_by_id.get(tgt, {}).get("title") or "")[:30]
+        gstatus = goal_by_id.get(src, {}).get("status", "open")
+        if not _SHOW_CANCELLED and gstatus in ("cancelled", "closed"):
+            continue
+        nodes.append({"kind": "goal", "id": src, "title": f"{src} ({stitle})  depends on → {tgt} ({ttitle})",
+                      "indent": 1, "status": gstatus, "active": False})
+    if not rels:
+        nodes.append({"kind": "goal", "id": "norel", "title": "No goal relations yet",
+                      "indent": 1, "status": "", "active": False})
+    return nodes
