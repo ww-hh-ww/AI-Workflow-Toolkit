@@ -33,43 +33,14 @@ Target Design — THE KEY SECTION:
 
 Key Decisions: Trade-offs. Empty = you haven't thought hard enough.
 
-Task Breakdown: 3-5 Tasks per Plan is typical. One deliverable each.
+Task Breakdown: 3-5 Tasks per Plan. One deliverable each.
 
 Risks + Validation Strategy.
 
-## Task.md — Execution Contract
+## Task.md
 
-Objective: 1-2 sentences. What exactly gets done.
-
-Scope: Exact work outcome. Small enough for one cycle.
-
-Allowed / Forbidden Write: Default forbidden: `.aiwf/state/` `.aiwf/records/`.
-Forbidden Write is mechanically enforced at write time.
-
-Dispatch Decisions: Match effort to risk.
-- Trivial (typo, comment, config): all false.
-- Simple (single file, isolated): executor=false, tester=true, reviewer=false.
-- Normal (multi-file, core logic): all true.
-- Complex (API, refactor, state machine): all true + rollback=true.
-See `task-contract.md` for detailed decision tables.
-
-Executor Requirements: State the outcome.
-  Good: "Replace SHA-256 with bcrypt. Don't break login."
-  Bad: "Edit src/auth.py line 42."
-
-Tester Requirements: What to validate, what mode.
-  Good: "Verify bcrypt on new passwords, old passwords still validate, login e2e."
-
-Reviewer Requirements: Minimum hard gates. Reviewer brings relational review.
-  "Confirm scope/forbidden write. Verify Done When. Apply relational review."
-
-Done When: Observable, indisputable. The standard all downstream roles work toward.
-
-Rollback Strategy: yes/no. See `task-contract.md` for high-risk surface checklist.
-
-Report Policy: `ask` default. `silent_until_done` only when user explicitly asks.
-
-Dependencies: Tasks this must wait for.
+See `task-contract.md` for the full writing guide, dispatch framework,
+lifecycle, and emergency procedures.
 
 ## Milestone.md — Acceptance Gate
 

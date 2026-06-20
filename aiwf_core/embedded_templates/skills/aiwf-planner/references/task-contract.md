@@ -3,53 +3,29 @@
 Task.md is the execution contract. The active Task.md is frozen by hash at
 activation and must not be edited by the model during execution.
 
-## Dispatch Decisions
+## Writing a Task.md
 
-Planner sets these booleans in Task.md frontmatter. They control whether
-implement/test/review skills dispatch subagents or work inline.
+Objective: 1-2 sentences. What exactly gets done.
 
-| Task type | executor | tester | reviewer | rollback |
-|-----------|----------|--------|----------|----------|
-| Trivial (typo, comment, config) | false | false | false | false |
-| Simple (single file, isolated) | false | true | false | false |
-| Normal (multi-file, core logic) | true | true | true | false |
-| Complex (API, refactor, state) | true | true | true | true |
+Scope: Exact work outcome. Small enough for one cycle.
 
-### executor_required
+Allowed / Forbidden Write: Default forbidden: `.aiwf/state/` `.aiwf/records/`.
+Forbidden Write is mechanically enforced at write time.
 
-| true | false |
-|------|-------|
-| Multi-file, core logic, public API | Single-file, isolated code |
-| Refactoring, new module, shared utility | Pure documentation, config |
-| Any change another dev would review | Typo, formatting |
+Executor Requirements: State the outcome, not the edit location.
+  Good: "Replace SHA-256 with bcrypt. Don't break login."
+  Bad: "Edit src/auth.py line 42."
 
-### tester_required
+Tester Requirements: What to validate, what mode.
+  Good: "Verify bcrypt on new passwords, old passwords still validate, login e2e."
 
-| true | false |
-|------|-------|
-| Executor changed code, runnable tests exist | Trivial (inline-tested by executor) |
-| Public API, shared utility, cross-module | Pure docs, no code to test |
-| Normal/complex task | Simple task where tester+reviewer overlap |
+Reviewer Requirements: Minimum hard gates. Reviewer brings relational review.
+  "Confirm scope/forbidden write. Verify Done When. Apply relational review."
 
-### reviewer_required
+Done When: Observable, indisputable. The standard all downstream roles work toward.
 
-| true | false |
-|------|-------|
-| Normal/complex task | Trivial (inline review enough) |
-| Multi-file, cross-module, public API | Simple (tester covers it) |
-| | Pure documentation |
-
-For simple tasks: pick ONE of tester or reviewer, not both.
-
-### rollback_required
-
-| true | false |
-|------|-------|
-| State schema, record format, directory layout | Ordinary feature, bug fix |
-| Install output, parser, command surface | Documentation, config |
-| Batch rename, broad removal of old code | |
-
-When true, include in Task.md:
+Rollback Strategy: yes/no. yes for schema, directory layout, install, parser,
+batch renames. When yes, include:
 ```
 Rollback Strategy required: yes
 Method: Git
@@ -57,19 +33,59 @@ Before work: inspect git status and git diff
 Rollback: git restore for selected files; git reset only by human decision
 ```
 
-### report_policy
+Report Policy: `ask` default. `silent_until_done` only when user explicitly asks.
 
-- `ask` (default) — report every task close to the human.
-- `silent_until_done` — only when user explicitly asked for quiet mode.
-- Do not set `silent_until_done` on your own judgment.
+Dependencies: Tasks this must wait for.
+
+## Dispatch — Judgment Framework
+
+Don't read a table mechanically. Ask, in order:
+
+1. Can this be implemented safely inline? If the code requires design judgment,
+   exploration of impact, or craftsmanship — don't inline. Open executor.
+2. Can this be tested safely inline? If a destructive mindset could find bugs
+   you'd miss — don't inline. Open tester.
+3. Can this be reviewed safely inline? If someone reading the full diff could
+   spot unjustified complexity, missing connections, or interface problems
+   you'd overlook — don't inline. Open reviewer.
+
+File count is not a signal. A 20-file rename is trivial. A one-file new
+abstraction deserves review. Pick the roles the change is worth.
+
+## Dispatch — Reference Table
+
+| Change nature | executor | tester | reviewer | rollback |
+|---------------|----------|--------|----------|----------|
+| Trivial (typo, comment, rename, config) | false | false | false | false |
+| Simple (no new abstraction, low consumer impact) | false | true | false | false |
+| Normal (new abstraction, shared utility, consumer impact) | true | true | true | false |
+| Complex (public API, refactor, state machine) | true | true | true | true |
+
+For simple tasks: pick ONE of tester or reviewer, not both.
+
+### What each role brings
+
+**executor** — Independent implementation. Full exploration of impact, best
+quality within boundaries. Worth it when: new abstraction, design judgment
+needed, shared utility, public API, refactoring.
+
+**tester** — Independent testing. Destructive mindset, new tests against
+objectives, multiple attack angles. Worth it when: change has meaningful
+failure modes, public API, shared utility, cross-module impact.
+
+**reviewer** — Independent relational review. Full-diff connected analysis,
+prove justified, zero downgrade, interface shape. Worth it when: new
+abstraction, consumers affected, public API, structural impact.
+
+**rollback** — Git-based rollback plan. Worth it when: state schema, record
+format, directory layout, install output, parser, batch rename, broad removal.
 
 ## Lifecycle
 
 Normal path:
 ```
-planner creates task → planner activates → implement records evidence →
-test records testing → review records review → close closes active task →
-planner resumes
+planner creates → planner activates → implement evidence →
+test testing → review review → close → planner resumes
 ```
 
 Failure path:
@@ -77,22 +93,20 @@ Failure path:
 - Let Planner decide: revise, fix-loop, new Task, or ask human.
 - Do not force-close unless human explicitly does it.
 
-Runtime rules:
+Runtime:
 - `task close` closes the current active task only.
-- `task suspend` suspends the current active task only.
 - `task force-close` is human-only.
 - Active Task.md must remain unchanged after activation.
 
-## Emergency procedures
+## Emergency
 
-**Fix-loop exhausted**: When `aiwf status` shows `fix-loop open` with
-`escalation_required=true`, stop. Tell the human:
-"Fix-loop exhausted after N attempts. Recommend: review task scope,
+**Fix-loop exhausted**: `aiwf status` shows `fix-loop open` + `escalation_required=true`.
+Stop. Tell the human: "Fix-loop exhausted after N attempts. Review scope,
 consider `aiwf task force-close`."
 
-**TUI freeze / terminal corruption**: Tell the human: "Run `reset`."
+**TUI / terminal corruption**: Tell the human: "Run `reset`."
 
-**Force-close**: `aiwf task force-close` is human-only. The model must NOT run it.
+**Force-close**: `aiwf task force-close` is human-only.
 
 ## Bad contract signs
 
@@ -101,5 +115,5 @@ consider `aiwf task force-close`."
 - Tester Requirements only say "run tests."
 - Reviewer Requirements don't mention scope or forbidden paths.
 - High-risk work has no rollback strategy.
-- `executor_required: false` on multi-file core change.
-- `executor_required: true` on one-line typo.
+- Role opened for a change that doesn't deserve it (wasted dispatch).
+- Role closed for a change that does deserve it (missed risk).

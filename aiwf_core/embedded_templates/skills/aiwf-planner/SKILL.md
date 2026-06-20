@@ -39,9 +39,10 @@ aiwf status --prompt
 2. Read architecture-review records. Resolve open structural issues first.
 3. Every node via CLI: `aiwf goal create`, `aiwf plan create`, `aiwf task create`,
    `aiwf milestone create`.
-4. Write the narrative doc. See `references/writing-guide.md`.
+4. Write the narrative doc. For Goal.md, Plan.md, Milestone.md see `references/writing-guide.md`.
+   For Task.md see `references/task-contract.md`.
 5. `aiwf sync` after any structural change.
-6. High-risk task → rollback strategy. See `references/task-contract.md`.
+6. If the task is high-risk, include a rollback strategy. See `references/task-contract.md`.
 7. Activate only when Task.md is stable.
 
 ## Allowed
@@ -62,9 +63,11 @@ aiwf status --prompt
 
 ## References
 
-- `references/structure-guide.md` — node semantics, relationship model, structure discipline.
-- `references/writing-guide.md` — how to write Goal.md, Plan.md, Task.md, Milestone.md.
-- `references/task-contract.md` — dispatch decisions, lifecycle, rollback, emergency procedures.
+- `references/structure-guide.md` — judging structure. Read when creating or adjusting
+  Goal trees, Plan dependencies, or checking for anti-patterns.
+- `references/writing-guide.md` — writing Goal.md, Plan.md, Milestone.md.
+- `references/task-contract.md` — writing Task.md. Dispatch framework, lifecycle,
+  rollback, emergency procedures.
 
 ## Stop condition
 
