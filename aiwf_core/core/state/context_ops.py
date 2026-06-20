@@ -305,7 +305,14 @@ def record_role_evidence(
         evidence["updated_at"] = record["timestamp"]
         return record
 
-    return _locked_json_update(evidence_path, {"records": []}, _append)
+    record = _locked_json_update(evidence_path, {"records": []}, _append)
+
+    # Advance phase after executor evidence
+    if role == "executor" and state.get("phase") not in ("closing", "closed"):
+        state["phase"] = "testing"
+        _write(base / ".aiwf" / "state" / "state.json", state)
+
+    return record
 
 def _ensure_critical_assets(base_dir: str) -> list:
     """Check and auto-fill critical assets. Returns notes about what was filled.
