@@ -234,6 +234,19 @@ def check_and_record_scope_violations(
         state_path = base / ".aiwf" / "state" / "state.json"
         state = _read_json(state_path, {})
         state["scope_violation"] = True
+
+        # Open a fix-loop so the violation has a resolution path
+        fix_path = base / ".aiwf" / "state" / "fix-loop.json"
+        from ...core.state_schema import default_fix_loop
+        fix_loop = _read_json(fix_path, default_fix_loop())
+        if fix_loop.get("status") != "open":
+            fix_loop["status"] = "open"
+            fix_loop["required_fixes"] = [
+                f"Revert: {vf} — matched Forbidden Write pattern" for vf in violations
+            ]
+            fix_loop["route"] = "planner"
+            _write_json(fix_path, fix_loop)
+
         _write_json(state_path, state)
 
         review_path = base / ".aiwf" / "records" / "review.json"
@@ -299,21 +312,3 @@ def check_and_record_scope_violations(
     return violations
 
 
-def check_and_record_missing_active_task(changed_files: list, base: Path) -> list:
-    """Post-tool safety net: log project writes without active task.
-
-    The pre-tool Write guard blocks direct file writes without an active task.
-    Bash commands that modify files (mkdir, sed, etc.) pass the Bash guard but
-    are detected here. These are recorded for visibility, not permanently
-    flagged as violations — the developer was working, not violating.
-    """
-    project_files = filter_internal(changed_files, cwd=base)
-    if not project_files:
-        return []
-    state_path = base / ".aiwf" / "state" / "state.json"
-    state = _read_json(state_path, {})
-    if state.get("active_task_id"):
-        return []
-    # Don't set scope_violation. The pre-tool Write guard is the real gate.
-    # Bash-driven file changes without an active task are normal developer activity.
-    return project_files

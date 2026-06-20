@@ -239,6 +239,11 @@ def check_bash(event: NormalizedEvent) -> Dict:
     if active_lock_result:
         return active_lock_result
 
+    # ── Bash write without active task ──
+    no_task_result = _check_bash_no_active_task(command, cwd)
+    if no_task_result:
+        return no_task_result
+
     return check_bash_command(command)
 
 
@@ -296,6 +301,48 @@ def _check_active_task_md_bash(command: str, cwd: Path) -> Optional[Dict]:
                 ),
             }
     return None
+
+
+def _check_bash_no_active_task(command: str, cwd: Path) -> Optional[Dict]:
+    """Block clear file-write bash patterns when no active task exists."""
+    state_path = cwd / ".aiwf" / "state" / "state.json"
+    if not state_path.exists():
+        return None
+    try:
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    if state.get("active_task_id"):
+        return None
+
+    import re
+    # Patterns that unambiguously write to files
+    if re.search(r'\bsed\s+.*-i', command):
+        pass
+    elif re.search(r'>\s*\S', command) and '/dev/' not in command:
+        pass
+    elif re.search(r'\btee\s+\S', command):
+        pass
+    elif re.search(r'\bpython[23]?\s+-c\b', command):
+        pass
+    elif re.search(r'\bperl\s+-i', command):
+        pass
+    elif re.search(r'\bdd\s+.*of=', command):
+        pass
+    else:
+        return None
+
+    return {
+        "allowed": False,
+        "decision": "deny",
+        "command": command[:200],
+        "matched_pattern": "bash_write_no_task",
+        "reason": (
+            "No active task. Project file writes require an active task. "
+            "This command appears to write files. Activate a task first: "
+            "aiwf task activate <TASK-ID>"
+        ),
+    }
 
 
 def _check_command_policy(command: str, cwd: Path) -> Optional[Dict]:

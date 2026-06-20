@@ -2,7 +2,7 @@
 import json, sys
 from pathlib import Path
 from aiwf_core.adapters.claude.normalize_event import parse_claude_stdin, normalize
-from aiwf_core.hooks.common.evidence_writer import record_post_tool_event, check_and_record_scope_violations, check_and_record_missing_active_task
+from aiwf_core.hooks.common.evidence_writer import record_post_tool_event, check_and_record_scope_violations
 from aiwf_core.hooks.common.snapshot import diff_snapshot, clear_snapshot
 
 def _log(msg: str) -> None:
@@ -41,13 +41,12 @@ def main():
         record = record_post_tool_event(event, str(base))
         _log(f"evidence recorded: id={record.id} tool={event.tool_name} attribution=weak changed={len(record.changed_files or [])}")
 
-    # Post-tool safety net: check changed files against active Task.md's
-    # Forbidden Write. Pre-tool gate is the primary enforcement; this is a
-    # secondary catch for bypasses (e.g. bash writes).
+    # Post-tool: check changed files against active Task.md's Forbidden Write
+    # only when an active task exists. Without an active task, the pre-tool
+    # Write guard blocks all project writes — no need to check further.
     op_files = list(record.changed_files) if record.changed_files else []
 
     if op_files:
-        check_and_record_missing_active_task(op_files, base)
         from aiwf_core.hooks.common.scope_checker import _get_task_forbidden_write
         state_data = json.loads((base / ".aiwf" / "state" / "state.json").read_text())
         task_id = state_data.get("active_task_id", "")
