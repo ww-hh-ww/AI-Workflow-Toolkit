@@ -23,15 +23,36 @@ Objective: 1-2 sentences. What exactly gets done.
 
 Scope: Exact work outcome. Small enough for one cycle.
 
+Context: Planner explores ONCE, subagents read. Include:
+  - Implementation target: file path, module, function where the change goes.
+  - Registration/integration points: where new code is wired in (config, DI, router).
+  - Core signatures: public interfaces the implementation must match.
+  - Dependencies: crates/packages already available that should be used.
+  Example:
+    Implementation: crates/edr-agent/src/storage/mod.rs
+    Registration: crates/edr-agent/src/common/mod.rs:120 add_receiver()
+    Core signature: fn on_event(&mut self, event: StorageEvent) -> Result<()>
+    Dependencies: serde, tokio::sync::RwLock (already in Cargo.toml)
+  If you (Planner) skip Context, every subagent re-discovers it. That is waste.
+
 Allowed / Forbidden Write: Default forbidden: `.aiwf/state/` `.aiwf/records/`.
 Forbidden Write is mechanically enforced at write time.
 
-Executor Requirements: State the outcome, not the edit location.
-  Good: "Replace SHA-256 with bcrypt. Don't break login."
+Executor Requirements: State the outcome AND what the executor should self-verify.
+The executor covers basic correctness (happy path, obvious edge cases). Be specific
+enough that the executor knows the target but doesn't micromanage HOW.
+  Good: "Replace SHA-256 with bcrypt. Self-verify: new passwords use bcrypt,
+         old SHA-256 passwords still validate, login e2e passes."
   Bad: "Edit src/auth.py line 42."
 
-Tester Requirements: What to validate, what mode.
-  Good: "Verify bcrypt on new passwords, old passwords still validate, login e2e."
+Tester Requirements: Dimensions the executor did NOT cover. No overlap with
+executor's self-verification. Tester adds value by going beyond happy path:
+boundary values, error paths, concurrency, resource exhaustion, surprising
+combinations. At least three distinct failure modes.
+  Executor covers: happy path, basic correctness (specified above).
+  Tester covers: boundary (empty, max, negative), error injection, concurrency.
+  Good: "Boundary: empty password, 1MB password, null. Error: db connection
+         refused, auth timeout. Concurrency: 100 simultaneous logins."
 
 Reviewer Requirements: Minimum hard gates. Reviewer brings relational review.
   "Confirm scope/forbidden write. Verify Done When. Apply relational review."
@@ -127,7 +148,13 @@ consider `aiwf task force-close`."
 - Allowed Write broader than needed.
 - Done When repeats the title.
 - Tester Requirements only say "run tests."
+- Executor and Tester test the same things — overlap waste. Executor covers
+  happy path; Tester covers boundary, error, concurrency. No overlap.
+- Executor Requirements don't specify what to self-verify — executor does
+  bare minimum, Tester finds basic bugs that should've been caught round 1.
 - Reviewer Requirements don't mention scope or forbidden paths.
 - High-risk work has no rollback strategy.
+- Context section missing — Planner explored it but didn't write it down,
+  forcing every subagent to re-discover file paths, interfaces, and deps.
 - Role opened for a change that doesn't deserve it (wasted dispatch).
 - Role closed for a change that does deserve it (missed risk).

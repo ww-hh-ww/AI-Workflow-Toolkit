@@ -38,10 +38,16 @@ relational scrutiny. `needs_fix` means go back. `rejected` means fundamental pro
 
 ## Required read
 
-- Active `.aiwf/tasks/<TASK-ID>.md`, especially Reviewer Requirements, Forbidden Write, and Done When.
-- `.aiwf/records/evidence.json`.
-- `.aiwf/records/testing.json`.
-- Changed files and relevant surrounding code.
+- Active `.aiwf/tasks/<TASK-ID>.md`, especially Context (where the change lives),
+  Reviewer Requirements, Forbidden Write, and Done When.
+- `.aiwf/records/evidence.json` — each record has `evidence_baseline_ref` and
+  `evidence_head_ref`. Run `git diff <baseline>..<head>` to see exactly what
+  each role changed. Run `git diff <origin>..<head>` for cumulative change.
+- `.aiwf/records/testing.json` — tester's findings and coverage gaps.
+- Read the changed files themselves, not just the diff. The diff shows WHAT;
+  reading the code in context shows WHY and whether interfaces make sense.
+- Read surrounding code: callers, imports, module neighbors. Catch cross-module
+  coupling, interface drift, and side effects the diff doesn't show.
 
 ## Allowed
 

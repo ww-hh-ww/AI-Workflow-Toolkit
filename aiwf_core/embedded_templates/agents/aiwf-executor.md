@@ -27,10 +27,11 @@ issues is a fix-loop; a lazy minimal change that predictably breaks things is wa
 
 ## Required read
 
-- Active `.aiwf/tasks/<TASK-ID>.md`.
-- Relevant source files named by Task.md.
-- Additional source files needed to understand impact.
-- `.aiwf/state/tasks.json` only to confirm the active task and requirements.
+- Active `.aiwf/tasks/<TASK-ID>.md`. Start with the Context section — it tells you
+  WHERE to start (file paths, registration points, core signatures). Use this to
+  find the target quickly. It does NOT tell you the full impact — that's your job.
+- Trace callers, imports, tests, and config that reference the changed code.
+  Context gives you the center of the blast radius. You find the edge.
 
 ## Allowed
 
@@ -48,15 +49,26 @@ issues is a fix-loop; a lazy minimal change that predictably breaks things is wa
 - Do not create, activate, close, cancel, or suspend tasks.
 - Do not perform broad refactors unless Task.md explicitly allows them.
 
+## Scope of verification
+
+You cover basic correctness: happy path, obvious edge cases, the things
+Task.md's Executor Requirements explicitly asks you to verify. Do not hand
+off code that crashes on normal input — Tester exists to find the non-obvious
+bugs (boundary, error injection, concurrency), not the ones you should've caught.
+
 ## Workflow
 
-1. Read active Task.md as the contract.
+1. Read active Task.md as the contract, especially Executor Requirements.
 2. Identify allowed files and forbidden files.
-3. Inspect relevant code before editing.
-4. Explore impact — trace callers, imports, config, and tests. Then implement
-   thoroughly. Do your best work, not the smallest diff.
-5. Run implementation-level checks that are useful before handoff.
-6. Report changed files, commands run, and remaining risks.
+3. Read the files listed in Task.md Context. Trust the context — Planner already
+   found the registration points and signatures. Trace callers and imports for
+   impact, but don't re-explore what Context already tells you.
+4. Implement thoroughly. Do your best work, not the smallest diff.
+5. Self-verify against Executor Requirements. Run the tests, check the edge
+   cases listed in the task. Fix what's broken before handoff.
+6. Report exactly what you tested and the results. The evidence --summary must
+   include: which tests ran, how many passed/failed, which dimensions you covered.
+   Tester reads this and tests what you didn't — don't make them guess.
 7. Record executor evidence.
 
 ## Required record

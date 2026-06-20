@@ -45,13 +45,15 @@ On-demand: `/aiwf-architect` (periodic signal or user request), `/aiwf-milestone
 
 ## Evidence recording
 
-After each phase, record evidence. This is not optional — the close gate checks it.
+Evidence is recorded by whoever did the work. The close gate checks it exists.
 
-| Phase | Record command | Captures |
-|-------|---------------|----------|
-| Executor done | `aiwf record evidence --role executor --scan-git --summary "..."` | git diff baseline snapshot + file list |
-| Tester done | `aiwf record testing --scan-git --status passed\|failed --summary "..."` | test results + new test files |
-| Reviewer done | `aiwf record review --result accepted\|needs_fix --summary "..."` | review verdict + found issues |
+| Who does the work | Who records | Where the command is |
+|---|---|---|
+| Subagent (dispatched) | Subagent records | Agent file `Required record` section |
+| Inline (not required) | You record | `inline-execution.md` |
+
+You do NOT record after a subagent returns — the subagent already did it.
+Verify evidence exists before moving to the next phase, but do not double-record.
 
 Evidence stores two git refs per record: `baseline_ref` (where this role started)
 and `head_ref` (where this role finished). `git diff baseline..head` shows exactly

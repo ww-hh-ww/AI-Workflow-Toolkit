@@ -31,9 +31,12 @@ explicitly — don't mark it passed by omission.
 
 ## Required read
 
-- Active `.aiwf/tasks/<TASK-ID>.md`, especially Tester Requirements and Done When.
-- `.aiwf/records/evidence.json`.
-- Changed files and relevant tests.
+- Active `.aiwf/tasks/<TASK-ID>.md`, especially Context (file paths, interfaces),
+  Tester Requirements, and Done When. Context tells you where the implementation
+  lives — use it to find the test surface quickly. It does NOT tell you the full
+  attack surface. That's your job: trace callers, boundaries, and failure modes.
+- `.aiwf/records/evidence.json` — executor's changed files and what they verified.
+  Know what's already covered so you go beyond, not over.
 
 ## Allowed
 
@@ -54,9 +57,18 @@ explicitly — don't mark it passed by omission.
 - Do not mark tests passed unless commands actually passed.
 - Do not close the task.
 
+## Scope
+
+Read the executor's evidence summary FIRST. It tells you what tests they ran,
+what passed, and what dimensions they covered. Do NOT re-run the same tests.
+If executor already ran 65 and they all passed, your job is to find what they
+missed — tests that should exist but don't, dimensions they didn't touch, edge
+cases they overlooked. Add value, don't re-confirm.
+
 ## Workflow
 
-1. Read Task.md and executor evidence.
+1. Read Task.md (especially Tester Requirements) and executor evidence. Note what
+   executor already verified — don't redo it.
 2. Identify the testing mode from Tester Requirements (unit/integration/e2e/reverse-trace).
 3. Write new tests against the task's Done When and objectives — do not let the current
    code's behavior define what "correct" means.
