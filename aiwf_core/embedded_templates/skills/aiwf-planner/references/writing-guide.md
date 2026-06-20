@@ -8,7 +8,30 @@ Clear enough they don't guess; open enough they use their intelligence.
 - DON'T prescribe files or functions.
 - DO state outcome, standard, and hard constraints.
 
+## Every doc — required frontmatter
+
+Every `.md` MUST have:
+
+```yaml
+---
+id: <NODE-ID>
+type: goal | plan | task | milestone
+---
+```
+
+Without `id` and `type`, `aiwf sync` will flag an error and the node won't
+appear in the TUI.
+
 ## Goal.md — Capability
+
+Frontmatter:
+```yaml
+id: GOAL-XXX
+type: goal
+title: ...
+status: open
+parent_goal_id: GOAL-PARENT   # only for child goals
+```
 
 Intent: 1-2 sentences. What capability? Who benefits?
   Good: "Detect anomalous call patterns and alert."
@@ -22,6 +45,18 @@ Non-goals: Explicitly exclude adjacent capabilities.
 Context + Human Decisions: Why now? What needs human input?
 
 ## Plan.md — Technical Direction
+
+Frontmatter:
+```yaml
+id: PLAN-XXX
+type: plan
+title: ...
+status: open
+goal_id: GOAL-XXX       # required
+milestone_id: MS-XXX    # optional, set when linked
+dependencies: []        # plan-level execution gates
+report_policy: ask
+```
 
 Intent + Current Problems: Concrete pain points.
 
@@ -39,10 +74,27 @@ Risks + Validation Strategy.
 
 ## Task.md
 
-See `task-contract.md` for the full writing guide, dispatch framework,
-lifecycle, and emergency procedures.
+See `task-contract.md` for the full frontmatter, writing guide, dispatch
+framework, lifecycle, and emergency procedures.
 
 ## Milestone.md — Acceptance Gate
+
+Frontmatter:
+```yaml
+id: MS-XXX
+type: milestone
+title: ...
+status: open
+goal_id: GOAL-XXX
+plan_ids: [PLAN-XXX, ...]
+task_ids: [TASK-XXX, ...]
+integration_test_required: true
+architecture_review_required: true
+human_acceptance_required: true
+verification_task_required: true
+verification_task_id: TASK-XXX   # set when verification task is created
+report_policy: ask
+```
 
 Purpose: What phase result is being proven?
 
