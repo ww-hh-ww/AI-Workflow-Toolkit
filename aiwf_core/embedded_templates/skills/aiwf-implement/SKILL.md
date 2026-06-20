@@ -5,6 +5,8 @@ description: Use only when `aiwf status --prompt` lists `aiwf-implement` under R
 
 ## Workflow
 
+FOLLOW EVERY STEP. CHECK OFF EACH ONE AS YOU GO. SKIP NOTHING.
+
 1. `aiwf status --prompt`
 2. Read active Task.md. Extract the Context section — file paths, registration
    points, core signatures, dependencies. Paste into the dispatch prompt so the
@@ -17,3 +19,5 @@ description: Use only when `aiwf status --prompt` lists `aiwf-implement` under R
    Do NOT record again.
 5. If not — read `inline-execution.md`, implement inline, record evidence
    as described there.
+
+VERIFY: DID YOU FOLLOW EVERY STEP? IF YOU SKIPPED ANY, GO BACK.

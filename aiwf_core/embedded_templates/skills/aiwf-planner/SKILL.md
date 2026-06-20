@@ -35,6 +35,8 @@ aiwf status --prompt
 
 ## Workflow
 
+FOLLOW EVERY STEP. CHECK OFF EACH ONE AS YOU GO. SKIP NOTHING.
+
 1. `aiwf status --prompt`
 2. Read architecture-review records. Resolve open structural issues first.
 3. Every node via CLI: `aiwf goal create`, `aiwf plan create`, `aiwf task create`,
@@ -68,6 +70,8 @@ aiwf status --prompt
 - `references/writing-guide.md` — writing Goal.md, Plan.md, Milestone.md.
 - `references/task-contract.md` — writing Task.md. Dispatch framework, lifecycle,
   rollback, emergency procedures.
+
+VERIFY: DID YOU FOLLOW EVERY STEP? IF YOU SKIPPED ANY, GO BACK.
 
 ## Stop condition
 

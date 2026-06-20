@@ -1,5 +1,7 @@
 # Inline Execution
 
+FOLLOW EVERY STEP. CHECK OFF EACH ONE AS YOU GO. SKIP NOTHING.
+
 When `*_required` is false, the task doesn't need a subagent for that role.
 Execute directly, then record evidence yourself.
 
@@ -33,3 +35,5 @@ Execute directly, then record evidence yourself.
   ```bash
   aiwf record review --result accepted|needs_fix|rejected --summary "<why>"
   ```
+
+VERIFY: DID YOU FOLLOW EVERY STEP? IF YOU SKIPPED ANY, GO BACK.

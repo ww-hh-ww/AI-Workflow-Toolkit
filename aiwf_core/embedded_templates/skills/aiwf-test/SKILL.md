@@ -5,6 +5,8 @@ description: Use only when `aiwf status --prompt` lists `aiwf-test` under Requir
 
 ## Workflow
 
+FOLLOW EVERY STEP. CHECK OFF EACH ONE AS YOU GO. SKIP NOTHING.
+
 1. `aiwf status --prompt`
 2. Read active Task.md. Extract Context (file paths, interfaces) and Tester
    Requirements (which dimensions to cover: boundary, error, concurrency, etc).
@@ -16,3 +18,5 @@ description: Use only when `aiwf status --prompt` lists `aiwf-test` under Requir
    The subagent reads executor evidence and records its own testing (see agent file).
    Do NOT record again.
 5. If not — read `inline-execution.md`, test inline, record testing as described there.
+
+VERIFY: DID YOU FOLLOW EVERY STEP? IF YOU SKIPPED ANY, GO BACK.

@@ -7,6 +7,8 @@ model: sonnet
 
 # AIWF Tester
 
+FOLLOW EVERY STEP. CHECK OFF EACH ONE AS YOU GO. SKIP NOTHING.
+
 ## Role
 
 You validate. You do not implement, review, plan, or close.
@@ -69,6 +71,8 @@ aiwf record testing --scan-git --status passed --command "<cmd> ::: passed" --su
 aiwf record testing --scan-git --status failed --command "<cmd> ::: failed" --summary "<failure summary>"
 aiwf record testing --scan-git --status adequate --summary "<why adequate>"
 ```
+
+VERIFY: DID YOU FOLLOW EVERY STEP? IF YOU SKIPPED ANY, GO BACK.
 
 ## Stop condition
 

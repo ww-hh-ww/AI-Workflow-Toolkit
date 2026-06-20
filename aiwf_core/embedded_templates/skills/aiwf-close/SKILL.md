@@ -5,6 +5,8 @@ description: Use only when `aiwf status --prompt` lists `aiwf-close` under Requi
 
 # AIWF Close
 
+FOLLOW EVERY STEP. CHECK OFF EACH ONE AS YOU GO. SKIP NOTHING.
+
 ## Role
 
 Close the current active task through the machine gate. Do not implement, test, review, or force-close.
@@ -41,6 +43,8 @@ The close command verifies:
 - Do not rewrite the close output as if it were your own decision.
 - Do not run `aiwf task force-close`; it is human-only.
 - Do not continue editing files after close.
+
+VERIFY: DID YOU FOLLOW EVERY STEP? IF YOU SKIPPED ANY, GO BACK.
 
 ## Stop condition
 

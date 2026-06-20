@@ -44,6 +44,8 @@ Read the milestone specified by status or user request.
 
 ## Workflow
 
+FOLLOW EVERY STEP. CHECK OFF EACH ONE AS YOU GO. SKIP NOTHING.
+
 1. Read `milestone.md`. The Pass Standard is the authoritative acceptance criteria.
 2. Trace consumption: for every new capability from this phase, verify it is
    wired into the main path and actually called. Use the Goal tree and Plan
@@ -102,3 +104,5 @@ aiwf milestone confirm MS-001 --summary "<what was accepted>"
 - Do not bypass human confirmation.
 - Do not close a milestone with failed integration unless the assessment
   explicitly records risk and the human confirms.
+
+VERIFY: DID YOU FOLLOW EVERY STEP? IF YOU SKIPPED ANY, GO BACK.

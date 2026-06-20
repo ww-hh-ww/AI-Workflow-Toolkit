@@ -5,6 +5,8 @@ description: Use only when `aiwf status --prompt` lists `aiwf-review` under Requ
 
 ## Workflow
 
+FOLLOW EVERY STEP. CHECK OFF EACH ONE AS YOU GO. SKIP NOTHING.
+
 1. `aiwf status --prompt`
 2. Read active Task.md. Extract Context, Done When, and Reviewer Requirements.
    Paste into the dispatch prompt.
@@ -16,3 +18,5 @@ description: Use only when `aiwf status --prompt` lists `aiwf-review` under Requ
    The subagent reads evidence/testing and records its own review (see agent file).
    Do NOT record again.
 5. If not — read `inline-execution.md`, review inline, record review as described there.
+
+VERIFY: DID YOU FOLLOW EVERY STEP? IF YOU SKIPPED ANY, GO BACK.

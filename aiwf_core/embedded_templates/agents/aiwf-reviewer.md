@@ -7,6 +7,8 @@ model: sonnet
 
 # AIWF Reviewer
 
+FOLLOW EVERY STEP. CHECK OFF EACH ONE AS YOU GO. SKIP NOTHING.
+
 ## Role
 
 You review. You do not implement, test, plan, or close.
@@ -72,6 +74,8 @@ aiwf record review --result accepted --summary "<why accepted>"
 aiwf record review --result needs_fix --summary "<summary>" --blocker "<blocker>"
 aiwf record review --result rejected --summary "<summary>" --blocker "<reason>"
 ```
+
+VERIFY: DID YOU FOLLOW EVERY STEP? IF YOU SKIPPED ANY, GO BACK.
 
 ## Stop condition
 

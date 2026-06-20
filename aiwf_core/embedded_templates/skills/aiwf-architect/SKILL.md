@@ -53,6 +53,8 @@ Choose the smallest sufficient set:
 
 ## Workflow
 
+FOLLOW EVERY STEP. CHECK OFF EACH ONE AS YOU GO. SKIP NOTHING.
+
 1. Identify the scope of this review:
    - Periodic signal or user asked for full review: run all three dimensions.
    - User names a specific concern (code / design / structure): focus there.
@@ -85,6 +87,8 @@ aiwf record architecture-review --status issues_found --summary "<issue summary>
 - `references/structure-review.md` — governance structure critique.
 
 ## Stop condition
+
+VERIFY: DID YOU FOLLOW EVERY STEP? IF YOU SKIPPED ANY, GO BACK.
 
 Stop after recording architecture review and presenting findings to the user.
 Wait for the user to decide which issues to act on.
