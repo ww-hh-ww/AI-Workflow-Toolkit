@@ -5,6 +5,20 @@ activation and must not be edited by the model during execution.
 
 ## Writing a Task.md
 
+Every Task.md frontmatter MUST include:
+
+```
+id: TASK-XXX
+type: task
+title: ...
+goal_id: GOAL-XXX      # required — which Goal this serves
+plan_id: PLAN-XXX      # required — which Plan this belongs to
+milestone_id: MS-XXX   # optional — which Milestone verifies this
+```
+
+These are not optional. A task without `goal_id` breaks the Goal→Plan→Task
+hierarchy and the Milestone view. A task without `plan_id` is an orphan.
+
 Objective: 1-2 sentences. What exactly gets done.
 
 Scope: Exact work outcome. Small enough for one cycle.
