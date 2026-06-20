@@ -72,6 +72,11 @@ def build_tree(data: dict) -> list:
         plan_by_goal.setdefault(gid, []).append((pid, p))
     task_list = data["tasks"].get("tasks", []) or []
     task_by_id = {t.get("id", ""): t for t in task_list}
+    tasks_by_plan = {}
+    for t in task_list:
+        tpid = t.get("plan_id") or ""
+        if tpid:
+            tasks_by_plan.setdefault(tpid, []).append(t)
 
     # Compute goal nesting depth via parent_goal_id chain
     def _goal_depth(gid, seen=None):
@@ -121,10 +126,7 @@ def build_tree(data: dict) -> list:
                           "title": f"{pid}  {ptitle}",
                           "indent": base_indent + 1, "status": pstatus, "active": False})
             # Tasks under this plan (from task.plan_id, not plan.task_ids)
-            for t in task_list:
-                tpid = t.get("plan_id") or ""
-                if tpid != pid:
-                    continue
+            for t in tasks_by_plan.get(pid, []):
                 tid = t.get("id", "")
                 tstatus = t.get("status", "ready")
                 if not _SHOW_CANCELLED and tstatus in ("cancelled",):
@@ -149,8 +151,8 @@ def build_tree(data: dict) -> list:
     for g in sorted_goals:
         _add_goal(g.get("id", ""), 1)
 
-    # Orphan tasks: linked to plan but plan's goal missing from tree
-    # Also filter by parent plan/goal cancelled status
+    # Orphan tasks: not already shown under any plan/goal
+    shown_task_ids = {n["id"] for n in nodes if n["kind"] == "task"}
     cancelled_plans = set()
     cancelled_goals = set()
     if not _SHOW_CANCELLED:
@@ -162,20 +164,21 @@ def build_tree(data: dict) -> list:
                 cancelled_goals.add(g.get("id", ""))
     for t in task_list:
         tid = t.get("id", "")
-        if not any(n["id"] == tid for n in nodes):
-            tstatus = t.get("status", "ready")
-            if not _SHOW_CANCELLED:
-                if tstatus in ("cancelled",):
-                    continue
-                pid = t.get("plan_id") or ""
-                gid = t.get("goal_id") or ""
-                if pid in cancelled_plans or gid in cancelled_goals:
-                    continue
-            ttitle = (t.get("title_cache") or t.get("title") or tid)[:40]
-            nodes.append({"kind": "task", "id": tid,
-                          "title": f"{tid}  {ttitle}",
-                          "indent": 2, "status": tstatus,
-                          "active": tid == active_task_id})
+        if tid in shown_task_ids:
+            continue
+        tstatus = t.get("status", "ready")
+        if not _SHOW_CANCELLED:
+            if tstatus in ("cancelled",):
+                continue
+            pid = t.get("plan_id") or ""
+            gid = t.get("goal_id") or ""
+            if pid in cancelled_plans or gid in cancelled_goals:
+                continue
+        ttitle = (t.get("title_cache") or t.get("title") or tid)[:40]
+        nodes.append({"kind": "task", "id": tid,
+                      "title": f"{tid}  {ttitle}",
+                      "indent": 2, "status": tstatus,
+                      "active": tid == active_task_id})
 
     # Milestones (appended after tree, skip cancelled/closed)
     ms_list = data["milestones"].get("milestones", []) or []
@@ -1070,6 +1073,12 @@ def _build_ms_tree(data: dict) -> list:
         if pid:
             plan_by_id[pid] = p
     task_by_id = {t.get("id", ""): t for t in (data["tasks"].get("tasks", []) or [])}
+    # Pre-index tasks by plan_id for top-down lookup
+    tasks_by_plan_id = {}
+    for t in (data["tasks"].get("tasks", []) or []):
+        tpid = t.get("plan_id") or ""
+        if tpid:
+            tasks_by_plan_id.setdefault(tpid, []).append(t)
 
     nodes.append({"kind": "mission", "id": "milestones", "title": "Milestones",
                   "indent": 0, "status": "", "active": False})
@@ -1084,38 +1093,52 @@ def _build_ms_tree(data: dict) -> list:
                       "indent": 1, "status": mstatus,
                       "active": mid == active_milestone_id})
 
-        # ── Collect plans and tasks linked to this milestone ──
+        # ── Milestone → Goal → Plan → Task ──
+        # Collect from two directions: milestone-linked plans and milestone-linked
+        # tasks. For each task, trace back to its plan and goal.
         linked_plan_ids = set(ms.get("plan_ids", []) or [])
         linked_task_ids = set(ms.get("task_ids", []) or [])
 
-        # Group plans by goal
+        # Start from milestone-linked plans
+        seen_plans = set()
         goal_plans = {}   # gid → [plan]
         for pid in sorted(linked_plan_ids):
             p = plan_by_id.get(pid, {})
-            if not p:
-                continue
-            pstatus = p.get("status", "open")
-            if not _SHOW_CANCELLED and pstatus in ("cancelled", "closed"):
-                continue
+            if not p or p.get("status") in ("cancelled", "closed"):
+                if not _SHOW_CANCELLED:
+                    continue
             gid = p.get("goal_id") or ""
             goal_plans.setdefault(gid, []).append(p)
+            seen_plans.add(pid)
 
-        # Collect tasks by task.plan_id (the authoritative relationship)
-        plan_tasks = {}       # pid → [task]
-        linked_plan_tids = set()
-        for t in (data["tasks"].get("tasks", []) or []):
-            tid = t.get("id", "")
+        # Fill from milestone-linked tasks: trace task → plan → goal
+        for tid in sorted(linked_task_ids):
+            t = task_by_id.get(tid, {})
+            if not t or (not _SHOW_CANCELLED and t.get("status") in ("cancelled",)):
+                continue
             tpid = t.get("plan_id") or ""
-            if tpid in linked_plan_ids:
-                tstatus = t.get("status", "ready")
-                if not _SHOW_CANCELLED and tstatus in ("cancelled",):
-                    continue
-                plan_tasks.setdefault(tpid, []).append(t)
-                linked_plan_tids.add(tid)
+            tgid = t.get("goal_id") or ""
+            # If task has a plan and it's not already shown, add it
+            if tpid and tpid not in seen_plans:
+                p = plan_by_id.get(tpid, {})
+                if p and (_SHOW_CANCELLED or p.get("status") not in ("cancelled", "closed")):
+                    gid = p.get("goal_id") or tgid
+                    goal_plans.setdefault(gid, []).append(p)
+                    seen_plans.add(tpid)
 
-        # Direct tasks (linked to milestone, not via any plan)
+        # Build plan → tasks from task.plan_id
+        plan_tasks = {}
+        covered_tids = set()
+        for pid in seen_plans:
+            for t in tasks_by_plan_id.get(pid, []):
+                if not _SHOW_CANCELLED and t.get("status") in ("cancelled",):
+                    continue
+                plan_tasks.setdefault(pid, []).append(t)
+                covered_tids.add(t.get("id", ""))
+
+        # Remaining direct tasks (no plan, or plan not in our data)
         goal_direct_tasks = {}
-        for tid in sorted(linked_task_ids - linked_plan_tids):
+        for tid in sorted(linked_task_ids - covered_tids):
             t = task_by_id.get(tid, {})
             if not t or (not _SHOW_CANCELLED and t.get("status") in ("cancelled",)):
                 continue
@@ -1157,98 +1180,6 @@ def _build_ms_tree(data: dict) -> list:
                               "active": tid == active_task_id})
 
     return nodes
-"""Dependency tree builder for AIWF TUI."""
-def _old_deps_tree(data: dict) -> list:
-    nodes = []
-    state = data["state"]
-    active_task_id = state.get("active_task_id", "")
-
-    plan_list = data["plans"].get("plans", []) or []
-    task_list = data["tasks"].get("tasks", []) or []
-
-    plan_by_id = {}
-    for p in plan_list:
-        pid = p.get("plan_id") or p.get("id") or ""
-        if pid:
-            plan_by_id[pid] = p
-
-    def _depth(pid, cache=None):
-        if cache is None:
-            cache = {}
-        if pid in cache:
-            return cache[pid]
-        p = plan_by_id.get(pid, {})
-        deps = p.get("dependencies", []) or []
-        if not deps:
-            cache[pid] = 0
-            return 0
-        d = max(_depth(d, cache) for d in deps) + 1
-        cache[pid] = d
-        return d
-
-    depths = {}
-    for pid in plan_by_id:
-        depths[pid] = _depth(pid, depths)
-
-    primary = {}
-    for pid in plan_by_id:
-        deps = plan_by_id[pid].get("dependencies", []) or []
-        if deps:
-            primary[pid] = max(deps, key=lambda d: depths.get(d, 0))
-
-    children_of = {}
-    roots = []
-    for pid in plan_by_id:
-        pp = primary.get(pid)
-        if pp:
-            children_of.setdefault(pp, []).append(pid)
-        elif pid not in primary:
-            roots.append(pid)
-    roots.sort()
-
-    task_by_plan = {}
-    for t in task_list:
-        pid = t.get("plan_id") or ""
-        if pid:
-            task_by_plan.setdefault(pid, []).append(t)
-
-    nodes.append({"kind": "mission", "id": "deps", "title": "Dependencies",
-                  "indent": 0, "status": "", "active": False})
-
-    added = set()
-
-    def _add(pid, depth):
-        if pid in added:
-            return
-        added.add(pid)
-        p = plan_by_id.get(pid, {})
-        title = (p.get("title_cache") or p.get("title") or pid)[:50]
-        pstatus = p.get("status", "open")
-        nodes.append({"kind": "plan", "id": pid, "title": title,
-                      "indent": depth + 1, "status": pstatus, "active": False})
-        # Tasks under this plan (from task.plan_id, not plan.task_ids)
-        for tdata in task_list:
-            tpid = tdata.get("plan_id") or ""
-            if tpid != pid:
-                continue
-            tid = tdata.get("id", "")
-            if tdata.get("status") in ("cancelled",):
-                continue
-            tstatus = tdata.get("status", "ready")
-            ttitle = (tdata.get("title_cache") or tdata.get("title") or tid)[:50]
-            nodes.append({"kind": "task", "id": tid, "title": ttitle,
-                          "indent": depth + 2, "status": tstatus,
-                          "active": tid == active_task_id})
-        kids = children_of.get(pid, [])
-        kids.sort(key=lambda k: -depths.get(k, 0))
-        for k in kids:
-            _add(k, depth + 1)
-
-    for root in roots:
-        _add(root, 0)
-
-    return nodes
-
 def _build_tasks_tree(data: dict) -> list:
     """Tasks grouped by Plan — each plan shows its tasks with deps."""
     nodes = []
