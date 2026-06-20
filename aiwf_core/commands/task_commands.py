@@ -41,7 +41,7 @@ def _cmd_task_plan(args: argparse.Namespace) -> None:
         notes=_gl("notes"),
         parent_goal=_g("parent_goal") or _g("goal_id"),
         parent_plan=_g("parent_plan") or _g("plan_id"),
-        goal_id=_g("goal_id") or _g("parent_goal"),
+        goal_id=_g("goal_id"),
         plan_id=_g("plan_id"),
         milestone=_g("milestone"),
         milestone_id=_g("milestone_id"),
@@ -426,7 +426,7 @@ def _write_task_narrative(cwd: Path, task: dict) -> None:
 
     path = create_narrative_for_entity(str(cwd), task["id"], "task",
                                        title=task.get("title", ""),
-                                       goal_id=task.get("goal_id") or task.get("parent_goal", ""),
+                                       goal_id=task.get("goal_id", ""),
                                        plan_id=task.get("plan_id", ""),
                                        milestone_id=task.get("milestone_id", ""),
                                        kind=task.get("kind", ""))
