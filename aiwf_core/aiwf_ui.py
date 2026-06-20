@@ -120,8 +120,12 @@ def build_tree(data: dict) -> list:
             nodes.append({"kind": "plan", "id": pid,
                           "title": f"{pid}  {ptitle}",
                           "indent": base_indent + 1, "status": pstatus, "active": False})
-            for tid in p.get("task_ids", []) or []:
-                t = task_by_id.get(tid, {})
+            # Tasks under this plan (from task.plan_id, not plan.task_ids)
+            for t in task_list:
+                tpid = t.get("plan_id") or ""
+                if tpid != pid:
+                    continue
+                tid = t.get("id", "")
                 tstatus = t.get("status", "ready")
                 if not _SHOW_CANCELLED and tstatus in ("cancelled",):
                     continue
@@ -676,7 +680,8 @@ def _node_summary(node, data):
         plan = next((p for p in plan_list if (p.get("plan_id") or p.get("id")) == nid), {})
         lines.append(f"Title: {plan.get('title','')}")
         lines.append(f"Status: {plan.get('status','?')}")
-        task_ids = plan.get("task_ids", []) or []
+        task_ids = [t.get("id") for t in (data.get("tasks", {}).get("tasks", []) or [])
+                     if (t.get("plan_id") or "") == nid]
         closed = _count_closed(data, task_ids)
         lines.append(f"Tasks: {closed}/{len(task_ids)} closed")
         deps = plan.get("dependencies", []) or []
@@ -763,7 +768,8 @@ def _build_detail(node, data):
         lines.append(f" Status: {plan.get('status', '?')}")
         lines.append(f" Goal: {plan.get('goal_id', '-')}")
         lines.append(f" MS:   {plan.get('milestone_id', '-')}")
-        task_ids = plan.get("task_ids", []) or []
+        task_ids = [t.get("id") for t in (data.get("tasks", {}).get("tasks", []) or [])
+                     if (t.get("plan_id") or "") == nid]
         lines.append(f" Tasks: {len(task_ids)} ({_count_closed(data, task_ids)} closed)")
         for tid in task_ids[:10]:
             t = _find_task(data, tid)
@@ -1079,14 +1085,12 @@ def _build_ms_tree(data: dict) -> list:
                       "active": mid == active_milestone_id})
 
         # ── Collect plans and tasks linked to this milestone ──
-        linked_plan_ids = list(ms.get("plan_ids", []) or [])
+        linked_plan_ids = set(ms.get("plan_ids", []) or [])
         linked_task_ids = set(ms.get("task_ids", []) or [])
 
-        # Group plans by goal, collect tasks from plan.task_ids (sync-derived)
+        # Group plans by goal
         goal_plans = {}   # gid → [plan]
-        plan_tasks = {}   # pid → [task]
-        plan_task_ids = set()
-        for pid in linked_plan_ids:
+        for pid in sorted(linked_plan_ids):
             p = plan_by_id.get(pid, {})
             if not p:
                 continue
@@ -1095,16 +1099,23 @@ def _build_ms_tree(data: dict) -> list:
                 continue
             gid = p.get("goal_id") or ""
             goal_plans.setdefault(gid, []).append(p)
-            for tid in (p.get("task_ids", []) or []):
-                t = task_by_id.get(tid, {})
-                if not t or (not _SHOW_CANCELLED and t.get("status") in ("cancelled",)):
-                    continue
-                plan_tasks.setdefault(pid, []).append(t)
-                plan_task_ids.add(tid)
 
-        # Direct tasks (linked to milestone, not already under a plan)
+        # Collect tasks by task.plan_id (the authoritative relationship)
+        plan_tasks = {}       # pid → [task]
+        linked_plan_tids = set()
+        for t in (data["tasks"].get("tasks", []) or []):
+            tid = t.get("id", "")
+            tpid = t.get("plan_id") or ""
+            if tpid in linked_plan_ids:
+                tstatus = t.get("status", "ready")
+                if not _SHOW_CANCELLED and tstatus in ("cancelled",):
+                    continue
+                plan_tasks.setdefault(tpid, []).append(t)
+                linked_plan_tids.add(tid)
+
+        # Direct tasks (linked to milestone, not via any plan)
         goal_direct_tasks = {}
-        for tid in sorted(linked_task_ids - plan_task_ids):
+        for tid in sorted(linked_task_ids - linked_plan_tids):
             t = task_by_id.get(tid, {})
             if not t or (not _SHOW_CANCELLED and t.get("status") in ("cancelled",)):
                 continue
@@ -1215,9 +1226,13 @@ def _old_deps_tree(data: dict) -> list:
         pstatus = p.get("status", "open")
         nodes.append({"kind": "plan", "id": pid, "title": title,
                       "indent": depth + 1, "status": pstatus, "active": False})
-        for tid in (p.get("task_ids", []) or []):
-            tdata = next((t for t in task_list if t.get("id") == tid), {})
-            if not tdata or tdata.get("status") in ("cancelled",):
+        # Tasks under this plan (from task.plan_id, not plan.task_ids)
+        for tdata in task_list:
+            tpid = tdata.get("plan_id") or ""
+            if tpid != pid:
+                continue
+            tid = tdata.get("id", "")
+            if tdata.get("status") in ("cancelled",):
                 continue
             tstatus = tdata.get("status", "ready")
             ttitle = (tdata.get("title_cache") or tdata.get("title") or tid)[:50]
