@@ -3,8 +3,7 @@ import json, sys
 from pathlib import Path
 from aiwf_core.adapters.claude.normalize_event import parse_claude_stdin, normalize
 from aiwf_core.hooks.common.evidence_writer import record_post_tool_event, check_and_record_scope_violations, check_and_record_missing_active_task
-from aiwf_core.hooks.common.gate_checker import load_all_state
-from aiwf_core.hooks.common.snapshot import diff_snapshot, clear_snapshot, read_snapshot
+from aiwf_core.hooks.common.snapshot import diff_snapshot, clear_snapshot
 
 def _log(msg: str) -> None:
     print(f"[aiwf_capture_evidence] {msg}", file=sys.stderr)
@@ -42,18 +41,30 @@ def main():
         record = record_post_tool_event(event, str(base))
         _log(f"evidence recorded: id={record.id} tool={event.tool_name} attribution=weak changed={len(record.changed_files or [])}")
 
-    # Check for scope violations using operation-level changed_files
+    # Check for scope violations using operation-level changed_files.
+    # Only checks project files against the active Task.md's Forbidden Write.
+    # Executor subagent writes are not violations — the pre-tool gate already
+    # enforces the executor_required requirement.
     op_files = list(record.changed_files) if record.changed_files else []
 
     if op_files:
         check_and_record_missing_active_task(op_files, base)
-        state = load_all_state(base)
-        active_ctx_id = state["state"].get("active_context_id")
-        if active_ctx_id:
-            for ctx in state["contexts"].get("contexts", []):
-                if ctx.get("id") == active_ctx_id:
-                    check_and_record_scope_violations(op_files, ctx, base)
-                    break
+        # Skip scope violation check for executor subagent writes
+        role = str(event.agent_type or "").lower()
+        if "executor" not in role:
+            from aiwf_core.hooks.common.scope_checker import _get_task_forbidden_write
+            from aiwf_core.core.scope_policy import check_scope
+            state_data = json.loads((base / ".aiwf" / "state" / "state.json").read_text())
+            task_id = state_data.get("active_task_id", "")
+            if task_id:
+                forbidden = _get_task_forbidden_write(base, task_id)
+                if forbidden:
+                    # Build a minimal active_context for the forbidden_write check
+                    check_and_record_scope_violations(
+                        op_files,
+                        {"id": task_id, "forbidden_write": forbidden},
+                        base,
+                    )
 
     sys.exit(0)
 
