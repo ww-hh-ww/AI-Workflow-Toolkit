@@ -191,8 +191,9 @@ def record_post_tool_event(
 
     role_text = f"{event.agent_type} {event.agent_id}".lower()
     if "reviewer" in role_text and ".aiwf/records/review.json" in gov_files:
-        state["phase"] = "reviewing"
-        _write_json(state_path, state)
+        if state.get("phase") not in ("closing", "closed"):
+            state["phase"] = "closing"
+            _write_json(state_path, state)
 
     # Update EvidenceRecord dataclass for return value
     record.changed_files = op_files

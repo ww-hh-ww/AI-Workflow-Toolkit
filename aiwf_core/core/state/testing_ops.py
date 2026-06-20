@@ -87,7 +87,7 @@ def record_testing(
     state_path = base / ".aiwf" / "state" / "state.json"
     state = _read(state_path)
     if state.get("phase") not in ("closing", "closed"):
-        state["phase"] = "testing"
+        state["phase"] = "reviewing"
         _write(state_path, state)
     evidence_command = "; ".join(commands or [])
     evidence_summary = coverage_summary or failure_summary or f"testing status={status}"

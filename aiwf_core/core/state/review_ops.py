@@ -192,9 +192,9 @@ def record_review(
         from ..review_contract import set_review_rejected
         set_review_rejected(review, result, blockers or [], rejected_evidence_ids or [])
 
-    # V2: write review directly. No phase gate, no testing_to_reviewing check.
+    # V2: write review directly. No phase gate.
     if state.get("phase") not in ("closing", "closed"):
-        state["phase"] = "reviewing"
+        state["phase"] = "closing"
 
     _write(review_path, review)
     if state.get("phase") not in ("closing", "closed"):
