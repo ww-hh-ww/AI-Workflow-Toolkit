@@ -120,6 +120,49 @@ def _cmd_task_confirm_start(args: argparse.Namespace) -> None:
 def _cmd_task_close(args: argparse.Namespace) -> None:
     from ..core.task_ledger import close_task
     task_id = getattr(args, "task_id", "") or getattr(args, "task_id_pos", "") or ""
+
+    # Self-check: report contract requirements vs what's on disk before the gate runs
+    import json as _json
+    cwd = Path.cwd()
+    try:
+        state = _json.loads((cwd / ".aiwf" / "state" / "state.json").read_text())
+        active_id = task_id or state.get("active_task_id", "")
+        if active_id:
+            task_md = cwd / ".aiwf" / "tasks" / f"{active_id}.md"
+            if task_md.exists():
+                text = task_md.read_text(encoding="utf-8")
+                if text.startswith("---\n"):
+                    end = text.find("\n---\n", 4)
+                    if end != -1:
+                        import yaml
+                        fm = yaml.safe_load(text[4:end]) or {}
+                        er = fm.get("executor_required", False)
+                        tr = fm.get("tester_required", False)
+                        rr = fm.get("reviewer_required", False)
+
+                        ev = _json.loads((cwd / ".aiwf" / "records" / "evidence.json").read_text()) if (cwd / ".aiwf" / "records" / "evidence.json").exists() else {"records": []}
+                        te = _json.loads((cwd / ".aiwf" / "records" / "testing.json").read_text()) if (cwd / ".aiwf" / "records" / "testing.json").exists() else {}
+                        rv = _json.loads((cwd / ".aiwf" / "records" / "review.json").read_text()) if (cwd / ".aiwf" / "records" / "review.json").exists() else {}
+
+                        ev_ok = bool([r for r in ev.get("records", []) if r.get("task_id") == active_id])
+                        te_ok = te.get("status", "missing") in ("passed", "adequate")
+                        rv_ok = rv.get("result") == "accepted"
+
+                        print(f"Self-check (contract vs records):")
+                        print(f"  executor_required: {er} → evidence: {'✓' if ev_ok else '✗'}")
+                        print(f"  tester_required:   {tr} → testing:  {'✓' if te_ok else '✗'}")
+                        print(f"  reviewer_required: {rr} → review:   {'✓' if rv_ok else '✗'}")
+                        missing = []
+                        if er and not ev_ok: missing.append("executor → load /aiwf-implement, dispatch aiwf-executor, record evidence")
+                        if tr and not te_ok: missing.append("tester → load /aiwf-test, dispatch aiwf-tester, record testing")
+                        if rr and not rv_ok: missing.append("reviewer → load /aiwf-review, dispatch aiwf-reviewer, record review")
+                        if missing:
+                            print("MISSING — go back and complete before close:")
+                            for m in missing:
+                                print(f"  ✗ {m}")
+    except Exception:
+        pass
+
     result = close_task(str(Path.cwd()), task_id, note=args.note or "")
     print(f"Task close: {task_id or result.get('task', {}).get('id', '?')} closed={result['closed']}")
     if result["blockers"]:
