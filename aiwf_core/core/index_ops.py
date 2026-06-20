@@ -477,6 +477,15 @@ def sync_index(base_dir: str, dry_run: bool = False) -> Dict[str, Any]:
             if not fm.get("title", "").strip():
                 errors.append(f"{etype}:{eid}: title is empty")
 
+            if etype == "task":
+                if not fm.get("goal_id", "").strip():
+                    errors.append(f"{etype}:{eid}: goal_id is empty — every task must have a goal")
+                if not fm.get("plan_id", "").strip():
+                    errors.append(f"{etype}:{eid}: plan_id is empty — every task must belong to a plan")
+            elif etype == "plan":
+                if not fm.get("goal_id", "").strip():
+                    errors.append(f"{etype}:{eid}: goal_id is empty — every plan must have a goal")
+
             # Active task: only the active Task.md is locked. Others sync normally.
             if active_task_id and etype == "task" and eid == active_task_id:
                 new_hash = compute_contract_hash(fm or {}, body) if body else ""
