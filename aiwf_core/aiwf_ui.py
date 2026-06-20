@@ -865,13 +865,17 @@ def main(stdscr):
     last_data_mtime = 0
 
     while True:
-        # Only reload data when files changed (check state.json mtime)
+        # Reload when any state JSON changes
         try:
-            state_mtime = (root / ".aiwf" / "state" / "state.json").stat().st_mtime
+            current_mtime = max(
+                (root / ".aiwf" / "state" / f).stat().st_mtime
+                for f in ["state.json", "tasks.json", "plans.json", "goals.json", "milestones.json"]
+                if (root / ".aiwf" / "state" / f).exists()
+            )
         except Exception:
-            state_mtime = 0
-        if state_mtime != last_data_mtime:
-            last_data_mtime = state_mtime
+            current_mtime = 0
+        if current_mtime != last_data_mtime:
+            last_data_mtime = current_mtime
             data = load_all(root)
             data["mission_title"] = _read_mission_title(root)
             t0 = build_tree(data); _precompute_tree_prefixes(t0)
