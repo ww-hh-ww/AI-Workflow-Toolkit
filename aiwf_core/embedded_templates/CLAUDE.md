@@ -24,8 +24,8 @@ Run `aiwf status --prompt`. Read the `Required skills:` line. Load that skill.
 AIWF controls automated/agent writes, not human manual edits. `.aiwf/*.json` is
 machine state; `.aiwf/*/*.md` is semantic contract.
 
-On-demand: `/aiwf-architect` (periodic signal or user request), `/aiwf-milestone`
-(status signal or milestone gate).
+`/aiwf-architect` and `/aiwf-milestone` are also triggered by system signals.
+When they appear in `Required skills:`, load them — same as any phase skill.
 
 ## Write rules
 
@@ -90,5 +90,8 @@ call with the prompt fields.
 - No AI project writes without an active task.
 - No closure from prose — `aiwf task close` is the authoritative close gate.
 - Fix-loop resolution requires mechanical verification.
+- **Required skills are NOT suggestions.** When `aiwf status --prompt` lists them,
+  load every one. Close requires aiwf-close. Architect signal requires aiwf-architect.
+  Milestone signal requires aiwf-milestone. No exceptions, no skipping.
 - **FORBIDDEN: routing downgrades unless the user explicitly orders it.**
 - **FORBIDDEN: `aiwf task force-close` — human emergency override only.**

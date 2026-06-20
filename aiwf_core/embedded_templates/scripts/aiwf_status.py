@@ -309,21 +309,42 @@ def _build_short_context(cwd, state, goal, review, fix_loop):
     if forbidden:
         lines.append(f"Forbidden: {', '.join(forbidden)}")
 
-    # 6. Phase anchor [ATTN] — always last for recency weight
+    # 6. Phase anchor [ATTN] — always last for recency weight.
+    # Every phase gets explicit next step. No vague suggestions.
     phase_anchors = {
-        "planning": "PLANNING - /aiwf-planner; shape Goal Tree, create Plan.",
-        "executing": "EXECUTING - /aiwf-implement; read active Task.md, write code.",
-        "testing": "TESTING - /aiwf-test; run commands, record evidence.",
-        "reviewing": "REVIEWING - /aiwf-review chain.",
-        "closing": "CLOSING - /aiwf-close; verify gates, then aiwf task close.",
+        "planning": (
+            "PLANNING - /aiwf-planner → read state files → "
+            "create goals/plans/tasks via CLI → activate task."
+        ),
+        "executing": (
+            "EXECUTING - /aiwf-implement → implement → "
+            "aiwf record evidence --role executor --scan-git --summary \"...\""
+        ),
+        "testing": (
+            "TESTING - /aiwf-test → test → "
+            "aiwf record testing --scan-git --status passed|failed|adequate --summary \"...\""
+        ),
+        "reviewing": (
+            "REVIEWING - /aiwf-review → review → "
+            "aiwf record review --result accepted|needs_fix|rejected --summary \"...\""
+        ),
+        "closing": (
+            "CLOSING - /aiwf-close → verify evidence+testing+review → "
+            "aiwf task close"
+        ),
         "blocked": "BLOCKED - resolve blockers before continuing.",
         "closed": ("CLOSED - start next task or periodic Architect review."
                     if not state.get("active_task_id")
                     else "Closure gate passed. Next: run aiwf task close."),
-        # V1 backward compat
-        "discussing": "PLANNING - /aiwf-planner; shape Goal Tree, create Plan.",
-        "planned": "PLANNING - /aiwf-planner; shape Goal Tree, create Plan.",
-        "implementing": "EXECUTING - /aiwf-implement; read active Task.md, write code.",
+        "discussing": (
+            "PLANNING - /aiwf-planner → read state files → "
+            "create goals/plans/tasks via CLI → activate task."
+        ),
+        "planned": "PLANNING - /aiwf-planner; pick ready task → aiwf task activate.",
+        "implementing": (
+            "EXECUTING - /aiwf-implement → implement → "
+            "aiwf record evidence --role executor --scan-git --summary \"...\""
+        ),
     }
     anchor = phase_anchors.get(phase, "")
     if anchor:
@@ -457,14 +478,34 @@ def _build_agent_context(cwd, state, goal, review, fix_loop, json_mode=False):
     else:
         primary_skill = phase_skill.get(state.get("phase", "planning"), "aiwf-planner")
 
-    # Skill list from skill-map
+    # Skill list from skill-map: phase skills + signal skills
     required_skills = []
     if skill_map_path.exists():
         try:
             sm = json.loads(skill_map_path.read_text(encoding="utf-8"))
             phase_skills = sm.get("phase_skills", {})
+            signal_skills = sm.get("signal_skills", {})
             phase = state.get("phase", "planning")
-            required_skills = phase_skills.get(phase, phase_skills.get("planning", []))
+            required_skills = list(phase_skills.get(phase, phase_skills.get("planning", [])))
+
+            # Signal skills: check conditions and merge into required_skills
+            # Architect: every N closed tasks or PROJECT-MAP staleness
+            try:
+                from aiwf_core.core.task_gravity import should_trigger_architecture_review
+                arch = should_trigger_architecture_review(str(cwd))
+                if arch.get("should_trigger"):
+                    required_skills.extend(signal_skills.get("architect_due", ["aiwf-architect"]))
+            except Exception:
+                pass
+
+            # Milestone: activatable or closable milestone exists
+            milestone_id = state.get("active_milestone_id") or ""
+            ms_signals = _milestone_signals(cwd, milestone_id) if milestone_id else []
+            if not ms_signals:
+                # Even without active milestone, check for any activatable
+                ms_signals = _milestone_signals(cwd, "")
+            if any("ACTIVATABLE" in s or "CLOSABLE" in s for s in ms_signals):
+                required_skills.extend(signal_skills.get("milestone_due", ["aiwf-milestone"]))
         except Exception:
             pass
 
@@ -491,22 +532,66 @@ def _build_agent_context(cwd, state, goal, review, fix_loop, json_mode=False):
     if state.get("scope_violation"):
         hard_gates.append("scope-clean-required")
 
-    # Next action
-    next_action = {
-        "planning": "load /aiwf-planner", "discussing": "load /aiwf-planner",
-        "planned": "activate task", "executing": "implement within scope",
-        "implementing": "implement within scope", "testing": "verify with tests",
-        "reviewing": "review evidence and scope", "blocked": "resolve blockers",
-        "closing": "verify close gates and close active task", "closed": "start next task or architect review",
-    }.get(phase, "check status")
-
     # Required read: active task narrative doc
     required_read = []
     active_task_id = state.get("active_task_id")
+    task_reqs = {}
     if active_task_id:
         task_doc = f".aiwf/tasks/{active_task_id}.md"
         if (cwd / task_doc).exists():
             required_read.append(task_doc)
+        try:
+            ledger = rj(cwd / ".aiwf" / "state" / "tasks.json", {"tasks": []})
+            for t in ledger.get("tasks", []) or []:
+                if isinstance(t, dict) and t.get("id") == active_task_id:
+                    task_reqs = t.get("requirements", {}) or {}
+                    break
+        except Exception:
+            pass
+
+    # Build per-phase next_action. Every phase gets explicit steps.
+    # When *_required=false: inline path with recording command inline.
+    # When *_required=true: dispatch path — subagent records itself.
+    next_action = {
+        "planning": "load /aiwf-planner → read state files → create goals/plans/tasks via CLI → activate task",
+        "discussing": "load /aiwf-planner → read state files → create goals/plans/tasks via CLI → activate task",
+        "planned": "aiwf task activate <TASK-ID>",
+        "executing": "load /aiwf-implement → implement → record evidence",
+        "implementing": "load /aiwf-implement → implement → record evidence",
+        "testing": "load /aiwf-test → test → record testing",
+        "reviewing": "load /aiwf-review → review → record review",
+        "blocked": "resolve blockers before continuing",
+        "closing": "load /aiwf-close → verify gates → aiwf task close",
+        "closed": "load /aiwf-planner for next cycle (or architect review if signal active)",
+    }.get(phase, "load skill for current phase")
+
+    if phase in ("executing", "implementing"):
+        if task_reqs.get("executor_required"):
+            next_action += " (subagent: aiwf-executor)"
+        else:
+            next_action = (
+                "read inline-execution.md → implement → "
+                "aiwf record evidence --role executor --scan-git --summary \"<what changed>\""
+            )
+            required_read.append("inline-execution.md")
+    elif phase == "testing":
+        if task_reqs.get("tester_required"):
+            next_action += " (subagent: aiwf-tester)"
+        else:
+            next_action = (
+                "read inline-execution.md → test → "
+                "aiwf record testing --scan-git --status passed|failed|adequate --summary \"<summary>\""
+            )
+            required_read.append("inline-execution.md")
+    elif phase == "reviewing":
+        if task_reqs.get("reviewer_required"):
+            next_action += " (subagent: aiwf-reviewer)"
+        else:
+            next_action = (
+                "read inline-execution.md → review → "
+                "aiwf record review --result accepted|needs_fix|rejected --summary \"<why>\""
+            )
+            required_read.append("inline-execution.md")
 
     if json_mode:
         return json.dumps({
@@ -588,17 +673,37 @@ def main():
         # Append [ATTN] anchor to debug mode too
         phase = state.get("phase", "planning")
         phase_anchors = {
-            "planning": "PLANNING - /aiwf-planner; shape Goal Tree, create Plan.",
-            "executing": "EXECUTING - /aiwf-implement; read active Task.md, write code.",
-            "testing": "TESTING - /aiwf-test; run commands, record evidence.",
-            "reviewing": "REVIEWING - /aiwf-review chain.",
-            "closing": "CLOSING - /aiwf-close; verify gates, then aiwf task close.",
+            "planning": (
+                "PLANNING - /aiwf-planner → read state files → "
+                "create goals/plans/tasks via CLI → activate task."
+            ),
+            "executing": (
+                "EXECUTING - /aiwf-implement → implement → "
+                "aiwf record evidence --role executor --scan-git --summary \"...\""
+            ),
+            "testing": (
+                "TESTING - /aiwf-test → test → "
+                "aiwf record testing --scan-git --status passed|failed|adequate --summary \"...\""
+            ),
+            "reviewing": (
+                "REVIEWING - /aiwf-review → review → "
+                "aiwf record review --result accepted|needs_fix|rejected --summary \"...\""
+            ),
+            "closing": (
+                "CLOSING - /aiwf-close → verify evidence+testing+review → "
+                "aiwf task close"
+            ),
             "blocked": "BLOCKED - resolve blockers before continuing.",
             "closed": "CLOSED.",
-            # V1 backward compat
-            "discussing": "PLANNING - /aiwf-planner; shape Goal Tree, create Plan.",
-            "planned": "PLANNING - /aiwf-planner; shape Goal Tree, create Plan.",
-            "implementing": "EXECUTING - /aiwf-implement; read active Task.md, write code.",
+            "discussing": (
+                "PLANNING - /aiwf-planner → read state files → "
+                "create goals/plans/tasks via CLI → activate task."
+            ),
+            "planned": "PLANNING - /aiwf-planner; pick ready task → aiwf task activate.",
+            "implementing": (
+                "EXECUTING - /aiwf-implement → implement → "
+                "aiwf record evidence --role executor --scan-git --summary \"...\""
+            ),
         }
         anchor = phase_anchors.get(phase, "")
         if anchor:
