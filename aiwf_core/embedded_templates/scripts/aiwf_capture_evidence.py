@@ -41,30 +41,24 @@ def main():
         record = record_post_tool_event(event, str(base))
         _log(f"evidence recorded: id={record.id} tool={event.tool_name} attribution=weak changed={len(record.changed_files or [])}")
 
-    # Check for scope violations using operation-level changed_files.
-    # Only checks project files against the active Task.md's Forbidden Write.
-    # Executor subagent writes are not violations — the pre-tool gate already
-    # enforces the executor_required requirement.
+    # Post-tool safety net: check changed files against active Task.md's
+    # Forbidden Write. Pre-tool gate is the primary enforcement; this is a
+    # secondary catch for bypasses (e.g. bash writes).
     op_files = list(record.changed_files) if record.changed_files else []
 
     if op_files:
         check_and_record_missing_active_task(op_files, base)
-        # Skip scope violation check for executor subagent writes
-        role = str(event.agent_type or "").lower()
-        if "executor" not in role:
-            from aiwf_core.hooks.common.scope_checker import _get_task_forbidden_write
-            from aiwf_core.core.scope_policy import check_scope
-            state_data = json.loads((base / ".aiwf" / "state" / "state.json").read_text())
-            task_id = state_data.get("active_task_id", "")
-            if task_id:
-                forbidden = _get_task_forbidden_write(base, task_id)
-                if forbidden:
-                    # Build a minimal active_context for the forbidden_write check
-                    check_and_record_scope_violations(
-                        op_files,
-                        {"id": task_id, "forbidden_write": forbidden},
-                        base,
-                    )
+        from aiwf_core.hooks.common.scope_checker import _get_task_forbidden_write
+        state_data = json.loads((base / ".aiwf" / "state" / "state.json").read_text())
+        task_id = state_data.get("active_task_id", "")
+        if task_id:
+            forbidden = _get_task_forbidden_write(base, task_id)
+            if forbidden:
+                check_and_record_scope_violations(
+                    op_files,
+                    {"id": task_id, "forbidden_write": forbidden},
+                    base,
+                )
 
     sys.exit(0)
 
