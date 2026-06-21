@@ -33,21 +33,6 @@ aiwf status --prompt
 - `.aiwf/records/architecture-review.json` — open issues before touching structure
 - User request and named files
 
-## Workflow
-
-FOLLOW EVERY STEP. CHECK OFF EACH ONE AS YOU GO. SKIP NOTHING.
-
-0. Read `aiwf-project` skill for project-specific rules and knowledge.
-1. `aiwf status --prompt`
-2. Read architecture-review records. Resolve open structural issues first.
-3. Every node via CLI: `aiwf goal create`, `aiwf plan create`, `aiwf task create`,
-   `aiwf milestone create`.
-4. Write the narrative doc. For Goal.md, Plan.md, Milestone.md see `references/writing-guide.md`.
-   For Task.md see `references/task-contract.md`.
-5. `aiwf sync` after any structural change.
-6. If the task is high-risk, include a rollback strategy. See `references/task-contract.md`.
-7. Activate only when Task.md is stable.
-
 ## Allowed
 
 - Create, show, list, rename, close, cancel, link, unlink nodes via `aiwf` CLI.
@@ -63,6 +48,21 @@ FOLLOW EVERY STEP. CHECK OFF EACH ONE AS YOU GO. SKIP NOTHING.
 - Do not hand-edit `.aiwf/state/` or `.aiwf/records/`.
 - Do not run human-only commands.
 - Do not invent commands beyond `aiwf --help`.
+
+## Workflow
+
+FOLLOW EVERY STEP. CHECK OFF EACH ONE AS YOU GO. SKIP NOTHING.
+
+0. Read `aiwf-project` skill for project-specific rules and knowledge.
+1. `aiwf status --prompt`
+2. Read architecture-review records. Resolve open structural issues first.
+3. Every node via CLI: `aiwf goal create`, `aiwf plan create`, `aiwf task create`,
+   `aiwf milestone create`.
+4. Write the narrative doc. For Goal.md, Plan.md, Milestone.md see `references/writing-guide.md`.
+   For Task.md see `references/task-contract.md`.
+5. `aiwf sync` after any structural change.
+6. If the task is high-risk, include a rollback strategy. See `references/task-contract.md`.
+7. Activate only when Task.md is stable.
 
 ## References
 
