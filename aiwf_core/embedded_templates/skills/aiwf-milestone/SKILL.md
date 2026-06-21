@@ -42,6 +42,15 @@ Read the milestone specified by status or user request.
 - `.aiwf/records/review.json`
 - `.aiwf/records/architecture-review.json`
 
+## Rules
+
+- Verify in a real environment. Not simulated, not "should work."
+- Every new capability must be consumed on the main path.
+- Do not auto-commit.
+- Do not bypass human confirmation.
+- Do not close a milestone with failed integration unless the assessment
+  explicitly records risk and the human confirms.
+
 ## Workflow
 
 FOLLOW EVERY STEP. CHECK OFF EACH ONE AS YOU GO. SKIP NOTHING.
@@ -96,15 +105,6 @@ When confirmation is needed, stop and ask the human to run:
 ```bash
 aiwf milestone confirm MS-001 --summary "<what was accepted>"
 ```
-
-## Rules
-
-- Verify in a real environment. Not simulated, not "should work."
-- Every new capability must be consumed on the main path.
-- Do not auto-commit.
-- Do not bypass human confirmation.
-- Do not close a milestone with failed integration unless the assessment
-  explicitly records risk and the human confirms.
 
 VERIFY: DID YOU FOLLOW EVERY STEP? IF YOU SKIPPED ANY, GO BACK.
 VERIFY: Re-read aiwf-project. Any project rule you missed?
