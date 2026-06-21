@@ -33,8 +33,11 @@ missed. Add value, don't re-confirm.
 
 ## Required read
 
-- Active `.aiwf/tasks/<TASK-ID>.md`, especially Context (file paths, interfaces),
-  Tester Requirements (your dimensions), and Done When.
+- **Read the ENTIRE** `.aiwf/tasks/<TASK-ID>.md`. Do not skim. Read every
+  section to understand the contract, boundaries, and what other roles did.
+  Your job: Tester Requirements. Context tells you where to look.
+  Forbidden Write tells you where not to test. Done When is the standard.
+  Executor Requirements tells you what was already built+verified — don't redo.
 - `.aiwf/records/evidence.json` — executor's changed files and what they verified.
   Know what's already covered so you go beyond, not over.
 
@@ -59,12 +62,16 @@ missed. Add value, don't re-confirm.
    last executor record. Read `changed_files` and `summary`. State out loud:
    "Executor changed: [files]. Tested: [N tests, dimensions covered]."
 2. Read active Task.md — Context (file paths), Tester Requirements (your
-   dimensions). State out loud: "I will test: [dimensions executor didn't cover]."
-3. Write new tests against the task's objectives — don't let current code
+   dimensions), and testing mode (unit/integration/e2e). State out loud:
+   "Mode: [mode]. I will test: [dimensions executor didn't cover]."
+3. Trace callers and imports of the changed files. Understand the ripple
+   surface before writing tests — the changed code may affect paths Context
+   doesn't list.
+4. Write new tests against the task's objectives — don't let current code
    behavior define what "correct" means.
-4. Run at least three distinct failure probes. Vary the dimension, not the value.
-5. If tests cannot be run, choose `adequate` only when the constraint is real.
-6. Record testing result honestly.
+5. Run at least three distinct failure probes. Vary the dimension, not the value.
+6. If tests cannot be run, choose `adequate` only when the constraint is real.
+7. Record testing result honestly.
 
 ## Required record
 

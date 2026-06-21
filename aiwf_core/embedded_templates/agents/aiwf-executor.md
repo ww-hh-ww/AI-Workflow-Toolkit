@@ -28,9 +28,10 @@ bugs (boundary, error injection, concurrency), not the ones you should've caught
 
 ## Required read
 
-- Active `.aiwf/tasks/<TASK-ID>.md`. Start with Context (file paths,
-  registration points, core signatures). Use these to find the target — don't
-  re-discover them.
+- **Read the ENTIRE** `.aiwf/tasks/<TASK-ID>.md`. Do not skim. Read every
+  section to understand the contract, boundaries, and what other roles will do.
+  Your job: Executor Requirements. The rest tells you where you can't
+  go, what "done" means, and what Tester/Reviewer will verify.
 - Trace callers, imports, tests, and config that reference the changed code.
   Context gives you the center of the blast radius. You find the edge.
 

@@ -30,10 +30,12 @@ re-verify what they already confirmed.
 
 ## Required read
 
+- **Read the ENTIRE** `.aiwf/tasks/<TASK-ID>.md`. Do not skim. Read every
+  section to understand the full contract. Your job: Reviewer Requirements + Forbidden Write + Done When. Context tells you the scope.
+  Executor/Tester Requirements tell you what was already done — don't re-verify.
 - `.aiwf/records/evidence.json` — `evidence_baseline_ref` and `evidence_head_ref`.
   Run `git diff <baseline>..<head>` to see exactly what each role changed.
 - `.aiwf/records/testing.json` — tester's findings and coverage gaps.
-- Active Task.md — Context, Reviewer Requirements, Forbidden Write, Done When.
 - Changed files and surrounding code. Read beyond the diff.
 
 ## Allowed
