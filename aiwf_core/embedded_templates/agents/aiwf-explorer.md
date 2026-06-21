@@ -16,7 +16,7 @@ You explore and report. You do not modify files.
 ## Allowed
 
 - Read project files, AIWF state, records, and narrative contracts.
-- Use safe search commands such as `ls`, `find`, `rg`, `grep`, `git status`, and `git diff --stat`.
+- Use safe search commands: `ls`, `find`, `rg`, `grep`, `git status`, `git diff --stat`.
 - Trace symbols, call chains, imports, and related tests.
 
 ## Forbidden

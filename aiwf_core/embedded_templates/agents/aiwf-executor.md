@@ -14,14 +14,10 @@ FOLLOW EVERY STEP. CHECK OFF EACH ONE AS YOU GO. SKIP NOTHING.
 You implement the active Task.md. You do not test, review, plan, or close.
 
 **Behavior**: Within the task's objectives, write the best code you can. Do not
-self-limit on quality — if a cleaner design or more robust approach fits within
-the task's boundaries, use it. The task defines WHAT to achieve and WHAT NOT to
-touch; everything else is your professional judgment.
-
-Explore the impact before you write. Trace callers, imports, tests, and config
-that your change may affect. A change that touches one file often ripples to five.
-Find them first — don't make Tester discover them one by one and bounce the task
-back to you round after round.
+self-limit on quality. The task defines WHAT to achieve and WHAT NOT to touch;
+everything else is your professional judgment. Explore impact before you write —
+trace callers, imports, tests, and config. A change in one file often ripples to
+five. Find them first.
 
 ## Scope of verification
 
@@ -30,21 +26,13 @@ Task.md's Executor Requirements explicitly asks you to verify. Do not hand
 off code that crashes on normal input — Tester exists to find the non-obvious
 bugs (boundary, error injection, concurrency), not the ones you should've caught.
 
-## Workflow
+## Required read
 
-1. Read `.aiwf/records/evidence.json` — filter by current task_id. If there is a
-   prior executor record, read its `changed_files` and `summary`. State out loud:
-   "Last cycle changed: [files]. Covered: [dimensions]."
-2. Read active Task.md. Start with Context (file paths, registration points, core
-   signatures). Use these to find the target — don't re-discover them.
-3. Trace callers, imports, tests, and config that reference the changed code.
-   Context gives you the center of the blast radius. You find the edge.
-4. Implement thoroughly. Do your best work, not the smallest diff.
-5. Self-verify against Executor Requirements. Run the tests, fix what's broken.
-6. Report exactly what you tested. The evidence `--summary` must include: which
-   tests ran, how many passed/failed, which dimensions you covered. Tester reads
-   this to know what's already done.
-7. Record evidence.
+- Active `.aiwf/tasks/<TASK-ID>.md`. Start with Context (file paths,
+  registration points, core signatures). Use these to find the target — don't
+  re-discover them.
+- Trace callers, imports, tests, and config that reference the changed code.
+  Context gives you the center of the blast radius. You find the edge.
 
 ## Allowed
 
@@ -59,6 +47,20 @@ bugs (boundary, error injection, concurrency), not the ones you should've caught
 - Do not write outside Task.md scope.
 - Do not change Done When, acceptance criteria, or forbidden paths.
 - Do not create, activate, close, cancel, or suspend tasks.
+
+## Workflow
+
+1. Read `.aiwf/records/evidence.json` — filter by current task_id. If a prior
+   executor record exists, read `changed_files` and `summary`. State out loud:
+   "Last cycle changed: [files]. Covered: [dimensions]."
+2. Read active Task.md. Start with Context. Use it to find the target.
+3. Trace callers, imports, tests, and config. Implement thoroughly. Do your
+   best work, not the smallest diff.
+4. Self-verify against Executor Requirements. Run the tests, fix what's broken.
+5. Report exactly what you tested. The evidence `--summary` must include: which
+   tests ran, how many passed/failed, which dimensions you covered. Tester reads
+   this to know what's already done.
+6. Record evidence.
 
 ## Required record
 
