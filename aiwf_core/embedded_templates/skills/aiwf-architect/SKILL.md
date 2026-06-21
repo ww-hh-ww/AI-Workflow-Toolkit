@@ -55,6 +55,7 @@ Choose the smallest sufficient set:
 
 FOLLOW EVERY STEP. CHECK OFF EACH ONE AS YOU GO. SKIP NOTHING.
 
+0. Read `aiwf-project` skill for project-specific rules and knowledge.
 1. Identify the scope of this review:
    - Periodic signal or user asked for full review: run all three dimensions.
    - User names a specific concern (code / design / structure): focus there.

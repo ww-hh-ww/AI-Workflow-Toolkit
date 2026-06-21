@@ -243,6 +243,7 @@ def _write_settings(target: EmbedTarget | None = None) -> Path:
 _TEMPLATE_ROOT = Path(__file__).resolve().parent / "embedded_templates"
 
 SKILL_TEMPLATES = {
+    "aiwf-project": "skills/aiwf-project/SKILL.md",
     "aiwf-planner": "skills/aiwf-planner/SKILL.md",
     "aiwf-implement": "skills/aiwf-implement/SKILL.md",
     "aiwf-test": "skills/aiwf-test/SKILL.md",

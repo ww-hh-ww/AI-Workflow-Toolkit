@@ -37,6 +37,7 @@ aiwf status --prompt
 
 FOLLOW EVERY STEP. CHECK OFF EACH ONE AS YOU GO. SKIP NOTHING.
 
+0. Read `aiwf-project` skill for project-specific rules and knowledge.
 1. `aiwf status --prompt`
 2. Read architecture-review records. Resolve open structural issues first.
 3. Every node via CLI: `aiwf goal create`, `aiwf plan create`, `aiwf task create`,

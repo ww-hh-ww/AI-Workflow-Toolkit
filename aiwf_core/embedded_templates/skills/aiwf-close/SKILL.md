@@ -13,6 +13,8 @@ Close the current active task through the machine gate. Do not implement, test, 
 
 ## First action
 
+Read `aiwf-project` skill for project-specific rules and knowledge.
+
 ```bash
 aiwf status --prompt
 ```

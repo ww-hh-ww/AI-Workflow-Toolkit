@@ -7,6 +7,7 @@ description: Use only when `aiwf status --prompt` lists `aiwf-review` under Requ
 
 FOLLOW EVERY STEP. CHECK OFF EACH ONE AS YOU GO. SKIP NOTHING.
 
+0. Read `aiwf-project` skill for project-specific rules and knowledge.
 1. `aiwf status --prompt`
 2. Read active Task.md. Extract Context, Done When, and Reviewer Requirements.
    Paste into the dispatch prompt.

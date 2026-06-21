@@ -46,6 +46,7 @@ Read the milestone specified by status or user request.
 
 FOLLOW EVERY STEP. CHECK OFF EACH ONE AS YOU GO. SKIP NOTHING.
 
+0. Read `aiwf-project` skill for project-specific rules and knowledge.
 1. Read `milestone.md`. The Pass Standard is the authoritative acceptance criteria.
 2. Trace consumption: for every new capability from this phase, verify it is
    wired into the main path and actually called. Use the Goal tree and Plan
