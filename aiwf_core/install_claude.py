@@ -290,6 +290,7 @@ SKILL_REFERENCE_TEMPLATES = {
 AGENT_TEMPLATES = {
     "aiwf-explorer.md": "agents/aiwf-explorer.md",
     "aiwf-executor.md": "agents/aiwf-executor.md",
+    "aiwf-critic.md": "agents/aiwf-critic.md",
     "aiwf-tester.md": "agents/aiwf-tester.md",
     "aiwf-reviewer.md": "agents/aiwf-reviewer.md",
 }
@@ -762,7 +763,7 @@ def doctor(mode: str | None = None) -> Dict[str, Any]:
         checks["skills"][skill] = {"exists": exists, "has_frontmatter": has_frontmatter}
 
     if target.mode == "claude":
-        for agent in ["aiwf-explorer", "aiwf-executor", "aiwf-tester", "aiwf-reviewer"]:
+        for agent in ["aiwf-explorer", "aiwf-executor", "aiwf-tester", "aiwf-reviewer", "aiwf-critic"]:
             path = root / target.config_dir / "agents" / f"{agent}.md"
             exists = path.exists()
             has_frontmatter = False
