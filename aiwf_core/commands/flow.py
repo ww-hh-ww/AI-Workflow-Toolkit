@@ -147,6 +147,63 @@ def _milestone_due(root, state):
     return False
 
 
+def _milestone_detail(root, state):
+    """Return milestone problems (activatable, closable, blocked). Only when triggered."""
+    problems = []
+    try:
+        ms_data = _read_json(root / ".aiwf" / "state" / "milestones.json", {})
+        plans_data = _read_json(root / ".aiwf" / "state" / "plans.json", {"plans": []})
+        all_plans = plans_data.get("plans", []) or []
+        all_ms = ms_data.get("milestones", []) or []
+        tasks_data = _read_json(root / ".aiwf" / "state" / "tasks.json", {"tasks": []})
+        all_tasks = tasks_data.get("tasks", []) or []
+        active_ms_id = state.get("active_milestone_id") or ""
+
+        task_by_id = {str(t.get("id")): t for t in all_tasks if isinstance(t, dict) and t.get("id")}
+
+        for ms in all_ms:
+            if not isinstance(ms, dict):
+                continue
+            mid = ms.get("id") or ms.get("milestone_id") or ""
+            if not mid or ms.get("status") == "closed":
+                continue
+
+            blockers = []
+            for pid in (ms.get("plan_ids", []) or []):
+                plan = next((p for p in all_plans
+                            if str(p.get("plan_id") or p.get("id") or "") == str(pid)), None)
+                if not plan:
+                    blockers.append(f"plan missing: {pid}")
+                elif plan.get("status") not in ("complete", "completed") or (plan.get("remaining_task_ids", []) or []):
+                    blockers.append(f"plan incomplete: {pid}")
+
+            for tid in (ms.get("task_ids", []) or []):
+                t = task_by_id.get(str(tid))
+                if not t:
+                    blockers.append(f"task missing: {tid}")
+                elif t.get("status") not in ("closed", "rejected"):
+                    blockers.append(f"task not closed: {tid}")
+
+            it = ms.get("integration_test", {}) or {}
+            if it.get("status") != "passed":
+                blockers.append("integration test not passed")
+            ar = ms.get("architecture_review", {}) or {}
+            if ar.get("status") == "issues_found":
+                blockers.append("architecture review has unresolved issues")
+            elif ar.get("status") not in ("intact",):
+                blockers.append("architecture review missing")
+
+            if not blockers:
+                problems.append(
+                    f"milestone {mid} closable: run /aiwf-milestone to assess and close"
+                )
+            elif mid == active_ms_id:
+                problems.append(f"milestone {mid} blocked: {'; '.join(blockers[:3])}")
+    except Exception:
+        pass
+    return problems
+
+
 def _next_human(phase, active_task_id, fix_loop, state, root):
     """Return a concise next-action line based on phase and state."""
     if fix_loop.get("status") == "open":
@@ -254,45 +311,73 @@ def _print_status_prompt(root, state, goal, testing, review, fix_loop):
     print("  ".join(parts))
 
     # Health
-    blockers = []
+    health_ok = True
     if fix_loop.get("status") == "open":
         route = fix_loop.get("route", "?")
-        blockers.append(f"fix-loop open -> {route}")
+        print(f"BLOCKED: fix-loop open -> {route}")
+        health_ok = False
     if state.get("scope_violation"):
-        blockers.append("scope violation")
-    if blockers:
-        print(f"BLOCKED: {', '.join(blockers)}")
-    else:
+        print("BLOCKED: scope violation")
+        health_ok = False
+    if health_ok:
         print("Health: ok")
+
+    # Problems — only shown when something needs attention
+    problems = []
+
+    # Recovery: fix-loop open → specific instructions
+    if fix_loop.get("status") == "open":
+        route = fix_loop.get("route") or "planner"
+        if route == "planner" or fix_loop.get("escalation_required"):
+            problems.append(
+                "fix-loop: resolve required_fixes, verify, then aiwf fixloop resolve "
+                "(USER DECISION REQUIRED)"
+            )
+        else:
+            problems.append(
+                f"fix-loop: dispatch {route} to resolve required_fixes, "
+                "then aiwf fixloop resolve"
+            )
+
+    # Recovery: scope violation
+    if state.get("scope_violation"):
+        problems.append(
+            "scope violation: revert violating files, "
+            "then aiwf fixloop resolve"
+        )
+
+    # Recovery: review blocked
+    review_result = review.get("result", "")
+    if review_result in ("rejected", "needs_fix", "scope_violation"):
+        problems.append(
+            f"review: {review_result} — resolve review blockers before close"
+        )
+
+    # Milestone detailed signals (only when activatable/closable)
+    ms_problems = _milestone_detail(root, state)
+    problems.extend(ms_problems)
+
+    # Architect signal
+    if _architect_due(root, state):
+        problems.append(
+            "Architect review due. Load /aiwf-architect "
+            "(code / design / structure / full)"
+        )
+
+    if problems:
+        print("")
+        print("Problems:")
+        for p in problems[:5]:
+            print(f"  - {p}")
 
     # Write permissions for no-active-task state
     if not task_id:
-        print("")
+        if problems:
+            print("")
         print("Allowed writes:")
         print("  - governance/planning (.aiwf/goals/, .aiwf/plans/, .aiwf/tasks/, .aiwf/config/)")
         print("  - .claude/ skills and agent templates")
         print("No project writes until a task is activated.")
-
-    # Signal skills (advisory reminders from skill-map.json)
-    signal_skills = {}
-    if skill_map_path.exists():
-        try:
-            sm = json.loads(skill_map_path.read_text(encoding="utf-8"))
-            signal_skills = sm.get("signal_skills", {})
-        except Exception:
-            pass
-
-    reminders = []
-    if _architect_due(root, state):
-        skills = signal_skills.get("architect_due", ["aiwf-architect"])
-        reminders.append(f"Architect review due. Choose scope: /{' /'.join(skills)} (code / design / structure / full)")
-    if _milestone_due(root, state):
-        skills = signal_skills.get("milestone_due", ["aiwf-milestone"])
-        reminders.append(f"Milestone checks due. Available: /{' /'.join(skills)}")
-    if reminders:
-        print("")
-        for r in reminders:
-            print(f"  SIGNAL: {r}")
 
     print(f"Next: {primary_skill}")
 
