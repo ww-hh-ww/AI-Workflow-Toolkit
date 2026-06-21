@@ -107,3 +107,4 @@ aiwf milestone confirm MS-001 --summary "<what was accepted>"
   explicitly records risk and the human confirms.
 
 VERIFY: DID YOU FOLLOW EVERY STEP? IF YOU SKIPPED ANY, GO BACK.
+VERIFY: Re-read aiwf-project. Any project rule you missed?

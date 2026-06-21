@@ -73,6 +73,7 @@ FOLLOW EVERY STEP. CHECK OFF EACH ONE AS YOU GO. SKIP NOTHING.
   rollback, emergency procedures.
 
 VERIFY: DID YOU FOLLOW EVERY STEP? IF YOU SKIPPED ANY, GO BACK.
+VERIFY: Re-read aiwf-project. Any project rule you missed?
 
 ## Stop condition
 

@@ -90,6 +90,7 @@ aiwf record architecture-review --status issues_found --summary "<issue summary>
 ## Stop condition
 
 VERIFY: DID YOU FOLLOW EVERY STEP? IF YOU SKIPPED ANY, GO BACK.
+VERIFY: Re-read aiwf-project. Any project rule you missed?
 
 Stop after recording architecture review and presenting findings to the user.
 Wait for the user to decide which issues to act on.

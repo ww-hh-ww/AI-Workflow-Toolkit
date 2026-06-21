@@ -21,3 +21,4 @@ FOLLOW EVERY STEP. CHECK OFF EACH ONE AS YOU GO. SKIP NOTHING.
 5. If not — read `inline-execution.md`, review inline, record review as described there.
 
 VERIFY: DID YOU FOLLOW EVERY STEP? IF YOU SKIPPED ANY, GO BACK.
+VERIFY: Re-read aiwf-project. Any project rule you missed?

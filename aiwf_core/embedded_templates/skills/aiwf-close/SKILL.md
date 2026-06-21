@@ -39,6 +39,7 @@ tells you exactly which role was never dispatched and which skill to load.
 - Do not continue editing files after close.
 
 VERIFY: DID YOU FOLLOW EVERY STEP? IF YOU SKIPPED ANY, GO BACK.
+VERIFY: Re-read aiwf-project. Any project rule you missed?
 
 ## Stop condition
 
