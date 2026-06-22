@@ -30,6 +30,7 @@ id: GOAL-XXX
 type: goal
 title: ...
 status: open
+root_type: main               # main, temporary, or omit for child goals
 parent_goal_id: GOAL-PARENT   # only for child goals
 ```
 
@@ -88,6 +89,7 @@ status: open
 goal_id: GOAL-XXX
 plan_ids: [PLAN-XXX, ...]
 task_ids: [TASK-XXX, ...]
+covered_goal_ids: [GOAL-XXX, ...]
 integration_test_required: true
 architecture_review_required: true
 human_acceptance_required: true

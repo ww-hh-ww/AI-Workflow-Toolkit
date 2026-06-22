@@ -349,6 +349,7 @@ FRONTMATTER_TO_JSON_MAP = {
     "goal": {
         "title": "title_cache",
         "status": "status",
+        "root_type": "root_type",
         "parent_goal_id": "parent_goal_id",
         "child_goal_ids": "child_goal_ids",
         "attached_plan_ids": "attached_plan_ids",
