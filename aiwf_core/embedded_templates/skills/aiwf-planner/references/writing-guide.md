@@ -32,7 +32,6 @@ title: ...
 status: open
 root_type: main               # main, temporary, or omit for child goals
 parent_goal_id: GOAL-PARENT   # only for child goals
-intent: ...                   # 1-2 sentences: what capability, who benefits
 report_policy: ask            # ask or silent_until_done
 ```
 
