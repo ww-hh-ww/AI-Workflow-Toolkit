@@ -115,21 +115,6 @@ def _cmd_milestone_update(args: argparse.Namespace) -> None:
     print(f"Milestone updated: {m['milestone_id']} status={m['status']}")
 
 
-def _cmd_milestone_rename(args: argparse.Namespace) -> None:
-    from ..core.state.milestone_ops import load_milestones, save_milestones
-    from datetime import datetime, timezone
-    data = load_milestones(str(Path.cwd()))
-    for m in data.get("milestones", []) or []:
-        if m.get("milestone_id") == args.milestone_id:
-            m["title"] = getattr(args, "title", "") or ""
-            m["updated_at"] = datetime.now(timezone.utc).isoformat()
-            save_milestones(str(Path.cwd()), data)
-            print(f"Milestone renamed: {args.milestone_id}")
-            return
-    print(f"Milestone not found: {args.milestone_id}", file=sys.stderr)
-    raise SystemExit(1)
-
-
 def _cmd_milestone_cancel(args: argparse.Namespace) -> None:
     from ..core.state.milestone_ops import load_milestones, save_milestones
     from datetime import datetime, timezone

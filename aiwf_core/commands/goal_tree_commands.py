@@ -462,30 +462,6 @@ def _cmd_goal_cancel(args: argparse.Namespace) -> None:
         print(f"  Replaced by: {replaced_by}")
 
 
-def _cmd_goal_rename(args: argparse.Namespace) -> None:
-    from ..core.state.goal_tree_ops import load_goal_tree, save_goal_tree, _find_goal
-    from ..core.index_ops import parse_md, write_narrative_doc, sync_index
-    goal_id = getattr(args, "goal_id", "")
-    new_title = getattr(args, "title", "") or ""
-    tree = load_goal_tree(str(Path.cwd()))
-    node = _find_goal(tree, goal_id)
-    if not node:
-        print(f"Goal not found: {goal_id}", file=sys.stderr)
-        raise SystemExit(1)
-    node["title"] = new_title
-    save_goal_tree(str(Path.cwd()), tree)
-    # Update MD frontmatter and sync
-    doc_path = node.get("doc_path", "")
-    if doc_path:
-        full_path = Path.cwd() / doc_path
-        if full_path.exists():
-            fm, body = parse_md(full_path)
-            if fm:
-                fm["title"] = new_title
-                write_narrative_doc(full_path, fm, body)
-    sync_index(str(Path.cwd()))
-    print(f"Goal renamed: {goal_id}")
-
 
 def _cmd_goal_close(args: argparse.Namespace) -> None:
     from ..core.state.goal_tree_ops import load_goal_tree, save_goal_tree, _find_goal

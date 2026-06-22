@@ -56,11 +56,15 @@ FOLLOW EVERY STEP. CHECK OFF EACH ONE AS YOU GO. SKIP NOTHING.
 0. Read `aiwf-project` skill for project-specific rules and knowledge.
 1. `aiwf status --prompt`
 2. Read architecture-review records. Resolve open structural issues first.
-3. Every node via CLI: `aiwf goal create`, `aiwf plan create`, `aiwf task create`,
+3. Create nodes via CLI: `aiwf goal create`, `aiwf plan create`, `aiwf task create`,
    `aiwf milestone create`.
 4. Write the narrative doc. For Goal.md, Plan.md, Milestone.md see `references/writing-guide.md`.
    For Task.md see `references/task-contract.md`.
-5. `aiwf sync` after any structural change.
+5. **All structural edits go through MD frontmatter, not CLI.** To rename,
+   change status, reassign plan→goal, or reparent goal→parent: edit the .md
+   frontmatter directly, then `aiwf sync`. No `rename` or `reassign` commands
+   exist — MD is the single source of truth.
+6. `aiwf sync` after every structural change. Verify with `--check` first if unsure.
 6. If the task is high-risk, include a rollback strategy. See `references/task-contract.md`.
 7. Activate only when Task.md is stable.
 

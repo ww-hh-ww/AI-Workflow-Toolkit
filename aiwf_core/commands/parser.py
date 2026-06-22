@@ -6,12 +6,12 @@ from pathlib import Path
 
 from .flow import cmd_status
 from .ops_commands import _cmd_doctor, _cmd_fix_loop_help, _cmd_fix_loop_open, _cmd_fix_loop_resolve, _cmd_fix_loop_status, _cmd_install
-from .plan_commands import _cmd_plan_attach, _cmd_plan_cancel, _cmd_plan_close, _cmd_plan_create, _cmd_plan_dep_add, _cmd_plan_dep_remove, _cmd_plan_dep_show, _cmd_plan_detach, _cmd_plan_help, _cmd_plan_list, _cmd_plan_rename, _cmd_plan_show
+from .plan_commands import _cmd_plan_attach, _cmd_plan_cancel, _cmd_plan_close, _cmd_plan_create, _cmd_plan_dep_add, _cmd_plan_dep_remove, _cmd_plan_dep_show, _cmd_plan_detach, _cmd_plan_help, _cmd_plan_list, _cmd_plan_show
 from .state_commands import _cmd_record_architecture_review, _cmd_record_help, _cmd_record_review, _cmd_record_role_evidence, _cmd_record_testing
-from .goal_tree_commands import _cmd_goal_cancel, _cmd_goal_close, _cmd_goal_create, _cmd_goal_help, _cmd_goal_rename, _cmd_goal_tree_list, _cmd_goal_tree_show, _cmd_relation_add, _cmd_relation_remove
-from .milestone_commands import _cmd_milestone_arch_review, _cmd_milestone_assess, _cmd_milestone_cancel, _cmd_milestone_close, _cmd_milestone_confirm, _cmd_milestone_create, _cmd_milestone_help, _cmd_milestone_integration_test, _cmd_milestone_link_plan, _cmd_milestone_link_task, _cmd_milestone_list, _cmd_milestone_rename, _cmd_milestone_show, _cmd_milestone_unlink_plan, _cmd_milestone_unlink_task
+from .goal_tree_commands import _cmd_goal_cancel, _cmd_goal_close, _cmd_goal_create, _cmd_goal_help, _cmd_goal_tree_list, _cmd_goal_tree_show, _cmd_relation_add, _cmd_relation_remove
+from .milestone_commands import _cmd_milestone_arch_review, _cmd_milestone_assess, _cmd_milestone_cancel, _cmd_milestone_close, _cmd_milestone_confirm, _cmd_milestone_create, _cmd_milestone_help, _cmd_milestone_integration_test, _cmd_milestone_link_plan, _cmd_milestone_link_task, _cmd_milestone_list, _cmd_milestone_show, _cmd_milestone_unlink_plan, _cmd_milestone_unlink_task
 from .mission_commands import _cmd_mission_show
-from .task_commands import _cmd_task_activate, _cmd_task_cancel, _cmd_task_close, _cmd_task_force_close, _cmd_task_help, _cmd_task_plan, _cmd_task_rename, _cmd_task_show, _cmd_task_status, _cmd_task_suspend
+from .task_commands import _cmd_task_activate, _cmd_task_cancel, _cmd_task_close, _cmd_task_force_close, _cmd_task_help, _cmd_task_plan, _cmd_task_show, _cmd_task_status, _cmd_task_suspend
 from ..constants import VERSION
 
 
@@ -100,10 +100,6 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
     p_gsh.add_argument("goal_id", nargs="?", default="", help="goal ID (omit for tree view)")
     p_gsh.set_defaults(func=_cmd_goal_tree_show)
     p_goal_sub.add_parser("list", help="list all goals").set_defaults(func=_cmd_goal_tree_list)
-    p_grn = p_goal_sub.add_parser("rename", help="rename a goal")
-    p_grn.add_argument("goal_id", help="goal ID")
-    p_grn.add_argument("--title", required=True, help="new title")
-    p_grn.set_defaults(func=_cmd_goal_rename)
     p_gcl = p_goal_sub.add_parser("close", help="close a goal")
     p_gcl.add_argument("goal_id", help="goal ID")
     p_gcl.add_argument("--summary", default="", help="closure summary")
@@ -137,10 +133,6 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
     p_pls.add_argument("plan_id", help="plan ID")
     p_pls.set_defaults(func=_cmd_plan_show)
     p_plan_sub.add_parser("list", help="list all plans").set_defaults(func=_cmd_plan_list)
-    p_plrn = p_plan_sub.add_parser("rename", help="rename a plan")
-    p_plrn.add_argument("plan_id", help="plan ID")
-    p_plrn.add_argument("--title", required=True, help="new title")
-    p_plrn.set_defaults(func=_cmd_plan_rename)
     p_plcl = p_plan_sub.add_parser("close", help="close a plan")
     p_plcl.add_argument("plan_id", help="plan ID")
     p_plcl.add_argument("--summary", default="", help="closure summary")
@@ -189,10 +181,6 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
     p_tsh.add_argument("task_id", nargs="?", default="", help="task ID (defaults to active)")
     p_tsh.set_defaults(func=_cmd_task_show)
     p_task_sub.add_parser("list", help="list all tasks").set_defaults(func=_cmd_task_status)
-    p_trn = p_task_sub.add_parser("rename", help="rename a task")
-    p_trn.add_argument("task_id", help="task ID")
-    p_trn.add_argument("--title", required=True, help="new title")
-    p_trn.set_defaults(func=_cmd_task_rename)
     p_tca = p_task_sub.add_parser("cancel", help="cancel a non-active task")
     p_tca.add_argument("task_id", help="task ID")
     p_tca.add_argument("--reason", default="", help="why this task is cancelled")
@@ -260,10 +248,6 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
     p_mss.add_argument("milestone_id", help="milestone ID")
     p_mss.set_defaults(func=_cmd_milestone_show)
     p_ms_sub.add_parser("list", help="list milestones").set_defaults(func=_cmd_milestone_list)
-    p_msrn = p_ms_sub.add_parser("rename", help="rename a milestone")
-    p_msrn.add_argument("milestone_id", help="milestone ID")
-    p_msrn.add_argument("--title", required=True, help="new title")
-    p_msrn.set_defaults(func=_cmd_milestone_rename)
     p_msca = p_ms_sub.add_parser("cancel", help="cancel a milestone")
     p_msca.add_argument("milestone_id", help="milestone ID")
     p_msca.add_argument("--reason", default="", help="why this milestone is cancelled")

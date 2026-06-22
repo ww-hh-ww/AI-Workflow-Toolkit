@@ -283,26 +283,6 @@ def _cmd_plan_activate(args: argparse.Namespace) -> None:
     print("  Phase set to planned. Next: aiwf task plan <ID> --plan <PLAN-ID> ...")
 
 
-def _cmd_plan_rename(args: argparse.Namespace) -> None:
-    from ..core.state.plan_ops import load_plans, save_plans
-    from datetime import datetime, timezone
-    plan_id = getattr(args, "plan_id", "")
-    title = getattr(args, "title", "") or ""
-    data = load_plans(str(Path.cwd()))
-    for p in data.get("plans", []) or []:
-        if p.get("plan_id") == plan_id or p.get("id") == plan_id:
-            p["title"] = title
-            p["title_cache"] = title
-            p["updated_at"] = datetime.now(timezone.utc).isoformat()
-            save_plans(str(Path.cwd()), data)
-            from ..core.index_ops import sync_index
-            sync_index(str(Path.cwd()))
-            print(f"Plan renamed: {plan_id} -> {title}")
-            return
-    print(f"Plan not found: {plan_id}", file=sys.stderr)
-    raise SystemExit(1)
-
-
 def _update_md_status(entity_type: str, entity_id: str, status: str,
                       summary: str = "") -> None:
     from ..core.index_ops import parse_md, write_narrative_doc, sync_index

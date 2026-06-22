@@ -5,6 +5,12 @@
 Define WHAT and set the standard. Sub-agents decide HOW.
 Clear enough they don't guess; open enough they use their intelligence.
 
+**MD frontmatter is the single source of truth.** To change a node's title,
+status, goal_id, plan_id, parent, or any structural field: **edit the .md
+frontmatter, then `aiwf sync`.** No CLI rename/reassign/reparent commands
+exist. `aiwf sync` compiles MD → JSON. If the JSON disagrees with MD, the
+JSON is wrong.
+
 - DON'T prescribe files or functions.
 - DO state outcome, standard, and hard constraints.
 

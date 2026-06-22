@@ -314,24 +314,6 @@ def _cmd_task_force_close(args: argparse.Namespace) -> None:
         print("  WARNING: all gates were bypassed. This is a human emergency override.")
 
 
-def _cmd_task_rename(args: argparse.Namespace) -> None:
-    from ..core.task_ledger import load_ledger, save_ledger
-    task_id = getattr(args, "task_id", "")
-    title = getattr(args, "title", "") or ""
-    ledger = load_ledger(str(Path.cwd()))
-    for t in ledger.get("tasks", []):
-        if t.get("id") == task_id:
-            t["title"] = title
-            t["title_cache"] = title
-            save_ledger(str(Path.cwd()), ledger)
-            from ..core.index_ops import sync_index
-            sync_index(str(Path.cwd()))
-            print(f"Task renamed: {task_id} -> {title}")
-            return
-    print(f"Task not found: {task_id}", file=sys.stderr)
-    raise SystemExit(1)
-
-
 def _cmd_task_cancel(args: argparse.Namespace) -> None:
     from ..core.task_ledger import load_ledger, save_ledger
     from datetime import datetime, timezone
