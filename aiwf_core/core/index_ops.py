@@ -227,7 +227,11 @@ def refresh_index(base_dir: str) -> Dict[str, Any]:
         for entry in entries:
             doc_path_str = entry.get("doc_path", "")
             if not doc_path_str:
-                continue
+                dirs = {"goal": ".aiwf/goals", "plan": ".aiwf/plans",
+                        "task": ".aiwf/tasks", "milestone": ".aiwf/milestones"}
+                subdir = dirs.get(etype, f".aiwf/{etype}s")
+                doc_path_str = f"{subdir}/{eid}.md"
+                entry["doc_path"] = doc_path_str
             full_path = root / doc_path_str
             if not full_path.exists():
                 continue
@@ -288,7 +292,11 @@ def repair_index(base_dir: str) -> Dict[str, Any]:
             eid = entry.get("id", "")
             doc_path_str = entry.get("doc_path", "")
             if not doc_path_str:
-                continue
+                dirs = {"goal": ".aiwf/goals", "plan": ".aiwf/plans",
+                        "task": ".aiwf/tasks", "milestone": ".aiwf/milestones"}
+                subdir = dirs.get(etype, f".aiwf/{etype}s")
+                doc_path_str = f"{subdir}/{eid}.md"
+                entry["doc_path"] = doc_path_str
             full_path = root / doc_path_str
             if not full_path.exists():
                 continue
@@ -458,7 +466,11 @@ def sync_index(base_dir: str, dry_run: bool = False) -> Dict[str, Any]:
             eid = entry.get("id", "")
             doc_path_str = entry.get("doc_path", "")
             if not doc_path_str:
-                continue
+                dirs = {"goal": ".aiwf/goals", "plan": ".aiwf/plans",
+                        "task": ".aiwf/tasks", "milestone": ".aiwf/milestones"}
+                subdir = dirs.get(etype, f".aiwf/{etype}s")
+                doc_path_str = f"{subdir}/{eid}.md"
+                entry["doc_path"] = doc_path_str
             full_path = root / doc_path_str
             if not full_path.exists():
                 errors.append(f"{etype}:{eid}: doc_path missing: {doc_path_str}")
@@ -565,6 +577,7 @@ def sync_index(base_dir: str, dry_run: bool = False) -> Dict[str, Any]:
 
     # Post-sync: derive Plan.task_ids from Task.plan_id (master relationship)
     _sync_plan_task_relations(root, dry_run, changes)
+    _sync_milestone_plan_relations(root, dry_run, changes)
 
     # Always report active task status in output
     if active_task_id and not any("frozen" in c for c in changes):
@@ -636,6 +649,43 @@ def _sync_plan_task_relations(root: Path, dry_run: bool, changes: List[str]) -> 
                 tmp_path = Path(str(plans_path) + ".tmp")
                 _write_json(tmp_path, plans_data)
                 tmp_path.rename(plans_path)
+
+
+def _sync_milestone_plan_relations(root: Path, dry_run: bool, changes: List[str]) -> None:
+    """Derive milestone.plan_ids from plan.milestone_id (reverse reference)."""
+    ms_path = root / ".aiwf" / "state" / "milestones.json"
+    plans_path = root / ".aiwf" / "state" / "plans.json"
+    if not ms_path.exists() or not plans_path.exists():
+        return
+    ms_data = _read_json(ms_path)
+    plans_data = _read_json(plans_path)
+    milestones = ms_data.get("milestones", []) or []
+    plans = plans_data.get("plans", []) or []
+
+    # Build milestone_id → plan_ids from plan.milestone_id
+    ms_plan_map: Dict[str, List[str]] = {}
+    for p in plans:
+        mid = str(p.get("milestone_id") or "").strip()
+        pid = str(p.get("plan_id") or p.get("id") or "").strip()
+        if mid and pid:
+            ms_plan_map.setdefault(mid, []).append(pid)
+
+    changed = False
+    for ms in milestones:
+        mid = str(ms.get("id") or ms.get("milestone_id") or "").strip()
+        if not mid:
+            continue
+        derived = sorted(set(ms_plan_map.get(mid, [])))
+        current = sorted(set(ms.get("plan_ids", []) or []))
+        if derived != current:
+            ms["plan_ids"] = derived
+            changed = True
+            changes.append(f"milestone:{mid}: plan_ids synced from plan.milestone_id ({len(derived)} plans)")
+
+    if changed and not dry_run:
+        tmp_path = Path(str(ms_path) + ".tmp")
+        _write_json(tmp_path, ms_data)
+        tmp_path.rename(ms_path)
 
 
 # ── narrative doc generation ──────────────────────────────────────────
