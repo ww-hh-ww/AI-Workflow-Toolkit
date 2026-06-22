@@ -60,14 +60,32 @@ FOLLOW EVERY STEP. CHECK OFF EACH ONE AS YOU GO. SKIP NOTHING.
    `aiwf milestone create`.
 4. Write the narrative doc. For Goal.md, Plan.md, Milestone.md see `references/writing-guide.md`.
    For Task.md see `references/task-contract.md`.
+   **Pick the right Done When level.** Built (exists) / Wired (called) /
+   Running (end-to-end). "Module exists" is only valid for internal
+   refactors. New modules and public APIs must be Wired. Subsystems
+   and user-visible features must be Running. Context must list the
+   exact caller file:line for every new module.
+   **Milestone verification tasks.** When a milestone has
+   `verification_task_required: true`, you MUST create a verification task
+   (kind=milestone_verification) and set the milestone's `verification_task_id`.
+   A milestone without a verification task is a gate with no guard.
 5. **All structural edits go through MD frontmatter, not CLI.** To rename,
    change status, reassign plan→goal, or reparent goal→parent: edit the .md
    frontmatter directly, then `aiwf sync`. No `rename` or `reassign` commands
    exist — MD is the single source of truth.
 6. `aiwf sync` after every structural change. Verify with `--check` first if unsure.
-6. If the task is high-risk, include a rollback strategy. See `references/task-contract.md`.
-7. Activate only when Task.md is stable.
-8. On first project setup or when structure changes meaningfully: write a
+7. If the task is high-risk, include a rollback strategy. See `references/task-contract.md`.
+8. **Quality gate before activation.** Do not activate a half-filled task.
+   Every activated Task.md must have:
+   - Context: Implementation target, core signatures, dependencies filled.
+     If this task creates a new module or public API: the exact caller
+     file:line is specified ("runner.rs:180 init() calls storage::start()").
+   - Done When: each criterion tagged with a level (Built/Wired/Running).
+     New modules and public APIs are Wired or Running, never just Built.
+   - Verification Commands: for every Wired/Running criterion, a concrete
+     command is listed with the expected output.
+   If any of these is missing or vague, fix it before activating.
+9. On first project setup or when structure changes meaningfully: write a
    "Core Files" section in the relevant Goal.md (see writing-guide.md).
    This is not per-cycle — only at project start or after a major refactor.
 

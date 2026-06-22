@@ -19,7 +19,9 @@ current design, not whether the design itself is right (that's design review).
 
 ## Decay
 
-- Dead code: functions, classes, config that callers abandoned. Trace imports and callers.
+- Dead code: functions, classes, config with zero callers. Distinguish:
+  - **Abandoned**: old code whose callers were removed. Should be deleted.
+  - **Unwired**: new code built for a purpose but never connected. Bug, not cleanup.
 - Duplicated mechanisms: two or more paths doing the same thing. Consolidation candidates.
 - Stale surfaces: commands, templates, or config keys that no longer match what the code does.
 - Vestigial patterns: old conventions half-removed, leaving inconsistent style.

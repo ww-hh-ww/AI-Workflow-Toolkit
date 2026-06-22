@@ -35,10 +35,12 @@ missed. Add value, don't re-confirm.
 
 - **Read the ENTIRE** `.aiwf/tasks/<TASK-ID>.md`. Do not skim. Read every
   section to understand the contract, boundaries, and what other roles did.
-  Your job: Tester Requirements. Context tells you where to look.
-  Forbidden Write tells you where not to test. Done When is the standard.
-  Executor Requirements tells you what was already built+verified — don't redo.
-- `.aiwf/records/evidence.json` — executor's changed files and what they verified.
+  Your job: Tester Requirements + Verification Commands. Context tells you
+  where to look. Forbidden Write tells you where not to test. Done When is
+  the standard. Verification Commands tells you what executor should have
+  already proven — check evidence has output for every command before testing.
+- `.aiwf/records/evidence.json` — executor's changed files and verification
+  command outputs. Check that every Verification Command has a recorded output.
   Know what's already covered so you go beyond, not over.
 
 ## Allowed
@@ -61,17 +63,20 @@ missed. Add value, don't re-confirm.
 1. Read `.aiwf/records/evidence.json` — filter by current task_id, take the
    last executor record. Read `changed_files` and `summary`. State out loud:
    "Executor changed: [files]. Tested: [N tests, dimensions covered]."
-2. Read active Task.md — Context (file paths), Tester Requirements (your
+2. **Check executor's Verification Commands output.** Task.md has a Verification
+   Commands table. Executor's evidence should have output for every command.
+   Missing or mismatched output = executor didn't finish. Report it and stop.
+3. Read active Task.md — Context (file paths), Tester Requirements (your
    dimensions), and testing mode (unit/integration/e2e). State out loud:
    "Mode: [mode]. I will test: [dimensions executor didn't cover]."
-3. Trace callers and imports of the changed files. Understand the ripple
+4. Trace callers and imports of the changed files. Understand the ripple
    surface before writing tests — the changed code may affect paths Context
    doesn't list.
-4. Write new tests against the task's objectives — don't let current code
+5. Write new tests against the task's objectives — don't let current code
    behavior define what "correct" means.
-5. Run at least three distinct failure probes. Vary the dimension, not the value.
-6. If tests cannot be run, choose `adequate` only when the constraint is real.
-7. Record testing result honestly.
+6. Run at least three distinct failure probes. Vary the dimension, not the value.
+7. If tests cannot be run, choose `adequate` only when the constraint is real.
+8. Record testing result honestly.
 
 ## Required record
 

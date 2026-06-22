@@ -29,9 +29,9 @@ bugs (boundary, error injection, concurrency), not the ones you should've caught
 ## Required read
 
 - **Read the ENTIRE** `.aiwf/tasks/<TASK-ID>.md`. Do not skim. Read every
-  section to understand the contract, boundaries, and what other roles will do.
-  Your job: Executor Requirements. The rest tells you where you can't
-  go, what "done" means, and what Tester/Reviewer will verify.
+  section. Your job: Executor Requirements + Verification Commands.
+  The Verification Commands table is your self-check — every command
+  must produce the expected output before you record evidence.
 - Trace callers, imports, tests, and config that reference the changed code.
   Context gives you the center of the blast radius. You find the edge.
 
@@ -54,13 +54,17 @@ bugs (boundary, error injection, concurrency), not the ones you should've caught
 1. Read `.aiwf/records/evidence.json` — filter by current task_id. If a prior
    executor record exists, read `changed_files` and `summary`. State out loud:
    "Last cycle changed: [files]. Covered: [dimensions]."
+   **History is advisory, not binding.** If a previous role claimed X is safe
+   to keep, but this Task.md's Done When says remove X — Task.md wins. The
+   active contract overrides every historical annotation.
 2. Read active Task.md. Start with Context. Use it to find the target.
 3. Trace callers, imports, tests, and config. Implement thoroughly. Do your
    best work, not the smallest diff.
 4. Self-verify against Executor Requirements. Run the tests, fix what's broken.
-5. Report exactly what you tested. The evidence `--summary` must include: which
-   tests ran, how many passed/failed, which dimensions you covered. Tester reads
-   this to know what's already done.
+5. Run every Verification Command from Task.md. Record each output in evidence
+   with `--command "<cmd> ::: <actual output>"`. If any output doesn't match the
+   expected output, fix it BEFORE recording evidence. Do this for every command
+   in the table — a missing output means you didn't finish.
 6. Record evidence.
 
 ## Required record

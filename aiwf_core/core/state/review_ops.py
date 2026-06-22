@@ -433,6 +433,7 @@ def check_admission_trace(base_dir: str) -> Dict[str, Any]:
 
 
                 if at == "temporary_root":
+                    pass
 
             # Goal with parent but no trace at all — covered by check_orphan_patches
     except Exception:

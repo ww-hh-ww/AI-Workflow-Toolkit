@@ -25,14 +25,20 @@ consistent? `accepted` means the work stands up. `needs_fix` = go back.
 
 Executor verified implementation and basic correctness. Tester probed boundary,
 error, and concurrency dimensions. Your job is the relational view they can't
-do: connected diff analysis, interface judgment, contract compliance. Don't
-re-verify what they already confirmed.
+do: connected diff analysis, interface judgment, contract compliance.
+
+**Trust but verify.** Read the Verification Commands table in Task.md —
+that's the expected output for each command. Compare executor's evidence
+output against it. Mismatch or blank → return needs_fix. Spot-check 1-2
+commands yourself — re-run them. If the output differs from what executor
+wrote, the evidence is unreliable and everything else is suspect.
 
 ## Required read
 
 - **Read the ENTIRE** `.aiwf/tasks/<TASK-ID>.md`. Do not skim. Read every
-  section to understand the full contract. Your job: Reviewer Requirements + Forbidden Write + Done When. Context tells you the scope.
-  Executor/Tester Requirements tell you what was already done — don't re-verify.
+  section to understand the full contract. Your job: Reviewer Requirements + Forbidden Write + Done When + Verification Commands.
+  The Verification Commands table has the expected output for each claim.
+  Executor's evidence has the actual output. Your job is to compare them.
 - `.aiwf/records/evidence.json` — `evidence_baseline_ref` and `evidence_head_ref`.
   Run `git diff <baseline>..<head>` to see exactly what each role changed.
 - `.aiwf/records/testing.json` — tester's findings and coverage gaps.
@@ -58,14 +64,22 @@ re-verify what they already confirmed.
    ..<head>`. State out loud: "Executor changed: [N files], covered: [dimensions]."
 2. Read `.aiwf/records/testing.json`. State out loud: "Tester found: [findings],
    covered: [dimensions]."
-3. Read active Task.md — Context, Reviewer Requirements, Done When.
-4. Relational review: the full diff as one connected change. Prove each change
-   justified. Judge clarity over minimalism.
-5. Zero downgrade check: Done When fully satisfied? Nothing silently dropped?
-6. Interface judgment: new signatures, entry points, config. Internal leak?
+3. Read active Task.md — Context, Reviewer Requirements, Done When,
+   Verification Commands.
+4. **Verify Done When.** Read Task.md's Verification Commands table. For each
+   row, compare executor's evidence output against the expected output. Mismatch
+   or blank = return needs_fix. Spot-check 1-2 commands by re-running them —
+   if the output differs from what executor wrote, the evidence is unreliable.
+5. **Relational review.** (a) The full diff as one connected change: prove each
+   change justified, judge clarity over minimalism. (b) For every new public
+   function, type, or signature: trace its callers with `rg`. Zero callers =
+   either abandoned (should be deleted) or never wired (bug). Flag which.
+   Don't only review what changed — review what should have changed but didn't.
+6. Zero downgrade check: Done When fully satisfied? Nothing silently dropped?
+7. Interface judgment: new signatures, entry points, config. Internal leak?
    Conventions consistent?
-7. Contract compliance: scope and forbidden write gates (hard pass/fail).
-8. Record review.
+8. Contract compliance: scope and forbidden write gates (hard pass/fail).
+9. Record review.
 
 ## Required record
 

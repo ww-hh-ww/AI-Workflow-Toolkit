@@ -25,12 +25,18 @@ Scope: Exact work outcome. Small enough for one cycle.
 
 Context: Planner explores ONCE, subagents read. Include:
   - Implementation target: file path, module, function where the change goes.
-  - Registration/integration points: where new code is wired in (config, DI, router).
   - Core signatures: public interfaces the implementation must match.
   - Dependencies: crates/packages already available that should be used.
+
+  For new modules or public APIs, you MUST also specify:
+  - Registration/integration point: exact file and line where this code is wired
+    in. "mod.rs" is not specific enough — write "runner.rs:180, init() calls
+    storage::start()". If you don't know the caller, you haven't finished
+    designing this task.
+
   Example:
     Implementation: crates/edr-agent/src/storage/mod.rs
-    Registration: crates/edr-agent/src/common/mod.rs:120 add_receiver()
+    Registration: crates/edr-agent/src/runner.rs:180 init() → storage::start()
     Core signature: fn on_event(&mut self, event: StorageEvent) -> Result<()>
     Dependencies: serde, tokio::sync::RwLock (already in Cargo.toml)
   If you (Planner) skip Context, every subagent re-discovers it. That is waste.
@@ -57,7 +63,38 @@ combinations. At least three distinct failure modes.
 Reviewer Requirements: Minimum hard gates. Reviewer brings relational review.
   "Confirm scope/forbidden write. Verify Done When. Apply relational review."
 
-Done When: Observable, indisputable. The standard all downstream roles work toward.
+Done When: Observable, indisputable. Pick the right level for this task:
+
+| Level | Meaning | How to verify | When to use |
+|-------|---------|--------------|-------------|
+| **Built** | struct/fn exists and compiles | grep for the symbol, `cargo build` | Internal refactors, utility functions, private helpers |
+| **Wired** | call chain is reachable — the new code is actually called | `grep` the caller site, trace imports, verify the registration point calls it | New modules, new `pub` APIs, config wiring |
+| **Running** | end-to-end executable — a real action produces the expected effect | `cargo run` + trigger the flow + observe the output | Subsystems, user-visible features, cross-module integration |
+
+"Built" is the minimum for tasks that refactor internals.
+"Wired" is required whenever Context lists a registration point.
+"Running" is required whenever the task creates a user-visible behavior.
+
+Every Done When item must state which level it targets. Every Wired or Running
+item must include a verification command. The last Done When item is always the
+highest applicable level.
+
+Verification Commands: For each Wired or Running criterion, list the exact command that
+proves it. Executor records the output of every command in evidence (use
+`aiwf record evidence --command "<cmd> ::: <output>"` for each). Tester checks
+evidence has output for every command — blank = executor didn't finish.
+Reviewer spot-checks 1-2 commands by re-running them (the only defense against
+fabricated evidence).
+```
+## Verification Commands
+| 命令 | 期望输出 |
+|------|---------|
+| cargo build 2>&1 \| grep "warning:" \| wc -l | 0 |
+| cargo test -p <crate> | 0 failures |
+| grep <OLD_CONSTANT> <path>/ | 空 |
+```
+Executor records actual output for each command in evidence. Tester checks
+the evidence, not the table.
 
 Rollback Strategy: yes/no. yes for schema, directory layout, install, parser,
 batch renames. When yes, include:
