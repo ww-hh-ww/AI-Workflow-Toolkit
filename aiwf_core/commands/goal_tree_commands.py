@@ -502,19 +502,6 @@ def _cmd_goal_close(args: argparse.Namespace) -> None:
     print(f"Goal closed: {getattr(args, 'goal_id', '')}")
 
 
-def _cmd_goal_reparent(args: argparse.Namespace) -> None:
-    from ..core.state.goal_tree_ops import reparent_goal
-    cwd = str(Path.cwd())
-    try:
-        result = reparent_goal(cwd, args.goal_id, args.parent_id or "")
-    except ValueError as e:
-        print(f"reparent blocked: {e}", file=sys.stderr)
-        raise SystemExit(1)
-    print(result["message"])
-    if result.get("previous_parent_id"):
-        print(f"  Previous parent: {result['previous_parent_id']}")
-
-
 def _cmd_goal_help(args: argparse.Namespace) -> None:
     print("AIWF Goal — node CRUD and linking")
     print()
