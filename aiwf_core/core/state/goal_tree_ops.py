@@ -713,3 +713,46 @@ def get_relations(base_dir: str, node_id: str) -> List[Dict[str, Any]]:
     tree = load_goal_tree(base_dir)
     return [r for r in tree.get("relations", []) or []
             if r.get("source_id") == node_id or r.get("target_id") == node_id]
+
+
+def reparent_goal(base_dir: str, goal_id: str, parent_id: str) -> Dict[str, Any]:
+    """Change a goal's parent in the goal tree."""
+    tree = load_goal_tree(base_dir)
+    goal = _find_goal(tree, goal_id)
+    if not goal:
+        raise ValueError(f"goal not found: {goal_id}")
+
+    if parent_id:
+        parent = _find_goal(tree, parent_id)
+        if not parent:
+            raise ValueError(f"parent goal not found: {parent_id}")
+
+    old_parent_id = goal.get("parent_goal_id")
+
+    if old_parent_id == parent_id:
+        return {"goal_id": goal_id, "parent_id": parent_id, "changed": False,
+                "message": f"goal {goal_id} already has parent {parent_id or '(root)'}"}
+
+    # Remove from old parent's children
+    if old_parent_id:
+        old_parent = _find_goal(tree, old_parent_id)
+        if old_parent:
+            children = old_parent.get("children_order", []) or []
+            if goal_id in children:
+                children.remove(goal_id)
+                old_parent["children_order"] = children
+
+    # Set new parent
+    goal["parent_goal_id"] = parent_id if parent_id else None
+
+    # Add to new parent's children
+    if parent_id:
+        children = parent.get("children_order", []) or []
+        if goal_id not in children:
+            children.append(goal_id)
+            parent["children_order"] = children
+
+    save_goal_tree(base_dir, tree)
+    return {"goal_id": goal_id, "parent_id": parent_id or "(root)", "changed": True,
+            "previous_parent_id": old_parent_id or "(root)",
+            "message": f"goal {goal_id} reparented from {old_parent_id or '(root)'} to {parent_id or '(root)'}"}

@@ -415,6 +415,19 @@ def _now_str() -> str:
     print(f"  Narrative doc: {doc_path_str}")
 
 
+def _cmd_plan_reassign(args: argparse.Namespace) -> None:
+    from ..core.state.plan_ops import reassign_plan
+    cwd = str(Path.cwd())
+    try:
+        result = reassign_plan(cwd, args.plan_id, args.goal_id)
+    except ValueError as e:
+        print(f"reassign blocked: {e}", file=sys.stderr)
+        raise SystemExit(1)
+    print(result["message"])
+    if result.get("previous_goal_id"):
+        print(f"  Previous goal: {result['previous_goal_id']}")
+
+
 def _now_str() -> str:
     from datetime import datetime, timezone
     return datetime.now(timezone.utc).isoformat()

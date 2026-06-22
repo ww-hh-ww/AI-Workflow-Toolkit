@@ -619,3 +619,41 @@ def rebase_plan_registry(base_dir: str, fix: str = "legacy-goal-id") -> Dict[str
     if ledger_path.exists():
         _write(ledger_path, ledger)
     return {"changed": bool(changes), "changes": changes, "plans": plans, "ledger": ledger}
+
+
+def reassign_plan(base_dir: str, plan_id: str, goal_id: str) -> Dict[str, Any]:
+    """Reassign a plan to a different goal."""
+    plans = load_plans(base_dir)
+    plan = _find_plan(plans, plan_id)
+    if not plan:
+        raise ValueError(f"plan not found: {plan_id}")
+
+    old_goal_id = str(plan.get("goal_id") or "")
+    if old_goal_id == goal_id:
+        return {"plan_id": plan_id, "goal_id": goal_id, "changed": False,
+                "message": f"plan {plan_id} is already assigned to goal {goal_id}"}
+
+    plan["goal_id"] = goal_id
+    plan["updated_at"] = _now()
+
+    # Remove from old goal's plan_ids if tracked
+    from .goal_tree_ops import load_goal_tree, save_goal_tree
+    tree = load_goal_tree(base_dir)
+    for g in tree.get("goals", []) or []:
+        if isinstance(g, dict):
+            if str(g.get("id") or g.get("goal_id") or "") == old_goal_id:
+                pids = g.get("plan_ids", []) or []
+                if plan_id in pids:
+                    pids.remove(plan_id)
+                    g["plan_ids"] = pids
+            if str(g.get("id") or g.get("goal_id") or "") == goal_id:
+                pids = g.get("plan_ids", []) or []
+                if plan_id not in pids:
+                    pids.append(plan_id)
+                    g["plan_ids"] = pids
+    save_goal_tree(base_dir, tree)
+    save_plans(base_dir, plans)
+
+    return {"plan_id": plan_id, "goal_id": goal_id, "changed": True,
+            "previous_goal_id": old_goal_id,
+            "message": f"plan {plan_id} reassigned from {old_goal_id} to {goal_id}"}

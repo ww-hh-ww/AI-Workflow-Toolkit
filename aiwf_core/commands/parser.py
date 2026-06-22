@@ -6,9 +6,9 @@ from pathlib import Path
 
 from .flow import cmd_status
 from .ops_commands import _cmd_doctor, _cmd_fix_loop_help, _cmd_fix_loop_open, _cmd_fix_loop_resolve, _cmd_fix_loop_status, _cmd_install
-from .plan_commands import _cmd_plan_attach, _cmd_plan_cancel, _cmd_plan_close, _cmd_plan_create, _cmd_plan_dep_add, _cmd_plan_dep_remove, _cmd_plan_dep_show, _cmd_plan_detach, _cmd_plan_help, _cmd_plan_list, _cmd_plan_rename, _cmd_plan_show
+from .plan_commands import _cmd_plan_attach, _cmd_plan_cancel, _cmd_plan_close, _cmd_plan_create, _cmd_plan_dep_add, _cmd_plan_dep_remove, _cmd_plan_dep_show, _cmd_plan_detach, _cmd_plan_help, _cmd_plan_list, _cmd_plan_reassign, _cmd_plan_rename, _cmd_plan_show
 from .state_commands import _cmd_record_architecture_review, _cmd_record_help, _cmd_record_review, _cmd_record_role_evidence, _cmd_record_testing
-from .goal_tree_commands import _cmd_goal_cancel, _cmd_goal_close, _cmd_goal_create, _cmd_goal_help, _cmd_goal_rename, _cmd_goal_tree_list, _cmd_goal_tree_show, _cmd_relation_add, _cmd_relation_remove
+from .goal_tree_commands import _cmd_goal_cancel, _cmd_goal_close, _cmd_goal_create, _cmd_goal_help, _cmd_goal_rename, _cmd_goal_reparent, _cmd_goal_tree_list, _cmd_goal_tree_show, _cmd_relation_add, _cmd_relation_remove
 from .milestone_commands import _cmd_milestone_arch_review, _cmd_milestone_assess, _cmd_milestone_cancel, _cmd_milestone_close, _cmd_milestone_confirm, _cmd_milestone_create, _cmd_milestone_help, _cmd_milestone_integration_test, _cmd_milestone_link_plan, _cmd_milestone_link_task, _cmd_milestone_list, _cmd_milestone_rename, _cmd_milestone_show, _cmd_milestone_unlink_plan, _cmd_milestone_unlink_task
 from .mission_commands import _cmd_mission_show
 from .task_commands import _cmd_task_activate, _cmd_task_cancel, _cmd_task_close, _cmd_task_force_close, _cmd_task_help, _cmd_task_plan, _cmd_task_rename, _cmd_task_show, _cmd_task_status, _cmd_task_suspend
@@ -121,6 +121,10 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
     p_gul.add_argument("source_id", help="source goal ID")
     p_gul.add_argument("target_id", help="target goal ID")
     p_gul.set_defaults(func=_cmd_relation_remove)
+    p_grp = p_goal_sub.add_parser("reparent", help="change a goal's parent")
+    p_grp.add_argument("goal_id", help="goal ID to reparent")
+    p_grp.add_argument("--parent", default="", dest="parent_id", help="new parent goal ID (empty = make root)")
+    p_grp.set_defaults(func=_cmd_goal_reparent)
     p_goal.set_defaults(func=_cmd_goal_help)
 
     # ── plan ──
@@ -157,6 +161,10 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
     p_plut.add_argument("plan_id", help="plan ID")
     p_plut.add_argument("task_id", help="task ID to unlink")
     p_plut.set_defaults(func=_cmd_plan_detach)
+    p_plra = p_plan_sub.add_parser("reassign", help="reassign a plan to a different goal")
+    p_plra.add_argument("plan_id", help="plan ID")
+    p_plra.add_argument("--goal-id", default="", dest="goal_id", required=True, help="new goal ID for this plan")
+    p_plra.set_defaults(func=_cmd_plan_reassign)
     p_pldep = p_plan_sub.add_parser("dep", help="manage Plan dependencies")
     p_pldep_sub = p_pldep.add_subparsers(dest="plan_dep_cmd", required=True)
     p_pldep_add = p_pldep_sub.add_parser("add", help="add a Plan dependency")
