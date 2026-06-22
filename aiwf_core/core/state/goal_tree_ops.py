@@ -17,7 +17,6 @@ from ..state_schema import (
     LEGACY_GOAL_ID,
     VALID_GOAL_STATUSES,
     VALID_RELATION_TYPES,
-    VALID_ROOT_TYPES,
     default_goals,
 )
 
@@ -47,15 +46,12 @@ def _write(path: Path, data: Dict[str, Any]) -> None:
 def _empty_goal(
     goal_id: str,
     title: str = "",
-    root_type: Optional[str] = None,
     parent_goal_id: Optional[str] = None,
     status: str = "open",
     intent: str = "",
     acceptance_boundary: str = "",
 ) -> Dict[str, Any]:
     now = _now()
-    if root_type is not None and root_type not in VALID_ROOT_TYPES:
-        raise ValueError(f"invalid root_type: {root_type}")
     if status not in VALID_GOAL_STATUSES:
         raise ValueError(f"invalid goal status: {status}")
     return {
@@ -68,7 +64,6 @@ def _empty_goal(
         "doc_hash": "",
         "doc_updated_at": "",
         "report_policy": "ask",
-        "root_type": root_type,
         "parent_goal_id": parent_goal_id,
         "child_goal_ids": [],
         "children_order": [],
@@ -76,7 +71,7 @@ def _empty_goal(
         "acceptance_boundary": acceptance_boundary,
         "attached_plan_ids": [],
         "status": status,
-        "visibility": "default" if root_type != "temporary" else "hidden_from_prompt",
+        "visibility": "default",
         "advance_policy": "checkpoint",
         "checkpoint_level": "goal",
         "evidence_rollup": {},
@@ -137,7 +132,6 @@ def _seed_from_legacy(base_dir: str) -> Dict[str, Any]:
     goal = _empty_goal(
         LEGACY_GOAL_ID,
         title=active_goal[:120] if active_goal else LEGACY_GOAL_ID,
-        root_type="main",
         parent_goal_id=None,
         status=status,
         intent=intent,
@@ -176,13 +170,6 @@ def list_roots(base_dir: str) -> List[Dict[str, Any]]:
     return [g for g in tree.get("goals", []) or [] if isinstance(g, dict) and g.get("id") in root_ids]
 
 
-def list_temporary_roots(base_dir: str) -> List[Dict[str, Any]]:
-    """Return all goals with root_type='temporary'."""
-    tree = load_goal_tree(base_dir)
-    return [g for g in tree.get("goals", []) or []
-            if isinstance(g, dict) and g.get("root_type") == "temporary"]
-
-
 def get_active_goal(base_dir: str) -> Dict[str, Any]:
     tree = load_goal_tree(base_dir)
     active_id = tree.get("active_goal_id")
@@ -199,14 +186,11 @@ def upsert_goal(
     base_dir: str,
     goal_id: str,
     title: str = "",
-    root_type: Optional[str] = None,
     parent_goal_id: Optional[str] = None,
     status: str = "",
     intent: str = "",
     acceptance_boundary: str = "",
 ) -> Dict[str, Any]:
-    if root_type is not None and root_type not in VALID_ROOT_TYPES:
-        raise ValueError(f"invalid root_type: {root_type}")
     if status and status not in VALID_GOAL_STATUSES:
         raise ValueError(f"invalid goal status: {status}")
 
@@ -217,14 +201,13 @@ def upsert_goal(
         goal = _empty_goal(
             goal_id,
             title=title,
-            root_type=root_type,
             parent_goal_id=parent_goal_id,
             status=status or "open",
             intent=intent,
             acceptance_boundary=acceptance_boundary,
         )
         tree["goals"].append(goal)
-        if root_type is not None and goal_id not in tree["roots"]:
+        if goal_id not in tree["roots"]:
             tree["roots"].append(goal_id)
     else:
         goal.setdefault("child_goal_ids", [])
@@ -241,13 +224,9 @@ def upsert_goal(
             goal["intent"] = intent
         if acceptance_boundary:
             goal["acceptance_boundary"] = acceptance_boundary
-        if root_type is not None:
-            goal["root_type"] = root_type
-            if goal_id not in tree["roots"]:
-                tree["roots"].append(goal_id)
         goal["updated_at"] = _now()
 
-    if goal.get("status") == "open" and goal.get("root_type") == "main":
+    if goal.get("status") == "open":
         tree["active_goal_id"] = goal_id
     elif tree.get("active_goal_id") == goal_id and goal.get("status") != "open":
         tree["active_goal_id"] = None
@@ -268,15 +247,11 @@ def add_child_goal(base_dir: str, parent_id: str, child_id: str,
         child = _empty_goal(
             child_id,
             title=title or child_id,
-            root_type=None,
             parent_goal_id=parent_id,
             status="open",
             intent=intent,
         )
         tree["goals"].append(child)
-    else:
-        if child.get("root_type") is not None:
-            raise ValueError(f"cannot add a root goal ({child_id}, root_type={child.get('root_type')}) as a child")
         if child.get("parent_goal_id") and child["parent_goal_id"] != parent_id:
             raise ValueError(
                 f"goal {child_id} already has parent {child['parent_goal_id']}; "
@@ -297,17 +272,12 @@ def add_child_goal(base_dir: str, parent_id: str, child_id: str,
     return {"parent": parent, "child": child, "tree": tree}
 
 
-def init_root(base_dir: str, goal_id: str, root_type: str = "main",
+def init_root(base_dir: str, goal_id: str,
               title: str = "", intent: str = "") -> Dict[str, Any]:
-    """Create a root Goal. root_type must be main, temporary, or branch."""
-    if root_type not in VALID_ROOT_TYPES:
-        raise ValueError(f"invalid root_type: {root_type}")
+    """Create a root Goal."""
     tree = load_goal_tree(base_dir)
     existing = _find_goal(tree, goal_id)
     if existing:
-        if existing.get("root_type") is None:
-            raise ValueError(f"goal {goal_id} already exists as non-root; use graft to change")
-        existing["root_type"] = root_type
         existing["title"] = title or existing.get("title", goal_id)
         existing["intent"] = intent or existing.get("intent", "")
         existing["updated_at"] = _now()
@@ -319,15 +289,13 @@ def init_root(base_dir: str, goal_id: str, root_type: str = "main",
     goal = _empty_goal(
         goal_id,
         title=title or goal_id,
-        root_type=root_type,
         parent_goal_id=None,
         status="open",
         intent=intent,
     )
     tree["goals"].append(goal)
     tree["roots"].append(goal_id)
-    if root_type == "main":
-        tree["active_goal_id"] = goal_id
+    tree["active_goal_id"] = goal_id
     save_goal_tree(base_dir, tree)
     return {"goal": goal, "tree": tree}
 
@@ -351,9 +319,7 @@ def validate_goal_tree(base_dir: str) -> Dict[str, Any]:
         if gid in roots:
             if g.get("parent_goal_id") is not None:
                 issues.append(f"{gid}: root Goal has parent_goal_id set")
-            if g.get("root_type") not in VALID_ROOT_TYPES:
-                issues.append(f"{gid}: root Goal has invalid root_type {g.get('root_type')}")
-
+    
         # parent-child consistency
         parent = g.get("parent_goal_id")
         if parent is not None and parent not in goal_ids:
@@ -538,10 +504,6 @@ def graft_branch(base_dir: str, source_id: str, target_parent_id: str,
             ]
             old_parent_goal["updated_at"] = _now()
 
-    # Clear root_type — no longer a root
-    old_root_type = source.get("root_type")
-    source["root_type"] = None
-
     # Update target's children
     if source_id not in target.setdefault("child_goal_ids", []):
         target["child_goal_ids"].append(source_id)
@@ -558,7 +520,6 @@ def graft_branch(base_dir: str, source_id: str, target_parent_id: str,
         "relation_to_parent": relation_to_parent,
         "affected_plan_ids": affected,
         "whether_parent_meaning_changes": whether_parent_meaning_changes,
-        "previous_root_type": old_root_type,
         "previous_parent": old_parent,
         "grafted_at": _now(),
     }
@@ -599,11 +560,11 @@ def prune_branch(base_dir: str, branch_id: str, reason: str = "") -> Dict[str, A
     if not branch:
         raise ValueError(f"branch not found: {branch_id}")
 
-    # Cannot prune the active main root
-    if (branch.get("root_type") == "main" and
+    # Cannot prune the active root
+    if (branch_id in tree.get("roots", []) and
             tree.get("active_goal_id") == branch_id and
             branch.get("status") == "open"):
-        raise ValueError(f"cannot prune the active main root: {branch_id}")
+        raise ValueError(f"cannot prune the active root: {branch_id}")
 
     # Collect info about what's being abandoned
     abandoned_plans = list(branch.get("attached_plan_ids", []) or [])

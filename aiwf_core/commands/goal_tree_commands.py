@@ -45,7 +45,7 @@ def _cmd_goal_tree_help(args: argparse.Namespace) -> None:
     print("Temporary roots support trial growth outside the main tree.")
     print()
     print("Available subcommands:")
-    print("  aiwf goal-tree init-root <ID> [--type main|temporary|branch] [--title ...] [--intent ...]")
+    print("  aiwf goal-tree init-root <ID> [--title ...] [--intent ...]")
     print("  aiwf goal-tree add <ID> --parent <PARENT-ID> [--title ...] [--intent ...]")
     print("  aiwf goal-tree show [<ID>]")
     print("  aiwf goal-tree list")
@@ -62,7 +62,6 @@ def _cmd_goal_tree_init_root(args: argparse.Namespace) -> None:
         result = init_root(
             str(Path.cwd()),
             args.goal_id,
-            root_type=args.type or "main",
             title=args.title or "",
             intent=args.intent or "",
         )
@@ -71,12 +70,8 @@ def _cmd_goal_tree_init_root(args: argparse.Namespace) -> None:
         raise SystemExit(1)
 
     g = result["goal"]
-    root_type = g.get("root_type", "")
     print(f"Root Goal created: {g['id']}")
     print(f"  Title: {g.get('title', '')}")
-    print(f"  Type: {root_type}")
-    if root_type == "temporary":
-        print(f"  Visibility: {g.get('visibility', '')}")
     if g.get("intent"):
         print(f"  Intent: {g['intent']}")
     if getattr(args, "narrative", False):
@@ -146,9 +141,6 @@ def _cmd_goal_tree_show(args: argparse.Namespace) -> None:
 def _print_goal_detail(goal: dict) -> None:
     print(f"Goal: {goal.get('id', '')}")
     print(f"  Title: {goal.get('title', '')}")
-    rt = goal.get("root_type")
-    if rt:
-        print(f"  Root Type: {rt}")
     print(f"  Status: {goal.get('status', '')}")
     print(f"  Parent: {goal.get('parent_goal_id') or '(none — root)'}")
     children = goal.get("child_goal_ids", []) or []
@@ -166,8 +158,8 @@ def _print_goal_tree(goal: dict, indent: int) -> None:
     gid = goal.get("id", "")
     title = goal.get("title", "")
     status = goal.get("status", "")
-    rt = goal.get("root_type")
-    tag = f" [{rt}]" if rt else ""
+    is_root = not goal.get("parent_goal_id")
+    tag = " [root]" if is_root else ""
     print(f"{prefix}├─ {gid}{tag}  ({status})  {title}")
 
     from ..core.state.goal_tree_ops import get_goal
@@ -196,8 +188,8 @@ def _cmd_goal_tree_list(args: argparse.Namespace) -> None:
     print(f"Goals: {len(goals)}  (roots: {len(roots)})")
     for g in goals:
         gid = g.get("id", "")
-        rt = g.get("root_type", "")
-        tag = f" root={rt}" if rt else ""
+        is_root = not g.get("parent_goal_id")
+        tag = " root" if is_root else ""
         children = len(g.get("child_goal_ids", []) or [])
         plans = len(g.get("attached_plan_ids", []) or [])
         print(
@@ -262,7 +254,6 @@ def _cmd_goal_tree_graft(args: argparse.Namespace) -> None:
 
     r = result["graft_record"]
     print(f"Grafted: {r['source_id']} → {r['target_parent_id']}")
-    print(f"  Previous root type: {r.get('previous_root_type') or '(none)'}")
     if r.get("reason"):
         print(f"  Reason: {r['reason']}")
     if r.get("interface_consumed"):
@@ -388,7 +379,7 @@ def _cmd_goal_create(args: argparse.Namespace) -> None:
         if parent_id:
             result = add_child_goal(str(Path.cwd()), parent_id, goal_id, title=title)
         else:
-            result = init_root(str(Path.cwd()), goal_id, root_type="main", title=title)
+            result = init_root(str(Path.cwd()), goal_id, title=title)
     except ValueError as e:
         print(f"Goal create blocked: {e}", file=sys.stderr)
         raise SystemExit(1)

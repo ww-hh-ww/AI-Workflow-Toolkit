@@ -241,7 +241,7 @@ def validate_goal_bindings(project_root: str) -> Dict[str, Any]:
     # Leaf Goals are concrete capability surfaces and should have an explicit
     # module binding. Aggregate parents may remain unbound.
     for goal_id, goal in goals.items():
-        if goal.get("root_type") == "temporary" or goal.get("status") in ("pruned", "rejected"):
+        if goal.get("status") in ("pruned", "rejected"):
             continue
         if not (goal.get("child_goal_ids", []) or []) and goal_id not in seen:
             warnings.append(f"leaf capability Goal has no project-map binding: {goal_id}")

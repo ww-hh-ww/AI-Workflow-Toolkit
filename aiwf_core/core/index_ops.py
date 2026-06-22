@@ -245,7 +245,7 @@ def refresh_index(base_dir: str) -> Dict[str, Any]:
                 entry["doc_updated_at"] = _now()
                 changed = True
 
-            # Update title_cache: frontmatter.title primary, body H1 fallback
+            # Update title: frontmatter.title primary, body H1 fallback
             fm_title = (fm or {}).get("title", "").strip()
             if fm_title:
                 title = fm_title
@@ -254,9 +254,12 @@ def refresh_index(base_dir: str) -> Dict[str, Any]:
                 title = first_line[2:].strip() if first_line.startswith("# ") else ""
             else:
                 title = ""
-            if title and entry.get("title_cache") != title:
-                entry["title_cache"] = title
-                changed = True
+            if title:
+                if entry.get("title") != title:
+                    entry["title"] = title
+                    changed = True
+                if entry.get("title_cache") != title:
+                    entry["title_cache"] = title
 
             updated.append(f"{etype}:{entry.get('id', '?')}")
 
@@ -355,16 +358,15 @@ def repair_index(base_dir: str) -> Dict[str, Any]:
 
 FRONTMATTER_TO_JSON_MAP = {
     "goal": {
-        "title": "title_cache",
+        "title": "title",
         "status": "status",
-        "root_type": "root_type",
         "parent_goal_id": "parent_goal_id",
         "child_goal_ids": "child_goal_ids",
         "attached_plan_ids": "attached_plan_ids",
         "report_policy": "report_policy",
     },
     "plan": {
-        "title": "title_cache",
+        "title": "title",
         "status": "status",
         "goal_id": "goal_id",
         "milestone_id": "milestone_id",
@@ -372,7 +374,7 @@ FRONTMATTER_TO_JSON_MAP = {
         "dependencies": "dependencies",
     },
     "task": {
-        "title": "title_cache",
+        "title": "title",
         "goal_id": "goal_id",
         "plan_id": "plan_id",
         "milestone_id": "milestone_id",
@@ -385,7 +387,7 @@ FRONTMATTER_TO_JSON_MAP = {
         "dependencies": "dependencies",
     },
     "milestone": {
-        "title": "title_cache",
+        "title": "title",
         "status": "status",
         "goal_id": "goal_id",
         "plan_ids": "plan_ids",
@@ -518,9 +520,8 @@ def sync_index(base_dir: str, dry_run: bool = False) -> Dict[str, Any]:
             for fm_key, json_key in mapping.items():
                 fm_value = fm.get(fm_key)
 
-                if json_key == "title_cache":
-                    fm_title = (fm.get("title") or "").strip()
-                    fm_value = fm_title if fm_title else ""
+                if json_key == "title":
+                    fm_value = (fm.get("title") or "").strip()
                 elif json_key in _LIST_KEYS:
                     if isinstance(fm_value, list):
                         pass  # YAML parsed list, use directly

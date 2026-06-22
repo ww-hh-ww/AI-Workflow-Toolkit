@@ -431,14 +431,8 @@ def check_admission_trace(base_dir: str) -> Dict[str, Any]:
                                 f"capability_provided — what does it provide to the parent?"
                             )
 
-                # temporary_root admission → must have root_type=temporary or reason
+
                 if at == "temporary_root":
-                    rt = g.get("root_type")
-                    if rt != "temporary":
-                        warnings.append(
-                            f"Admission {tag}: goal {gid} admitted as temporary_root "
-                            f"but root_type is '{rt}', not 'temporary'."
-                        )
 
             # Goal with parent but no trace at all — covered by check_orphan_patches
     except Exception:

@@ -112,7 +112,7 @@ def build_tree(data: dict) -> list:
         gstatus = g.get("status", "open")
         if not _SHOW_CANCELLED and gstatus in ("cancelled"):
             return  # skip cancelled/closed goals entirely
-        title = g.get("title_cache") or g.get("title") or gid
+        title = g.get("title") or g.get("title_cache") or gid
         nodes.append({"kind": "goal", "id": gid, "title": title,
                       "indent": base_indent, "status": gstatus, "active": False})
 
@@ -121,7 +121,7 @@ def build_tree(data: dict) -> list:
             pstatus = p.get("status", "open")
             if not _SHOW_CANCELLED and pstatus in ("cancelled"):
                 continue
-            ptitle = (p.get("title_cache") or p.get("title") or pid)[:40]
+            ptitle = (p.get("title") or p.get("title_cache") or pid)[:40]
             nodes.append({"kind": "plan", "id": pid,
                           "title": f"{pid}  {ptitle}",
                           "indent": base_indent + 1, "status": pstatus, "active": False})
@@ -131,7 +131,7 @@ def build_tree(data: dict) -> list:
                 tstatus = t.get("status", "ready")
                 if not _SHOW_CANCELLED and tstatus in ("cancelled",):
                     continue
-                ttitle = (t.get("title_cache") or t.get("title") or tid)[:40]
+                ttitle = (t.get("title") or t.get("title_cache") or tid)[:40]
                 nodes.append({"kind": "task", "id": tid,
                               "title": f"{tid}  {ttitle}",
                               "indent": base_indent + 2, "status": tstatus,
@@ -174,7 +174,7 @@ def build_tree(data: dict) -> list:
             gid = t.get("goal_id") or ""
             if pid in cancelled_plans or gid in cancelled_goals:
                 continue
-        ttitle = (t.get("title_cache") or t.get("title") or tid)[:40]
+        ttitle = (t.get("title") or t.get("title_cache") or tid)[:40]
         nodes.append({"kind": "task", "id": tid,
                       "title": f"{tid}  {ttitle}",
                       "indent": 2, "status": tstatus,
@@ -188,7 +188,7 @@ def build_tree(data: dict) -> list:
         if not _SHOW_CANCELLED and mstatus in ("cancelled"):
             continue
         nodes.append({"kind": "milestone", "id": mid,
-                      "title": m.get("title_cache", m.get("title", mid)),
+                      "title": m.get("title", m.get("title_cache", mid)),
                       "indent": 1, "status": mstatus,
                       "active": mid == active_milestone_id})
 
@@ -448,7 +448,7 @@ def _render_deps_view(stdscr, x, w, max_rows, node, data, detail_scroll=0, deps_
                     return [f"{prefix}{pid} (cycle)"]
                 visited.add(pid)
                 p = plan_by_id.get(pid, {})
-                title = (p.get("title_cache") or p.get("title") or "")[:40]
+                title = (p.get("title") or p.get("title_cache") or "")[:40]
                 label = f"{pid}  {title}" if title else pid
                 branch = "└─ " if is_last else "├─ "
                 result = [f"{prefix}{branch}{label}"]
@@ -480,7 +480,7 @@ def _render_deps_view(stdscr, x, w, max_rows, node, data, detail_scroll=0, deps_
                 ptitle = ""
                 for p in plan_list:
                     if (p.get("plan_id") or p.get("id")) == pid:
-                        ptitle = (p.get("title_cache") or p.get("title") or "")[:40]
+                        ptitle = (p.get("title") or p.get("title_cache") or "")[:40]
                         break
                 label = f"{pid}  {ptitle}" if ptitle else pid
                 lines.append(label + ":")
@@ -492,13 +492,13 @@ def _render_deps_view(stdscr, x, w, max_rows, node, data, detail_scroll=0, deps_
                 sorted_tasks = sorted(tasks, key=lambda t: task_dep_order.get(t.get("id"), 0))
                 for t in sorted_tasks:
                     icon = status_icon(t.get("status", ""))
-                    title = (t.get("title_cache") or t.get("title") or "")[:45]
+                    title = (t.get("title") or t.get("title_cache") or "")[:45]
                     deps = t.get("dependencies", []) or []
                     plan_ids = [d for d in deps if any(t2.get("plan_id") == pid and t2.get("id") == d for t2 in task_list)]
                     plan_labels = []
                     for d in plan_ids:
                         dt = next((t2 for t2 in task_list if t2.get("id") == d), {})
-                        dtitle = (dt.get("title_cache") or dt.get("title") or "")[:25]
+                        dtitle = (dt.get("title") or dt.get("title_cache") or "")[:25]
                         plan_labels.append(f"{d} ({dtitle})" if dtitle else d)
                     dep_str = f"  ← {', '.join(plan_labels)}" if plan_labels else ""
                     mark = " ◀" if t.get("id") == nid else ""
@@ -520,8 +520,8 @@ def _render_deps_view(stdscr, x, w, max_rows, node, data, detail_scroll=0, deps_
                     src = r.get("source_id","?")
                     tgt = r.get("target_id","?")
                     typ = r.get("type","?")
-                    stitle = (goal_by_id.get(src,{}).get("title_cache") or goal_by_id.get(src,{}).get("title") or "")[:35]
-                    ttitle = (goal_by_id.get(tgt,{}).get("title_cache") or goal_by_id.get(tgt,{}).get("title") or "")[:35]
+                    stitle = (goal_by_id.get(src,{}).get("title") or goal_by_id.get(src,{}).get("title_cache") or "")[:35]
+                    ttitle = (goal_by_id.get(tgt,{}).get("title") or goal_by_id.get(tgt,{}).get("title_cache") or "")[:35]
                     lines.append(f"  {src} ({stitle})")
                     lines.append(f"    depends on → {tgt} ({ttitle})")
         else:
@@ -557,7 +557,7 @@ def _render_milestone_detail(stdscr, x, w, max_rows, node, data, detail_scroll=0
         lines.append(f"关联 Plan ({len(plan_ids)}):")
         for pid in plan_ids:
             p = _find_plan(data, pid)
-            ptitle = p.get("title_cache", p.get("title", ""))[:30] if p else ""
+            ptitle = (p.get("title") or p.get("title_cache") or "")[:30] if p else ""
             pst = p.get("status", "?") if p else "?"
             lines.append(f"  {status_icon(pst)} {pid}  {ptitle}")
         lines.append("")
@@ -566,7 +566,7 @@ def _render_milestone_detail(stdscr, x, w, max_rows, node, data, detail_scroll=0
         lines.append(f"关联 Task ({len(task_ids)}):")
         for tid in task_ids:
             t = _find_task(data, tid)
-            ttitle = t.get("title_cache", t.get("title", ""))[:30] if t else ""
+            ttitle = (t.get("title") or t.get("title_cache") or "")[:30] if t else ""
             tst = t.get("status", "?") if t else "?"
             lines.append(f"  {status_icon(tst)} {tid}  {ttitle}")
         lines.append("")
@@ -1093,7 +1093,7 @@ def _build_ms_tree(data: dict) -> list:
         if not _SHOW_CANCELLED and mstatus in ("cancelled"):
             continue
         nodes.append({"kind": "milestone", "id": mid,
-                      "title": ms.get("title_cache", ms.get("title", mid)),
+                      "title": ms.get("title", ms.get("title_cache", mid)),
                       "indent": 1, "status": mstatus,
                       "active": mid == active_milestone_id})
 
@@ -1155,21 +1155,21 @@ def _build_ms_tree(data: dict) -> list:
             g = goal_by_id.get(gid) if gid else None
             gstatus = g.get("status", "open") if g else "open"
             if g and (_SHOW_CANCELLED or gstatus not in ("cancelled")):
-                gtitle = g.get("title_cache") or g.get("title") or gid
+                gtitle = g.get("title") or g.get("title_cache") or gid
                 nodes.append({"kind": "goal", "id": gid,
                               "title": f"{gid}  {gtitle}",
                               "indent": 2, "status": gstatus, "active": False})
 
             for p in goal_plans.get(gid, []):
                 pid = p.get("plan_id") or p.get("id") or ""
-                ptitle = (p.get("title_cache") or p.get("title") or pid)[:40]
+                ptitle = (p.get("title") or p.get("title_cache") or pid)[:40]
                 nodes.append({"kind": "plan", "id": pid,
                               "title": f"{pid}  {ptitle}",
                               "indent": 3, "status": p.get("status", "open"),
                               "active": False})
                 for t in plan_tasks.get(pid, []):
                     tid = t.get("id", "")
-                    ttitle = (t.get("title_cache") or t.get("title") or tid)[:40]
+                    ttitle = (t.get("title") or t.get("title_cache") or tid)[:40]
                     nodes.append({"kind": "task", "id": tid,
                                   "title": f"{tid}  {ttitle}",
                                   "indent": 4, "status": t.get("status", "ready"),
@@ -1177,7 +1177,7 @@ def _build_ms_tree(data: dict) -> list:
 
             for t in goal_direct_tasks.get(gid, []):
                 tid = t.get("id", "")
-                ttitle = (t.get("title_cache") or t.get("title") or tid)[:40]
+                ttitle = (t.get("title") or t.get("title_cache") or tid)[:40]
                 nodes.append({"kind": "task", "id": tid,
                               "title": f"{tid}  {ttitle}",
                               "indent": 3, "status": t.get("status", "ready"),
@@ -1201,7 +1201,7 @@ def _build_tasks_tree(data: dict) -> list:
         p = next((p for p in plan_list if (p.get("plan_id") or p.get("id")) == pid), {})
         if not _SHOW_CANCELLED and p.get("status") in ("cancelled"):
             continue
-        ptitle = (p.get("title_cache") or p.get("title") or pid)[:40]
+        ptitle = (p.get("title") or p.get("title_cache") or pid)[:40]
         nodes.append({"kind": "plan", "id": pid, "title": f"{pid}  {ptitle}",
                       "indent": 1, "status": p.get("status", "open"), "active": False})
         def _twave(tid):
@@ -1210,13 +1210,13 @@ def _build_tasks_tree(data: dict) -> list:
             tid = t.get("id", "")
             if not _SHOW_CANCELLED and t.get("status") in ("cancelled",):
                 continue
-            ttitle = (t.get("title_cache") or t.get("title") or tid)[:40]
+            ttitle = (t.get("title") or t.get("title_cache") or tid)[:40]
             dep_ids = [d for d in (t.get("dependencies", []) or []) if any(
                 t2.get("plan_id") == pid and t2.get("id") == d for t2 in task_list)]
             dep_labels = []
             for d in dep_ids:
                 dt = next((t2 for t2 in task_list if t2.get("id") == d), {})
-                dtitle = (dt.get("title_cache") or dt.get("title") or "")[:30]
+                dtitle = (dt.get("title") or dt.get("title_cache") or "")[:30]
                 dep_labels.append(f"{d} ({dtitle})" if dtitle else d)
             dep_str = f"  ← {', '.join(dep_labels)}" if dep_labels else ""
             nodes.append({"kind": "task", "id": tid, "title": f"{tid}  {ttitle}{dep_str}",
@@ -1260,7 +1260,7 @@ def _build_plan_chain(data: dict) -> list:
         p = plan_by_id.get(pid, {})
         if not _SHOW_CANCELLED and p.get("status") in ("cancelled"):
             return
-        title = (p.get("title_cache") or p.get("title") or pid)[:45]
+        title = (p.get("title") or p.get("title_cache") or pid)[:45]
         nodes.append({"kind": "plan", "id": pid, "title": f"{pid}  {title}",
                       "indent": depth + 1, "status": p.get("status", "open"), "active": False})
         kids = children_of.get(pid, [])
@@ -1283,8 +1283,8 @@ def _build_goal_deps(data: dict) -> list:
     for r in rels:
         if not isinstance(r, dict): continue
         src = r.get("source_id", "?"); tgt = r.get("target_id", "?")
-        stitle = (goal_by_id.get(src, {}).get("title_cache") or goal_by_id.get(src, {}).get("title") or "")[:30]
-        ttitle = (goal_by_id.get(tgt, {}).get("title_cache") or goal_by_id.get(tgt, {}).get("title") or "")[:30]
+        stitle = (goal_by_id.get(src, {}).get("title") or goal_by_id.get(src, {}).get("title_cache") or "")[:30]
+        ttitle = (goal_by_id.get(tgt, {}).get("title") or goal_by_id.get(tgt, {}).get("title_cache") or "")[:30]
         gstatus = goal_by_id.get(src, {}).get("status", "open")
         if not _SHOW_CANCELLED and gstatus in ("cancelled"):
             continue

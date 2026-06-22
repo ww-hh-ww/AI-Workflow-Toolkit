@@ -36,7 +36,6 @@ id: GOAL-XXX
 type: goal
 title: ...
 status: open
-root_type: main               # main, temporary, or omit for child goals
 parent_goal_id: GOAL-PARENT   # only for child goals
 report_policy: ask            # ask or silent_until_done
 ```
@@ -49,6 +48,12 @@ Success Criteria: Observable behavior, not artifact existence.
   Good: "Agent with telemetry off flagged as degraded in 30s."
 
 Non-goals: Explicitly exclude adjacent capabilities.
+
+Core Files (project start or structural change — not every cycle):
+  - `src/<dir>/` — what capability this directory provides
+  - Focus on the skeleton, not every file. A new engineer should know
+    where to open first. Don't repeat what `tree` already shows.
+  - Revisit when the structure changes meaningfully, not every task.
 
 Context + Human Decisions: Why now? What needs human input?
 

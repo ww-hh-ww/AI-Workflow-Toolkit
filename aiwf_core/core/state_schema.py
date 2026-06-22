@@ -186,8 +186,6 @@ VALID_RELATION_TYPES = {"depends_on", "blocks", "conflicts_with", "invalidates",
 
 # ── goals.json ─────────────────────────────────────────────────────────
 
-VALID_ROOT_TYPES = {"main", "temporary", "branch"}
-
 # ── V1 Unified Status Sets ──
 # Goal / Plan / Milestone: open, closed, cancelled
 # Task: ready, active, suspended, closed, cancelled

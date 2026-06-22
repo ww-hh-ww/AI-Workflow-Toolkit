@@ -67,6 +67,9 @@ FOLLOW EVERY STEP. CHECK OFF EACH ONE AS YOU GO. SKIP NOTHING.
 6. `aiwf sync` after every structural change. Verify with `--check` first if unsure.
 6. If the task is high-risk, include a rollback strategy. See `references/task-contract.md`.
 7. Activate only when Task.md is stable.
+8. On first project setup or when structure changes meaningfully: write a
+   "Core Files" section in the relevant Goal.md (see writing-guide.md).
+   This is not per-cycle — only at project start or after a major refactor.
 
 ## References
 

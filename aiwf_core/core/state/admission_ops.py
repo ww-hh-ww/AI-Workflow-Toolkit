@@ -122,9 +122,6 @@ def _find_best_goal(base_dir: str, summary_lower: str) -> Dict[str, Any]:
         gid = g.get("id", "")
         title = str(g.get("title", "") or "").lower()
         intent = str(g.get("intent", "") or "").lower()
-        if g.get("root_type") == "temporary":
-            continue  # skip temporary roots for matching
-
         # Simple word overlap scoring
         goal_words = set(title.split() + intent.split())
         summary_words = set(summary_lower.split())

@@ -67,8 +67,6 @@ def compute_impact_cone(base_dir: str, goal_id: str) -> Dict[str, Any]:
 
     # Notes
     notes = []
-    if goal.get("root_type") == "temporary":
-        notes.append("Temporary root — not yet grafted into main tree")
     if goal.get("status") == "archived":
         notes.append("Archived — this node is no longer active")
 
@@ -114,5 +112,4 @@ def _summary(goal: Dict[str, Any]) -> Dict[str, Any]:
         "id": goal.get("id", ""),
         "title": goal.get("title", ""),
         "status": goal.get("status", ""),
-        "root_type": goal.get("root_type"),
     }
