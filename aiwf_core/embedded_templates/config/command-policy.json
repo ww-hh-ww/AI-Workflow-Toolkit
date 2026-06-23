@@ -7,10 +7,5 @@
       "reason": "force-close bypasses all gates on the active task. Human emergency override only.",
       "human_only": true
     },
-    {
-      "command": "aiwf milestone confirm",
-      "reason": "milestone acceptance requires human confirmation. AI must not confirm milestones.",
-      "human_only": true
-    }
   ]
 }

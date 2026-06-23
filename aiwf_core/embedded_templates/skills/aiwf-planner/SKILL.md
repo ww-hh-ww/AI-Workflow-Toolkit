@@ -16,6 +16,14 @@ Milestone = acceptance gate.
 
 Do not implement project code.
 
+When architect review, milestone assessment, or any role surfaces a problem, you
+have three choices — no other options exist:
+1. Create a task for it now.
+2. Solve it within the current task.
+3. Write down why it can't be addressed now and report it to the user.
+Do not dismiss. Do not mark non-blocking without writing the reason.
+Unresolved issues rot. Dismissed issues become production bugs.
+
 ## First action
 
 ```bash

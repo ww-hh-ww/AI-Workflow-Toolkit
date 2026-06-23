@@ -579,6 +579,7 @@ def sync_index(base_dir: str, dry_run: bool = False) -> Dict[str, Any]:
     # Post-sync: derive Plan.task_ids from Task.plan_id (master relationship)
     _sync_plan_task_relations(root, dry_run, changes)
     _sync_milestone_plan_relations(root, dry_run, changes)
+    _sync_goal_children_order(root, dry_run, changes)
 
     # Always report active task status in output
     if active_task_id and not any("frozen" in c for c in changes):
@@ -687,6 +688,43 @@ def _sync_milestone_plan_relations(root: Path, dry_run: bool, changes: List[str]
         tmp_path = Path(str(ms_path) + ".tmp")
         _write_json(tmp_path, ms_data)
         tmp_path.rename(ms_path)
+
+
+def _sync_goal_children_order(root: Path, dry_run: bool, changes: List[str]) -> None:
+    """Prune children_order to match child_goal_ids. Remove stale entries from
+    removed/reparented goals."""
+    goals_path = root / ".aiwf" / "state" / "goals.json"
+    if not goals_path.exists():
+        return
+    goals_data = _read_json(goals_path)
+    goals = goals_data.get("goals", []) or []
+    changed = False
+
+    for g in goals:
+        child_ids = set(g.get("child_goal_ids", []) or [])
+        order = g.get("children_order", []) or []
+        seen = set()
+        pruned = []
+        for cid in order:
+            if cid in child_ids and cid not in seen:
+                pruned.append(cid)
+                seen.add(cid)
+        # Add any child_goal_ids not yet in order
+        for cid in child_ids:
+            if cid not in seen:
+                pruned.append(cid)
+                seen.add(cid)
+        if pruned != order:
+            gid = g.get("id", "?")
+            stale = len(order) - len([c for c in order if c in child_ids])
+            g["children_order"] = pruned
+            changed = True
+            changes.append(f"goal:{gid}: children_order pruned ({stale} stale, {len(pruned)} kept)")
+
+    if changed and not dry_run:
+        tmp_path = Path(str(goals_path) + ".tmp")
+        _write_json(tmp_path, goals_data)
+        tmp_path.rename(goals_path)
 
 
 # ── narrative doc generation ──────────────────────────────────────────

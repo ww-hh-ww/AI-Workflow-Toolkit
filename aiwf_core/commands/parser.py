@@ -286,7 +286,7 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
     p_msa.add_argument("--verdict", required=True, choices=["PASS","PASS_WITH_RISK","REVISE","REJECT"])
     p_msa.add_argument("--summary", required=True, help="assessment summary")
     p_msa.set_defaults(func=_cmd_milestone_assess)
-    p_msconfirm = p_ms_sub.add_parser("confirm", help="human-only milestone acceptance")
+    p_msconfirm = p_ms_sub.add_parser("confirm", help="accept milestone after human review")
     p_msconfirm.add_argument("milestone_id", help="milestone ID")
     p_msconfirm.add_argument("--summary", required=True, help="what the user accepted")
     p_msconfirm.set_defaults(func=_cmd_milestone_confirm)

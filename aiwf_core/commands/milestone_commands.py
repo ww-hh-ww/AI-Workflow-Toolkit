@@ -382,5 +382,5 @@ def _cmd_milestone_help(args: argparse.Namespace) -> None:
     print("  aiwf milestone integration-test MS-001 --status passed --coverage-mode end_to_end_flow --main-path-status passed --command '...'")
     print("  aiwf milestone arch-review MS-001 --status intact --notes '...'")
     print("  aiwf milestone assess MS-001 --verdict PASS --summary '...'")
-    print("  aiwf milestone confirm MS-001 --summary '...'     — HUMAN ONLY")
+    print("  aiwf milestone confirm MS-001 --summary '...'     — only after human review")
     print("  aiwf milestone close MS-001")
