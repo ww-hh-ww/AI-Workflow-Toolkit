@@ -5,7 +5,8 @@ Every step in a skill is mandatory. Skip a step = task broken. The close gate ch
 
 Run `aiwf status --prompt` first, then load `/aiwf-project`, then every
 `Required skills:` entry. Follow every numbered step. No exceptions.
-`/aiwf-architect` and `/aiwf-milestone` too.
+`/aiwf-architect` too, including its `milestone-acceptance` lens when milestone
+verification is required.
 
 ## Phase → skill
 

@@ -96,7 +96,7 @@ def _print_status_human(root, state, goal, evidence, testing, review, fix_loop):
     milestone_due = _milestone_due(root, state)
     if architect_due or milestone_due:
         print(f"Architect due: {'yes' if architect_due else 'no'}")
-        if milestone_due: print(f"Milestone checks due: yes")
+        if milestone_due: print(f"Milestone acceptance due: yes (use /aiwf-architect)")
 
     # ── Active task status ──
     if active_task_id:
@@ -195,7 +195,7 @@ def _milestone_detail(root, state):
 
             if not blockers:
                 problems.append(
-                    f"milestone {mid} closable: run /aiwf-milestone to assess and close"
+                    f"milestone {mid} closable: run /aiwf-architect with milestone-acceptance lens to assess and close"
                 )
             elif mid == active_ms_id:
                 problems.append(f"milestone {mid} blocked: {'; '.join(blockers[:3])}")
@@ -293,8 +293,8 @@ def _print_status_prompt(root, state, goal, testing, review, fix_loop):
 
     # Override primary skill for milestone verification tasks
     if task_kind == "milestone_verification":
-        primary_skill = "aiwf-milestone"
-        required_skills = ["aiwf-milestone"]
+        primary_skill = "aiwf-architect"
+        required_skills = ["aiwf-architect"]
 
     # Output
     print(f"[ATTN] /{primary_skill}")

@@ -258,7 +258,6 @@ SKILL_TEMPLATES = {
     "aiwf-test": "skills/aiwf-test/SKILL.md",
     "aiwf-review": "skills/aiwf-review/SKILL.md",
     "aiwf-close": "skills/aiwf-close/SKILL.md",
-    "aiwf-milestone": "skills/aiwf-milestone/SKILL.md",
     "aiwf-architect": "skills/aiwf-architect/SKILL.md",
 }
 
@@ -284,6 +283,7 @@ SKILL_REFERENCE_TEMPLATES = {
         "references/code-review.md": "skills/aiwf-architect/references/code-review.md",
         "references/design-review.md": "skills/aiwf-architect/references/design-review.md",
         "references/structure-review.md": "skills/aiwf-architect/references/structure-review.md",
+        "references/milestone-acceptance.md": "skills/aiwf-architect/references/milestone-acceptance.md",
     },
 }
 
@@ -293,6 +293,7 @@ AGENT_TEMPLATES = {
     "aiwf-critic.md": "agents/aiwf-critic.md",
     "aiwf-tester.md": "agents/aiwf-tester.md",
     "aiwf-reviewer.md": "agents/aiwf-reviewer.md",
+    "aiwf-architect.md": "agents/aiwf-architect.md",
 }
 
 SCRIPT_TEMPLATES = {
@@ -367,6 +368,7 @@ SHARED_PARTIALS = {
     "agents/aiwf-executor.md": ["shared/connection_recovery_implement.md"],
     "agents/aiwf-tester.md": ["shared/connection_recovery_test.md"],
     "agents/aiwf-reviewer.md": ["shared/connection_recovery_review.md"],
+    "agents/aiwf-architect.md": ["shared/connection_recovery_architect.md"],
 }
 
 
@@ -384,7 +386,6 @@ REASONIX_SUBAGENT_SKILL_CONFIG = {
     "aiwf-test": {"runAs": "subagent", "allowed-tools": "read,bash,glob", "model": "deepseek-chat"},
     "aiwf-review": {"runAs": "subagent", "allowed-tools": "read,bash,glob", "model": "deepseek-chat"},
     "aiwf-close": {"runAs": "inline"},
-    "aiwf-milestone": {"runAs": "inline"},
     "aiwf-architect": {"runAs": "subagent", "allowed-tools": "read,bash,glob", "model": "deepseek-chat"},
 }
 
@@ -664,6 +665,17 @@ def _migrate_legacy_paths():
         for m in migrated:
             print(f"  {m}")
 
+
+def _remove_retired_skills(target: EmbedTarget) -> List[Path]:
+    removed: List[Path] = []
+    for name in ["aiwf-milestone"]:
+        path = _skills_dir(target) / name
+        if path.exists():
+            import shutil
+            shutil.rmtree(str(path), ignore_errors=True)
+            removed.append(path)
+    return removed
+
 def install_embedded(mode: str = "claude", force: bool = False) -> Dict[str, Any]:
     target = _target(mode)
     results: Dict[str, List[str]] = {
@@ -682,6 +694,9 @@ def install_embedded(mode: str = "claude", force: bool = False) -> Dict[str, Any
 
     for p in _write_skills(target):
         results["created"].append(rel(p))
+    if force:
+        for p in _remove_retired_skills(target):
+            results["updated"].append(rel(p))
     if target.mode == "claude":
         for p in _write_agents(target):
             results["created"].append(rel(p))
@@ -753,7 +768,7 @@ def doctor(mode: str | None = None) -> Dict[str, Any]:
     }
 
     for skill in ["aiwf-planner", "aiwf-implement", "aiwf-test", "aiwf-review",
-        "aiwf-close", "aiwf-milestone", "aiwf-architect"]:
+        "aiwf-close", "aiwf-architect"]:
         path = root / target.config_dir / "skills" / skill / "SKILL.md"
         exists = path.exists()
         has_frontmatter = False
@@ -763,7 +778,7 @@ def doctor(mode: str | None = None) -> Dict[str, Any]:
         checks["skills"][skill] = {"exists": exists, "has_frontmatter": has_frontmatter}
 
     if target.mode == "claude":
-        for agent in ["aiwf-explorer", "aiwf-executor", "aiwf-tester", "aiwf-reviewer", "aiwf-critic"]:
+        for agent in ["aiwf-explorer", "aiwf-executor", "aiwf-tester", "aiwf-reviewer", "aiwf-critic", "aiwf-architect"]:
             path = root / target.config_dir / "agents" / f"{agent}.md"
             exists = path.exists()
             has_frontmatter = False
@@ -895,7 +910,7 @@ def show_status() -> str:
 
     lines.append("")
     lines.append("Entry: aiwf status --prompt")
-    lines.append("Skills: aiwf-planner, aiwf-implement, aiwf-test, aiwf-review, aiwf-close, aiwf-milestone, aiwf-architect")
+    lines.append("Skills: aiwf-planner, aiwf-implement, aiwf-test, aiwf-review, aiwf-close, aiwf-architect")
     lines.append("Scripts: scripts/aiwf_*.py")
     lines.append("")
     lines.append("Continue:")

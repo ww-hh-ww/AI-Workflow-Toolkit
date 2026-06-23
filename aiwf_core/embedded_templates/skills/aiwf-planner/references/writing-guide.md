@@ -2,8 +2,9 @@
 
 ## Core principle
 
-Define WHAT and set the standard. Sub-agents decide HOW.
-Clear enough they don't guess; open enough they use their intelligence.
+Define the mission capability structure and proof standard. Sub-agents decide
+implementation details. Clear enough they don't guess the mission direction;
+open enough they use their intelligence.
 
 **MD frontmatter is the single source of truth.** To change a node's title,
 status, goal_id, plan_id, parent, or any structural field: **edit the .md
@@ -11,8 +12,10 @@ frontmatter, then `aiwf sync`.** No CLI rename/reassign/reparent commands
 exist. `aiwf sync` compiles MD → JSON. If the JSON disagrees with MD, the
 JSON is wrong.
 
-- DON'T prescribe files or functions.
-- DO state outcome, standard, and hard constraints.
+- DON'T prescribe implementation recipes.
+- DO state outcome, structural home, proof standard, and hard constraints.
+- If a detail is unknown but necessary for safe execution, create exploration or
+  design work before activating an implementation Task.
 
 ## Every doc — required frontmatter
 
@@ -40,14 +43,20 @@ parent_goal_id: GOAL-PARENT   # only for child goals
 report_policy: ask            # ask or silent_until_done
 ```
 
-Intent: 1-2 sentences. What capability? Who benefits?
+Intent: 1-2 sentences. What mission capability? Who benefits?
   Good: "Detect anomalous call patterns and alert."
   Bad: "Set up Elasticsearch pipeline." (that's a Plan)
 
-Success Criteria: Observable behavior, not artifact existence.
+Capability Model: what sub-capabilities make this Goal true? Name missing
+pieces explicitly instead of hiding them in Tasks.
+
+Success Criteria: Observable mission behavior, not artifact existence.
   Good: "Agent with telemetry off flagged as degraded in 30s."
 
 Non-goals: Explicitly exclude adjacent capabilities.
+
+Fit Notes: why this Goal belongs at this level of the tree. If this is really
+a method, tool, module, or phase, move it to Plan/Task/Milestone.
 
 Core Files (project start or structural change — not every cycle):
   - `src/<dir>/` — what capability this directory provides
@@ -71,17 +80,23 @@ dependencies: []        # plan-level execution gates
 report_policy: ask
 ```
 
-Intent + Current Problems: Concrete pain points.
+Intent + Current Problems: Concrete pain points and the mission capability this
+Plan advances.
 
 Target Design — THE KEY SECTION:
-- Method: event-driven or polling? push or pull?
-- Data flow: A → B → C, key interfaces at boundaries.
+- Mission mechanism: what operating loop makes the Goal true?
+- Information model: what facts/state/evidence does the system rely on?
+- Data/control flow: A → B → C, key interfaces at boundaries.
+- Feedback loop and observability: how will wrong direction or failure surface?
+- Risk burn-down order: which uncertainty must be proven early?
 - Technology choices and why.
 - Enough direction for Executor, not code.
 
 Key Decisions: Trade-offs. Empty = you haven't thought hard enough.
 
-Task Breakdown: 3-5 Tasks per Plan. One deliverable each.
+Task Breakdown: 3-5 Tasks per Plan. One mission-relevant deliverable each.
+Avoid tasks that merely create scaffolding unless they prove a risk or unblock
+the main path.
 
 Risks + Validation Strategy.
 
@@ -110,10 +125,14 @@ verification_task_id: TASK-XXX   # set when verification task is created
 report_policy: ask
 ```
 
-Purpose: What phase result is being proven?
+Purpose: What stable mission slice is being proven?
 
 Pass Standard: THE authoritative acceptance criteria. What flows must work
 end-to-end? Each new capability consumed on the main path.
 Concrete, observable, indisputable.
 
-Covered Plans/Tasks.
+Scope Trace: covered Goals, Plans, Tasks, and capability claims. This is how
+Architect `milestone-acceptance` knows what to verify.
+
+Evidence Standard: what observable running-system evidence is enough for the
+next Planner to trust the milestone.

@@ -19,25 +19,37 @@ milestone_id: MS-XXX   # optional — which Milestone verifies this
 These are not optional. A task without `goal_id` breaks the Goal→Plan→Task
 hierarchy and the Milestone view. A task without `plan_id` is an orphan.
 
-Objective: 1-2 sentences. What exactly gets done.
+Structural home: 1-2 sentences explaining why this Task belongs under its
+Goal and Plan. A Task without a mission-relevant home is probably hidden
+planning work.
+
+Objective: 1-2 sentences. What exactly gets done, stated as an outcome, not an
+implementation recipe.
 
 Scope: Exact work outcome. Small enough for one cycle.
 
-Context: Planner explores ONCE, subagents read. Include:
-  - Implementation target: file path, module, function where the change goes.
-  - Core signatures: public interfaces the implementation must match.
-  - Dependencies: crates/packages already available that should be used.
+Context: Planner explores ONCE, subagents read. Record known truth and
+constraints, not a fake implementation recipe. Include:
+  - Known surfaces: files, modules, commands, schemas, APIs, or runtime flows
+    that are relevant.
+  - Existing interfaces and invariants the implementation must respect.
+  - Dependencies: crates/packages/services already available that should be
+    used or avoided.
+  - Likely integration points when known, plus the evidence needed to prove the
+    new behavior is consumed on the main path.
+  - Unknowns that were resolved before activation, or explicitly deferred with
+    a reason.
 
-  For new modules or public APIs, you MUST also specify:
-  - Registration/integration point: exact file and line where this code is wired
-    in. "mod.rs" is not specific enough — write "runner.rs:180, init() calls
-    storage::start()". If you don't know the caller, you haven't finished
-    designing this task.
+  For new modules or public APIs, Planner MUST identify the expected consumer
+  or runtime path. An exact file:line is ideal when known, but do not invent it.
+  If the consumer/main path is unknown, the Task is not ready; create
+  exploration/design work or request Architect/code-reality review first.
 
   Example:
-    Implementation: crates/edr-agent/src/storage/mod.rs
-    Registration: crates/edr-agent/src/runner.rs:180 init() → storage::start()
-    Core signature: fn on_event(&mut self, event: StorageEvent) -> Result<()>
+    Known surfaces: crates/edr-agent/src/runner.rs, src/storage/
+    Expected consumer: agent startup/runtime event loop consumes storage events
+    Interface constraint: fn on_event(&mut self, event: StorageEvent) -> Result<()>
+    Proof of wiring: command must trigger runtime path and show storage event handled
     Dependencies: serde, tokio::sync::RwLock (already in Cargo.toml)
   If you (Planner) skip Context, every subagent re-discovers it. That is waste.
 
@@ -63,7 +75,8 @@ combinations. At least three distinct failure modes.
 Reviewer Requirements: Minimum hard gates. Reviewer brings relational review.
   "Confirm scope/forbidden write. Verify Done When. Apply relational review."
 
-Done When: Observable, indisputable. Pick the right level for this task:
+Done When: Observable, indisputable proof. Pick the right proof level for this
+task:
 
 | Level | Meaning | How to verify | When to use |
 |-------|---------|--------------|-------------|
@@ -80,7 +93,7 @@ item must include a verification command. The last Done When item is always the
 highest applicable level.
 
 Verification Commands: For each Wired or Running criterion, list the exact command that
-proves it. Executor records the output of every command in evidence (use
+proves the outcome or consumption path. Executor records the output of every command in evidence (use
 `aiwf record evidence --command "<cmd> ::: <output>"` for each). Tester checks
 evidence has output for every command — blank = executor didn't finish.
 Reviewer spot-checks 1-2 commands by re-running them (the only defense against
@@ -183,7 +196,9 @@ consider `aiwf task force-close`."
 ## Bad contract signs
 
 - Allowed Write broader than needed.
+- Structural home missing or copied from the title.
 - Done When repeats the title.
+- Done When proves an artifact exists but not the mission-relevant outcome.
 - Tester Requirements only say "run tests."
 - Executor and Tester test the same things — overlap waste. Executor covers
   happy path; Tester covers boundary, error, concurrency. No overlap.
@@ -193,5 +208,7 @@ consider `aiwf task force-close`."
 - High-risk work has no rollback strategy.
 - Context section missing — Planner explored it but didn't write it down,
   forcing every subagent to re-discover file paths, interfaces, and deps.
+- Context claims an exact implementation path that Planner has not verified.
+- Consumer/main path unknown for new code, but task activated anyway.
 - Role opened for a change that doesn't deserve it (wasted dispatch).
 - Role closed for a change that does deserve it (missed risk).

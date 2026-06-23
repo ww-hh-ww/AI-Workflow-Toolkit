@@ -7,16 +7,16 @@ description: Use only when `aiwf status --prompt` lists `aiwf-planner` under Req
 
 ## Role
 
-Define WHAT and set the standard. Sub-agents use their own cognitive tendencies
-to decide HOW. Write clear enough they don't guess the direction; open enough they
-bring their full intelligence.
+Define WHAT, choose the structural home, and set the proof standard. Sub-agents
+use their own cognitive tendencies to decide HOW. Write clear enough they don't
+guess the mission direction; open enough they bring their full intelligence.
 
-Goal = capability boundary. Plan = technical direction. Task = execution standard.
-Milestone = acceptance gate.
+Mission is fixed. Goal = mission capability boundary. Plan = mission mechanism
+and technical direction. Task = execution contract. Milestone = acceptance proof.
 
 Do not implement project code.
 
-When architect review, milestone assessment, or any role surfaces a problem, you
+When architect review, milestone acceptance, or any role surfaces a problem, you
 have three choices — no other options exist:
 1. Create a task for it now.
 2. Solve it within the current task.
@@ -68,15 +68,19 @@ FOLLOW EVERY STEP. CHECK OFF EACH ONE AS YOU GO. SKIP NOTHING.
    `aiwf milestone create`.
 4. Write the narrative doc. For Goal.md, Plan.md, Milestone.md see `references/writing-guide.md`.
    For Task.md see `references/task-contract.md`.
-   **Pick the right Done When level.** Built (exists) / Wired (called) /
+   **Pick the right proof level.** Built (exists) / Wired (called) /
    Running (end-to-end). "Module exists" is only valid for internal
    refactors. New modules and public APIs must be Wired. Subsystems
-   and user-visible features must be Running. Context must list the
-   exact caller file:line for every new module.
+   and user-visible features must be Running.
+   **Do not invent implementation details.** Task Context records known
+   surfaces, constraints, existing interfaces, likely integration points, and
+   the evidence needed to prove wiring. If the caller/runtime path is unknown,
+   create or revise exploration/design work before activating implementation.
    **Milestone verification tasks.** When a milestone has
    `verification_task_required: true`, you MUST create a verification task
    (kind=milestone_verification) and set the milestone's `verification_task_id`.
-   A milestone without a verification task is a gate with no guard.
+   A milestone without a verification task is a gate with no guard. The task is
+   handled by `/aiwf-architect` with the `milestone-acceptance` lens.
 5. **All structural edits go through MD frontmatter, not CLI.** To rename,
    change status, reassign plan→goal, or reparent goal→parent: edit the .md
    frontmatter directly, then `aiwf sync`. No `rename` or `reassign` commands
@@ -85,13 +89,15 @@ FOLLOW EVERY STEP. CHECK OFF EACH ONE AS YOU GO. SKIP NOTHING.
 7. If the task is high-risk, include a rollback strategy. See `references/task-contract.md`.
 8. **Quality gate before activation.** Do not activate a half-filled task.
    Every activated Task.md must have:
-   - Context: Implementation target, core signatures, dependencies filled.
-     If this task creates a new module or public API: the exact caller
-     file:line is specified ("runner.rs:180 init() calls storage::start()").
-   - Done When: each criterion tagged with a level (Built/Wired/Running).
+   - Structural home: goal_id, plan_id, and why this task belongs there.
+   - Context: known surfaces, relevant interfaces, constraints, dependencies,
+     likely integration points, and unknowns resolved or explicitly deferred.
+   - Done When: each criterion tagged with a proof level (Built/Wired/Running).
      New modules and public APIs are Wired or Running, never just Built.
    - Verification Commands: for every Wired/Running criterion, a concrete
-     command is listed with the expected output.
+     command is listed with the expected observable output.
+   - Role dispatch: executor/tester/reviewer requirements match the risk; no
+     role is opened just because a field exists.
    If any of these is missing or vague, fix it before activating.
 9. On first project setup or when structure changes meaningfully: write a
    "Core Files" section in the relevant Goal.md (see writing-guide.md).

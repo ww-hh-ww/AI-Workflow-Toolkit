@@ -169,7 +169,121 @@ class TestTemplateContracts(unittest.TestCase):
     def _read_skill(cls, name):
         return (PROJECT_ROOT / "aiwf_core" / "embedded_templates" / "skills" / name / "SKILL.md").read_text()
 
+    @classmethod
+    def _read_agent(cls, name):
+        return (PROJECT_ROOT / "aiwf_core" / "embedded_templates" / "agents" / f"{name}.md").read_text()
+
+    def test_architect_skill_is_manual_claude_subagent_dispatch(self):
+        c = self._read_skill("aiwf-architect")
+        self.assertIn("Manual independent post-success critique", c)
+        self.assertIn("Ask the user to choose the review slice and lenses before dispatch", c)
+        self.assertIn('subagent_type: "aiwf-architect"', c)
+        self.assertIn("Claude Code", c)
+        self.assertIn("External benchmark", c)
+        self.assertIn("milestone-acceptance", c)
+        self.assertNotIn("Periodic signal", c)
+        self.assertNotIn("closed-task count", c)
+
+    def test_architect_skill_mission_fit_leverage_and_governance_truth(self):
+        c = self._read_skill("aiwf-architect") + "\n" + self._read_agent("aiwf-architect")
+        for needle in [
+            "Mission Anchor",
+            "Mission Fit",
+            "Mission Leverage",
+            "mission mechanism",
+            "operating model",
+            "information model",
+            "capability boundary",
+            "Mission is fixed",
+            "goal-level completeness gaps",
+            "Do not change the mission",
+            "WebSearch",
+            "external benchmark",
+            "current domain expectations",
+            "Code Reality",
+            "Governance Truth",
+            "Goal tree shape",
+            "Goal/Plan/Task/Milestone alignment",
+            "ready/cancelled/closed drift",
+            "references/design-review.md",
+            "references/code-review.md",
+            "references/structure-review.md",
+            "references/milestone-acceptance.md",
+            "Milestone Acceptance",
+            "Pass Standard",
+            "integration-test",
+            "Planner Disposition Candidates",
+        ]:
+            self.assertIn(needle, c)
+
+    def test_architect_agent_is_independent_and_gated(self):
+        c = self._read_agent("aiwf-architect")
+        for needle in [
+            "independent post-success critic",
+            "user-selected slice",
+            "selected lenses",
+            "Mission Fit",
+            "Mission Leverage",
+            "Governance Truth",
+            "Do not create or activate tasks",
+            "Do not confirm or close a milestone unless",
+            "Planner disposition candidate",
+        ]:
+            self.assertIn(needle, c)
+
+    def test_milestone_acceptance_routes_to_architect(self):
+        import json
+        c = self._read_skill("aiwf-architect") + "\n" + self._read_agent("aiwf-architect")
+        skill_map = json.loads(
+            (PROJECT_ROOT / "aiwf_core" / "embedded_templates" / "config" / "skill-map.json").read_text()
+        )
+        self.assertEqual(skill_map["phase_skills"]["milestone_verification"], ["aiwf-architect"])
+        self.assertEqual(skill_map["signal_skills"]["milestone_due"], ["aiwf-architect"])
+        self.assertIn("milestone-acceptance", c)
+        self.assertIn("Pass Standard", c)
+        self.assertIn("aiwf milestone integration-test", c)
+        self.assertIn("aiwf milestone assess", c)
+        self.assertIn("Confirm and close this milestone?", c)
+
     # ── Planner V2 (unchanged assertions; V2 planner retained structural content) ──
+
+    def test_planner_models_mission_structure_not_task_fill_in(self):
+        planner = self._read_skill("aiwf-planner")
+        structure = (PROJECT_ROOT / "aiwf_core" / "embedded_templates" / "skills" / "aiwf-planner" / "references" / "structure-guide.md").read_text()
+        writing = (PROJECT_ROOT / "aiwf_core" / "embedded_templates" / "skills" / "aiwf-planner" / "references" / "writing-guide.md").read_text()
+        task = (PROJECT_ROOT / "aiwf_core" / "embedded_templates" / "skills" / "aiwf-planner" / "references" / "task-contract.md").read_text()
+        c = "\n".join([planner, structure, writing, task])
+        for needle in [
+            "Mission is fixed",
+            "Goal = mission capability boundary",
+            "Plan = mission mechanism",
+            "Task = execution contract",
+            "Milestone = acceptance proof",
+            "mission capability model",
+            "operating model",
+            "information model",
+            "Risk burn-down order",
+            "Structural home",
+            "Do not invent implementation details",
+            "do not invent it",
+            "Architect/code-reality review",
+            "milestone-acceptance",
+        ]:
+            self.assertIn(needle, c)
+
+    def test_planner_task_contract_requires_proof_not_recipe(self):
+        task = (PROJECT_ROOT / "aiwf_core" / "embedded_templates" / "skills" / "aiwf-planner" / "references" / "task-contract.md").read_text()
+        for needle in [
+            "Structural home",
+            "Record known truth",
+            "Known surfaces",
+            "Expected consumer",
+            "Proof of wiring",
+            "consumer/main path is unknown",
+            "not ready",
+            "proves the outcome or consumption path",
+        ]:
+            self.assertIn(needle, task)
 
     @unittest.skip("V1: template text changed")
     def test_planner_skill_has_entry_protocol_three_paths(self):
@@ -312,7 +426,7 @@ class TestTemplateContracts(unittest.TestCase):
     def test_goal_tree_models_complete_capabilities_not_paths_or_milestones(self):
         planner = self._read_skill("aiwf-planner")
         init = self._read_skill("aiwf-planner")
-        milestone = self._read_skill("aiwf-milestone")
+        milestone = self._read_skill("aiwf-architect")
         planner_text = " ".join(planner.split())
         init_text = " ".join(init.split())
         milestone_text = " ".join(milestone.split())
@@ -329,17 +443,17 @@ class TestTemplateContracts(unittest.TestCase):
         self.assertIn("executor_required", init_text)
         self.assertIn("Task.md is the execution contract", init_text)
 
-        # Milestone V1: routes to verification task, not direct integration
+        # Architect V1: milestone-acceptance routes to verification task, not direct integration
         self.assertIn("verification task", milestone_text.lower())
         self.assertIn("milestone_verification", milestone_text.lower())
-        self.assertIn("milestone is strong", milestone_text.lower())
+        self.assertIn("milestone-acceptance", milestone_text.lower())
 
     @unittest.skip("V1: template text changed")
     def test_architecture_skills_validate_goal_to_module_bindings(self):
         planner = self._read_skill("aiwf-planner")
         init = self._read_skill("aiwf-planner")
         architect = self._read_skill("aiwf-architect")
-        milestone = self._read_skill("aiwf-milestone")
+        milestone = self._read_skill("aiwf-architect")
 
         # Planner and Architect both reference project-map for structure info
         self.assertIn("project-map.json", planner)
@@ -348,8 +462,8 @@ class TestTemplateContracts(unittest.TestCase):
         self.assertIn("bindings", architect)
         # Architect V1: advisory; Planner decides
         self.assertIn("Planner decides", architect)
-        # Milestone V1: references arch-review for architecture risk
-        self.assertIn("arch-review", milestone)
+        # Architect V1: milestone acceptance surfaces architecture risk separately
+        self.assertIn("architecture risk", milestone)
         # Init V1: references goal-tree commands
         self.assertIn("goal", init)
 

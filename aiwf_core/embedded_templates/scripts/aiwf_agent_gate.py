@@ -7,6 +7,7 @@ AGENT_SKILL_MAP = {
     "aiwf-executor": "aiwf-implement",
     "aiwf-tester": "aiwf-test",
     "aiwf-reviewer": "aiwf-review",
+    "aiwf-architect": "aiwf-architect",
 }
 
 def main():

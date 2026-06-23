@@ -865,7 +865,8 @@ _TASK_MS_VERIFY_TEMPLATE = """# {id} — {title}
 
 This task verifies {milestone_id} against `.aiwf/milestones/{milestone_id}.md`.
 Do NOT implement feature changes here.
-Run integration and architecture review sub-steps through `/aiwf-milestone`.
+Run integration and acceptance sub-steps through `/aiwf-architect` with the
+`milestone-acceptance` lens.
 
 ## Objective
 

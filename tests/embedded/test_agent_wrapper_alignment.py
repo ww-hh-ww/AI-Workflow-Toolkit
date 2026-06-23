@@ -140,10 +140,27 @@ class TestAgentWrapperAlignment(unittest.TestCase):
             "aiwf-executor": ("You implement the active Task.md", "You do not test, review, plan, or close"),
             "aiwf-tester": ("You validate", "You do not implement, review, plan, or close"),
             "aiwf-reviewer": ("You review", "You do not implement, test, plan, or close"),
+            "aiwf-architect": ("You are an independent post-success critic", "You do not implement or plan"),
         }.items():
             content = self._claude_agent(agent_name)
             self.assertIn(role_line, content)
             self.assertIn(exclusivity, content)
+
+    def test_architect_agent_matches_manual_mission_review_contract(self):
+        skill = self._claude_skill("aiwf-architect")
+        agent = self._claude_agent("aiwf-architect")
+        for needle in [
+            "Mission Fit",
+            "Mission Leverage",
+            "Governance Truth",
+            "Planner disposition",
+            "user-selected review slice",
+            "WebSearch",
+            "external benchmark",
+            "milestone-acceptance",
+            "Pass Standard",
+        ]:
+            self.assertIn(needle, skill + agent)
 
     def test_claude_agents_do_not_conflict_with_shared_skills(self):
         executor_agent = self._claude_agent("aiwf-executor")

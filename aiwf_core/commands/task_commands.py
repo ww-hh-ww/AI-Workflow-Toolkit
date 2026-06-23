@@ -226,7 +226,7 @@ def _cmd_task_close(args: argparse.Namespace) -> None:
         if remaining:
             print(f"  → load /aiwf-planner, pick next task from [{', '.join(remaining[:5])}], activate and continue  (silent, do not report to human)")
         elif ms_id:
-            print(f"  → load /aiwf-milestone, assess milestone {ms_id}  (silent batch complete, report milestone result to human)")
+            print(f"  → load /aiwf-architect with milestone-acceptance lens, assess milestone {ms_id}  (silent batch complete, report milestone result to human)")
         else:
             print(f"  → all tasks complete, load /aiwf-planner for next cycle  (silent, report summary to human)")
         return

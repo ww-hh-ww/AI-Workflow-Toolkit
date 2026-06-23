@@ -1,96 +1,87 @@
 ---
 name: aiwf-architect
-description: Periodic external architecture critique. Triggered by `aiwf status --prompt` signal (closed-task count, PROJECT-MAP staleness). Advisory — presents findings to user for decision. Three dimensions: code, design, structure. Distinct from milestone arch-review gate.
+description: Manual independent post-success critique and milestone acceptance. Use when the user asks whether completed work still serves the mission, whether there is a better path, whether code/design/governance structure has drifted, or whether a milestone can be accepted.
 ---
 
 # AIWF Architect
 
 ## Role
 
-Review structure. Do not implement, plan, test, or close.
+Review structure through mission fit and mission leverage. When the selected
+lens is `milestone-acceptance`, verify the milestone gate in a real
+environment.
 
-**Behavior**: You are an external structural critic. Your primary subject is the
-project — its code implementation, its design (Plans, Goals, Tasks), and its
-governance structure (Goal tree, Plan dependencies). In that order.
+This skill is the main-session dispatcher. Formal architecture review must run
+in an independent Architect subagent/session. The main session frames the
+review, asks the user for scope, dispatches the subagent, and presents findings.
+It does not perform the review itself.
 
-You don't inherit the team's assumptions. A design choice that made sense six
-months ago but doesn't make sense now is a problem. Structure clarity is a
-first-class citizen — a system that works but is becoming a maze is in decline.
-Call it out.
+Architect is Planner's post-success reflection:
 
-Present issues to the user for decision. Distinguish blockers from advisories.
-None should be silently absorbed.
+- Planner designs the path before success.
+- Architect critiques that path after apparent success.
+- Architect does not create tasks. Structural findings return to Planner for
+  disposition: create a task now, fold into current work, or defer with an
+  explicit reason.
+- Milestone acceptance is the exception: it may record milestone integration
+  tests and assessment, then ask the human before confirm/close.
 
 ## Required read
 
-Choose the smallest sufficient set:
-
-- `.aiwf/state/goals.json`
-- `.aiwf/state/plans.json`
-- `.aiwf/state/tasks.json`
-- `.aiwf/state/milestones.json`
-- `.aiwf/records/evidence.json`
-- `.aiwf/records/testing.json`
-- `.aiwf/records/review.json`
-- `.aiwf/records/architecture-review.json`
-- Relevant Goal/Plan/Task/Milestone Markdown docs
-- Source files and command/template surfaces under review
-
-## Allowed
-
-- Read broadly when structure requires it.
-- Identify drift, duplicated mechanisms, stale surfaces, command/path mismatch, and fragile coupling.
-- Critique Planner's structural decisions and the project's code and design architecture.
-- Record architecture review.
+- `aiwf-project`
+- Mission or closest mission statement
+- Enough Goal/Plan/Task/Milestone context to offer useful review-scope choices
 
 ## Forbidden
 
+- Do not implement or plan.
 - Do not modify source files.
 - Do not create or activate tasks.
+- Do not directly fix structure.
+- Do not change the mission or mutate the Goal tree.
 - Do not hand-edit `.aiwf/state/` or `.aiwf/records/`.
-- Do not run human-only commands.
-- Do not auto-create documentation or retro work.
+- Do not infer review scope silently.
+- Do not confirm or close a milestone unless `milestone-acceptance` was selected,
+  every Pass Standard item passed, and the human explicitly approved.
+- Do not treat tests passed, task counts, plan lists, or milestone status as an
+  architecture review.
 
 ## Workflow
 
 FOLLOW EVERY STEP. CHECK OFF EACH ONE AS YOU GO. SKIP NOTHING.
 
-0. Read `aiwf-project` skill for project-specific rules and knowledge.
-1. Identify the scope of this review:
-   - Periodic signal or user asked for full review: run all three dimensions.
-   - User names a specific concern (code / design / structure): focus there.
-2. Read records and relevant source files.
-3. Critique code implementation quality. See `references/code-review.md`.
-4. Critique design quality of Plans, Goals, and Tasks. See `references/design-review.md`.
-5. Critique governance structure: Goal tree, Plan dependencies.
-   See `references/structure-review.md`.
-6. Distinguish blockers from advisories.
-7. Record architecture review.
-8. Present findings to the user. Summarize each issue clearly and ask which
-   should be addressed now, which can wait.
+0. Read `aiwf-project`.
+1. Identify the mission or closest mission statement. If mission is unclear,
+   ask the user before dispatch.
+2. Ask the user to choose the review slice and lenses before dispatch. Lenses:
+   `mission-mechanism`, `code-reality`, `governance-truth`,
+   `milestone-acceptance`, or any subset. Useful slices: full project, a
+   milestone, recent closed tasks, a capability path, or a named structural
+   concern. Ask whether this review should include an external benchmark.
+   External benchmark is optional; use it only when the user wants current
+   domain expectations, standards, compliance facts, or a named comparison
+   baseline.
+3. After the user chooses the scope, dispatch an independent Architect. In
+   Claude Code, prefer the project-local `aiwf-architect` Agent:
+   `Agent({subagent_type: "aiwf-architect", prompt: "Mission: <one-sentence mission>\nReview slice: <user-selected scope>\nLenses: <mission-mechanism | code-reality | governance-truth | milestone-acceptance | subset>\nExternal benchmark: <none | user-requested benchmark/current standard/compliance/domain expectations>\nRelevant AIWF docs: <goals/plans/tasks/milestones paths>\nReferences: .claude/skills/aiwf-architect/references/design-review.md, code-review.md, structure-review.md, milestone-acceptance.md\nQuestion: Does the completed work truly advance the mission? Is there a better path? If milestone-acceptance is selected, verify the milestone gate. Follow /aiwf-architect workflow and present findings without softening."})`
+   The subagent must read broadly enough to judge the selected scope and must
+   Record architecture review before returning findings.
+4. Present the subagent's findings to the user as findings, not as your own
+   softened summary. Do not defend the project or turn findings into tasks
+   yourself. Planner decides disposition.
 
-## Required record
+## Expected subagent output
 
-```bash
-aiwf record architecture-review --status intact --summary "<summary>"
-```
-
-If issues remain:
-
-```bash
-aiwf record architecture-review --status issues_found --summary "<issue summary>"
-```
-
-## References
-
-- `references/code-review.md` — code implementation critique.
-- `references/design-review.md` — design critique (Plans, Goals, Tasks).
-- `references/structure-review.md` — governance structure critique.
+- Mission Fit
+- Mission Leverage
+- Code Reality Findings
+- Governance Truth Findings
+- Milestone Acceptance Findings
+- Blockers
+- Advisories
+- Planner Disposition Candidates
 
 ## Stop condition
 
-VERIFY: DID YOU FOLLOW EVERY STEP? IF YOU SKIPPED ANY, GO BACK.
-VERIFY: Re-read aiwf-project. Any project rule you missed?
-
-Stop after recording architecture review and presenting findings to the user.
-Wait for the user to decide which issues to act on.
+Stop after presenting the independent Architect findings. Wait for user or
+Planner disposition.

@@ -11,10 +11,10 @@
     "closing": ["aiwf-close"],
     "closed": ["aiwf-planner"],
     "blocked": ["aiwf-planner"],
-    "milestone_verification": ["aiwf-milestone"]
+    "milestone_verification": ["aiwf-architect"]
   },
   "signal_skills": {
     "architect_due": ["aiwf-architect"],
-    "milestone_due": ["aiwf-milestone"]
+    "milestone_due": ["aiwf-architect"]
   }
 }

@@ -77,10 +77,9 @@ class TestInstall(unittest.TestCase):
         self.assertIn("Write|Edit|MultiEdit|Bash|Agent|Task", post_matchers)
 
     def test_skills_exist_with_frontmatter(self):
-        """Exactly 7 top-level skills installed, with SKILL.md frontmatter."""
+        """Expected top-level skills installed, with SKILL.md frontmatter."""
         for skill in ["aiwf-planner", "aiwf-implement", "aiwf-test",
-                      "aiwf-review", "aiwf-close", "aiwf-milestone",
-                      "aiwf-architect"]:
+                      "aiwf-review", "aiwf-close", "aiwf-architect"]:
             path = self.tmp / ".claude" / "skills" / skill / "SKILL.md"
             self.assertTrue(path.exists(), f"Missing: {skill}")
             self.assertTrue(path.read_text().startswith("---"),
@@ -89,12 +88,16 @@ class TestInstall(unittest.TestCase):
     def test_skill_references_exist(self):
         """Reference files exist under their parent skill directories."""
         refs = {
-            "aiwf-planner": ["references/task-contract.md", "references/lifecycle.md",
-                           "references/risk-and-rollback.md"],
+            "aiwf-planner": ["references/task-contract.md", "references/structure-guide.md",
+                           "references/writing-guide.md"],
             "aiwf-review": ["references/review-output.md", "references/trace-checklist.md",
                           "references/verify-checklist.md"],
-            "aiwf-milestone": ["references/integration.md", "references/architecture-review.md"],
-            "aiwf-architect": ["references/architecture-checklist.md"],
+            "aiwf-architect": [
+                "references/code-review.md",
+                "references/design-review.md",
+                "references/structure-review.md",
+                "references/milestone-acceptance.md",
+            ],
         }
         for skill, files in refs.items():
             for ref in files:
@@ -103,14 +106,14 @@ class TestInstall(unittest.TestCase):
 
     def test_retired_skill_dirs_do_not_exist(self):
         for retired in ["aiwf-init", "aiwf-planner-docs", "aiwf-architecture-doc",
-                       "aiwf-retro"]:
+                       "aiwf-retro", "aiwf-milestone"]:
             path = self.tmp / ".claude" / "skills" / retired
             self.assertFalse(path.exists(), f"Retired skill should not exist: {retired}")
 
     def test_subagents_exist(self):
-        """Exactly 4 agents installed."""
+        """Expected Claude agents installed."""
         for agent in ["aiwf-explorer", "aiwf-executor", "aiwf-tester",
-                      "aiwf-reviewer"]:
+                      "aiwf-reviewer", "aiwf-architect"]:
             path = self.tmp / ".claude" / "agents" / f"{agent}.md"
             self.assertTrue(path.exists(), f"Missing: {agent}")
         # Curator is retired
@@ -118,7 +121,7 @@ class TestInstall(unittest.TestCase):
                         "aiwf-curator should not be installed")
 
     def test_claude_subagents_have_connection_recovery(self):
-        for agent in ["aiwf-executor", "aiwf-tester", "aiwf-reviewer"]:
+        for agent in ["aiwf-executor", "aiwf-tester", "aiwf-reviewer", "aiwf-architect"]:
             content = (self.tmp / ".claude" / "agents" / f"{agent}.md").read_text()
             self.assertIn("Connection Recovery", content)
             self.assertIn("PAUSED_FOR_PLANNER", content)
