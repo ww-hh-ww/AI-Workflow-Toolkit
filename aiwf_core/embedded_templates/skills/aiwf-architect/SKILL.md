@@ -41,6 +41,10 @@ Architect is Planner's post-success reflection:
 - Do not change the mission or mutate the Goal tree.
 - Do not hand-edit `.aiwf/state/` or `.aiwf/records/`.
 - Do not infer review scope silently.
+- Do not use WebSearch in the main session. External benchmark research belongs
+  inside the subagent assigned that lens.
+- Do not synthesize new structural judgments from subagent reports. You may
+  merge, deduplicate, and present findings with source attribution.
 - Do not confirm or close a milestone unless `milestone-acceptance` was selected,
   every Pass Standard item passed, and the human explicitly approved.
 - Do not treat tests passed, task counts, plan lists, or milestone status as an
@@ -61,19 +65,32 @@ FOLLOW EVERY STEP. CHECK OFF EACH ONE AS YOU GO. SKIP NOTHING.
    External benchmark is optional; use it only when the user wants current
    domain expectations, standards, compliance facts, or a named comparison
    baseline.
-3. After the user chooses the scope, dispatch an independent Architect. In
-   Claude Code, prefer the project-local `aiwf-architect` Agent:
-   `Agent({subagent_type: "aiwf-architect", prompt: "Mission: <one-sentence mission>\nReview slice: <user-selected scope>\nLenses: <mission-mechanism | code-reality | governance-truth | milestone-acceptance | subset>\nExternal benchmark: <none | user-requested benchmark/current standard/compliance/domain expectations>\nRelevant AIWF docs: <goals/plans/tasks/milestones paths>\nReferences: .claude/skills/aiwf-architect/references/design-review.md, code-review.md, structure-review.md, milestone-acceptance.md\nQuestion: Does the completed work truly advance the mission? Is there a better path? If milestone-acceptance is selected, verify the milestone gate. Follow /aiwf-architect workflow and present findings without softening."})`
-   The subagent must read broadly enough to judge the selected scope and must
-   Record architecture review before returning findings.
-4. Present the subagent's findings to the user as findings, not as your own
-   softened summary. Do not defend the project or turn findings into tasks
-   yourself. Planner decides disposition.
+3. Decide dispatch shape:
+   - Standard review: one `aiwf-architect` Agent may handle the selected slice
+     when scope is narrow or lenses are few.
+   - Deep split review: when the user selects full project, all lenses, or an
+     external benchmark, ask whether to split. If the user agrees, dispatch one
+     `aiwf-architect` Agent per selected lens: `mission-mechanism`,
+     `code-reality`, `governance-truth`, `milestone-acceptance`.
+   - External benchmark: only the `mission-mechanism` lens should use
+     WebSearch, unless the user explicitly assigns benchmark research to
+     another lens.
+   - Do not dispatch multiple agents to make the final judgment together. Each
+     lens returns its own report. Main session only collects and presents.
+4. Create the output directory: `mkdir -p docs/architect/ARCH-{YYYYMMDD}/`.
+   Then dispatch Architect subagents. In Claude Code, prefer the project-local
+   `aiwf-architect` Agent:
+   `Agent({subagent_type: "aiwf-architect", prompt: "Mission: <one-sentence mission>\nReview slice: <user-selected scope>\nLenses: <mission-mechanism | code-reality | governance-truth | milestone-acceptance | subset>\nOutput dir: docs/architect/ARCH-{date}/\nExternal benchmark: <none | user-requested benchmark/current standard/compliance/domain expectations>\nRelevant AIWF docs: <goals/plans/tasks/milestones paths>\nReferences: .claude/skills/aiwf-architect/references/design-review.md, code-review.md, structure-review.md, milestone-acceptance.md\nQuestion: Does the completed work truly advance the mission? Is there a better path? If milestone-acceptance is selected, verify the milestone gate. Follow /aiwf-architect workflow and present findings without softening."})`
+   Each subagent writes its findings under the output directory.
+5. Present findings to the user as findings, not as your own softened summary.
+   For split reviews, group by lens and source agent. Do not defend the project,
+   reconcile conflicts by invention, or turn findings into tasks yourself.
+   Planner decides disposition.
 
 ## Expected subagent output
 
-- Mission Fit
-- Mission Leverage
+- Capability Gap
+- Mission Fit + Leverage
 - Code Reality Findings
 - Governance Truth Findings
 - Milestone Acceptance Findings

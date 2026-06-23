@@ -70,12 +70,6 @@ def _empty_milestone(
         "task_ids": tasks,
         "covered_goal_ids": covered,
         "intent": intent or "",
-        "evidence_rollup": {
-            "summary": "",
-            "closed_plan_count": 0,
-            "total_plan_count": len(plans),
-            "open_gaps": [],
-        },
         "open_gaps": [],
         "stage_synthesis": {
             "status": "open",
@@ -254,12 +248,6 @@ def upsert_milestone(
         milestone.setdefault("task_ids", [])
         milestone.setdefault("covered_goal_ids", [])
         milestone.setdefault("open_gaps", [])
-        milestone.setdefault("evidence_rollup", {
-            "summary": "",
-            "closed_plan_count": 0,
-            "total_plan_count": 0,
-            "open_gaps": [],
-        })
         milestone.setdefault("stage_synthesis", _empty_milestone(milestone_id)["stage_synthesis"])
         _ensure_user_acceptance(milestone)
         if goal_id:
@@ -417,21 +405,7 @@ def reconcile_plan_to_milestone(base_dir: str, plan: Dict[str, Any]) -> Dict[str
             p = get_plan(base_dir, pid)
             if p.get("status") == "closed":
                 closed += 1
-            rollup = p.get("evidence_rollup", {}) or {}
-            for gap in rollup.get("open_gaps", []) or []:
-                if gap not in open_gaps:
-                    open_gaps.append(gap)
-    except Exception:
-        closed = sum(1 for pid in plan_ids if pid == plan_id and plan.get("status") == "closed")
-    if plan.get("status") == "closed" and plan_id not in plan_ids:
-        closed += 1
     milestone["open_gaps"] = open_gaps
-    milestone["evidence_rollup"] = {
-        "summary": f"{closed}/{len(plan_ids)} plans complete under this milestone.",
-        "closed_plan_count": closed,
-        "total_plan_count": len(plan_ids),
-        "open_gaps": open_gaps,
-    }
     milestone["updated_at"] = _now()
     save_milestones(base_dir, data)
     return {"reconciled": True, "milestone": milestone}

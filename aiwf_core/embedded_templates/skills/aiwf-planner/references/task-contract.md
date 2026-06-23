@@ -212,3 +212,6 @@ consider `aiwf task force-close`."
 - Consumer/main path unknown for new code, but task activated anyway.
 - Role opened for a change that doesn't deserve it (wasted dispatch).
 - Role closed for a change that does deserve it (missed risk).
+- Task introduces a replacement but no task owns the removal of the old thing.
+- Dead code is silenced (`#[allow(dead_code)]`) instead of deleted or deprecated
+  with a decision recorded.

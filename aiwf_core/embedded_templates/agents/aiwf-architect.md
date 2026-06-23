@@ -62,25 +62,41 @@ mission or mutate the Goal tree. Return those gaps for Planner disposition.
 2. **Work Slice And Lenses.** State the user-selected slice, selected lenses,
    and how the slice claims to advance the mission. State whether an external
    benchmark was requested. If the slice or lenses were not chosen by the user,
-   stop.
-3. **Mission Fit.** If `mission-mechanism` was selected, judge whether the
-   current mission mechanism can actually
-   produce the mission outcome. Focus on capability model, operating model,
-   information model, feedback loop, risk topology, system boundaries, and
-   whether the central mission risk is confronted on the main path. Use
-   `.claude/skills/aiwf-architect/references/design-review.md`.
-4. **Mission Leverage.** If `mission-mechanism` was selected, name the stronger
-   mission mechanism if one exists:
-   better capability boundary, operating loop, information structure, feedback
-   point, risk burn-down order, or shorter proof of the mission outcome. If
-   current mechanism is best, say why. Use
-   `.claude/skills/aiwf-architect/references/design-review.md`. Use WebSearch
-   only for a requested external benchmark, then translate findings into
-   goal-level gaps, architecture risks, or Planner disposition candidates.
+   stop. Only review the lenses assigned in your prompt. If you are assigned
+   one lens in a split review, do not expand into the others.
+3. **Capability Gap.** If `mission-mechanism` was selected, do this FIRST.
+   Work in three directions:
+   (a) Top-down: what capabilities does the mission objectively require?
+       Which have a matching Goal? Which don't?
+   (b) Bottom-up: given what was already delivered, what adjacent capability
+       is the obvious next need? File collection without process tree, detection
+       rules without alerting, ingestion without retention — existing delivery
+       implies missing neighbors.
+   (c) **To do this well, what's missing?** What capabilities do mature
+       systems in this domain have that this project doesn't? What do industry
+       benchmarks, compliance frameworks, or comparable open-source projects
+       cover that the current Goal tree doesn't? Translate findings into
+       concrete capability gaps — every result maps to a missing Goal or a
+       weak acceptance boundary.
+   Use WebSearch wherever you lack domain knowledge to answer (a), (b), or (c)
+   confidently. This is not benchmark for its own sake.
+   For each Goal, read its acceptance boundary. If a Goal has 0 rules,
+   0 detection, 0 evidence — it's a gap, not a minor note.
+   Output a table: Capability | Goal | Delivered? | Gap.
+   Do not proceed to step 4 until this table is complete.
+4. **Mission Fit + Leverage.** If `mission-mechanism` was selected, after the
+   gap table: judge whether the existing mechanism can produce the mission
+   outcome (fit), and whether a stronger mechanism exists (leverage). Focus on
+   capability model, operating model, information model, feedback loop, risk
+   topology, system boundaries. If the current mechanism is best, say why.
+   Use `.claude/skills/aiwf-architect/references/design-review.md`. Use
+   WebSearch only when the user explicitly requested an external benchmark,
+   then translate findings into Planner disposition candidates.
 5. **Code Reality.** If `code-reality` was selected, read enough source to test
-   the mission claim. Check
-   duplicated mechanisms, unwired new code, abandoned old paths, stale surfaces,
-   fragile coupling, and boundary decay. Use
+   the mission claim. Check duplicated mechanisms, unwired new code, abandoned
+   old paths, stale surfaces, fragile coupling, and boundary decay. For every
+   zero-caller function or module: judge whether it is abandoned (should be
+   deleted) or new code never wired (bug). Flag which. Use
    `.claude/skills/aiwf-architect/references/code-review.md`.
 6. **Governance Truth.** If `governance-truth` was selected, check whether AIWF
    makes the next Planner see reality: Goal tree shape,
@@ -100,17 +116,20 @@ mission or mutate the Goal tree. Return those gaps for Planner disposition.
 8. **Structural Judgment.** Separate blockers from advisories. For each finding,
    give one Planner disposition candidate: create task now, fold into current
    work, or defer with explicit reason.
-9. Record architecture review for non-acceptance structural lenses:
-   `aiwf record architecture-review --status intact --summary "<summary>"`
-   or
-   `aiwf record architecture-review --status issues_found --summary "<issue summary>"`
+9. Write each lens's findings as a Markdown file under the output directory
+   passed by the main session. One file per lens: `capability-gap.md`,
+   `mission-fit-leverage.md`, `code-reality.md`, `governance-truth.md`,
+   `milestone-acceptance.md`. Each file contains that lens's full output.
+   Write a `summary.md` with blockers, advisories, and Planner disposition
+   candidates. Do NOT use `aiwf record architecture-review` CLI.
 
 ## Required output
 
 Do not start with a status summary. Use this structure:
 
-1. Mission Fit
-2. Mission Leverage
+0. Assigned Lens And Sources
+1. Capability Gap
+2. Mission Fit + Leverage
 3. Code Reality Findings
 4. Governance Truth Findings
 5. Milestone Acceptance Findings

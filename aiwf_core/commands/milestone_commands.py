@@ -73,8 +73,6 @@ def _cmd_milestone_show(args: argparse.Namespace) -> None:
     print(f"  Intent: {m.get('intent', '') or '(none)'}")
     print(f"  Plans: {', '.join(m.get('plan_ids', []) or []) or '(none)'}")
     print(f"  Tasks: {', '.join(m.get('task_ids', []) or []) or '(none)'}")
-    rollup = m.get("evidence_rollup", {}) or {}
-    print(f"  Rollup: {rollup.get('summary', '') or '(none)'}")
     synthesis = m.get("stage_synthesis", {}) or {}
     print(f"  Stage Synthesis: {synthesis.get('status', 'pending')} verdict={synthesis.get('verdict', 'pending')}")
     if synthesis.get("summary"):

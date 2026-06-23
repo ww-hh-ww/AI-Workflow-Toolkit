@@ -266,7 +266,7 @@ def _cmd_task_close(args: argparse.Namespace) -> None:
     mp = pp.get("milestone_progress", {}) or {}
     if mp.get("reconciled"):
         ms = mp.get("milestone", {}) or {}
-        print(f"  Milestone: {ms.get('milestone_id', '')} — {ms.get('evidence_rollup', {}).get('summary', '')}")
+        print(f"  Milestone: {ms.get('milestone_id', '')}")
     # Next action
     if kind == "milestone_verification" and task_ms_id:
         print(f"  Next: aiwf milestone close {task_ms_id}")

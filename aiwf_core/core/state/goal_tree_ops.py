@@ -74,7 +74,6 @@ def _empty_goal(
         "visibility": "default",
         "advance_policy": "checkpoint",
         "checkpoint_level": "goal",
-        "evidence_rollup": {},
         "open_gaps": [],
         "admission_trace": None,
         "created_at": now,
@@ -214,7 +213,6 @@ def upsert_goal(
         goal.setdefault("children_order", [])
         goal.setdefault("attached_plan_ids", [])
         goal.setdefault("open_gaps", [])
-        goal.setdefault("evidence_rollup", {})
         goal.setdefault("admission_trace", None)
         if title:
             goal["title"] = title
@@ -393,62 +391,6 @@ def _detect_cycles(tree: Dict[str, Any]) -> List[str]:
         if color[gid] == WHITE:
             dfs(gid, [gid])
     return issues
-
-
-# ── reconcile ──────────────────────────────────────────────────────────────
-
-def reconcile_plan_to_goal(base_dir: str, plan: Dict[str, Any]) -> Dict[str, Any]:
-    """Soft rollup: write plan progress into parent Goal's evidence_rollup.
-
-    Read-only in effect — does NOT auto-close the Goal, does NOT block any gate.
-    Called when a Plan becomes complete (all tasks closed)."""
-    plan_id = str(plan.get("plan_id") or plan.get("id") or "")
-    goal_id = str(plan.get("target_goal_id") or plan.get("goal_id") or "")
-    if not plan_id or not goal_id:
-        return {"reconciled": False, "reason": "missing plan_id or goal_id"}
-
-    tree = load_goal_tree(base_dir, auto_create=False)
-    goal = _find_goal(tree, goal_id)
-    if not goal:
-        return {"reconciled": False, "reason": f"goal not found: {goal_id}"}
-
-    # Collect existing rollups
-    rollups = goal.setdefault("evidence_rollup", {})
-    plan_rollups = rollups.setdefault("plan_rollups", {})
-
-    p_status = plan.get("status", "")
-    er = plan.get("evidence_rollup", {}) or {}
-    plan_rollups[plan_id] = {
-        "plan_id": plan_id,
-        "plan_kind": plan.get("plan_kind", "implementation"),
-        "status": p_status,
-        "closed_task_count": er.get("closed_count", 0),
-        "total_task_count": er.get("total_count", 0),
-        "key_files_changed": er.get("changed_files", []) or [],
-        "updated_at": _now(),
-    }
-
-    # Aggregate summary
-    total_closed = sum(r.get("closed_task_count", 0) for r in plan_rollups.values())
-    total_tasks = sum(r.get("total_task_count", 0) for r in plan_rollups.values())
-    complete_plans = sum(1 for r in plan_rollups.values() if r.get("status") in ("complete", "completed"))
-    total_plans = len(plan_rollups)
-
-    rollups["summary"] = f"{complete_plans}/{total_plans} plans complete, {total_closed}/{total_tasks} tasks closed"
-    rollups["complete_plan_count"] = complete_plans
-    rollups["total_plan_count"] = total_plans
-    rollups["closed_task_count"] = total_closed
-    rollups["total_task_count"] = total_tasks
-    rollups["updated_at"] = _now()
-
-    goal["updated_at"] = _now()
-
-    # Also add plan to attached_plan_ids if not already there
-    if plan_id not in goal.setdefault("attached_plan_ids", []):
-        goal["attached_plan_ids"].append(plan_id)
-
-    save_goal_tree(base_dir, tree)
-    return {"reconciled": True, "goal_id": goal_id, "plan_id": plan_id}
 
 
 # ── structural operations: graft & prune ──────────────────────────────────

@@ -68,6 +68,11 @@ FOLLOW EVERY STEP. CHECK OFF EACH ONE AS YOU GO. SKIP NOTHING.
    `aiwf milestone create`.
 4. Write the narrative doc. For Goal.md, Plan.md, Milestone.md see `references/writing-guide.md`.
    For Task.md see `references/task-contract.md`.
+   **Before writing tasks, answer for each migration this Plan represents:**
+   - What old code, path, or convention should not exist after this work?
+   - Which task's Scope or Done When explicitly removes or deprecates it?
+   If the answer is not in any task, you missed cleanup. A replacement without
+   removal is accumulation, not progress.
    **Pick the right proof level.** Built (exists) / Wired (called) /
    Running (end-to-end). "Module exists" is only valid for internal
    refactors. New modules and public APIs must be Wired. Subsystems

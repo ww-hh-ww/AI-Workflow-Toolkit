@@ -181,6 +181,10 @@ class TestTemplateContracts(unittest.TestCase):
         self.assertIn("Claude Code", c)
         self.assertIn("External benchmark", c)
         self.assertIn("milestone-acceptance", c)
+        self.assertIn("Deep split review", c)
+        self.assertIn("Agent per selected lens", c)
+        self.assertIn("Do not use WebSearch in the main session", c)
+        self.assertIn("Do not synthesize new structural judgments", c)
         self.assertNotIn("Periodic signal", c)
         self.assertNotIn("closed-task count", c)
 
@@ -210,6 +214,8 @@ class TestTemplateContracts(unittest.TestCase):
             "references/structure-review.md",
             "references/milestone-acceptance.md",
             "Milestone Acceptance",
+            "Assigned Lens And Sources",
+            "Only review the lenses assigned",
             "Pass Standard",
             "integration-test",
             "Planner Disposition Candidates",
