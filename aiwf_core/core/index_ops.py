@@ -2,14 +2,12 @@
 
 Rules:
 - MD frontmatter is compiled into JSON (sync_index). Body is semantic narrative, never inferred.
-- Active Task.md is frozen by contract_hash (frontmatter + body) after activation.
-- Machine-owned runtime fields (status, timestamps, frozen hash, close state) are never overwritten.
+- Machine-owned runtime fields (status, timestamps, close state) are never overwritten.
 - Plan.task_ids is a computed field derived from Task.plan_id, not from MD.
 """
 
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 from datetime import datetime, timezone
@@ -35,41 +33,43 @@ def _write_json(path: Path, data: Dict[str, Any]) -> None:
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
-# ── hash ──────────────────────────────────────────────────────────────
-
-# Canonical frontmatter keys that form the task execution contract.
-# When these change after activation, the contract is considered dirty.
-_TASK_CONTRACT_FM_KEYS = [
-    "title", "goal_id", "plan_id", "milestone_id", "kind",
-    "executor_required", "tester_required", "reviewer_required",
-    "rollback_required", "dependencies",
-]
-
-
-def compute_content_hash(md_text: str) -> str:
-    """SHA-256 of Markdown body (without frontmatter).
-
-    Returns "sha256:<hex>".
-    """
-    digest = hashlib.sha256(md_text.encode("utf-8")).hexdigest()
-    return f"sha256:{digest}"
-
-
-def compute_contract_hash(fm: Dict[str, Any], body: str) -> str:
-    """SHA-256 of canonical frontmatter keys + normalized body.
-
-    Contract keys are YAML-serialized for deterministic output.
-    Returns "sha256:<hex>".
-    """
-    contract = {}
-    if fm:
-        for key in _TASK_CONTRACT_FM_KEYS:
-            contract[key] = fm.get(key)
-    canonical = yaml.dump(contract, default_flow_style=False,
-                         allow_unicode=True, sort_keys=True).rstrip("\n")
-    canonical += "\n" + body.lstrip("\n")
-    digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
-    return f"sha256:{digest}"
+def _empty_json_entry(etype: str, eid: str, fm: Dict[str, Any]) -> Dict[str, Any]:
+    """Create a minimal JSON entry from MD frontmatter for a newly registered doc."""
+    now = _now()
+    entry = {
+        "id": eid,
+        "type": etype,
+        "title": str(fm.get("title", eid) or eid),
+        "title_cache": str(fm.get("title", eid) or eid),
+        "status": str(fm.get("status", "open") or "open"),
+        "created_at": now,
+        "updated_at": now,
+    }
+    if etype == "goal":
+        entry["goal_id"] = eid
+        entry["parent_goal_id"] = str(fm.get("parent_goal_id") or "")
+        entry["child_goal_ids"] = []
+        entry["children_order"] = []
+        entry["attached_plan_ids"] = []
+    elif etype == "plan":
+        entry["plan_id"] = eid
+        entry["goal_id"] = str(fm.get("goal_id") or "")
+        entry["milestone_id"] = str(fm.get("milestone_id") or "")
+        entry["task_ids"] = []
+        entry["remaining_task_ids"] = []
+        entry["report_policy"] = str(fm.get("report_policy", "ask") or "ask")
+        entry["dependencies"] = list(fm.get("dependencies", []) or [])
+    elif etype == "task":
+        entry["goal_id"] = str(fm.get("goal_id") or "")
+        entry["plan_id"] = str(fm.get("plan_id") or "")
+        entry["milestone_id"] = str(fm.get("milestone_id") or "")
+        entry["kind"] = str(fm.get("kind") or "")
+    elif etype == "milestone":
+        entry["milestone_id"] = eid
+        entry["goal_id"] = str(fm.get("goal_id") or "")
+        entry["plan_ids"] = list(fm.get("plan_ids", []) or [])
+        entry["task_ids"] = list(fm.get("task_ids", []) or [])
+    return entry
 
 
 # ── md parse/write ────────────────────────────────────────────────────
@@ -102,11 +102,8 @@ def parse_md(path: Path) -> Tuple[Optional[Dict[str, Any]], str]:
     return fm, body
 
 
-def write_narrative_doc(path: Path, frontmatter: Dict[str, Any], body: str) -> str:
-    """Write a narrative .md file with YAML frontmatter + body.
-
-    Returns the SHA-256 hash of the normalized body (not frontmatter).
-    """
+def write_narrative_doc(path: Path, frontmatter: Dict[str, Any], body: str) -> None:
+    """Write a narrative .md file with YAML frontmatter + body."""
     path.parent.mkdir(parents=True, exist_ok=True)
 
     normalized_body = body.lstrip("\n")
@@ -114,8 +111,6 @@ def write_narrative_doc(path: Path, frontmatter: Dict[str, Any], body: str) -> s
                         allow_unicode=True, sort_keys=False).rstrip("\n")
     content = f"---\n{fm_yaml}\n---\n\n{normalized_body}"
     path.write_text(content, encoding="utf-8")
-
-    return compute_content_hash(normalized_body)
 
 
 # ── index check ───────────────────────────────────────────────────────
@@ -188,25 +183,11 @@ def _check_one(root: Path, entry: Dict[str, Any], etype: str, issues: List[Dict[
         issues.append({"type": etype, "id": eid,
                        "issue": f"frontmatter type '{fm.get('type')}' != JSON type '{etype}'"})
 
-    expected_hash = entry.get("doc_hash", "")
-    if expected_hash:
-        actual_hash = compute_content_hash(body)
-        if actual_hash != expected_hash:
-            issues.append({"type": etype, "id": eid,
-                           "issue": f"doc_hash mismatch (body changed since last index refresh)"})
-
-    # Active task freeze check
-    if etype == "task" and entry.get("status") == "active":
-        frozen = entry.get("frozen_doc_hash", "")
-        if frozen and expected_hash and frozen != expected_hash:
-            issues.append({"type": etype, "id": eid,
-                           "issue": "ACTIVE TASK .md was modified during execution (doc_hash != frozen_doc_hash)"})
-
 
 # ── index refresh ─────────────────────────────────────────────────────
 
 def refresh_index(base_dir: str) -> Dict[str, Any]:
-    """Scan all narrative .md files and update JSON doc_hash, title_cache, summary_cache.
+    """Scan all narrative .md files and update JSON title_cache, summary_cache.
 
     Returns summary of what was updated.
     """
@@ -229,6 +210,7 @@ def refresh_index(base_dir: str) -> Dict[str, Any]:
             if not doc_path_str:
                 dirs = {"goal": ".aiwf/goals", "plan": ".aiwf/plans",
                         "task": ".aiwf/tasks", "milestone": ".aiwf/milestones"}
+                eid = entry.get("id", "")
                 subdir = dirs.get(etype, f".aiwf/{etype}s")
                 doc_path_str = f"{subdir}/{eid}.md"
                 entry["doc_path"] = doc_path_str
@@ -238,12 +220,6 @@ def refresh_index(base_dir: str) -> Dict[str, Any]:
             fm, body = parse_md(full_path)
             if fm is None:
                 continue
-
-            new_hash = compute_content_hash(body)
-            if entry.get("doc_hash") != new_hash:
-                entry["doc_hash"] = new_hash
-                entry["doc_updated_at"] = _now()
-                changed = True
 
             # Update title: frontmatter.title primary, body H1 fallback
             fm_title = (fm or {}).get("title", "").strip()
@@ -272,7 +248,7 @@ def refresh_index(base_dir: str) -> Dict[str, Any]:
 # ── index repair ──────────────────────────────────────────────────────
 
 def repair_index(base_dir: str) -> Dict[str, Any]:
-    """Safe repairs only: recompute doc_hash, fix missing frontmatter, update caches.
+    """Safe repairs only: fix missing frontmatter, update caches.
 
     Does NOT modify Markdown body content.
     """
@@ -325,15 +301,8 @@ def repair_index(base_dir: str) -> Dict[str, Any]:
                 write_narrative_doc(full_path, fm, body)
                 fixed_files.append(str(doc_path_str))
 
-            # Recompute hash
+            # Update title_cache: frontmatter.title primary, body H1 fallback
             if body:
-                actual_hash = compute_content_hash(body)
-                if entry.get("doc_hash") != actual_hash:
-                    entry["doc_hash"] = actual_hash
-                    entry["doc_updated_at"] = _now()
-                    changed = True
-
-                # Update title_cache: frontmatter.title primary, body H1 fallback
                 fm_title = (fm or {}).get("title", "").strip()
                 if fm_title:
                     title = fm_title
@@ -375,6 +344,7 @@ FRONTMATTER_TO_JSON_MAP = {
     },
     "task": {
         "title": "title",
+        "contract_status": "status",
         "goal_id": "goal_id",
         "plan_id": "plan_id",
         "milestone_id": "milestone_id",
@@ -403,20 +373,20 @@ FRONTMATTER_TO_JSON_MAP = {
 }
 
 MACHINE_OWNED_TASK_FIELDS = {
-    "status", "frozen_doc_hash", "activated_at", "closed_at", "close_mode",
+    "activated_at", "closed_at", "close_mode",
     "changed_files", "evidence_ids", "test_ids", "review_ids",
-    "created_at", "updated_at", "doc_hash", "doc_updated_at",
+    "created_at", "updated_at",
     "requirements",  # sub-object; only explicit dotted keys synced
 }
 
 MACHINE_OWNED_FIELDS = {
     "task": MACHINE_OWNED_TASK_FIELDS,
-    "goal": {"created_at", "updated_at", "doc_hash", "doc_updated_at",
+    "goal": {"created_at", "updated_at",
              "goal_version", "original_intent", "current_goal", "active_goal",
              "goal_status", "confirmed", "quality_brief"},
-    "plan": {"created_at", "updated_at", "doc_hash", "doc_updated_at",
+    "plan": {"created_at", "updated_at",
              "remaining_task_ids", "plan_status"},
-    "milestone": {"created_at", "updated_at", "doc_hash", "doc_updated_at",
+    "milestone": {"created_at", "updated_at",
                   "integration_test", "architecture_review", "user_acceptance"},
 }
 
@@ -502,13 +472,8 @@ def sync_index(base_dir: str, dry_run: bool = False) -> Dict[str, Any]:
                 if not fm.get("goal_id", "").strip():
                     errors.append(f"{etype}:{eid}: goal_id is empty — every plan must have a goal")
 
-            # Active task: only the active Task.md is locked. Others sync normally.
+            # Active task: locked JSON fields are not overwritten by sync.
             if active_task_id and etype == "task" and eid == active_task_id:
-                new_hash = compute_contract_hash(fm or {}, body) if body else ""
-                frozen = entry.get("frozen_contract_hash", "")
-                if frozen and new_hash != frozen:
-                    changes.append(f"task:{eid}: WARNING active Task.md changed after activation (not compiled)")
-                changes.append(f"active task {eid}: Task.md frozen, skipped (contract from activation)")
                 synced.append(f"{etype}:{eid}")
                 continue
 
@@ -561,14 +526,6 @@ def sync_index(base_dir: str, dry_run: bool = False) -> Dict[str, Any]:
                         changed = True
                         changes.append(f"{etype}:{eid}: {json_key} = {fm_value}")
 
-            if body:
-                new_hash = compute_content_hash(body)
-                if entry.get("doc_hash") != new_hash:
-                    entry["doc_hash"] = new_hash
-                    entry["doc_updated_at"] = _now()
-                    changed = True
-                    changes.append(f"{etype}:{eid}: hash updated")
-
             synced.append(f"{etype}:{eid}")
 
         if changed and not dry_run:
@@ -576,23 +533,52 @@ def sync_index(base_dir: str, dry_run: bool = False) -> Dict[str, Any]:
             _write_json(tmp_path, data)
             tmp_path.rename(json_path)
 
+    # Second pass: register .md files not yet in JSON
+    for etype, json_path, entries_key, md_dir in [
+        ("goal", root / ".aiwf" / "state" / "goals.json", "goals", root / ".aiwf" / "goals"),
+        ("plan", root / ".aiwf" / "state" / "plans.json", "plans", root / ".aiwf" / "plans"),
+        ("task", root / ".aiwf" / "state" / "tasks.json", "tasks", root / ".aiwf" / "tasks"),
+        ("milestone", root / ".aiwf" / "state" / "milestones.json", "milestones", root / ".aiwf" / "milestones"),
+    ]:
+        if not md_dir.exists():
+            continue
+        data = _read_json(json_path, {})
+        entries = data.setdefault(entries_key, [])
+        registered = {e.get("id", "") for e in entries if e.get("id")}
+        for md_file in sorted(md_dir.glob("*.md")):
+            eid = md_file.stem
+            if eid in registered:
+                continue
+            fm, body = parse_md(md_file)
+            if not fm:
+                continue
+            if fm.get("id") != eid or fm.get("type") != etype:
+                continue
+            doc_path_str = f".aiwf/{etype}s/{eid}.md"
+            entry = _empty_json_entry(etype, eid, fm)
+            entry["doc_path"] = doc_path_str
+            entries.append(entry)
+            synced.append(f"{etype}:{eid}")
+            changes.append(f"{etype}:{eid}: registered from .md")
+            if not dry_run:
+                tmp_path = Path(str(json_path) + ".tmp")
+                _write_json(tmp_path, data)
+                tmp_path.rename(json_path)
+
     # Post-sync: derive Plan.task_ids from Task.plan_id (master relationship)
     _sync_plan_task_relations(root, dry_run, changes)
     _sync_milestone_plan_relations(root, dry_run, changes)
     _sync_goal_children_order(root, dry_run, changes)
 
-    # Always report active task status in output
-    if active_task_id and not any("frozen" in c for c in changes):
-        task_doc = root / ".aiwf" / "tasks" / f"{active_task_id}.md"
-        if task_doc.exists():
-            changes.append(f"active task {active_task_id}: Task.md frozen, skipped (contract from activation)")
-            synced.append(f"task:{active_task_id}")
+    # Always report active task in output
+    if active_task_id and f"task:{active_task_id}" not in synced:
+        synced.append(f"task:{active_task_id}")
 
     return {
         "synced": len(synced),
         "changes": changes[:50],
         "errors": errors,
-        "locked": False,  # narrowed: only active Task.md is locked, not all governance
+        "locked": False,
     }
 
 
@@ -654,7 +640,7 @@ def _sync_plan_task_relations(root: Path, dry_run: bool, changes: List[str]) -> 
 
 
 def _sync_milestone_plan_relations(root: Path, dry_run: bool, changes: List[str]) -> None:
-    """Derive milestone.plan_ids from plan.milestone_id (reverse reference)."""
+    """Sync plan.milestone_id from milestone.plan_ids. Milestone.md is authoritative."""
     ms_path = root / ".aiwf" / "state" / "milestones.json"
     plans_path = root / ".aiwf" / "state" / "plans.json"
     if not ms_path.exists() or not plans_path.exists():
@@ -664,30 +650,66 @@ def _sync_milestone_plan_relations(root: Path, dry_run: bool, changes: List[str]
     milestones = ms_data.get("milestones", []) or []
     plans = plans_data.get("plans", []) or []
 
-    # Build milestone_id → plan_ids from plan.milestone_id
-    ms_plan_map: Dict[str, List[str]] = {}
-    for p in plans:
-        mid = str(p.get("milestone_id") or "").strip()
-        pid = str(p.get("plan_id") or p.get("id") or "").strip()
-        if mid and pid:
-            ms_plan_map.setdefault(mid, []).append(pid)
-
-    changed = False
+    # Build milestone_id → valid plan_ids from milestone.plan_ids (MD authority)
+    ms_plan_map: Dict[str, set] = {}
     for ms in milestones:
         mid = str(ms.get("id") or ms.get("milestone_id") or "").strip()
         if not mid:
             continue
-        derived = sorted(set(ms_plan_map.get(mid, [])))
-        current = sorted(set(ms.get("plan_ids", []) or []))
-        if derived != current:
-            ms["plan_ids"] = derived
-            changed = True
-            changes.append(f"milestone:{mid}: plan_ids synced from plan.milestone_id ({len(derived)} plans)")
+        ms_plan_map[mid] = set(str(pid).strip() for pid in (ms.get("plan_ids", []) or []) if pid)
 
-    if changed and not dry_run:
+    # Sync plan.milestone_id from milestone authority, and clean up stale refs
+    plan_by_id = {}
+    for p in plans:
+        pid = str(p.get("plan_id") or p.get("id") or "").strip()
+        if pid:
+            plan_by_id[pid] = p
+
+    ms_changed = False
+    plans_changed = False
+
+    # Ensure milestone.plan_ids only contains plans that actually exist
+    for ms in milestones:
+        mid = str(ms.get("id") or ms.get("milestone_id") or "").strip()
+        if not mid:
+            continue
+        valid = sorted(pid for pid in ms_plan_map.get(mid, set()) if pid in plan_by_id)
+        removed = sorted(pid for pid in ms_plan_map.get(mid, set()) if pid not in plan_by_id)
+        if removed:
+            changes.append(f"milestone:{mid}: removed {len(removed)} nonexistent plan(s) from plan_ids: {', '.join(removed[:3])}")
+        current = sorted(set(ms.get("plan_ids", []) or []))
+        if valid != current:
+            ms["plan_ids"] = valid
+            ms_changed = True
+            changes.append(f"milestone:{mid}: plan_ids = {valid}")
+
+    # Sync plan.milestone_id to match milestone.plan_ids
+    plan_to_ms: Dict[str, str] = {}
+    for ms in milestones:
+        mid = str(ms.get("id") or ms.get("milestone_id") or "").strip()
+        for pid in ms.get("plan_ids", []) or []:
+            plan_to_ms[str(pid).strip()] = mid
+
+    for pid, p in plan_by_id.items():
+        expected_mid = plan_to_ms.get(pid, "")
+        current_mid = str(p.get("milestone_id") or "").strip()
+        if current_mid != expected_mid:
+            p["milestone_id"] = expected_mid if expected_mid else None
+            plans_changed = True
+            if expected_mid:
+                changes.append(f"plan:{pid}: milestone_id = {expected_mid}")
+            else:
+                changes.append(f"plan:{pid}: milestone_id cleared (not in any milestone)")
+
+    if ms_changed and not dry_run:
         tmp_path = Path(str(ms_path) + ".tmp")
         _write_json(tmp_path, ms_data)
         tmp_path.rename(ms_path)
+
+    if plans_changed and not dry_run:
+        tmp_path = Path(str(plans_path) + ".tmp")
+        _write_json(tmp_path, plans_data)
+        tmp_path.rename(plans_path)
 
 
 def _sync_goal_children_order(root: Path, dry_run: bool, changes: List[str]) -> None:
@@ -811,46 +833,77 @@ _PLAN_TEMPLATE = """# {id} — {title}
 
 _TASK_TEMPLATE = """# {id} — {title}
 
-## Objective
+## Fixed Contract
+
+### Structural Home
+
+(fill — why this Task belongs under its Goal and Plan)
+
+### Objective
+
+(fill — outcome, not implementation recipe)
+
+### Scope
+
+Scope (what files may be touched) lives on the Plan. This section documents
+only restrictions — files the executor must NOT touch.
+
+### Forbidden Write
 
 (fill)
 
-## Scope
+### Proof Standard
 
-(fill)
+Done When:
 
-## Allowed Write
+(fill — each item tagged Built/Wired/Running)
 
-(fill)
+Verification Commands:
 
-## Forbidden Write
+| Command | Expected Observable Output |
+|---------|----------------------------|
+| (fill) | (fill) |
 
-(fill)
-
-## Dispatch Decisions
+### Dispatch Decisions
 
 Review the task complexity and set frontmatter booleans deliberately (see references/task-contract.md):
 - Trivial (typo/doc): all false. Simple (single file): executor=false, tester=true, reviewer=false. Normal (multi-file): all true. Complex (API/refactor): all true + rollback.
 
-## Executor Requirements
-
-(fill)
-
-## Tester Requirements
-
-(fill)
-
-## Reviewer Requirements
-
-(fill)
-
-## Done When
-
-(fill)
-
-## Rollback Strategy required: no
+### Rollback Strategy required: no
 
 (fill — if yes, describe Git-based rollback)
+
+## Known Context
+
+### Known Surfaces
+
+(fill — files/modules/commands/schemas/APIs/runtime flows already known)
+
+### Interfaces And Invariants
+
+(fill — existing contracts the implementation must preserve)
+
+### Integration Evidence
+
+(fill — expected consumer/main path or explain why this is Built-only)
+
+### Resolved Or Deferred Unknowns
+
+(fill — unknowns resolved before activation, or deferred with reason)
+
+## Open Judgment
+
+### Executor Judgment
+
+(fill — implementation choices intentionally left open)
+
+### Tester Judgment
+
+(fill — failure dimensions to attack beyond executor self-check)
+
+### Reviewer Judgment
+
+(fill — quality/interface/caller/contract questions reviewer must judge)
 
 ## Report Policy
 

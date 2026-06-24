@@ -387,23 +387,17 @@ def _cmd_goal_create(args: argparse.Namespace) -> None:
     g = result.get("goal", result)
     gid = g.get("id") or g.get("goal_id") or goal_id
     print(f"Goal created: {gid}")
-    from ..core.index_ops import create_narrative_for_entity, parse_md, compute_content_hash, sync_index
+    from ..core.index_ops import create_narrative_for_entity, sync_index
     from ..core.state.goal_tree_ops import load_goal_tree, save_goal_tree, _find_goal
     path = create_narrative_for_entity(str(Path.cwd()), gid, "goal", title=title,
                                        status=g.get("status", ""),
                                        parent_goal_id=parent_id)
-    # Bind doc_path + hash in goals.json so sync can find it
-    full_path = Path.cwd() / path
-    if full_path.exists():
-        _, body = parse_md(full_path)
-        doc_hash = compute_content_hash(body) if body else ""
-        tree = load_goal_tree(str(Path.cwd()))
-        node = _find_goal(tree, gid)
-        if node:
-            node["doc_path"] = path
-            node["doc_hash"] = doc_hash
-            node["doc_updated_at"] = _now_str()
-            save_goal_tree(str(Path.cwd()), tree)
+    # Bind doc_path in goals.json so sync can find it
+    tree = load_goal_tree(str(Path.cwd()))
+    node = _find_goal(tree, gid)
+    if node:
+        node["doc_path"] = path
+        save_goal_tree(str(Path.cwd()), tree)
     print(f"  Narrative doc: {path}")
     sync_result = sync_index(str(Path.cwd()))
     if sync_result["changes"]:

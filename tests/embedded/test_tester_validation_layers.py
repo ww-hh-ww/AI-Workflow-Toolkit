@@ -49,7 +49,6 @@ class TestTesterValidationLayers(unittest.TestCase):
         ledger = json.loads((self.tmp / ".aiwf" / "state" / "tasks.json").read_text())
         ledger["tasks"] = [{
             "id": "TASK-1", "status": "active",
-            "frozen_doc_hash": "",
             "requirements": {"tester_required": True}
         }]
         _write(self.tmp / ".aiwf" / "state" / "tasks.json", ledger)
@@ -79,7 +78,6 @@ class TestTesterValidationLayers(unittest.TestCase):
         ledger = json.loads((self.tmp / ".aiwf" / "state" / "tasks.json").read_text())
         ledger["tasks"] = [{
             "id": "TASK-1", "status": "active",
-            "frozen_doc_hash": "",
             "requirements": {"tester_required": True}
         }]
         _write(self.tmp / ".aiwf" / "state" / "tasks.json", ledger)

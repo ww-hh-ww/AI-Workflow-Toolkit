@@ -19,17 +19,31 @@ milestone_id: MS-XXX   # optional — which Milestone verifies this
 These are not optional. A task without `goal_id` breaks the Goal→Plan→Task
 hierarchy and the Milestone view. A task without `plan_id` is an orphan.
 
-Structural home: 1-2 sentences explaining why this Task belongs under its
-Goal and Plan. A Task without a mission-relevant home is probably hidden
-planning work.
+## Task Packet
 
-Objective: 1-2 sentences. What exactly gets done, stated as an outcome, not an
-implementation recipe.
+Write Task.md as three layers. This is how Planner avoids both extremes:
+under-specifying the task so roles rediscover everything, and over-specifying
+implementation so roles stop thinking.
 
-Scope: Exact work outcome. Small enough for one cycle.
+### Fixed Contract
 
-Context: Planner explores ONCE, subagents read. Record known truth and
-constraints, not a fake implementation recipe. Include:
+Non-negotiable governance. Violating this is failure, not judgment.
+
+- Structural Home: why this Task belongs under its Goal and Plan. A Task
+  without a mission-relevant home is probably hidden planning work.
+- Objective: 1-2 sentences, stated as an outcome, not an implementation recipe.
+- Scope and Forbidden Write: what the task may not touch. Forbidden Write is
+  mechanically enforced at write time.
+- Proof Standard: Done When levels and Verification Commands. For strict Task
+  Packets this is machine-read: Wired/Running require concrete commands, and
+  close checks that testing recorded those exact commands.
+- Dispatch Decisions: executor/tester/reviewer/rollback flags and why.
+- Rollback Strategy: required for schema, directory layout, install, parser,
+  batch rename, broad removal.
+
+### Known Context
+
+Facts and map, not conclusions. Include:
   - Known surfaces: files, modules, commands, schemas, APIs, or runtime flows
     that are relevant.
   - Existing interfaces and invariants the implementation must respect.
@@ -53,8 +67,14 @@ constraints, not a fake implementation recipe. Include:
     Dependencies: serde, tokio::sync::RwLock (already in Cargo.toml)
   If you (Planner) skip Context, every subagent re-discovers it. That is waste.
 
-Allowed / Forbidden Write: Default forbidden: `.aiwf/state/` `.aiwf/records/`.
-Forbidden Write is mechanically enforced at write time.
+### Open Judgment
+
+The intended thinking space for independent roles.
+
+- Executor Judgment: implementation choices intentionally left open.
+- Tester Judgment: failure dimensions to attack beyond executor self-check.
+- Reviewer Judgment: quality, interface, caller, and contract questions the
+  reviewer must judge.
 
 Executor Requirements: State the outcome AND what the executor should self-verify.
 The executor covers basic correctness (happy path, obvious edge cases). Be specific
@@ -75,8 +95,8 @@ combinations. At least three distinct failure modes.
 Reviewer Requirements: Minimum hard gates. Reviewer brings relational review.
   "Confirm scope/forbidden write. Verify Done When. Apply relational review."
 
-Done When: Observable, indisputable proof. Pick the right proof level for this
-task:
+Proof Standard: Observable, indisputable proof. Pick the right proof level for
+each Done When item:
 
 | Level | Meaning | How to verify | When to use |
 |-------|---------|--------------|-------------|

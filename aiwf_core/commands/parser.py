@@ -7,7 +7,7 @@ from pathlib import Path
 from .flow import cmd_status
 from .ops_commands import _cmd_doctor, _cmd_fix_loop_help, _cmd_fix_loop_open, _cmd_fix_loop_resolve, _cmd_fix_loop_status, _cmd_install
 from .plan_commands import _cmd_plan_attach, _cmd_plan_cancel, _cmd_plan_close, _cmd_plan_create, _cmd_plan_dep_add, _cmd_plan_dep_remove, _cmd_plan_dep_show, _cmd_plan_detach, _cmd_plan_help, _cmd_plan_list, _cmd_plan_show
-from .state_commands import _cmd_record_architecture_review, _cmd_record_help, _cmd_record_review, _cmd_record_role_evidence, _cmd_record_testing
+from .state_commands import _cmd_record_architecture_review, _cmd_record_evidence_view, _cmd_record_help, _cmd_record_review, _cmd_record_role_evidence, _cmd_record_testing
 from .goal_tree_commands import _cmd_goal_cancel, _cmd_goal_close, _cmd_goal_create, _cmd_goal_help, _cmd_goal_tree_list, _cmd_goal_tree_show, _cmd_relation_add, _cmd_relation_remove
 from .milestone_commands import _cmd_milestone_arch_review, _cmd_milestone_assess, _cmd_milestone_cancel, _cmd_milestone_close, _cmd_milestone_confirm, _cmd_milestone_create, _cmd_milestone_help, _cmd_milestone_integration_test, _cmd_milestone_link_plan, _cmd_milestone_link_task, _cmd_milestone_list, _cmd_milestone_show, _cmd_milestone_unlink_plan, _cmd_milestone_unlink_task
 from .mission_commands import _cmd_mission_show
@@ -208,9 +208,14 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
     p_re_ev.add_argument("--command", default="", help="command or action observed")
     p_re_ev.add_argument("--status", default="accepted", choices=["pending","accepted","rejected"], help="evidence status")
     p_re_ev.set_defaults(func=_cmd_record_role_evidence)
+    p_re_view = p_rec_sub.add_parser("evidence-view", help="show compact task evidence view for review")
+    p_re_view.add_argument("task_id", nargs="?", default="", help="task ID (defaults to active)")
+    p_re_view.set_defaults(func=_cmd_record_evidence_view)
     p_re_te = p_rec_sub.add_parser("testing", help="record testing results")
     p_re_te.add_argument("--status", required=True, choices=["missing","partial","adequate","passed","failed"])
     p_re_te.add_argument("--command", action="append", default=[], dest="commands")
+    p_re_te.add_argument("--verification-result", action="append", default=[], dest="verification_results",
+                         help="structured command result: command:::expected:::observed:::matched|mismatched")
     p_re_te.add_argument("--summary", default="", help="testing summary")
     p_re_te.add_argument("--scan-git", action="store_true", default=False, dest="scan_git", help="capture git snapshot of tester's changes")
     p_re_te.set_defaults(func=_cmd_record_testing)

@@ -475,18 +475,11 @@ def _write_task_narrative(cwd: Path, task: dict) -> None:
                                        plan_id=task.get("plan_id", ""),
                                        milestone_id=task.get("milestone_id", ""),
                                        kind=task.get("kind", ""))
-    # Update ledger with doc path and hash
-    from ..core.index_ops import parse_md, compute_content_hash
-    full_path = cwd / path
-    _, body = parse_md(full_path)
-    doc_hash = compute_content_hash(body) if body else ""
-
+    # Update ledger with doc path
     ledger = load_ledger(str(cwd))
     for t in ledger.get("tasks", []):
         if t.get("id") == task["id"]:
             t["doc_path"] = path
-            t["doc_hash"] = doc_hash
-            t["doc_updated_at"] = _now_str()
             break
     save_ledger(str(cwd), ledger)
     print(f"  Narrative doc: {path}")

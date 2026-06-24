@@ -129,14 +129,9 @@ def planned_to_implementing_gates(base_dir: str, task_plan_id: str = "") -> List
 
     # ── Plan scope (L1+) ──
     # Plan is recommended but not required. Task.md is the execution contract.
-    # Only check Plan fields when a Plan is actually attached.
+    # allowed_write is no longer a gate — blacklist (forbidden_write) is the
+    # safety boundary. Only check Plan purpose when a Plan is attached.
     if level != "L0_direct" and plan:
-        if not plan.get("allowed_write"):
-            blockers.append(_blocker(
-                "plan.allowed_write",
-                "Which files are allowed to be modified under this Plan?",
-                "aiwf plan create PLAN-ID --allowed-write 'src/path/'",
-            ))
         if not plan.get("purpose"):
             blockers.append(_blocker(
                 "plan.purpose",

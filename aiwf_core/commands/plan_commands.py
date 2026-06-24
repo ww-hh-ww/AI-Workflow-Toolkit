@@ -121,11 +121,17 @@ def _cmd_plan_list(args: argparse.Namespace) -> None:
         return
     print(f"Task plans: {len(plans)}")
     for plan in plans:
+        pstatus = plan.get("status", plan.get("plan_status", "open"))
         state = plan_readiness(str(Path.cwd()), plan["plan_id"]) if plan.get("registry") else None
         readiness = "unregistered"
         if state:
-            readiness = "ready" if state["ready"] else f"blocked: {'; '.join(state['blockers'])}"
-        print(f"  {plan['task_id']} | {readiness} | {_rel(plan['path'])}")
+            if pstatus in ("cancelled", "closed"):
+                readiness = pstatus
+            elif state["ready"]:
+                readiness = "ready"
+            else:
+                readiness = f"blocked: {'; '.join(state['blockers'])}"
+        print(f"  {plan['task_id']} | {pstatus:10s} | {readiness} | {_rel(plan['path'])}")
 
 
 def _cmd_plan_dep_add(args: argparse.Namespace) -> None:
@@ -359,42 +365,23 @@ def _cmd_plan_deactivate(args: argparse.Namespace) -> None:
 
 def _write_plan_narrative(cwd: Path, plan_id: str, title: str = "",
                           goal_id: str = "", milestone_id: str = "") -> str:
-    from ..core.index_ops import create_narrative_for_entity, parse_md, compute_content_hash
+    from ..core.index_ops import create_narrative_for_entity
     from ..core.state.plan_ops import load_plans, save_plans
 
     path = create_narrative_for_entity(str(cwd), plan_id, "plan",
                                        title=title, goal_id=goal_id,
                                        milestone_id=milestone_id)
-    full_path = cwd / path
-    _, body = parse_md(full_path)
-    doc_hash = compute_content_hash(body) if body else ""
     data = load_plans(str(cwd))
     for p in data.get("plans", []) or []:
         if p.get("plan_id") == plan_id or p.get("id") == plan_id:
             p["doc_path"] = path
-            p["doc_hash"] = doc_hash
-            p["doc_updated_at"] = _now_str()
             break
     save_plans(str(cwd), data)
     return path
 
+
 from datetime import datetime, timezone
 
-def _now_str() -> str:
-    return datetime.now(timezone.utc).isoformat()
-    doc_hash = write_narrative_doc(full_path, fm, body)
-
-    plans = load_plans(str(cwd))
-    for p in plans.get("plans", []):
-        if p.get("plan_id") == plan_id or p.get("id") == plan_id:
-            p["doc_path"] = doc_path_str
-            p["doc_hash"] = doc_hash
-            p["doc_updated_at"] = _now_str()
-            break
-    save_plans(str(cwd), plans)
-    print(f"  Narrative doc: {doc_path_str}")
-
 
 def _now_str() -> str:
-    from datetime import datetime, timezone
     return datetime.now(timezone.utc).isoformat()

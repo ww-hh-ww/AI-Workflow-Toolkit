@@ -420,17 +420,12 @@ class TestV2CloseGate(unittest.TestCase):
         task_dir = cls.tmp / ".aiwf" / "tasks"
         task_dir.mkdir(parents=True, exist_ok=True)
         (task_dir / "TASK-001.md").write_text("# TASK-001\n\nExecutor Requirements\n\n- test\n")
-        # Create task in tasks.json with frozen hash
-        import hashlib
-        doc_text = (task_dir / "TASK-001.md").read_text()
-        doc_hash = "sha256:" + hashlib.sha256(doc_text.encode()).hexdigest()
+        # Create task in tasks.json
         tasks = json.loads((cls.tmp / ".aiwf" / "state" / "tasks.json").read_text())
         tasks["tasks"] = [{
             "id": "TASK-001", "status": "active",
             "plan_id": "PLAN-001",
             "doc_path": ".aiwf/tasks/TASK-001.md",
-            "doc_hash": doc_hash,
-            "frozen_doc_hash": doc_hash,
             "requirements": {"executor_required": False, "tester_required": False, "reviewer_required": False},
         }]
         (cls.tmp / ".aiwf" / "state" / "tasks.json").write_text(json.dumps(tasks, indent=2))

@@ -2,7 +2,8 @@
 import json, unittest
 from aiwf_core.core.evidence_view import (
     get_accepted_evidence, summarize_evidence,
-    build_closure_evidence_summary, format_evidence_for_status,
+    build_closure_evidence_summary, build_task_review_evidence_view,
+    format_evidence_for_status,
 )
 
 
@@ -104,6 +105,39 @@ class TestEvidenceView(unittest.TestCase):
         orig = self.ev["records"][0]["status"]
         build_closure_evidence_summary(self.ev, self.review, self.testing)
         self.assertEqual(self.ev["records"][0]["status"], orig)
+
+    def test_task_review_view_is_task_scoped_and_includes_diff_refs(self):
+        evidence = {"records": [
+            {"id": "EV-001", "status": "accepted", "task_id": "TASK-1",
+             "agent_type": "executor", "changed_files": ["src/a.py"],
+             "evidence_baseline_ref": "abc", "evidence_head_ref": "def",
+             "command": "pytest", "stdout_summary": "passed"},
+            {"id": "EV-002", "status": "accepted", "task_id": "TASK-2",
+             "agent_type": "executor", "changed_files": ["src/other.py"]},
+        ]}
+        testing = {
+            "status": "passed",
+            "commands": ["pytest"],
+            "verification_results": [{
+                "command": "pytest",
+                "expected": "passed",
+                "observed": "passed",
+                "matched": True,
+            }],
+        }
+        view = build_task_review_evidence_view(
+            evidence,
+            testing,
+            {"result": "accepted", "accepted_evidence_ids": ["EV-001"]},
+            {"id": "TASK-1"},
+        )
+
+        self.assertEqual(view["raw_record_count"], 2)
+        self.assertEqual(view["relevant_record_count"], 1)
+        self.assertEqual(view["changed_files"], ["src/a.py"])
+        self.assertEqual(view["diff_refs"][0]["command"], "git diff abc..def")
+        self.assertEqual(view["testing"]["verification_results"][0]["matched"], True)
+        self.assertEqual(view["ignored_other_task_ids"], ["TASK-2"])
 
 
 if __name__ == "__main__":

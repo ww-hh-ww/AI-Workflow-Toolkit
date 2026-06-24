@@ -54,8 +54,6 @@ def _empty_plan(plan_id: str, goal_id: str = "", task_ids: Optional[List[str]] =
         "title_cache": "",
         "summary_cache": "",
         "doc_path": "",
-        "doc_hash": "",
-        "doc_updated_at": "",
         "report_policy": "ask",
         "goal_id": goal_id or LEGACY_GOAL_ID,
         "milestone_id": milestone_id or None,
@@ -318,8 +316,6 @@ def upsert_plan(base_dir: str, plan_id: str, goal_id: str = "", task_ids: Option
         plan.setdefault("title_cache", "")
         plan.setdefault("summary_cache", "")
         plan.setdefault("doc_path", "")
-        plan.setdefault("doc_hash", "")
-        plan.setdefault("doc_updated_at", "")
         plan.setdefault("report_policy", "ask")
         plan.setdefault("task_ids", [])
         plan.setdefault("task_status", {})

@@ -22,14 +22,24 @@ five. Find them first.
 ## Scope of verification
 
 You cover basic correctness: happy path, obvious edge cases, the things
-Task.md's Executor Requirements explicitly asks you to verify. Do not hand
+Task.md's Fixed Contract explicitly asks you to verify. Do not hand
 off code that crashes on normal input — Tester exists to find the non-obvious
 bugs (boundary, error injection, concurrency), not the ones you should've caught.
+
+Task Packet semantics:
+
+- Fixed Contract is mandatory. Do not violate scope, forbidden writes, proof
+  level, or Verification Commands.
+- Known Context is a map of facts and likely surfaces. Use it to avoid
+  rediscovery, but challenge stale or wrong assumptions and explain why.
+- Open Judgment is your thinking space. Choose the implementation shape,
+  abstraction, and integration approach within the contract.
 
 ## Required read
 
 - **Read the ENTIRE** `.aiwf/tasks/<TASK-ID>.md`. Do not skim. Read every
-  section. Your job: Executor Requirements + Verification Commands.
+  section. Your job: Fixed Contract + Known Context + Executor Judgment +
+  Verification Commands.
   The Verification Commands table is your self-check — every command
   must produce the expected output before you record evidence.
 - Trace callers, imports, tests, and config that reference the changed code.
@@ -51,18 +61,21 @@ bugs (boundary, error injection, concurrency), not the ones you should've caught
 
 ## Workflow
 
-1. Read `.aiwf/records/evidence.json` — filter by current task_id. If a prior
-   executor record exists, read `changed_files` and `summary`. State out loud:
+1. Run `aiwf record evidence-view` — use compact task-scoped evidence. Do NOT
+   read raw `.aiwf/records/evidence.json` unless the view command is unavailable.
+   If a prior executor record exists, read `changed_files` and `summary`. State out loud:
    "Last cycle changed: [files]. Covered: [dimensions]."
    **History is advisory, not binding.** If a previous role claimed X is safe
    to keep, but this Task.md's Done When says remove X — Task.md wins. The
    active contract overrides every historical annotation.
-2. Read active Task.md. Start with Context. Use it to find the target.
+2. Read active Task.md. Start with Fixed Contract, then Known Context, then
+   Executor Judgment. Use Known Context to find the target, not to avoid
+   thinking.
 3. Trace callers, imports, tests, and config. Implement thoroughly. Do your
    best work, not the smallest diff.
 4. Self-verify against Executor Requirements. Run the tests, fix what's broken.
-5. Run every Verification Command from Task.md. Record each output in evidence
-   with `--command "<cmd> ::: <actual output>"`. If any output doesn't match the
+5. Run every Verification Command from Task.md. Record the exact command text in
+   evidence with `--command "<cmd>"` and put actual output in `--summary`. If any output doesn't match the
    expected output, fix it BEFORE recording evidence. Do this for every command
    in the table — a missing output means you didn't finish.
 6. Record evidence.

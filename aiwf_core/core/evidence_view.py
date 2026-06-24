@@ -118,6 +118,85 @@ def task_evidence_view(
     }
 
 
+def _compact_record(record: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "id": record.get("id", ""),
+        "role": record.get("agent_type") or record.get("agent_id") or "",
+        "status": record.get("status", ""),
+        "trust_level": record.get("trust_level", ""),
+        "command": record.get("command", ""),
+        "exit_code": record.get("exit_code"),
+        "stdout_summary": record.get("stdout_summary", ""),
+        "stderr_summary": record.get("stderr_summary", ""),
+        "changed_files": record.get("changed_files", []) or [],
+        "evidence_baseline_ref": record.get("evidence_baseline_ref", ""),
+        "evidence_head_ref": record.get("evidence_head_ref", ""),
+    }
+
+
+def build_task_review_evidence_view(
+    evidence: Dict[str, Any],
+    testing: Dict[str, Any],
+    review: Dict[str, Any],
+    task: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Build the small evidence surface a Reviewer should read.
+
+    This view intentionally excludes raw evidence payloads and unrelated task
+    records. It gives reviewers enough to inspect diffs and proof coverage
+    without burning context on the full evidence ledger.
+    """
+    view = task_evidence_view(evidence, testing, review, task)
+    records = view.get("records", []) or []
+    compact_records = [_compact_record(r) for r in records if isinstance(r, dict)]
+
+    diff_refs = []
+    for record in compact_records:
+        baseline = str(record.get("evidence_baseline_ref") or "")
+        head = str(record.get("evidence_head_ref") or "")
+        if baseline and head:
+            diff_refs.append({
+                "evidence_id": record.get("id", ""),
+                "role": record.get("role", ""),
+                "baseline": baseline,
+                "head": head,
+                "command": f"git diff {baseline}..{head}",
+            })
+
+    changed_files = sorted({
+        str(path)
+        for record in compact_records
+        for path in (record.get("changed_files", []) or [])
+        if str(path)
+    })
+
+    return {
+        "task_id": view.get("task_id", ""),
+        "raw_record_count": len(evidence.get("records", []) or []),
+        "relevant_record_count": len(compact_records),
+        "accepted_ids": sorted(view.get("accepted_ids", set()) or []),
+        "records": compact_records,
+        "diff_refs": diff_refs,
+        "changed_files": changed_files,
+        "testing": {
+            "status": testing.get("status", "missing"),
+            "commands": testing.get("commands", []) or [],
+            "verification_results": testing.get("verification_results", []) or [],
+            "proof_validation": testing.get("proof_validation", {}) or {},
+            "untested_risks": testing.get("untested_risks", []) or [],
+            "failed_commands": testing.get("failed_commands", []) or [],
+            "failure_summary": testing.get("failure_summary", ""),
+        },
+        "review": {
+            "result": review.get("result", "unknown"),
+            "verdict": review.get("verdict", "pending"),
+            "blockers": review.get("blockers", []) or [],
+            "accepted_evidence_ids": review.get("accepted_evidence_ids", []) or [],
+        },
+        "ignored_other_task_ids": view.get("ignored_other_task_ids", []) or [],
+    }
+
+
 def summarize_evidence(
     records: List[Dict[str, Any]],
     raw_total: int = 0,

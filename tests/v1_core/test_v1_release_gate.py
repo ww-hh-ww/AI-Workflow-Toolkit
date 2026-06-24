@@ -102,19 +102,13 @@ class TestV1ReleaseGate(unittest.TestCase):
         self.assertGreater(len(goals.get("goals", [])), 0)
         self.assertIn("Test Goal", goals["goals"][0]["title_cache"])
 
-    # ── 4. Activate + compile lock ──
+    # ── 4. Activate ──
 
-    def test_12_task_activate_sets_frozen_hash(self):
+    def test_12_task_activate_sets_active(self):
         _run([sys.executable, "-m", "aiwf_core.cli", "task", "activate", "TASK-001"], self.tmp)
         tasks = json.loads((self.tmp / ".aiwf" / "state" / "tasks.json").read_text())
         task = [t for t in tasks["tasks"] if t["id"] == "TASK-001"][0]
         self.assertEqual(task["status"], "active")
-        self.assertTrue(task.get("frozen_contract_hash"))
-
-    def test_13_active_task_md_skipped_during_sync(self):
-        r = _run([sys.executable, "-m", "aiwf_core.cli", "sync", "--check"], self.tmp)
-        self.assertIn("frozen", r.stdout.lower())
-        self.assertIn("skipped", r.stdout.lower())
 
     # ── 5. Record commands ──
 

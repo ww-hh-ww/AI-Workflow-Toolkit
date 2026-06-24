@@ -20,6 +20,7 @@ def record_testing(
     failure_summary: str = "",
     failed_obligations: Optional[List[str]] = None,
     failed_commands: Optional[List[str]] = None,
+    verification_results: Optional[List[Dict[str, Any]]] = None,
     suspected_route: str = "",
     required_verification: Optional[List[str]] = None,
     acceptance_coverage: Optional[List[str]] = None,
@@ -63,6 +64,7 @@ def record_testing(
         if failure_summary: testing["failure_summary"] = failure_summary
         if failed_obligations is not None: testing["failed_obligations"] = failed_obligations
         if failed_commands is not None: testing["failed_commands"] = failed_commands
+    if verification_results is not None: testing["verification_results"] = verification_results
     if suspected_route: testing["suspected_route"] = suspected_route
     if required_verification is not None: testing["required_verification"] = required_verification
     if acceptance_coverage is not None: testing["acceptance_coverage"] = acceptance_coverage
@@ -84,6 +86,24 @@ def record_testing(
     if supports_plan: testing["supports_plan"] = supports_plan
     if supports_goal: testing["supports_goal"] = supports_goal
     testing["recorded_at"] = datetime.now(timezone.utc).isoformat()
+
+    try:
+        state_for_task = _read(base / ".aiwf" / "state" / "state.json")
+        active_task_id = str(state_for_task.get("active_task_id") or "")
+        if active_task_id:
+            from ..task_ledger import load_ledger
+            from ..task_proof import validate_testing_against_task
+            task = next(
+                (
+                    item for item in load_ledger(base_dir).get("tasks", []) or []
+                    if isinstance(item, dict) and item.get("id") == active_task_id
+                ),
+                None,
+            )
+            if task:
+                testing["proof_validation"] = validate_testing_against_task(base_dir, task, testing)
+    except Exception as e:
+        testing["proof_validation"] = {"error": str(e)}
 
     _write(testing_path, testing)
 

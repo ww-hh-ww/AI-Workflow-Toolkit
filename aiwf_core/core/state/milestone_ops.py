@@ -61,8 +61,6 @@ def _empty_milestone(
         "title": title or milestone_id,
         "title_cache": title or milestone_id,
         "doc_path": f".aiwf/milestones/{milestone_id}.md",
-        "doc_hash": "",
-        "doc_updated_at": "",
         "status": status,
         "goal_id": goal_id or LEGACY_GOAL_ID,
         "mission_id": mission_id,
@@ -396,15 +394,7 @@ def reconcile_plan_to_milestone(base_dir: str, plan: Dict[str, Any]) -> Dict[str
     for tid in plan.get("task_ids", []) or []:
         if tid not in milestone.setdefault("task_ids", []):
             milestone["task_ids"].append(tid)
-    plan_ids = milestone.get("plan_ids", []) or []
-    closed = 0
     open_gaps = list(milestone.get("open_gaps", []) or [])
-    try:
-        from .plan_ops import get_plan
-        for pid in plan_ids:
-            p = get_plan(base_dir, pid)
-            if p.get("status") == "closed":
-                closed += 1
     milestone["open_gaps"] = open_gaps
     milestone["updated_at"] = _now()
     save_milestones(base_dir, data)

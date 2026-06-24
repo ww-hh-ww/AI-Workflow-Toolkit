@@ -202,9 +202,6 @@ def upsert_task(
             "title_cache": title or task_id,
             "summary_cache": "",
             "doc_path": "",
-            "doc_hash": "",
-            "doc_updated_at": "",
-            "frozen_doc_hash": None,
             "requirements": {
                 "executor_required": False if kind == "milestone_verification" else True,
                 "tester_required": True,
@@ -739,6 +736,11 @@ def activation_blockers(base_dir: str, task_id: str, skip_current_state_check: b
             "fix-loop is open; complete required fixes/verification and run aiwf fix-loop resolve"
             + suffix
         )
+    try:
+        from .task_proof import activation_proof_blockers
+        blockers.extend(activation_proof_blockers(base_dir, task))
+    except Exception as e:
+        blockers.append(f"Task proof contract check failed: {e}")
     blockers.extend(_quality_activation_blockers(base_dir, task))
     # V1: Periodic architecture review is advisory — it does NOT block ordinary task activation.
     # Architect is a read-only reviewer. Status/prompt shows "Architect due" as a reminder.
@@ -800,15 +802,6 @@ def activate_task(base_dir: str, task_id: str) -> Dict[str, Any]:
     task["status"] = "active"
     task["activated_at"] = _now()
     task["updated_at"] = _now()
-    # Freeze contract hash on activation (frontmatter + body)
-    if task.get("doc_path"):
-        from pathlib import Path as _Path
-        doc = _Path(base_dir) / task["doc_path"]
-        if doc.exists():
-            from .index_ops import parse_md, compute_contract_hash
-            fm, body = parse_md(doc)
-            if body:
-                task["frozen_contract_hash"] = compute_contract_hash(fm or {}, body)
     # Sync plan task_status so plans.json doesn't drift from task-ledger
     if task.get("plan_id"):
         try:
@@ -973,25 +966,7 @@ def close_task(base_dir: str, task_id: str = "", note: str = "") -> Dict[str, An
             return {"closed": False, "task": task, "ledger": ledger,
                     "blockers": ["open fix-loop blocks task close"]}
 
-        # 2. Active Task.md dirty check — warning only, does not block close
-        frozen = task.get("frozen_contract_hash", "")
-        if frozen and task.get("doc_path"):
-            from pathlib import Path as _Path
-            doc = _Path(base_dir) / task["doc_path"]
-            if doc.exists():
-                from .index_ops import parse_md, compute_contract_hash
-                fm, body = parse_md(doc)
-                if body:
-                    current_hash = compute_contract_hash(fm or {}, body)
-                    if current_hash != frozen:
-                        warnings = task.setdefault("close_warnings", [])
-                        warnings.append(
-                            "active Task.md changed after activation. "
-                            "This close uses the frozen JSON contract from activation. "
-                            "Post-activation MD edits were ignored."
-                        )
-
-        # 3. Requirements gates: executor, tester, reviewer
+        # 2. Requirements gates: executor, tester, reviewer
         reqs = task.get("requirements", {})
         if reqs.get("executor_required"):
             evidence = _read(Path(base_dir) / ".aiwf" / "records" / "evidence.json", {"records": []})

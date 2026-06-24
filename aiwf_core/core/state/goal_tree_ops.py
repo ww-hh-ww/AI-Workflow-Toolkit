@@ -61,8 +61,6 @@ def _empty_goal(
         "title_cache": title or goal_id,
         "summary_cache": "",
         "doc_path": "",
-        "doc_hash": "",
-        "doc_updated_at": "",
         "report_policy": "ask",
         "parent_goal_id": parent_goal_id,
         "child_goal_ids": [],

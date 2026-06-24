@@ -176,6 +176,30 @@ def _cmd_record_testing(args: argparse.Namespace) -> None:
                     )
                     raise SystemExit(1)
 
+    verification_results = []
+    for item in getattr(args, "verification_results", None) or []:
+        parts = [part.strip() for part in str(item).split(":::", 3)]
+        if len(parts) != 4:
+            print(
+                "Testing record blocked: --verification-result must be "
+                "'command:::expected:::observed:::matched|mismatched'",
+                file=sys.stderr,
+            )
+            raise SystemExit(1)
+        matched_token = parts[3].strip().lower()
+        if matched_token not in ("matched", "true", "pass", "passed", "mismatched", "false", "fail", "failed"):
+            print(
+                "Testing record blocked: verification result match status must be matched or mismatched",
+                file=sys.stderr,
+            )
+            raise SystemExit(1)
+        verification_results.append({
+            "command": parts[0],
+            "expected": parts[1],
+            "observed": parts[2],
+            "matched": matched_token in ("matched", "true", "pass", "passed"),
+        })
+
     testing = record_testing(str(Path.cwd()), getattr(args, "context_id", ""), args.status,
                    commands=args.commands or None,
                    evidence_ids=getattr(args, "evidence_ids", None) or None,
@@ -184,6 +208,7 @@ def _cmd_record_testing(args: argparse.Namespace) -> None:
                    failure_summary=getattr(args, "failure_summary", "") or "",
                    failed_obligations=getattr(args, "failed_obligations", None) or None,
                    failed_commands=getattr(args, "failed_commands", None) or None,
+                   verification_results=verification_results or None,
                    suspected_route=getattr(args, "suspected_route", "") or "",
                    required_verification=getattr(args, "required_verification", None) or None,
                    acceptance_coverage=getattr(args, "acceptance_coverage", None) or None,
@@ -208,6 +233,7 @@ def _cmd_record_testing(args: argparse.Namespace) -> None:
     print(f"Testing recorded: status={args.status}")
     if testing.get("evidence_id"): print(f"  Evidence: {testing['evidence_id']} (tester)")
     if getattr(args, "commands", None): print(f"  Commands: {len(args.commands)}")
+    if verification_results: print(f"  Verification results: {len(verification_results)}")
     if getattr(args, "untested_risks", None): print(f"  Untested risks: {len(args.untested_risks)}")
     if getattr(args, "failure_summary", ""): print(f"  Failure: {args.failure_summary[:120]}")
     if getattr(args, "failed_obligations", None): print(f"  Failed obligations: {len(args.failed_obligations)}")
@@ -218,6 +244,43 @@ def _cmd_record_testing(args: argparse.Namespace) -> None:
     if getattr(args, "real_usage_status", ""): print(f"  Real usage: {args.real_usage_status}")
     if getattr(args, 'supports_plan', ''): print(f"  Supports plan: {args.supports_plan}")
     if getattr(args, 'supports_goal', ''): print(f"  Supports goal: {args.supports_goal}")
+
+
+def _cmd_record_evidence_view(args: argparse.Namespace) -> None:
+    """aiwf record evidence-view — compact task-scoped evidence for review."""
+    from ..core.evidence_view import build_task_review_evidence_view
+    from ..core.task_ledger import load_ledger
+
+    base = Path.cwd()
+    state = json.loads((base / ".aiwf" / "state" / "state.json").read_text(encoding="utf-8"))
+    task_id = getattr(args, "task_id", "") or state.get("active_task_id") or ""
+    if not task_id:
+        print("Evidence view blocked: no task_id and no active task", file=sys.stderr)
+        raise SystemExit(1)
+    task = next(
+        (
+            item for item in load_ledger(str(base)).get("tasks", []) or []
+            if isinstance(item, dict) and item.get("id") == task_id
+        ),
+        None,
+    )
+    if not task:
+        print(f"Evidence view blocked: task not found: {task_id}", file=sys.stderr)
+        raise SystemExit(1)
+
+    def _read_json(path: Path) -> dict:
+        try:
+            return json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+        except Exception:
+            return {}
+
+    view = build_task_review_evidence_view(
+        _read_json(base / ".aiwf" / "records" / "evidence.json"),
+        _read_json(base / ".aiwf" / "records" / "testing.json"),
+        _read_json(base / ".aiwf" / "records" / "review.json"),
+        task,
+    )
+    print(json.dumps(view, ensure_ascii=False, indent=2))
     if getattr(args, "inferred_surfaces", None): print(f"  Inferred surfaces: {', '.join(args.inferred_surfaces)}")
     if getattr(args, "cross_task_risks", None): print(f"  Cross-task risks: {len(args.cross_task_risks)}")
     if getattr(args, "testing_debt", None): print(f"  Testing debt: {len(args.testing_debt)}")
@@ -755,6 +818,7 @@ def _cmd_record_help(args: argparse.Namespace) -> None:
     print()
     print("Available subcommands:")
     print("  aiwf record evidence             — record executor evidence")
+    print("  aiwf record evidence-view        — show compact task evidence for review")
     print("  aiwf record testing              — record testing results")
     print("  aiwf record review               — record review results")
     print("  aiwf record architecture-review  — record architecture review")

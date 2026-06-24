@@ -310,6 +310,50 @@ def prepare_close(base_dir: str) -> Dict[str, Any]:
             "record manual testing evidence with aiwf record evidence --role tester."
         )
 
+    # 7d. Strict Task Packet proof commands must be covered by recorded testing.
+    if active_task_id:
+        try:
+            from ..task_ledger import load_ledger
+            from ..task_proof import validate_testing_against_task
+
+            task = next(
+                (
+                    item for item in load_ledger(base_dir).get("tasks", []) or []
+                    if isinstance(item, dict) and item.get("id") == active_task_id
+                ),
+                None,
+            )
+            if task:
+                proof = validate_testing_against_task(base_dir, task, testing)
+                missing = proof.get("missing_commands", []) or []
+                if proof.get("strict") and missing and testing.get("status") in ("passed", "adequate"):
+                    blockers.append(
+                        "Task Packet proof not covered by testing commands: "
+                        + "; ".join(str(cmd) for cmd in missing[:5])
+                        + ". Recovery: run and record every Verification Command from Task.md."
+                    )
+                missing_results = proof.get("missing_verification_results", []) or []
+                if proof.get("strict") and missing_results and testing.get("status") in ("passed", "adequate"):
+                    blockers.append(
+                        "Task Packet proof lacks structured verification results: "
+                        + "; ".join(str(cmd) for cmd in missing_results[:5])
+                        + ". Recovery: record expected/observed/matched for every Verification Command."
+                    )
+                mismatched = proof.get("mismatched_results", []) or []
+                if proof.get("strict") and mismatched and testing.get("status") in ("passed", "adequate"):
+                    blockers.append(
+                        "Task Packet proof has mismatched verification results: "
+                        + "; ".join(str(cmd) for cmd in mismatched[:5])
+                    )
+                empty_observed = proof.get("empty_observed_results", []) or []
+                if proof.get("strict") and empty_observed and testing.get("status") in ("passed", "adequate"):
+                    blockers.append(
+                        "Task Packet proof has empty observed output: "
+                        + "; ".join(str(cmd) for cmd in empty_observed[:5])
+                    )
+        except Exception as e:
+            blockers.append(f"Task Packet proof validation failed: {e}")
+
     # 7e. README.md: if it doesn't exist, remind Planner to create one.
     readme_path = base / "README.md"
     if not readme_path.exists():

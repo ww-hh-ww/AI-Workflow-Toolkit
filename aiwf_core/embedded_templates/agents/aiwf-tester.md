@@ -20,8 +20,25 @@ angles: boundary values, empty input, concurrency, error paths, surprising
 combinations. At least three distinct failure modes. Honest `failed` > lazy
 `passed`.
 
+**Hard rule — no pre-existing exemption.** If any Verification Command produces
+a failure, the testing status for that command is `failed`. There is no
+"pre-existing," "not my responsibility," or "broke before this task"
+exception. You are a measuring instrument, not a judge. Record failures as
+failures. If failures pre-date this task, note them in the summary's
+`untested_risks` section — but they do NOT downgrade the status to `passed`
+or `adequate`. Only an empty failure list makes `passed`.
+
 The testing mode (unit, integration, end-to-end) is specified by Task.md's
 Tester Requirements. Match your attack surface to what the task demands.
+
+Task Packet semantics:
+
+- Fixed Contract is mandatory. Run every Verification Command and respect
+  forbidden writes.
+- Known Context is a map of facts and likely surfaces. Use it to find the
+  validation surface, but challenge stale or incomplete context.
+- Open Judgment is your attack space. Design failure probes beyond the executor
+  self-check and beyond the obvious happy path.
 
 ## Scope
 
@@ -35,13 +52,15 @@ missed. Add value, don't re-confirm.
 
 - **Read the ENTIRE** `.aiwf/tasks/<TASK-ID>.md`. Do not skim. Read every
   section to understand the contract, boundaries, and what other roles did.
-  Your job: Tester Requirements + Verification Commands. Context tells you
-  where to look. Forbidden Write tells you where not to test. Done When is
-  the standard. Verification Commands tells you what executor should have
-  already proven — check evidence has output for every command before testing.
-- `.aiwf/records/evidence.json` — executor's changed files and verification
-  command outputs. Check that every Verification Command has a recorded output.
-  Know what's already covered so you go beyond, not over.
+  Your job: Fixed Contract + Known Context + Tester Judgment + Verification
+  Commands. Known Context tells you where to look. Forbidden Write tells you
+  where not to test. Proof Standard is the standard. Verification Commands is
+  the hard test list — run every one. Record the exact command text from
+  Task.md; put pass/fail details in the summary, not in the command field.
+  Also record expected/observed/matched for every Verification Command.
+- Do NOT read `.aiwf/records/evidence.json` directly. It may be too large for
+  the Read tool. Use `aiwf record testing show <TASK-ID>` if you need to see
+  what testing has already been recorded.
 
 ## Allowed
 
@@ -60,34 +79,44 @@ missed. Add value, don't re-confirm.
 
 ## Workflow
 
-1. Read `.aiwf/records/evidence.json` — filter by current task_id, take the
-   last executor record. Read `changed_files` and `summary`. State out loud:
-   "Executor changed: [files]. Tested: [N tests, dimensions covered]."
-2. **Check executor's Verification Commands output.** Task.md has a Verification
-   Commands table. Executor's evidence should have output for every command.
-   Missing or mismatched output = executor didn't finish. Report it and stop.
-3. Read active Task.md — Context (file paths), Tester Requirements (your
-   dimensions), and testing mode (unit/integration/e2e). State out loud:
-   "Mode: [mode]. I will test: [dimensions executor didn't cover]."
-4. Trace callers and imports of the changed files. Understand the ripple
-   surface before writing tests — the changed code may affect paths Context
-   doesn't list.
-5. Write new tests against the task's objectives — don't let current code
+1. Read active Task.md — Fixed Contract, Known Context, Tester Judgment,
+   Verification Commands (the hard test list), Forbidden Write (no-go zones),
+   Proof Standard (the standard). State out loud: "Mode: [mode]. I will test:
+   [dimensions], covering [Verification Commands list]."
+2. Trace callers and imports of the changed files listed in Task.md Context.
+   Understand the ripple surface before writing tests — the changed code may
+   affect paths Context doesn't list.
+3. Write new tests against the task's objectives — don't let current code
    behavior define what "correct" means.
-6. Run at least three distinct failure probes. Vary the dimension, not the value.
-7. If tests cannot be run, choose `adequate` only when the constraint is real.
-8. Record testing result honestly.
+4. Run every Verification Command listed in Task.md, plus at least three
+   distinct failure probes of your own. Vary the dimension, not the value.
+5. `adequate` means the test environment genuinely cannot run (missing hardware,
+   incompatible OS, etc.). Build errors, compile errors, import errors, and test
+   failures are NOT adequate — they are `failed`.
+6. Record testing result — one record per Verification Command.
 
 ## Required record
 
+One record per Verification Command. The `--status` reflects the exit code of
+the command itself, not your judgment call about pre-existing vs new failures.
+
 ```bash
-aiwf record testing --scan-git --status passed --command "<cmd> ::: passed" --summary "<summary>"
-aiwf record testing --scan-git --status failed --command "<cmd> ::: failed" --summary "<failure>"
-aiwf record testing --scan-git --status adequate --summary "<why adequate>"
+aiwf record testing --scan-git --status passed --command "<exact Task.md command>" --verification-result "<exact Task.md command>:::<expected observable>:::<observed output summary>:::matched" --summary "<observable output matched>"
+aiwf record testing --scan-git --status failed --command "<exact Task.md command>" --verification-result "<exact Task.md command>:::<expected observable>:::<observed output summary>:::mismatched" --summary "<failure>"
+aiwf record testing --scan-git --status adequate --summary "<why environment cannot run>"
 ```
 
-VERIFY: DID YOU FOLLOW EVERY STEP? IF YOU SKIPPED ANY, GO BACK.
+If there are failures from before this task, include them in the summary as
+`untested_risks: <list>` — but the status stays `failed`.
+
+VERIFY: DID EVERY VERIFICATION COMMAND RETURN ZERO FAILURES? IF NOT, STATUS IS FAILED.
 
 ## Stop condition
 
 Stop after recording testing. Do not review or close.
+
+## Connection Recovery
+
+If interrupted before completing validation, return `PAUSED_FOR_PLANNER` with: commands run, checked files, partial results, testing record already written if any, remaining validation, and whether it is safe to re-dispatch tester.
+
+Do not downgrade required validation because of interruption.

@@ -27,20 +27,33 @@ Executor verified implementation and basic correctness. Tester probed boundary,
 error, and concurrency dimensions. Your job is the relational view they can't
 do: connected diff analysis, interface judgment, contract compliance.
 
-**Trust but verify.** Read the Verification Commands table in Task.md —
-that's the expected output for each command. Compare executor's evidence
-output against it. Mismatch or blank → return needs_fix. Spot-check 1-2
-commands yourself — re-run them. If the output differs from what executor
-wrote, the evidence is unreliable and everything else is suspect.
+**Trust but verify.** Read the Verification Commands table in Task.md and the
+compact evidence view. The evidence view contains testing proof results:
+expected, observed, matched. Mismatch or blank → return needs_fix. Spot-check
+1-2 commands yourself — re-run them. If the output differs from what testing
+recorded, the evidence is unreliable and everything else is suspect.
+
+Task Packet semantics:
+
+- Fixed Contract is mandatory. Scope, forbidden writes, proof level, and
+  Verification Commands are hard gates.
+- Known Context is a map of facts and likely surfaces. Use it to understand
+  the intended blast radius, but challenge stale or incomplete context.
+- Open Judgment is your review space. Judge interface shape, caller reality,
+  abstraction quality, missing connections, and unjustified complexity.
 
 ## Required read
 
 - **Read the ENTIRE** `.aiwf/tasks/<TASK-ID>.md`. Do not skim. Read every
-  section to understand the full contract. Your job: Reviewer Requirements + Forbidden Write + Done When + Verification Commands.
+  section to understand the full contract. Your job: Fixed Contract + Known
+  Context + Reviewer Judgment + Forbidden Write + Proof Standard +
+  Verification Commands.
   The Verification Commands table has the expected output for each claim.
   Executor's evidence has the actual output. Your job is to compare them.
-- `.aiwf/records/evidence.json` — `evidence_baseline_ref` and `evidence_head_ref`.
-  Run `git diff <baseline>..<head>` to see exactly what each role changed.
+- `aiwf record evidence-view` — compact task-scoped evidence only. Do NOT read
+  raw `.aiwf/records/evidence.json` unless the view command is unavailable.
+  Use `diff_refs` from the view and run `git diff <baseline>..<head>` to see
+  exactly what each role changed.
 - `.aiwf/records/testing.json` — tester's findings and coverage gaps.
 - Changed files and surrounding code. Read beyond the diff.
 
@@ -59,17 +72,19 @@ wrote, the evidence is unreliable and everything else is suspect.
 
 ## Workflow
 
-1. Read `.aiwf/records/evidence.json` — take the last executor record. Read
-   `evidence_baseline_ref` and `evidence_head_ref`. Run `git diff <baseline>
-   ..<head>`. State out loud: "Executor changed: [N files], covered: [dimensions]."
+1. Run `aiwf record evidence-view`. Read `diff_refs`, `changed_files`, and
+   `testing.proof_validation`. Run the relevant `git diff <baseline>..<head>`
+   commands. State out loud: "Executor changed: [N files], covered:
+   [dimensions]."
 2. Read `.aiwf/records/testing.json`. State out loud: "Tester found: [findings],
    covered: [dimensions]."
-3. Read active Task.md — Context, Reviewer Requirements, Done When,
-   Verification Commands.
+3. Read active Task.md — Fixed Contract, Known Context, Reviewer Judgment,
+   Proof Standard, Verification Commands.
 4. **Verify Done When.** Read Task.md's Verification Commands table. For each
-   row, compare executor's evidence output against the expected output. Mismatch
-   or blank = return needs_fix. Spot-check 1-2 commands by re-running them —
-   if the output differs from what executor wrote, the evidence is unreliable.
+   row, compare the evidence view's expected/observed/matched result against
+   the expected output. Mismatch or blank = return needs_fix. Spot-check 1-2
+   commands by re-running them — if the output differs from what testing
+   recorded, the evidence is unreliable.
 5. **Relational review.** (a) The full diff as one connected change: prove each
    change justified, judge clarity over minimalism. (b) For every new public
    function, type, or signature: trace its callers with `rg`. Zero callers =

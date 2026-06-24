@@ -193,11 +193,11 @@ class TestTemplateContracts(unittest.TestCase):
         for needle in [
             "Mission Anchor",
             "Mission Fit",
-            "Mission Leverage",
-            "mission mechanism",
+            "Mission Fit + Leverage",
+            "mission-mechanism",
             "operating model",
             "information model",
-            "capability boundary",
+            "capability model",
             "Mission is fixed",
             "goal-level completeness gaps",
             "Do not change the mission",
@@ -229,7 +229,7 @@ class TestTemplateContracts(unittest.TestCase):
             "user-selected slice",
             "selected lenses",
             "Mission Fit",
-            "Mission Leverage",
+            "Mission Fit + Leverage",
             "Governance Truth",
             "Do not create or activate tasks",
             "Do not confirm or close a milestone unless",
@@ -281,7 +281,7 @@ class TestTemplateContracts(unittest.TestCase):
         task = (PROJECT_ROOT / "aiwf_core" / "embedded_templates" / "skills" / "aiwf-planner" / "references" / "task-contract.md").read_text()
         for needle in [
             "Structural home",
-            "Record known truth",
+            "Facts and map",
             "Known surfaces",
             "Expected consumer",
             "Proof of wiring",
@@ -290,6 +290,66 @@ class TestTemplateContracts(unittest.TestCase):
             "proves the outcome or consumption path",
         ]:
             self.assertIn(needle, task)
+
+    def test_task_packet_scale_separates_contract_context_and_judgment(self):
+        planner_ref = (
+            PROJECT_ROOT
+            / "aiwf_core"
+            / "embedded_templates"
+            / "skills"
+            / "aiwf-planner"
+            / "references"
+            / "task-contract.md"
+        ).read_text()
+        template_source = (PROJECT_ROOT / "aiwf_core" / "core" / "index_ops.py").read_text()
+        c = planner_ref + "\n" + template_source
+        for needle in [
+            "## Fixed Contract",
+            "## Known Context",
+            "## Open Judgment",
+            "Non-negotiable governance",
+            "Facts and map, not conclusions",
+            "The intended thinking space",
+            "Executor Judgment",
+            "Tester Judgment",
+            "Reviewer Judgment",
+            "Expected Observable Output",
+        ]:
+            self.assertIn(needle, c)
+
+    def test_role_dispatch_uses_task_packet_layers(self):
+        c = "\n".join([
+            self._read_skill("aiwf-implement"),
+            self._read_skill("aiwf-test"),
+            self._read_skill("aiwf-review"),
+            self._read_agent("aiwf-executor"),
+            self._read_agent("aiwf-tester"),
+            self._read_agent("aiwf-reviewer"),
+        ])
+        for needle in [
+            "Fixed Contract",
+            "Known Context",
+            "Open Judgment",
+            "mandatory",
+            "map of facts",
+            "thinking space",
+            "challenge stale",
+        ]:
+            self.assertIn(needle, c)
+
+    def test_review_and_test_use_compact_evidence_view(self):
+        c = "\n".join([
+            self._read_skill("aiwf-implement"),
+            self._read_skill("aiwf-test"),
+            self._read_skill("aiwf-review"),
+            self._read_agent("aiwf-executor"),
+            self._read_agent("aiwf-tester"),
+            self._read_agent("aiwf-reviewer"),
+        ])
+        self.assertIn("aiwf record evidence-view", c)
+        self.assertIn("compact task-scoped evidence", c)
+        self.assertIn("expected/observed/matched", c)
+        self.assertIn("--verification-result", c)
 
     @unittest.skip("V1: template text changed")
     def test_planner_skill_has_entry_protocol_three_paths(self):

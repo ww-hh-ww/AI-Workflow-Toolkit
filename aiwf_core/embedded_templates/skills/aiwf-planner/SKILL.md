@@ -100,7 +100,9 @@ FOLLOW EVERY STEP. CHECK OFF EACH ONE AS YOU GO. SKIP NOTHING.
    - Done When: each criterion tagged with a proof level (Built/Wired/Running).
      New modules and public APIs are Wired or Running, never just Built.
    - Verification Commands: for every Wired/Running criterion, a concrete
-     command is listed with the expected observable output.
+     command is listed with the expected observable output. The command text is
+     a machine contract; Tester must record the same command text, not a
+     paraphrase or decorated string.
    - Role dispatch: executor/tester/reviewer requirements match the risk; no
      role is opened just because a field exists.
    If any of these is missing or vague, fix it before activating.
