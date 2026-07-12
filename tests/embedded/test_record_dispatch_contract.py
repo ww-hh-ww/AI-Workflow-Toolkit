@@ -28,7 +28,9 @@ class TestRecordDispatchContract(unittest.TestCase):
         subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=self.tmp, check=True)
         subprocess.run(["git", "config", "user.name", "AIWF Test"], cwd=self.tmp, check=True)
         (self.tmp / "project.txt").write_text("base\n", encoding="utf-8")
-        subprocess.run(["git", "add", "project.txt"], cwd=self.tmp, check=True)
+        # A Task starts from a clean repository. AIWF installation files are
+        # part of that baseline unless the project explicitly gitignores them.
+        subprocess.run(["git", "add", "-A"], cwd=self.tmp, check=True)
         subprocess.run(["git", "commit", "-m", "base"], cwd=self.tmp, check=True, capture_output=True)
         subprocess.run(["git", "switch", "-c", "feature/test"], cwd=self.tmp, check=True, capture_output=True)
         head = subprocess.run(

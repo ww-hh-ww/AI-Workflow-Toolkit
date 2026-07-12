@@ -13,6 +13,7 @@ from .commands.parser import build_parser
 from .constants import VERSION
 from .core.state_schema import MVP_STATE_FILES
 from .core.project_root import resolve_aiwf_project_root
+from .core.state._common import StateFileError
 
 
 def _show_planner_facade() -> None:
@@ -78,7 +79,11 @@ def main(argv: Optional[List[str]] = None) -> int:
     if not hasattr(args, "func"):
         parser.print_help()
         return 0
-    args.func(args)
+    try:
+        args.func(args)
+    except StateFileError as exc:
+        print(f"AIWF state error: {exc}", file=sys.stderr)
+        return 1
     return 0
 
 

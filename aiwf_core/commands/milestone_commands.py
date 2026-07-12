@@ -7,6 +7,7 @@ import sys
 
 def _cmd_milestone_create(args: argparse.Namespace) -> None:
     from ..core.state.milestone_ops import upsert_milestone
+    from ..core.index_ops import create_narrative_for_entity, sync_index
     try:
         result = upsert_milestone(
             str(Path.cwd()),
@@ -27,7 +28,6 @@ def _cmd_milestone_create(args: argparse.Namespace) -> None:
         raise SystemExit(1)
     m = result["milestone"]
     print(f"Milestone: {m['milestone_id']} status={m['status']}")
-    from ..core.index_ops import create_narrative_for_entity, sync_index
     path = create_narrative_for_entity(str(Path.cwd()), args.milestone_id, "milestone",
                                        title=getattr(args, "title", "") or "",
                                        goal_id=getattr(args, "goal_id", "") or "",

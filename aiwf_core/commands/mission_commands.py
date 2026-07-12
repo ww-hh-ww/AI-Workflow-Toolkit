@@ -8,18 +8,15 @@ mechanical constraint flows through milestones.
 from __future__ import annotations
 
 import argparse
-import json
 from pathlib import Path
+
+from ..core.state._common import _read_json
 
 def _mission_path(base_dir: str) -> Path:
     return Path(base_dir) / ".aiwf" / "state" / "mission.json"
 
 def _read_mission(base_dir: str) -> dict:
-    path = _mission_path(base_dir)
-    try:
-        return json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
-    except Exception:
-        return {}
+    return _read_json(_mission_path(base_dir))
 
 def _cmd_mission_show(args: argparse.Namespace) -> None:
     base_dir = str(Path.cwd())

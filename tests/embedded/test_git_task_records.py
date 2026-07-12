@@ -19,7 +19,8 @@ class TestGitTaskRecords(unittest.TestCase):
         subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=self.tmp, check=True)
         subprocess.run(["git", "config", "user.name", "AIWF Test"], cwd=self.tmp, check=True)
         (self.tmp / "README.md").write_text("base\n", encoding="utf-8")
-        subprocess.run(["git", "add", "README.md"], cwd=self.tmp, check=True)
+        (self.tmp / "CLAUDE.md").write_text("base project rules\n", encoding="utf-8")
+        subprocess.run(["git", "add", "README.md", "CLAUDE.md"], cwd=self.tmp, check=True)
         subprocess.run(["git", "commit", "-m", "base"], cwd=self.tmp, check=True, capture_output=True)
         subprocess.run(["git", "switch", "-c", "feature/test"], cwd=self.tmp, check=True, capture_output=True)
         self.origin = subprocess.run(
@@ -150,6 +151,23 @@ class TestGitTaskRecords(unittest.TestCase):
         self.assertTrue(result["closed"], result["blockers"])
         self.assertTrue((self.tmp / "PROJECT.md").exists())
         self.assertFalse((self.tmp / "README.md").exists())
+
+    def test_project_instruction_changes_are_in_the_reviewed_snapshot(self):
+        from aiwf_core.core.git_workflow import changed_project_files
+        from aiwf_core.core.task_ledger import close_task
+
+        (self.tmp / "CLAUDE.md").write_text("updated project rules\n", encoding="utf-8")
+        self.assertIn("CLAUDE.md", changed_project_files(str(self.tmp)))
+
+        implementation, _, _ = self._record_full_chain()
+        self.assertIn("CLAUDE.md", implementation["changed_files"])
+        result = close_task(str(self.tmp))
+        self.assertTrue(result["closed"], result["blockers"])
+        committed = subprocess.run(
+            ["git", "show", "--format=", "--name-only", result["task"]["closure"]["git_commit"]],
+            cwd=self.tmp, check=True, capture_output=True, text=True,
+        ).stdout.splitlines()
+        self.assertIn("CLAUDE.md", committed)
 
 
 if __name__ == "__main__":

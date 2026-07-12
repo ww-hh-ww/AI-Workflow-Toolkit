@@ -89,9 +89,10 @@ class TestHooks(unittest.TestCase):
                           "agent_type": agent_type})
         return _run_script(self.tmp / "scripts" / "aiwf_scope_check.py", inp, self.tmp)
 
-    def _bash(self, cmd):
+    def _bash(self, cmd, agent_type=""):
         inp = json.dumps({"session_id": "t", "tool_name": "Bash",
-                         "tool_input": {"command": cmd}})
+                         "tool_input": {"command": cmd},
+                         "agent_type": agent_type})
         return _run_script(self.tmp / "scripts" / "aiwf_bash_guard.py", inp, self.tmp)
 
     def _status(self):
@@ -536,6 +537,32 @@ class TestHooks(unittest.TestCase):
         out = json.loads(r.stdout.strip())
         self.assertEqual(out["hookSpecificOutput"]["permissionDecision"], "deny")
 
+    def test_ai_cannot_edit_human_command_policy(self):
+        result = self._scope(
+            "Write", ".aiwf/config/command-policy.json",
+            agent_type="aiwf-executor",
+        )
+        output = json.loads(result.stdout.strip())
+        reason = output["hookSpecificOutput"]["permissionDecisionReason"]
+        self.assertEqual(output["hookSpecificOutput"]["permissionDecision"], "deny")
+        self.assertIn("human-only commands", reason)
+
+    def test_only_planner_may_edit_normal_aiwf_config(self):
+        denied = self._scope(
+            "Edit", ".aiwf/config/write-policy.json",
+            agent_type="aiwf-tester",
+        )
+        output = json.loads(denied.stdout.strip())
+        self.assertEqual(output["hookSpecificOutput"]["permissionDecision"], "deny")
+        self.assertIn("owned by Planner", output["hookSpecificOutput"]["permissionDecisionReason"])
+
+        allowed = self._scope(
+            "Edit", ".aiwf/config/write-policy.json",
+            agent_type="planner-main",
+        )
+        self.assertEqual(allowed.returncode, 0, allowed.stderr)
+        self.assertEqual(allowed.stdout.strip(), "")
+
     # ── Bash guard ──
 
     def test_rm_rf_blocked(self):
@@ -585,6 +612,42 @@ class TestHooks(unittest.TestCase):
     def test_bash_modify_quality_review_blocked(self):
         r = self._bash("jq '.verdict=\"PASS\"' .aiwf/records/review.jsonl")
         self.assertIn("deny", r.stdout)
+
+    def test_bash_cannot_rewrite_command_policy(self):
+        result = self._bash("printf '{}' > .aiwf/config/command-policy.json")
+        self.assertIn("deny", result.stdout)
+        self.assertIn("human-only commands", result.stdout)
+
+    def test_non_planner_bash_cannot_rewrite_aiwf_config(self):
+        result = self._bash(
+            "sed -i '' 's/true/false/' .aiwf/config/write-policy.json",
+            agent_type="aiwf-tester",
+        )
+        self.assertIn("deny", result.stdout)
+        self.assertIn("owned by Planner", result.stdout)
+
+    def test_human_only_commands_remain_blocked_if_policy_is_empty(self):
+        path = self.tmp / ".aiwf/config/command-policy.json"
+        original = path.read_text(encoding="utf-8")
+        try:
+            path.write_text('{"schema_version": 1, "deny": []}\n', encoding="utf-8")
+            for command in ("aiwf task force-close", "aiwf task interrupt"):
+                result = self._bash(command)
+                self.assertIn("deny", result.stdout)
+                self.assertIn("Human action is required", result.stdout)
+        finally:
+            path.write_text(original, encoding="utf-8")
+
+    def test_invalid_command_policy_fails_closed(self):
+        path = self.tmp / ".aiwf/config/command-policy.json"
+        original = path.read_text(encoding="utf-8")
+        try:
+            path.write_text("{invalid", encoding="utf-8")
+            result = self._bash("pytest -q")
+            self.assertIn("deny", result.stdout)
+            self.assertIn("command-policy.json is invalid", result.stdout)
+        finally:
+            path.write_text(original, encoding="utf-8")
 
 
 if __name__ == "__main__":

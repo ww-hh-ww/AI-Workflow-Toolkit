@@ -15,19 +15,16 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import yaml
+from .state._common import _atomic_write, _read_json as _read_state_json
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 def _read_json(path: Path, default=None) -> Dict[str, Any]:
-    try:
-        return json.loads(path.read_text(encoding="utf-8")) if path.exists() else (default or {})
-    except Exception:
-        return default or {}
+    return _read_state_json(path, default)
 
 def _write_json(path: Path, data: Dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    _atomic_write(path, data)
 
 def _empty_json_entry(etype: str, eid: str, fm: Dict[str, Any]) -> Dict[str, Any]:
     """Create a minimal JSON entry from MD frontmatter for a newly registered doc."""

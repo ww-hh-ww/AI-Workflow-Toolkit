@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "description": "Commands that AI agents are mechanically blocked from running. Human users are not affected.",
+  "description": "Additional AI command policy. force-close and interrupt are also hard-blocked by the hook. Human terminal users are not affected.",
   "deny": [
     {
       "command": "aiwf task force-close",

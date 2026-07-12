@@ -3,8 +3,9 @@ from __future__ import annotations
 
 import json
 import os
+import tempfile
 from pathlib import Path
-from typing import Callable, Dict, TypeVar
+from typing import Callable, Dict, Optional, TypeVar
 
 BLOCKING_REVIEW_RESULTS = {
     "needs_fix", "needs_more_testing", "evidence_insufficient",
@@ -14,21 +15,45 @@ BLOCKING_REVIEW_RESULTS = {
 T = TypeVar("T")
 
 
+class StateFileError(ValueError):
+    """An AIWF state file exists but cannot be trusted."""
+
+
+def _read_json(path: Path, default: Optional[Dict] = None) -> Dict:
+    if not path.exists():
+        return default if default is not None else {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise StateFileError(f"invalid AIWF state file '{path}': {exc}") from exc
+    if not isinstance(data, dict):
+        raise StateFileError(f"invalid AIWF state file '{path}': root must be a JSON object")
+    return data
+
+
 def _read(path: Path) -> Dict:
-    try: return json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
-    except: return {}
+    return _read_json(path)
 
 
 def _write(path: Path, data: Dict) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    _atomic_write(path, data)
 
 
 def _atomic_write(path: Path, data: Dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(f".{path.name}.tmp")
-    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    os.replace(tmp, path)
+    payload = json.dumps(data, ensure_ascii=False, indent=2) + "\n"
+    fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as tmp:
+            tmp.write(payload)
+            tmp.flush()
+            os.fsync(tmp.fileno())
+        os.replace(tmp_name, path)
+    finally:
+        try:
+            os.unlink(tmp_name)
+        except FileNotFoundError:
+            pass
 
 
 def _locked_json_update(path: Path, default: Dict, mutator: Callable[[Dict], T]) -> T:

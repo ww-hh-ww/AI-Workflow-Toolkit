@@ -22,6 +22,11 @@ DEFAULT_WRITE_POLICY: Dict[str, Any] = {
     "critic_project_writes": "deny",
 }
 
+HUMAN_ONLY_COMMANDS = {
+    "aiwf task force-close": "force-close bypasses all Task gates",
+    "aiwf task interrupt": "interrupt releases the active Task execution window",
+}
+
 
 def _read_json(path: Path, default: Dict) -> Dict:
     if not path.exists():
@@ -409,6 +414,26 @@ def check_file_write(event: NormalizedEvent) -> ScopeResult:
 
     # ── Governance files ──
     if _is_governance_file(normalized):
+        if normalized == ".aiwf/config/command-policy.json":
+            return ScopeResult(
+                file_path=normalized,
+                allowed=False,
+                active_context_id=state.get("active_context_id") or "(none)",
+                reason=(
+                    "command-policy.json protects human-only commands and cannot be edited "
+                    "by AI tools. A human may edit it outside the Claude Code session."
+                ),
+            )
+        if normalized.startswith(".aiwf/config/") and role and not _is_planner_inline_role(role):
+            return ScopeResult(
+                file_path=normalized,
+                allowed=False,
+                active_context_id=state.get("active_context_id") or "(none)",
+                reason=(
+                    f"AIWF configuration is owned by Planner; {role} may read but not edit "
+                    f"'{normalized}'."
+                ),
+            )
         closed_plan_id = _closed_plan_for_path(cwd, normalized)
         if closed_plan_id:
             return ScopeResult(
@@ -570,6 +595,14 @@ def check_bash(event: NormalizedEvent) -> Dict:
     if policy_result:
         return policy_result
 
+    protected_config_result = _check_command_policy_bash_write(command, cwd)
+    if protected_config_result:
+        return protected_config_result
+
+    role_config_result = _check_role_config_bash_write(event, command)
+    if role_config_result:
+        return role_config_result
+
     closed_plan_result = _check_closed_plan_bash(command, cwd)
     if closed_plan_result:
         return closed_plan_result
@@ -698,13 +731,30 @@ def _check_command_policy(command: str, cwd: Path) -> Optional[Dict]:
     Returns a deny result dict if the command matches a blocked pattern,
     or None if the command is allowed.
     """
+    command_lower = command.lower()
+    for pattern, reason in HUMAN_ONLY_COMMANDS.items():
+        if pattern in command_lower:
+            return {
+                "allowed": False,
+                "decision": "deny",
+                "command": command[:200],
+                "matched_pattern": pattern,
+                "reason": f"{reason}. Human action is required.",
+            }
+
     policy_path = cwd / ".aiwf" / "config" / "command-policy.json"
     if not policy_path.exists():
         return None
     try:
         policy = json.loads(policy_path.read_text(encoding="utf-8"))
-    except Exception:
-        return None
+    except Exception as exc:
+        return {
+            "allowed": False,
+            "decision": "deny",
+            "command": command[:200],
+            "matched_pattern": "invalid command-policy.json",
+            "reason": f"command-policy.json is invalid; refusing Bash until a human repairs it: {exc}",
+        }
     for entry in policy.get("deny", []) or []:
         if not isinstance(entry, dict):
             continue
@@ -723,3 +773,51 @@ def _check_command_policy(command: str, cwd: Path) -> Optional[Dict]:
                 ),
             }
     return None
+
+
+def _check_command_policy_bash_write(command: str, cwd: Path) -> Optional[Dict]:
+    """Prevent shell commands from rewriting the policy that guards the shell."""
+    target = ".aiwf/config/command-policy.json"
+    absolute = str(cwd / target)
+    if target not in command and absolute not in command:
+        return None
+
+    if not _looks_like_shell_write(command):
+        return None
+    return {
+        "allowed": False,
+        "decision": "deny",
+        "command": command[:200],
+        "matched_pattern": target,
+        "reason": (
+            "command-policy.json protects human-only commands and cannot be edited "
+            "by AI shell commands. A human may edit it outside the Claude Code session."
+        ),
+    }
+
+
+def _check_role_config_bash_write(event: NormalizedEvent, command: str) -> Optional[Dict]:
+    role = str(event.agent_type or "").lower()
+    if not role or _is_planner_inline_role(role):
+        return None
+    if ".aiwf/config/" not in command or not _looks_like_shell_write(command):
+        return None
+    return {
+        "allowed": False,
+        "decision": "deny",
+        "command": command[:200],
+        "matched_pattern": ".aiwf/config/",
+        "reason": f"AIWF configuration is owned by Planner; {role} may read but not edit it.",
+    }
+
+
+def _looks_like_shell_write(command: str) -> bool:
+    import re
+
+    return bool(re.search(
+        r">>|(?<![<])>|\b(?:rm|unlink|mv|cp|tee|truncate)\b|"
+        r"\b(?:sed|perl)\b[^\n]*(?:\s-i|\s--in-place)|"
+        r"\bopen\s*\([^\n]*['\"](?:w|a)|\bdd\b[^\n]*\bof=",
+        command,
+        re.IGNORECASE,
+    ))

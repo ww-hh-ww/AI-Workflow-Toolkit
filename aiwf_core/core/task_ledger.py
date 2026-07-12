@@ -6,12 +6,12 @@ and active-window discipline.
 """
 from __future__ import annotations
 
-import json
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from .state.goal_ops import get_active_goal
+from .state._common import _atomic_write, _read_json
 
 VALID_TASK_STATUSES = {"candidate", "ready", "active", "blocked", "suspended", "closed", "cancelled"}
 TERMINAL_TASK_STATUSES = {"closed", "cancelled"}
@@ -57,14 +57,10 @@ def _detect_action_smell(title: str) -> List[str]:
     return warnings
 
 def _read(path: Path, default: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    try:
-        return json.loads(path.read_text(encoding="utf-8")) if path.exists() else (default or {})
-    except Exception:
-        return default or {}
+    return _read_json(path, default)
 
 def _write(path: Path, data: Dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    _atomic_write(path, data)
 
 def ledger_path(base_dir: str) -> Path:
     return Path(base_dir) / ".aiwf" / "state" / "tasks.json"

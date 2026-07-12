@@ -154,6 +154,8 @@ def _cmd_relation_remove(args: argparse.Namespace) -> None:
 def _cmd_goal_create(args: argparse.Namespace) -> None:
     """Create a goal — root if no parent, child if --parent given."""
     from ..core.state.goal_tree_ops import init_root, add_child_goal
+    from ..core.index_ops import create_narrative_for_entity, sync_index
+    from ..core.state.goal_tree_ops import load_goal_tree, save_goal_tree, _find_goal
     def _g(key, default=""):
         return getattr(args, key, default)
 
@@ -174,8 +176,6 @@ def _cmd_goal_create(args: argparse.Namespace) -> None:
     g = result.get("goal", result)
     gid = g.get("id") or g.get("goal_id") or goal_id
     print(f"Goal created: {gid}")
-    from ..core.index_ops import create_narrative_for_entity, sync_index
-    from ..core.state.goal_tree_ops import load_goal_tree, save_goal_tree, _find_goal
     path = create_narrative_for_entity(str(Path.cwd()), gid, "goal", title=title,
                                        status=g.get("status", ""),
                                        parent_goal_id=parent_id)

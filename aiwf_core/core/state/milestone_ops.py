@@ -1,7 +1,6 @@
 """Milestone registry operations — optional stage nodes for long tasks."""
 from __future__ import annotations
 
-import json
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -12,6 +11,7 @@ from ..state_schema import (
     VALID_MILESTONE_VERDICTS,
     default_milestones,
 )
+from ._common import _atomic_write, _read_json
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -20,14 +20,10 @@ def _milestones_path(base_dir: str) -> Path:
     return Path(base_dir) / ".aiwf" / "state" / "milestones.json"
 
 def _read(path: Path, default: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    try:
-        return json.loads(path.read_text(encoding="utf-8")) if path.exists() else (default or {})
-    except Exception:
-        return default or {}
+    return _read_json(path, default)
 
 def _write(path: Path, data: Dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    _atomic_write(path, data)
 
 def _unique(items: List[str]) -> List[str]:
     return [str(x) for x in dict.fromkeys(items or []) if str(x)]
@@ -418,26 +414,20 @@ def record_milestone_assessment(
 
 def _get_active_verification_task(base_dir: str, milestone_id: str) -> Optional[Dict[str, Any]]:
     """Return the active task if it's a milestone_verification task for the given milestone."""
-    try:
-        state_path = Path(base_dir) / ".aiwf" / "state" / "state.json"
-        if not state_path.exists():
-            return None
-        import json
-        state = json.loads(state_path.read_text(encoding="utf-8"))
-        active_id = state.get("active_task_id", "")
-        if not active_id:
-            return None
-        tasks_path = Path(base_dir) / ".aiwf" / "state" / "tasks.json"
-        if not tasks_path.exists():
-            return None
-        tasks_data = json.loads(tasks_path.read_text(encoding="utf-8"))
-        for t in tasks_data.get("tasks", []) or []:
-            if not isinstance(t, dict):
-                continue
-            if t.get("id") == active_id and t.get("kind") == "milestone_verification" and t.get("milestone_id") == milestone_id:
-                return t
-    except Exception:
-        pass
+    state = _read(Path(base_dir) / ".aiwf" / "state" / "state.json", {})
+    active_id = state.get("active_task_id", "")
+    if not active_id:
+        return None
+    tasks_data = _read(Path(base_dir) / ".aiwf" / "state" / "tasks.json", {})
+    for task in tasks_data.get("tasks", []) or []:
+        if not isinstance(task, dict):
+            continue
+        if (
+            task.get("id") == active_id
+            and task.get("kind") == "milestone_verification"
+            and task.get("milestone_id") == milestone_id
+        ):
+            return task
     return None
 
 def _auto_fill_verification_task_testing(base_dir: str, milestone_id: str, status: str, summary: str) -> None:
@@ -485,15 +475,11 @@ def _auto_fill_verification_task_review(base_dir: str, milestone_id: str, verdic
         summary=f"milestone assessment {verdict}: {summary}",
     )
 
-    import json
     state_path = Path(base_dir) / ".aiwf" / "state" / "state.json"
-    try:
-        state = json.loads(state_path.read_text(encoding="utf-8"))
-    except Exception:
-        state = {}
+    state = _read(state_path, {})
     if accepted:
         state["phase"] = "closing"
-        state_path.write_text(json.dumps(state, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        _write(state_path, state)
     else:
         from .fixloop_ops import open_fix_loop
         open_fix_loop(

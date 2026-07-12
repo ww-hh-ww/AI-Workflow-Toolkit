@@ -13,10 +13,6 @@ from ..hooks.common.diff_snapshot import filter_internal
 
 _INTERNAL_EXCLUDES = [
     ":(exclude).aiwf", ":(exclude).aiwf/**",
-    ":(exclude).claude", ":(exclude).claude/**",
-    ":(exclude).reasonix", ":(exclude).reasonix/**",
-    ":(exclude)scripts/aiwf_*",
-    ":(exclude)CLAUDE.md", ":(exclude)REASONIX.md", ":(exclude)AGENTS.md",
 ]
 
 

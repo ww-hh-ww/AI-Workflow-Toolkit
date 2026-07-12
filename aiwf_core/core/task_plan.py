@@ -75,6 +75,9 @@ def create_task_plan(
     milestone_id: str = "",
     task_ids: Optional[List[str]] = None,
 ) -> Dict[str, object]:
+    from .index_ops import create_narrative_for_entity
+    from .state.plan_ops import load_plans, save_plans, upsert_plan
+
     effective_plan_id = _safe_task_id(plan_id)
     attached_tasks = list(dict.fromkeys(task_ids or []))
 
@@ -82,7 +85,6 @@ def create_task_plan(
     path.parent.mkdir(parents=True, exist_ok=True)
     created = not path.exists()
     try:
-        from .state.plan_ops import upsert_plan
         upsert_plan(base_dir, effective_plan_id, goal_id=goal_id, task_ids=attached_tasks,
                     status="open", title=title or effective_plan_id,
                     milestone_id=milestone_id)
@@ -92,7 +94,6 @@ def create_task_plan(
         return {"path": str(path), "created": False, "error": str(exc),
                 "plan_id": effective_plan_id}
     if created:
-        from .index_ops import create_narrative_for_entity
         doc_path = create_narrative_for_entity(
             base_dir,
             effective_plan_id,
@@ -101,8 +102,6 @@ def create_task_plan(
             goal_id=goal_id,
             milestone_id=milestone_id,
         )
-        from .state.plan_ops import load_plans, save_plans
-
         plans = load_plans(base_dir)
         for plan in plans.get("plans", []) or []:
             if plan.get("plan_id") == effective_plan_id or plan.get("id") == effective_plan_id:

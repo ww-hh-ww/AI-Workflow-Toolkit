@@ -153,6 +153,10 @@ Ship the product safely.
         self.assertEqual(allowed["explorer_project_writes"], ["deny", "allow"])
         self.assertEqual(allowed["critic_project_writes"], ["deny", "allow"])
 
+    def test_package_declares_yaml_runtime_dependency(self):
+        pyproject = (PROJECT_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+        self.assertIn('dependencies = ["PyYAML>=6.0"]', pyproject)
+
     def test_reinstall_refreshes_write_policy_help_without_overwriting_choice(self):
         tmp = Path(tempfile.mkdtemp(prefix="awwritepolicy_"))
         try:

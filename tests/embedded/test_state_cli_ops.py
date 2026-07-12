@@ -233,6 +233,18 @@ class TestStateCliOps(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0, command)
             self.assertIn("closed", result.stderr.lower(), command)
 
+    def test_corrupt_state_is_reported_and_not_replaced_with_defaults(self):
+        tasks_path = self.tmp / ".aiwf/state/tasks.json"
+        corrupt = '{"tasks": ['
+        tasks_path.write_text(corrupt, encoding="utf-8")
+
+        result = self._run("task", "list")
+
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("AIWF state error", result.stderr)
+        self.assertIn("tasks.json", result.stderr)
+        self.assertEqual(tasks_path.read_text(encoding="utf-8"), corrupt)
+
 
 if __name__ == "__main__":
     unittest.main()

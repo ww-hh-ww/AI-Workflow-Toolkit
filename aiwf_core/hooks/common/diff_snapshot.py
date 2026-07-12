@@ -14,22 +14,12 @@ from typing import List, Optional, Set
 AIWF_INTERNAL_PATTERNS = [
     ".aiwf/",
     ".aiwf",       # bare directory name from git status
-    ".claude/",
-    ".claude",
-    ".reasonix/",
-    ".reasonix",
-    "scripts/aiwf_",  # AIWF-generated scripts
-    "CLAUDE.md",
-    "REASONIX.md",
-    "AGENTS.md",
 ]
 
 # Directories fully owned by AIWF — files within are always internal.
 # Git status shows these as directory entries when all contents are untracked.
 AIWF_INTERNAL_DIRS = [
     ".aiwf",
-    ".claude",
-    ".reasonix",
 ]
 
 BASELINE_FILE = ".aiwf/runtime/internal/baseline.json"

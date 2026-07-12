@@ -25,6 +25,7 @@ def _task_doc_has_section(cwd: Path, task_id: str, heading: str) -> bool:
 
 def _cmd_task_plan(args: argparse.Namespace) -> None:
     from ..core.task_ledger import upsert_task
+    from ..core.index_ops import sync_index
 
     def _split_csv(vals):
         if not vals: return None
@@ -79,7 +80,6 @@ def _cmd_task_plan(args: argparse.Namespace) -> None:
     print(f"  Parallel safe: {task.get('parallel_safe', False)}")
     # V1: Task.md is the execution contract — always created on task create
     _write_task_narrative(Path.cwd(), task)
-    from ..core.index_ops import sync_index
     sync_result = sync_index(str(Path.cwd()))
     if sync_result["changes"]:
         for c in sync_result["changes"][:5]:
