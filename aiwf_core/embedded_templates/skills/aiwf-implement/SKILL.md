@@ -3,29 +3,50 @@ name: aiwf-implement
 description: Use only when `aiwf status --prompt` lists `aiwf-implement` under Required skills.
 ---
 
-## Workflow
+# AIWF Implement
 
-FOLLOW EVERY STEP. CHECK OFF EACH ONE AS YOU GO. SKIP NOTHING.
+## Role
 
-0. Read `aiwf-project` skill for project-specific rules and knowledge.
-1. `aiwf status --prompt`
-2. Read active Task.md. Extract the Task Packet:
-   - Fixed Contract: Structural Home, Objective, Scope, Forbidden Write,
-     Proof Standard, Verification Commands.
-   - Known Context: Known Surfaces, Interfaces/Invariants, Integration Evidence,
-     Resolved/Deferred Unknowns.
-   - Open Judgment: Executor Judgment.
-   Paste these sections into the dispatch prompt so the subagent starts from
-   the map without losing implementation judgment.
-3. Run `aiwf record evidence-view` only when fix-loop context is needed. Do
-   NOT read raw `.aiwf/records/evidence.json` unless the view command is
-   unavailable.
-4. If `executor_required`:
-   `Agent({subagent_type: "aiwf-executor", prompt: "Active Task.md: .aiwf/tasks/<TASK-ID>.md\nFixed Contract: <paste Fixed Contract>\nKnown Context: <paste Known Context>\nOpen Judgment: <paste Executor Judgment>\n[if fix-loop: Last attempt changed: <files>\nTester found: <failure details>]"})`
-   The subagent reads prior evidence and records its own (see agent file).
-   Do NOT record again.
-5. If not — read `inline-execution.md`, implement inline, record evidence
-   as described there.
+Dispatch implementation for the active Task.md. Do not plan, test
+independently, review, close, or edit the active Task.md.
 
-VERIFY: DID YOU FOLLOW EVERY STEP? IF YOU SKIPPED ANY, GO BACK.
-VERIFY: Re-read aiwf-project. Any project rule you missed?
+The Task.md already contains the Fixed Contract, Known Context, and Open
+Judgment. Give Executor the document and fresh facts; do not recopy the whole
+contract or turn it into step-by-step coding instructions.
+
+## Dispatch
+
+1. Read the active Task.md and current status. For a fix loop, also read
+   `aiwf task proof` and the current finding.
+2. If this is the first implementation and `executor_required` is true,
+   dispatch `aiwf-executor` with:
+   - the active Task.md path;
+   - the current objective or fix-loop finding;
+   - any verified fact not yet present in Task.md or the implementation record;
+   - a request to read the contract, inspect code reality, implement, verify,
+     record implementation, and return `RETURN_TO_PLANNER` rather than guess.
+3. Do not paste Fixed Contract or Known Context into the prompt unless the
+   agent cannot access Task.md. Duplicated packets become stale and crowd out
+   code exploration.
+4. Let the subagent record its own implementation. Do not record it again.
+
+If Executor returns `RETURN_TO_PLANNER`, stop normal progress and surface the
+verified conflict. The hook opens a Planner fix-loop. Run `aiwf status --prompt`
+and load `aiwf-planner`; do not dispatch Tester.
+
+## Follow-Up Repairs
+
+After the Task has an Executor implementation record, choose the cheapest honest route:
+
+- Dispatch Executor again for changes to main paths, interfaces, state, data
+  conversion, concurrency, permissions, safety, deployment, or unclear design.
+- Use inline repair only for a tiny, well-understood correction.
+- If `executor_required` is false, follow `inline-execution.md`.
+
+The hook enforces the first Executor. Planner remains responsible for deciding
+whether later inline repair is actually simpler and safe.
+
+## Boundaries
+
+- Do not change Task.md, Done When, acceptance criteria, or Forbidden Write.
+- Stop after the implementation is recorded.

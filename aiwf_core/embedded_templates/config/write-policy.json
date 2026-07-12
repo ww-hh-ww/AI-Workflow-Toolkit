@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "description": "AIWF project write policy. Machine truth JSON under .aiwf/state/ and .aiwf/records/ is always protected. architect reports_only permits Markdown under docs/architect/ARCH-*/ only.",
+  "allowed_values": {
+    "project_writes_require_active_task": [true, false],
+    "freeze_active_task_md": [true, false],
+    "first_implementation_requires_executor": [true, false],
+    "tester_project_writes": ["deny", "test_assets_only", "allow_all"],
+    "architect_project_writes": ["deny", "reports_only", "allow"],
+    "explorer_project_writes": ["deny", "allow"],
+    "critic_project_writes": ["deny", "allow"]
+  },
+  "project_writes_require_active_task": true,
+  "freeze_active_task_md": true,
+  "first_implementation_requires_executor": true,
+  "tester_project_writes": "test_assets_only",
+  "architect_project_writes": "reports_only",
+  "explorer_project_writes": "deny",
+  "critic_project_writes": "deny"
+}

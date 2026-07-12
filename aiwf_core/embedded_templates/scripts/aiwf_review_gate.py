@@ -9,7 +9,6 @@ def main():
     data = parse_claude_stdin()
     cwd = Path(__file__).resolve().parent.parent
 
-    cs_exists = (cwd / ".aiwf" / "artifacts" / "reports" / "当前状态.md").exists()
     if not (cwd / ".aiwf" / "state" / "state.json").exists():
         allow()
 
@@ -18,8 +17,7 @@ def main():
     if gates["passed"]:
         allow()
 
-    # No close attempt was made: closure_conditions_met returns
-    # passed=False with no blockers to mean "ordinary Stop, no gate check".
+    # Outside the closing stage there is no Stop gate to enforce.
     if not gates["blockers"]:
         allow()
 

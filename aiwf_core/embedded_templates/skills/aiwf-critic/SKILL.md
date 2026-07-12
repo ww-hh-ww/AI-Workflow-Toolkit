@@ -1,22 +1,42 @@
 ---
 name: aiwf-critic
-description: Manual. Independent project critic — challenges assumptions, finds blind spots, tests whether the project is worth doing. Spawns an independent subagent for unbiased critique.
+description: Manual independent challenge of a project, node, decision, result, or named claim. Dispatches an independent skeptic and returns its findings to the user.
 ---
+
+# AIWF Critic
+
+## Role
+
+This skill dispatches an independent Critic. The main session chooses the slice
+with the user and presents the report. It does not perform or soften the
+critique.
+
+Critic is manual. It does not join the normal workflow or block work.
 
 ## Workflow
 
-FOLLOW EVERY STEP. CHECK OFF EACH ONE AS YOU GO. SKIP NOTHING.
+1. Ask what the user wants challenged. Use the request directly when it is
+   already clear.
 
-1. Ask the user: "Which scope — full project, specific goal, or specific plan?"
-   If the user didn't specify, default to full project.
-2. Read the relevant goals, plans, and milestones to understand what the project
-   does. Summarize in the dispatch prompt: "This project aims to [X] for [Y] by [Z]."
-3. Dispatch:
-   `Agent({subagent_type: "aiwf-critic", prompt: "Critique this project.\n\nContext: <your summary of goals, plans, milestones>\n\nScope: <full / goal GOAL-ID / plan PLAN-ID>\n\nFollow your workflow. Present findings in four categories: what holds up, what's shaky, what's wrong, what's missing."})`
-   The subagent is an independent model with no stake in the project. It reads
-   the project files itself and forms its own judgments. Do not pre-digest or
-   soft-pedal.
-4. Present the subagent's findings to the user as-is. Do not summarize, filter,
-   or defend the project against the critique.
+   The slice may be the full project, Mission, one Goal, Plan, Task, Milestone,
+   technical decision, implementation result, or named claim.
 
-VERIFY: Did you dispatch an independent subagent? Did you present findings unfiltered?
+2. Use critique only by default. Include better options when the user asks how
+   to improve the selected subject.
+
+3. Dispatch the project-local `aiwf-critic` subagent. Pass the user's request
+   verbatim, the selected slice, and the answer mode. Do not summarize the claim
+   for Critic or give it a preferred conclusion.
+
+   `Agent({subagent_type: "aiwf-critic", prompt: "User request: <verbatim request>\nCritique slice: <selected slice>\nAnswer mode: <critique only | critique plus better options>\nRead the relevant project and AIWF material yourself. Follow /aiwf-critic. Return CRITIC_REPORT."})`
+
+4. Present the report as Critic findings. Keep clear what it inspected, what it
+   inferred, and what remains unknown. Do not defend the project or turn the
+   findings into tasks.
+
+## Boundaries
+
+- Do not run Critic automatically.
+- Do not open a fix-loop or change workflow state.
+- Do not modify project or governance files.
+- Stop after presenting the findings.

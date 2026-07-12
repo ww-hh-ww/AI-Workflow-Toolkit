@@ -1,39 +1,58 @@
 # Inline Execution
 
-FOLLOW EVERY STEP. CHECK OFF EACH ONE AS YOU GO. SKIP NOTHING.
-
 When `*_required` is false, the task doesn't need a subagent for that role.
-Execute directly, then record evidence yourself.
+Execute directly, then record the implementation yourself.
 
-- Read active `.aiwf/tasks/<TASK-ID>.md` before doing anything.
+Inline does not mean casual. Before doing anything, read the active
+`.aiwf/tasks/<TASK-ID>.md` and understand:
+
+- Fixed Contract: Objective, Contract Responsibility, Proof Standard,
+  Verification Commands, and explicit Forbidden Write if present.
+- Known Context: surfaces, invariants, integration evidence, unknowns.
+- Open Judgment: the role-specific questions you still need to answer.
+
+If Contract Responsibility, main-path consumer, invariant, or proof is unclear,
+stop and return to Planner instead of guessing.
 
 ## Implement
 
-- Trivial task: fix it correctly, don't overthink.
-- Simple task: do good work, check obvious impact.
-- After implementing, record:
+- Trivial task: fix it correctly, check obvious impact.
+- Simple task: trace callers/imports/config enough to prove the change is
+  consumed where the contract says it matters.
+- Run every Verification Command and compare expected observable output to
+  actual output.
+- Record the implementation. Git refs carry the full change;
+  keep the summary short and use the strongest exact self-check:
   ```bash
-  aiwf record evidence --role executor --scan-git --summary "<what changed>" --command "<command>"
+  aiwf record implementation --summary "<what changed; how consumed; observed result>" --command "<strongest exact self-check>"
   ```
 
 ## Test
 
 - Trivial: run what exists, confirm green.
-- Simple: check the changed surface, one extra path.
+- Simple: check the changed surface plus at least one false-pass risk: old
+  path, bypass, fixture/mock, boundary/error case, or integration consumer.
 - Match testing mode to Task.md. Honest failed > lazy passed.
-- After testing, record:
+- Record actual observable output, not just "passed".
+- Record one testing result for the validation pass. Repeat `--command` and
+  `--verification-result` inside that record for every required command:
   ```bash
-  aiwf record testing --scan-git --status passed|failed|adequate --summary "<summary>"
+  aiwf record testing --status passed --command "<exact command>" --verification-result "<command>:::<expected>:::<observed>:::matched" --summary "<what the output proved>"
+  aiwf record testing --status failed --command "<exact command>" --verification-result "<command>:::<expected>:::<observed>:::mismatched" --summary "<failure>"
   ```
 
 ## Review
 
-- Trivial: sanity check, no scope violation, done.
-- Simple: check scope, done when, obvious issues.
-- Normal: full relational review (prove justified, zero downgrade, interface shape).
+- Trivial: sanity check, no unrelated change, done.
+- Simple: check Contract Responsibility, Done When, record truth, and obvious
+  caller/old-path issues.
+- Normal: full relational review belongs in `aiwf-reviewer`; do not inline it
+  just because it is convenient.
 - After reviewing, record:
   ```bash
-  aiwf record review --result accepted|needs_fix|rejected --summary "<why>"
+  aiwf record review --result accepted --summary "<why accepted>"
+  aiwf record review --result needs_fix|rejected --summary "<why>" --blocker "<specific blocker>"
   ```
 
-VERIFY: DID YOU FOLLOW EVERY STEP? IF YOU SKIPPED ANY, GO BACK.
+Before each record, make sure the actual output supports the claim. Do not add
+an extra checklist to prove that you followed this reference.

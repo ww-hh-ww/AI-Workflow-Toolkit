@@ -45,6 +45,8 @@ class TestHooks(unittest.TestCase):
             p = self.tmp / ".aiwf" / fn
             p.parent.mkdir(parents=True, exist_ok=True)
             p.write_text(json.dumps(dfn(), indent=2) + "\n")
+        status_fp = self.tmp / ".aiwf" / "runtime" / "internal" / "status-hook-last.json"
+        status_fp.unlink(missing_ok=True)
 
     def _scope(self, tool, file_path, allowed_write=None, forbidden_write=None, agent_type="",
                task_requirements=None):
@@ -53,9 +55,6 @@ class TestHooks(unittest.TestCase):
             s["active_context_id"] = "CTX-001"
             s["active_task_id"] = "TASK-001"
             (self.tmp / ".aiwf" / "state" / "state.json").write_text(json.dumps(s, indent=2))
-            (self.tmp / ".aiwf" / "state" / "state.json").write_text(json.dumps(
-                {"contexts": [{"id": "CTX-001",
-                 "forbidden_write": forbidden_write or []}]}, indent=2))
             # allowed_write lives on the Plan now — create one
             (self.tmp / ".aiwf" / "state" / "plans.json").write_text(json.dumps({
                 "plans": [{"plan_id": "PLAN-001", "allowed_write": allowed_write,
@@ -63,6 +62,25 @@ class TestHooks(unittest.TestCase):
             task_entry = {"id": "TASK-001", "status": "active", "plan_id": "PLAN-001"}
             if task_requirements:
                 task_entry["requirements"] = task_requirements
+                task_md = self.tmp / ".aiwf" / "tasks" / "TASK-001.md"
+                task_md.parent.mkdir(parents=True, exist_ok=True)
+                task_md.write_text(
+                    "---\n"
+                    "id: TASK-001\n"
+                    "type: task\n"
+                    f"executor_required: {str(bool(task_requirements.get('executor_required'))).lower()}\n"
+                    f"tester_required: {str(bool(task_requirements.get('tester_required'))).lower()}\n"
+                    f"reviewer_required: {str(bool(task_requirements.get('reviewer_required'))).lower()}\n"
+                    + (
+                        "tester_write:\n"
+                        + "".join(f"  - {p}\n" for p in task_requirements.get("tester_write", []))
+                        if task_requirements.get("tester_write") else ""
+                    )
+                    +
+                    "---\n\n"
+                    "# TASK-001\n",
+                    encoding="utf-8",
+                )
             (self.tmp / ".aiwf" / "state" / "tasks.json").write_text(json.dumps(
                 {"tasks": [task_entry],
                  "execution_window": {"active_task_ids": ["TASK-001"]}}, indent=2))
@@ -86,6 +104,27 @@ class TestHooks(unittest.TestCase):
                          "hook_event_name": "Stop"})
         return _run_script(self.tmp / "scripts" / "aiwf_review_gate.py", inp, self.tmp)
 
+    def _subagent_stop(self, agent_type, message):
+        inp = json.dumps({
+            "session_id": "t",
+            "cwd": str(self.tmp),
+            "hook_event_name": "SubagentStop",
+            "agent_type": agent_type,
+            "last_assistant_message": message,
+        })
+        return _run_script(self.tmp / "scripts" / "aiwf_agent_log.py", inp, self.tmp)
+
+    def _agent_result(self, agent_type, message):
+        inp = json.dumps({
+            "session_id": "t",
+            "cwd": str(self.tmp),
+            "hook_event_name": "PostToolUse",
+            "tool_name": "Agent",
+            "tool_input": {"subagent_type": agent_type},
+            "tool_response": {"content": message},
+        })
+        return _run_script(self.tmp / "scripts" / "aiwf_agent_log.py", inp, self.tmp)
+
     def _write_state(self, name, data):
         path = self.tmp / ".aiwf" / name
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -99,11 +138,114 @@ class TestHooks(unittest.TestCase):
         self.assertIn("additionalContext", out["hookSpecificOutput"])
         ctx = out["hookSpecificOutput"]["additionalContext"]
         self.assertIn("[AIWF]", ctx)
-        self.assertIn("Phase:", ctx)
-        self.assertIn("Process:", ctx)
-        self.assertIn("Health:", ctx)
-        self.assertIn("[ATTN]", ctx)
+        self.assertIn("Plan Before Work", ctx)
+        self.assertIn("do not start from memory", ctx)
+        self.assertIn("aiwf status --prompt", ctx)
         self.assertLess(len(ctx), 1000)
+
+    def test_status_hook_is_silent_when_fingerprint_does_not_change(self):
+        first = self._status()
+        self.assertNotEqual(first.stdout.strip(), "")
+
+        second = self._status()
+        self.assertEqual(second.returncode, 0, second.stderr)
+        self.assertEqual(second.stdout.strip(), "")
+
+    def test_status_hook_reports_close_task_stage(self):
+        state = json.loads((self.tmp / ".aiwf" / "state" / "state.json").read_text())
+        state.update({
+            "phase": "reviewing",
+            "active_task_id": "TASK-001",
+            "active_plan_id": "PLAN-001",
+        })
+        self._write_state("state/state.json", state)
+        self._write_state("records/testing.json", {"status": "passed", "commands": ["pytest"]})
+        self._write_state("records/review.json", {
+            "result": "accepted",
+            "closure_allowed": True,
+        })
+
+        task_doc = self.tmp / ".aiwf" / "tasks" / "TASK-001.md"
+        task_doc.parent.mkdir(parents=True, exist_ok=True)
+        task_doc.write_text("---\nid: TASK-001\n---\n\n# TASK-001\n", encoding="utf-8")
+
+        r = self._status()
+        out = json.loads(r.stdout.strip())
+        ctx = out["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("Learn After Work", ctx)
+        self.assertIn("Calibrate actual outcome", ctx)
+        self.assertIn("closure calibration missing", ctx)
+
+    def test_closed_plan_document_is_read_only_for_ai_tools(self):
+        self._write_state("state/plans.json", {
+            "plans": [{"plan_id": "PLAN-HISTORY", "status": "closed"}],
+        })
+
+        result = self._scope("Edit", ".aiwf/plans/PLAN-HISTORY.md")
+        output = json.loads(result.stdout.strip())
+
+        self.assertEqual(
+            output.get("hookSpecificOutput", {}).get("permissionDecision"), "deny"
+        )
+        self.assertIn("records completed work", output["hookSpecificOutput"]["permissionDecisionReason"])
+
+    def test_closed_plan_document_is_read_only_for_bash_writes(self):
+        self._write_state("state/plans.json", {
+            "plans": [{"plan_id": "PLAN-HISTORY", "status": "closed"}],
+        })
+
+        result = self._bash("echo changed >> .aiwf/plans/PLAN-HISTORY.md")
+        output = json.loads(result.stdout.strip())
+
+        hook_output = output.get("hookSpecificOutput", {})
+        self.assertEqual(hook_output.get("permissionDecision"), "deny")
+        self.assertIn("records completed work", hook_output["permissionDecisionReason"])
+
+    def test_executor_return_opens_planner_fix_loop_and_status_routes_planner(self):
+        state = json.loads((self.tmp / ".aiwf" / "state" / "state.json").read_text())
+        state.update({"phase": "executing", "active_task_id": "TASK-001"})
+        self._write_state("state/state.json", state)
+
+        result = self._subagent_stop(
+            "aiwf-executor",
+            "RETURN_TO_PLANNER: representative inputs disprove the chosen mechanism\n\nVerified in src/main.rs.",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+        fix_loop = json.loads((self.tmp / ".aiwf" / "state" / "fix-loop.json").read_text())
+        self.assertEqual(fix_loop["status"], "open")
+        self.assertEqual(fix_loop["route"], "planner")
+        self.assertEqual(fix_loop["source"], "executor")
+        self.assertIn("disprove the chosen mechanism", fix_loop["reason"])
+
+        env = os.environ.copy(); env["PYTHONPATH"] = str(PROJECT_ROOT)
+        status = subprocess.run(
+            [sys.executable, "-m", "aiwf_core.cli", "status", "--prompt"],
+            capture_output=True, text=True, cwd=str(self.tmp), env=env, timeout=TIMEOUT,
+        )
+        self.assertEqual(status.returncode, 0, status.stderr)
+        self.assertIn("[ATTN] /aiwf-planner", status.stdout)
+        self.assertIn("decide whether the active task still holds", status.stdout)
+
+    def test_normal_agent_report_does_not_open_fix_loop(self):
+        result = self._subagent_stop("aiwf-executor", "Implemented and verified the task.")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        fix_loop = json.loads((self.tmp / ".aiwf" / "state" / "fix-loop.json").read_text())
+        self.assertNotEqual(fix_loop.get("status"), "open")
+
+    def test_agent_result_fallback_routes_external_finding(self):
+        result = self._agent_result(
+            "aiwf-tester",
+            "EXTERNAL_FINDING: service mode does not start the real pipeline",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        output = json.loads(result.stdout)
+        self.assertIn("Stop normal progress", output["hookSpecificOutput"]["additionalContext"])
+
+        fix_loop = json.loads((self.tmp / ".aiwf" / "state" / "fix-loop.json").read_text())
+        self.assertEqual(fix_loop["route"], "planner")
+        self.assertEqual(fix_loop["source"], "tester")
+        self.assertIn("service mode", fix_loop["reason"])
 
     # ── Stop ──
 
@@ -113,43 +255,25 @@ class TestHooks(unittest.TestCase):
         self.assertNotIn('"decision": "block"', r.stdout)
         self.assertEqual(r.stdout.strip(), "")
 
-    def test_close_attempt_without_review_blocks(self):
-        state = json.loads((self.tmp / ".aiwf" / "state" / "state.json").read_text())
-        state["phase"] = "closing"
-        state["close_attempt"] = True
+    def test_reviewed_active_task_cannot_stop_before_task_close(self):
+        state = json.loads((self.tmp / ".aiwf/state/state.json").read_text())
+        state.update({"phase": "closing", "active_task_id": "TASK-001"})
         self._write_state("state/state.json", state)
-
-        r = self._stop()
-        self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertIn('"decision": "block"', r.stdout)
-        self.assertIn("review not recorded", r.stdout)
-
-    def test_close_attempt_with_all_gates_passed_allows(self):
-        state = json.loads((self.tmp / ".aiwf" / "state" / "state.json").read_text())
-        state["phase"] = "closing"
-        state["close_attempt"] = True
-        self._write_state("state/state.json", state)
-        self._write_state("records/evidence.jsonl", {
-            "records": [{"id": "EV-001", "status": "accepted", "session_id": "s1"}],
+        self._write_state("records/implementation.json", {"implementation_ref": "abc"})
+        self._write_state("records/testing.json", {
+            "status": "passed", "commands": ["pytest"], "tested_ref": "def",
         })
-        self._write_state("records/testing.jsonl", {
-            "status": "passed", "commands": ["pytest"],
-        })
-        self._write_state("records/review.jsonl", {
-            "result": "accepted",
-            "closure_allowed": True,
-            "cleanup_status": "fresh",
-            "stale_items": [],
+        self._write_state("records/review.json", {
+            "result": "accepted", "closure_allowed": True, "blockers": [], "reviewed_ref": "def",
         })
 
-        r = self._stop()
-        self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertNotIn('"decision": "block"', r.stdout)
-        self.assertEqual(r.stdout.strip(), "")
+        result = self._stop()
+
+        self.assertIn('"decision": "block"', result.stdout)
+        self.assertIn("run aiwf task close before stopping", result.stdout)
 
     def test_l1_plus_planner_main_project_write_is_blocked_before_implementation(self):
         state = json.loads((self.tmp / ".aiwf" / "state" / "state.json").read_text())
-        state["workflow_level"] = "L2_standard_team"
         state["phase"] = "executing"
         state["active_context_id"] = "CTX-001"
         state["active_task_id"] = "TASK-001"
@@ -173,7 +297,6 @@ class TestHooks(unittest.TestCase):
 
     def test_l1_plus_planner_main_project_write_is_blocked_mid_task_testing(self):
         state = json.loads((self.tmp / ".aiwf" / "state" / "state.json").read_text())
-        state["workflow_level"] = "L2_standard_team"
         state["phase"] = "testing"
         self._write_state("state/state.json", state)
 
@@ -187,7 +310,6 @@ class TestHooks(unittest.TestCase):
 
     def test_l1_plus_executor_subagent_project_write_is_allowed(self):
         state = json.loads((self.tmp / ".aiwf" / "state" / "state.json").read_text())
-        state["workflow_level"] = "L2_standard_team"
         state["phase"] = "executing"
         state["active_context_id"] = "CTX-001"
         state["active_task_id"] = "TASK-001"
@@ -209,9 +331,87 @@ class TestHooks(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(r.stdout.strip(), "")
 
-    def test_l1_plus_fix_loop_project_repair_requires_executor_subagent(self):
+    def test_tester_can_write_test_asset_when_executor_required(self):
+        r = self._scope(
+            "Write",
+            "tests/task-002-validation.spec.js",
+            allowed_write=["src/", "tests/"],
+            task_requirements={
+                "executor_required": True,
+                "tester_required": True,
+                "reviewer_required": True,
+            },
+            agent_type="aiwf-tester",
+        )
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout.strip(), "")
+
+    def test_tester_cannot_write_implementation_when_executor_required(self):
+        r = self._scope(
+            "Write",
+            "src/lib.rs",
+            allowed_write=["src/", "tests/"],
+            task_requirements={
+                "executor_required": True,
+                "tester_required": True,
+                "reviewer_required": True,
+            },
+            agent_type="aiwf-tester",
+        )
+        out = json.loads(r.stdout.strip())
+        self.assertEqual(out.get("hookSpecificOutput", {}).get("permissionDecision"), "deny")
+        self.assertIn("test/verification assets", out["hookSpecificOutput"]["permissionDecisionReason"])
+
+    def test_tester_write_frontmatter_allows_distributed_test_asset(self):
+        r = self._scope(
+            "Write",
+            "crates/agent/src/behavior_validation.rs",
+            allowed_write=["crates/"],
+            task_requirements={
+                "executor_required": True,
+                "tester_required": True,
+                "reviewer_required": True,
+                "tester_write": ["crates/*/src/*_validation.rs"],
+            },
+            agent_type="aiwf-tester",
+        )
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout.strip(), "")
+
+    def test_tester_write_frontmatter_blocks_unlisted_test_asset(self):
+        r = self._scope(
+            "Write",
+            "tests/unlisted.spec.js",
+            allowed_write=["tests/"],
+            task_requirements={
+                "executor_required": True,
+                "tester_required": True,
+                "reviewer_required": True,
+                "tester_write": ["crates/*/src/*_validation.rs"],
+            },
+            agent_type="aiwf-tester",
+        )
+        out = json.loads(r.stdout.strip())
+        self.assertEqual(out.get("hookSpecificOutput", {}).get("permissionDecision"), "deny")
+        self.assertIn("test/verification assets", out["hookSpecificOutput"]["permissionDecisionReason"])
+
+    def test_reviewer_project_write_is_not_controlled_by_write_policy(self):
+        r = self._scope(
+            "Write",
+            "tests/review-fix.spec.js",
+            allowed_write=["tests/"],
+            task_requirements={
+                "executor_required": False,
+                "tester_required": True,
+                "reviewer_required": True,
+            },
+            agent_type="aiwf-reviewer",
+        )
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout.strip(), "")
+
+    def test_l1_plus_fix_loop_project_repair_requires_first_executor_evidence(self):
         state = json.loads((self.tmp / ".aiwf" / "state" / "state.json").read_text())
-        state["workflow_level"] = "L2_standard_team"
         state["phase"] = "testing"
         self._write_state("state/state.json", state)
         self._write_state("state/fix-loop.json", {
@@ -226,7 +426,7 @@ class TestHooks(unittest.TestCase):
         out = json.loads(r.stdout.strip())
 
         self.assertEqual(out.get("hookSpecificOutput", {}).get("permissionDecision"), "deny")
-        self.assertIn("fix-loop repair", out["hookSpecificOutput"]["permissionDecisionReason"])
+        self.assertIn("first implementation", out["hookSpecificOutput"]["permissionDecisionReason"])
 
         allowed = self._scope("Write", "src/lib.rs", allowed_write=["src/"],
                              task_requirements={"executor_required": True},
@@ -234,10 +434,32 @@ class TestHooks(unittest.TestCase):
         self.assertEqual(allowed.returncode, 0, allowed.stderr)
         self.assertEqual(allowed.stdout.strip(), "")
 
-    def test_no_close_attempt_passed_false_empty_blockers_does_not_block(self):
+    def test_planner_can_inline_repair_after_executor_evidence_exists(self):
+        self._write_state("state/fix-loop.json", {
+            "status": "open",
+            "route": "planner-main",
+            "required_fixes": ["src/lib.rs"],
+        })
+        self._write_state("records/implementation.json", {
+            "task_id": "TASK-001", "implementation_ref": "abc",
+        })
+        r = self._scope("Write", "src/lib.rs", allowed_write=["src/"],
+                        task_requirements={"executor_required": True})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout.strip(), "")
+
+    def test_planner_project_write_allowed_after_task_executor_evidence_exists(self):
+        self._write_state("records/implementation.json", {
+            "task_id": "TASK-001", "implementation_ref": "abc",
+        })
+        r = self._scope("Write", "src/followup.rs", allowed_write=["src/"],
+                        task_requirements={"executor_required": True})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout.strip(), "")
+
+    def test_reviewing_stage_without_active_close_allows_stop(self):
         state = json.loads((self.tmp / ".aiwf" / "state" / "state.json").read_text())
         state["phase"] = "reviewing"
-        state["close_attempt"] = False
         self._write_state("state/state.json", state)
         self._write_state("records/evidence.jsonl", {"records": []})
         self._write_state("records/testing.jsonl", {"status": "missing"})
@@ -252,26 +474,6 @@ class TestHooks(unittest.TestCase):
         self.assertNotIn('"decision": "block"', r.stdout)
         self.assertEqual(r.stdout.strip(), "")
 
-    @unittest.skip("V1: status routes changed")
-    def test_status_after_review_without_active_task_routes_to_closure_not_new_task(self):
-        state_path = self.tmp / ".aiwf" / "state" / "state.json"
-        state = json.loads(state_path.read_text())
-        state["phase"] = "reviewing"
-        state["active_task_id"] = None
-        state["workflow_level"] = "L2_standard_team"
-        state_path.write_text(json.dumps(state, indent=2))
-        review_path = self.tmp / ".aiwf" / "records" / "review.jsonl"
-        review = json.loads(review_path.read_text())
-        review["result"] = "accepted"
-        review_path.write_text(json.dumps(review, indent=2))
-
-        r = self._status()
-        ctx = json.loads(r.stdout.strip())["hookSpecificOutput"]["additionalContext"]
-
-        self.assertIn("Recovery:closure planner", ctx)
-        self.assertIn("PRIMARY: follow active plan Impact and run prepare-close", ctx)
-        self.assertNotIn("PRIMARY: activate task", ctx)
-
     def test_status_with_execution_plan_without_task_is_healthy(self):
         state_path = self.tmp / ".aiwf" / "state" / "state.json"
         state = json.loads(state_path.read_text())
@@ -283,19 +485,20 @@ class TestHooks(unittest.TestCase):
         r = self._status()
         ctx = json.loads(r.stdout.strip())["hookSpecificOutput"]["additionalContext"]
 
-        # V2: plan without active task is Health: ok, no recovery lines
-        self.assertIn("Health: ok", ctx)
-        self.assertIn("[ATTN]", ctx)
+        # UserPromptSubmit is only a short lifecycle nudge. Detailed health
+        # and routing live in `aiwf status --prompt`.
+        self.assertIn("Plan Before Work", ctx)
+        self.assertIn("aiwf status --prompt", ctx)
 
-    def test_l2_review_write_as_governance_is_allowed(self):
+    def test_l2_review_json_must_use_cli(self):
         state = json.loads((self.tmp / ".aiwf" / "state" / "state.json").read_text())
-        state["workflow_level"] = "L2_standard_team"
         state["active_task_id"] = "TASK-001"
         (self.tmp / ".aiwf" / "state" / "state.json").write_text(json.dumps(state, indent=2))
-        r = self._scope("Write", ".aiwf/records/review.jsonl")
-        # V2: review.json is a governance file — always allowed for Write/Edit
+        r = self._scope("Write", ".aiwf/records/review.json")
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertEqual(r.stdout.strip(), "")
+        out = json.loads(r.stdout)
+        self.assertEqual(out["hookSpecificOutput"]["permissionDecision"], "deny")
+        self.assertIn("aiwf CLI", out["hookSpecificOutput"]["permissionDecisionReason"])
 
     def test_generated_hooks_run_without_pythonpath(self):
         inp = json.dumps({"session_id": "t", "cwd": str(self.tmp),
@@ -333,34 +536,6 @@ class TestHooks(unittest.TestCase):
         out = json.loads(r.stdout.strip())
         self.assertEqual(out["hookSpecificOutput"]["permissionDecision"], "deny")
 
-    def test_post_tool_scope_drift_records_review_event_without_fixloop(self):
-        from aiwf_core.hooks.common.evidence_writer import check_and_record_scope_violations
-
-        state = json.loads((self.tmp / ".aiwf" / "state" / "state.json").read_text())
-        state["active_context_id"] = "CTX-001"
-        state["active_task_id"] = "TASK-001"
-        (self.tmp / ".aiwf" / "state" / "state.json").write_text(json.dumps(state, indent=2))
-        (self.tmp / ".aiwf" / "state" / "plans.json").write_text(json.dumps({
-            "plans": [{"plan_id": "PLAN-001", "allowed_write": ["src/"],
-                       "goal_id": "GOAL-001", "target_goal_id": "GOAL-001"}],
-        }, indent=2))
-        ledger_path = self.tmp / ".aiwf" / "state" / "tasks.json"
-        ledger_path.write_text(json.dumps({
-            "tasks": [{"id": "TASK-001", "status": "active", "plan_id": "PLAN-001"}],
-            "execution_window": {"active_task_ids": ["TASK-001"]},
-        }, indent=2))
-
-        # V2: in-scope writes produce no violations
-        violations = check_and_record_scope_violations(
-            ["src/main.py"], {"id": "CTX-001", "forbidden_write": []}, self.tmp
-        )
-
-        self.assertEqual(violations, [])
-        state_after = json.loads((self.tmp / ".aiwf" / "state" / "state.json").read_text())
-        self.assertFalse(state_after.get("scope_violation"))
-        fix_loop = json.loads((self.tmp / ".aiwf" / "state" / "fix-loop.json").read_text())
-        self.assertNotEqual(fix_loop.get("status"), "open")
-
     # ── Bash guard ──
 
     def test_rm_rf_blocked(self):
@@ -384,6 +559,14 @@ class TestHooks(unittest.TestCase):
         r = self._bash("python3 -c \"open('.aiwf/state/state.json','w')\"")
         self.assertIn("deny", r.stdout)
         self.assertIn("mechanical truth", r.stdout)
+
+    def test_git_commit_is_reserved_for_task_close_while_task_active(self):
+        state = json.loads((self.tmp / ".aiwf/state/state.json").read_text())
+        state.update({"active_task_id": "TASK-001", "phase": "executing"})
+        self._write_state("state/state.json", state)
+        r = self._bash("git commit -m 'bypass review'")
+        self.assertIn("deny", r.stdout)
+        self.assertIn("aiwf task close", r.stdout)
 
     def test_bash_write_to_fix_loop_blocked(self):
         r = self._bash("echo '{}' > .aiwf/state/fix-loop.json")

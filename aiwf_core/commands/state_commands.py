@@ -1,4 +1,4 @@
-"""CLI command handlers for AIWF embedded mainline."""
+"""CLI handlers for implementation, testing, and review records."""
 from __future__ import annotations
 
 import argparse
@@ -6,859 +6,206 @@ import json
 import sys
 from pathlib import Path
 
-from ..constants import VERSION
+
+ROLE_SUBAGENTS = {
+    "executor": ("executor_required", "aiwf-executor", "aiwf-implement"),
+    "tester": ("tester_required", "aiwf-tester", "aiwf-test"),
+    "reviewer": ("reviewer_required", "aiwf-reviewer", "aiwf-review"),
+}
 
 
-def _has_hook_observed_role(records, expected_role: str) -> bool:
-    """Return true when evidence contains real tool work from the expected role.
-
-    Claude Code subagents may share a parent session ID in some environments, so
-    session diversity is not a reliable independence signal. The durable signal
-    is hook-observed tool work attributed to the native subagent role. Explicit
-    AIWFRoleEvidence backfills are useful provenance, but do not satisfy this
-    gate by themselves.
-    """
-    needle = expected_role.lower()
-    for record in records or []:
-        if not isinstance(record, dict):
-            continue
-        if record.get("trust") != "machine_observed":
-            continue
-        if str(record.get("tool_name") or "") == "AIWFRoleEvidence":
-            continue
-        role_blob = " ".join(
-            str(record.get(key, "") or "").lower()
-            for key in ("agent_type", "agent_id", "role")
-        )
-        if needle in role_blob:
-            return True
-    return False
-
-
-def _cmd_record_quality_brief(args: argparse.Namespace) -> None:
-    """aiwf state record-quality-brief — write task-specific quality brief to goal.json."""
-    from ..core.state_ops import record_quality_brief
-    # Validate surface types
-    validated_surfaces = []
-    if args.surface_types:
-        from ..core.quality_surfaces import VALID_SURFACE_TYPES
-        for st in args.surface_types:
-            if st not in VALID_SURFACE_TYPES:
-                print(f"Error: unknown surface type: {st}", file=sys.stderr)
-                print(f"  Valid surfaces: {', '.join(sorted(VALID_SURFACE_TYPES))}", file=sys.stderr)
-                raise SystemExit(1)
-            validated_surfaces.append(st)
+def _require_role_dispatch(base: Path, role: str) -> None:
+    """Fail early when a required role has not been dispatched for this task."""
+    requirement = ROLE_SUBAGENTS.get(role)
+    if not requirement:
+        return
+    requirement_key, subagent_type, skill_name = requirement
     try:
-        goal = record_quality_brief(
-        str(Path.cwd()),
-        acceptance_criteria=args.acceptance or None,
-        test_focus=args.test_focus or None,
-        review_focus=args.review_focus or None,
-        non_goals=args.non_goals or None,
-        escalation_triggers=args.escalation_triggers or None,
-        target_structure=args.target_structure or "",
-        module_boundaries=args.module_boundaries or None,
-        allowed_files=args.allowed_files or None,
-        protected_files=args.protected_files or None,
-        allowed_new_files=args.allowed_new_files or None,
-        public_api_changes=args.public_api_changes or None,
-        integration_points=args.integration_points or None,
-        architecture_invariants=args.architecture_invariants or None,
-        forbidden_restructures=args.forbidden_restructures or None,
-        architecture_risks=args.architecture_risks or None,
-        migration_source_of_truth=args.migration_source_of_truth or "",
-        legacy_paths=args.legacy_paths or None,
-        legacy_terms=args.legacy_terms or None,
-        default_entrypoints=args.default_entrypoints or None,
-        validators=args.validators or None,
-        sample_outputs=args.sample_outputs or None,
-        surface_types=validated_surfaces or None,
-        user_visible_outcome=args.user_visible_outcome or "",
-        evaluation_acceptance_criteria=args.acceptance_criteria or None,
-        evaluation_non_goals=args.non_goals or None,
-        test_obligations=args.test_obligations or None,
-        review_obligations=args.review_obligations or None,
-        known_risks=args.known_risks or None,
-        closure_question=args.closure_question or "",
-        system_integration_obligations=args.system_integration_obligations or None)
-    except ValueError as e:
-        print(f"Quality brief update blocked: {e}", file=sys.stderr)
-        raise SystemExit(1)
-    brief = goal.get("quality_brief", {})
-    print("Quality brief recorded:")
-    if brief.get("acceptance_criteria"):
-        print(f"  Acceptance: {len(brief['acceptance_criteria'])} criteria")
-    if brief.get("test_focus"):
-        print(f"  Test focus: {len(brief['test_focus'])} items")
-    if brief.get("review_focus"):
-        print(f"  Review focus: {len(brief['review_focus'])} items")
-    if brief.get("non_goals"):
-        print(f"  Non-goals: {len(brief['non_goals'])} items")
-    if brief.get("escalation_triggers"):
-        print(f"  Escalation triggers: {len(brief['escalation_triggers'])} items")
-    ab = brief.get("architecture_brief", {})
-    if ab:
-        ab_count = sum(1 for v in ab.values() if v and v != "" and v != [])
-        if ab_count: print(f"  Architecture brief: {ab_count} field(s)")
+        state = json.loads((base / ".aiwf/state/state.json").read_text(encoding="utf-8"))
+        tasks = json.loads((base / ".aiwf/state/tasks.json").read_text(encoding="utf-8"))
+    except Exception:
+        return
 
-def _cmd_start_context(args: argparse.Namespace) -> None:
-    """aiwf state start-context — create/update context with dispatch fields."""
-    from ..core.state_ops import start_context
-    try:
-        # Split comma-separated values: --allowed-write "a,b,c" → ["a","b","c"]
-        def _split_csv(vals):
-            if not vals: return None
-            out = []
-            for v in vals:
-                for part in str(v).split(","):
-                    part = part.strip()
-                    if part:
-                        out.append(part)
-            return out or None
+    task_id = str(state.get("active_task_id") or "")
+    if not task_id:
+        return
+    task = next(
+        (
+            item for item in tasks.get("tasks", []) or []
+            if isinstance(item, dict) and str(item.get("id") or "") == task_id
+        ),
+        {},
+    )
+    if not bool((task.get("requirements", {}) or {}).get(requirement_key, True)):
+        return
 
-        ctxs = start_context(
-            str(Path.cwd()), getattr(args, "context_id", ""), args.label or "",
-            note=args.note or "",
-            purpose=args.purpose or "",
-            read_hints=_split_csv(args.read_hints),
-            non_goals=_split_csv(args.non_goals),
-            dependencies=_split_csv(args.dependencies),
-            interface_contract=args.interface_contract or "",
-            test_focus=_split_csv(args.test_focus),
-            review_focus=_split_csv(args.review_focus),
-            escalation_triggers=_split_csv(args.escalation_triggers))
-    except ValueError as e:
-        print(f"Context update blocked: {e}", file=sys.stderr)
-        raise SystemExit(1)
-    ctx = [c for c in ctxs["contexts"] if c["id"] == args.context_id][0]
-    print(f"Context started:")
-    print(f"  ID: {ctx['id']}")
-    print(f"  Title: {ctx.get('title', '')}")
-    has_dispatch = any(ctx.get(k) for k in ["purpose","test_focus","review_focus"])
-    print(f"  Dispatch: {'present' if has_dispatch else 'not set'}")
-    print(f"  Note: scope boundaries live on the Plan (aiwf plan create --allowed-write ...)")
-    print(f"  Active context: {args.context_id}")
+    dispatch_path = base / ".aiwf/runtime/internal/agent-dispatch.jsonl"
+    if dispatch_path.exists():
+        for line in dispatch_path.read_text(encoding="utf-8").splitlines():
+            try:
+                entry = json.loads(line)
+            except Exception:
+                continue
+            if entry.get("task_id") == task_id and entry.get("subagent_type") == subagent_type:
+                return
+    raise ValueError(
+        f"{role} record requires a task-scoped {subagent_type} dispatch. "
+        f"Load /{skill_name} and dispatch {subagent_type} before recording."
+    )
 
-def _cmd_record_testing(args: argparse.Namespace) -> None:
-    """aiwf state record-testing — write testing results."""
-    from ..core.state_ops import record_testing
-    import json as _json
 
-    # Guard: L2/L3 must use native tester subagent role unless forced.
-    cwd = Path.cwd()
-    state_path = cwd / ".aiwf" / "state" / "state.json"
-    if state_path.exists():
-        state = _json.loads(state_path.read_text(encoding="utf-8"))
-        level = state.get("workflow_level", "")
-        if level in ("L2_standard_team", "L3_full_power"):
-            evidence_path = cwd / ".aiwf" / "artifacts" / "evidence" / "records.json"
-            evidence = _json.loads(evidence_path.read_text(encoding="utf-8")) if evidence_path.exists() else {"records": []}
-            records = evidence.get("records", []) or []
-
-            if not _has_hook_observed_role(records, "aiwf-tester"):
-                # L2/L3: always block, --force is NOT honored. Must spawn subagent.
-                if level in ("L2_standard_team", "L3_full_power"):
-                    print(
-                        f"Testing blocked: workflow level is {level}, which requires hook-observed aiwf-tester work.\n"
-                        f"  Fix: call Claude Code's native Agent/Task tool with subagent_type=aiwf-tester.\n"
-                        f"  Run tests in that subagent role, then call aiwf state record-testing.\n"
-                        f"  CLI role-evidence backfills do not satisfy this gate by themselves.\n"
-                        f"  --force is NOT honored at L2/L3 — use the subagent role.",
-                        file=sys.stderr,
-                    )
-                    raise SystemExit(1)
-                elif not args.force:
-                    print(
-                        f"Testing blocked: workflow level is {level}, which requires hook-observed aiwf-tester work.\n"
-                        f"  Fix: Use native Agent/Task tool (subagent_type=aiwf-tester) to spawn tester.\n"
-                        f"  Or use --force if L0 inline execution.",
-                        file=sys.stderr,
-                    )
-                    raise SystemExit(1)
-
-    verification_results = []
-    for item in getattr(args, "verification_results", None) or []:
-        parts = [part.strip() for part in str(item).split(":::", 3)]
+def _parse_verification_results(raw_results: list[str]) -> list[dict]:
+    results = []
+    for raw in raw_results:
+        parts = [part.strip() for part in str(raw).split(":::", 3)]
         if len(parts) != 4:
-            print(
-                "Testing record blocked: --verification-result must be "
-                "'command:::expected:::observed:::matched|mismatched'",
-                file=sys.stderr,
+            raise ValueError(
+                "--verification-result must be "
+                "'command:::expected:::observed:::matched|mismatched'"
             )
-            raise SystemExit(1)
-        matched_token = parts[3].strip().lower()
-        if matched_token not in ("matched", "true", "pass", "passed", "mismatched", "false", "fail", "failed"):
-            print(
-                "Testing record blocked: verification result match status must be matched or mismatched",
-                file=sys.stderr,
-            )
-            raise SystemExit(1)
-        verification_results.append({
+        match_token = parts[3].lower()
+        if match_token not in ("matched", "mismatched"):
+            raise ValueError("verification result must end with matched or mismatched")
+        results.append({
             "command": parts[0],
             "expected": parts[1],
             "observed": parts[2],
-            "matched": matched_token in ("matched", "true", "pass", "passed"),
+            "matched": match_token == "matched",
         })
+    return results
 
-    testing = record_testing(str(Path.cwd()), getattr(args, "context_id", ""), args.status,
-                   commands=args.commands or None,
-                   evidence_ids=getattr(args, "evidence_ids", None) or None,
-                   untested_risks=getattr(args, "untested_risks", None) or None,
-                   coverage_summary=getattr(args, "coverage_summary", "") or "",
-                   failure_summary=getattr(args, "failure_summary", "") or "",
-                   failed_obligations=getattr(args, "failed_obligations", None) or None,
-                   failed_commands=getattr(args, "failed_commands", None) or None,
-                   verification_results=verification_results or None,
-                   suspected_route=getattr(args, "suspected_route", "") or "",
-                   required_verification=getattr(args, "required_verification", None) or None,
-                   acceptance_coverage=getattr(args, "acceptance_coverage", None) or None,
-                   system_coverage=getattr(args, "system_coverage", None) or None,
-                   validation_layers=getattr(args, "validation_layers", None) or None,
-                   full_suite_status=getattr(args, "full_suite_status", "") or "",
-                   full_suite_reason=getattr(args, "full_suite_reason", "") or "",
-                   real_usage_status=getattr(args, "real_usage_status", "") or "",
-                   real_usage_reason=getattr(args, "real_usage_reason", "") or "",
-                   inferred_surfaces=getattr(args, "inferred_surfaces", None) or None,
-                   missing_surface_notes=getattr(args, "missing_surface_notes", None) or None,
-                   cross_task_risks=getattr(args, "cross_task_risks", None) or None,
-                   testing_debt=getattr(args, "testing_debt", None) or None,
-                   repeated_change_hotspots=getattr(args, "repeated_change_hotspots", None) or None,
-                   adversarial_mode=bool(getattr(args, 'adversarial_mode', False)),
-                   delta_verification=getattr(args, 'delta_verification', '') or '',
-                   reused_evidence_ids=getattr(args, 'reused_evidence_ids', None) or None,
-                   invalidated_evidence_ids=getattr(args, 'invalidated_evidence_ids', None) or None,
-                   supports_plan=getattr(args, 'supports_plan', '') or '',
-                   supports_goal=getattr(args, 'supports_goal', '') or '',
-                   scan_git=bool(getattr(args, 'scan_git', False)))
+
+def _cmd_record_testing(args: argparse.Namespace) -> None:
+    from ..core.state_ops import record_testing
+
+    try:
+        _require_role_dispatch(Path.cwd(), "tester")
+        verification_results = _parse_verification_results(args.verification_results or [])
+        if args.status == "passed" and not args.commands:
+            raise ValueError("passed testing requires at least one exact --command")
+        if args.status == "failed" and not args.summary:
+            raise ValueError("failed testing requires a concise --summary")
+        testing = record_testing(
+            str(Path.cwd()),
+            status=args.status,
+            commands=args.commands or None,
+            coverage_summary=args.summary or "",
+            failure_summary=args.summary if args.status == "failed" else "",
+            failed_commands=args.commands if args.status == "failed" else None,
+            verification_results=verification_results or None,
+        )
+    except ValueError as exc:
+        print(f"Testing record blocked: {exc}", file=sys.stderr)
+        raise SystemExit(1)
+
     print(f"Testing recorded: status={args.status}")
-    if testing.get("evidence_id"): print(f"  Evidence: {testing['evidence_id']} (tester)")
-    if getattr(args, "commands", None): print(f"  Commands: {len(args.commands)}")
-    if verification_results: print(f"  Verification results: {len(verification_results)}")
-    if getattr(args, "untested_risks", None): print(f"  Untested risks: {len(args.untested_risks)}")
-    if getattr(args, "failure_summary", ""): print(f"  Failure: {args.failure_summary[:120]}")
-    if getattr(args, "failed_obligations", None): print(f"  Failed obligations: {len(args.failed_obligations)}")
-    if getattr(args, "suspected_route", ""): print(f"  Suspected route: {args.suspected_route}")
-    if getattr(args, "system_coverage", None): print(f"  System coverage: {len(args.system_coverage)} items")
-    if getattr(args, "validation_layers", None): print(f"  Validation layers: {', '.join(args.validation_layers)}")
-    if getattr(args, "full_suite_status", ""): print(f"  Full suite: {args.full_suite_status}")
-    if getattr(args, "real_usage_status", ""): print(f"  Real usage: {args.real_usage_status}")
-    if getattr(args, 'supports_plan', ''): print(f"  Supports plan: {args.supports_plan}")
-    if getattr(args, 'supports_goal', ''): print(f"  Supports goal: {args.supports_goal}")
+    if testing.get("tested_ref"):
+        print(f"  Tested ref: {testing['tested_ref']}")
+    if args.commands:
+        print(f"  Commands: {len(args.commands)}")
+    if verification_results:
+        print(f"  Verification results: {len(verification_results)}")
 
 
-def _cmd_record_evidence_view(args: argparse.Namespace) -> None:
-    """aiwf record evidence-view — compact task-scoped evidence for review."""
-    from ..core.evidence_view import build_task_review_evidence_view
-    from ..core.task_ledger import load_ledger
-
-    base = Path.cwd()
-    state = json.loads((base / ".aiwf" / "state" / "state.json").read_text(encoding="utf-8"))
-    task_id = getattr(args, "task_id", "") or state.get("active_task_id") or ""
-    if not task_id:
-        print("Evidence view blocked: no task_id and no active task", file=sys.stderr)
-        raise SystemExit(1)
-    task = next(
-        (
-            item for item in load_ledger(str(base)).get("tasks", []) or []
-            if isinstance(item, dict) and item.get("id") == task_id
-        ),
-        None,
-    )
-    if not task:
-        print(f"Evidence view blocked: task not found: {task_id}", file=sys.stderr)
-        raise SystemExit(1)
-
-    def _read_json(path: Path) -> dict:
-        try:
-            return json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
-        except Exception:
-            return {}
-
-    view = build_task_review_evidence_view(
-        _read_json(base / ".aiwf" / "records" / "evidence.json"),
-        _read_json(base / ".aiwf" / "records" / "testing.json"),
-        _read_json(base / ".aiwf" / "records" / "review.json"),
-        task,
-    )
-    print(json.dumps(view, ensure_ascii=False, indent=2))
-    if getattr(args, "inferred_surfaces", None): print(f"  Inferred surfaces: {', '.join(args.inferred_surfaces)}")
-    if getattr(args, "cross_task_risks", None): print(f"  Cross-task risks: {len(args.cross_task_risks)}")
-    if getattr(args, "testing_debt", None): print(f"  Testing debt: {len(args.testing_debt)}")
-    delta = getattr(args, 'delta_verification', '') or ''
-    if delta: print(f"  Delta verification: {delta[:120]}")
-    reused = getattr(args, 'reused_evidence_ids', None) or []
-    if reused: print(f"  Reused evidence: {len(reused)}")
-    invalidated = getattr(args, 'invalidated_evidence_ids', None) or []
-    if invalidated: print(f"  Invalidated evidence: {len(invalidated)}")
+def _parse_observations(raw_observations: list[str]) -> list[dict]:
+    observations = []
+    valid_severities = {"critical", "high", "warn", "low"}
+    for index, raw in enumerate(raw_observations, start=1):
+        parts = [part.strip() for part in raw.split(":::", 2)]
+        if len(parts) != 3:
+            raise ValueError(
+                "--adversarial-observations must be 'severity:::kind:::message'"
+            )
+        severity, kind, message = parts
+        if severity not in valid_severities:
+            raise ValueError(f"invalid adversarial severity: {severity}")
+        observations.append({
+            "id": f"ADV-{index:03d}",
+            "severity": severity,
+            "kind": kind or "review_observation",
+            "message": message,
+            "disposition": "pending",
+        })
+    return observations
 
 
 def _cmd_record_review(args: argparse.Namespace) -> None:
-    """aiwf state record-review — write review results and reviewer evidence."""
     from ..core.state_ops import record_review
-    import json as _json
-
-    # Guard: L2/L3 must use native reviewer subagent role unless forced.
-    cwd = Path.cwd()
-    state_path = cwd / ".aiwf" / "state" / "state.json"
-    level = "L1_review_light"
-    if state_path.exists():
-        state = _json.loads(state_path.read_text(encoding="utf-8"))
-        level = state.get("workflow_level", level)
-        if level in ("L2_standard_team", "L3_full_power"):
-            evidence_path = cwd / ".aiwf" / "artifacts" / "evidence" / "records.json"
-            evidence = _json.loads(evidence_path.read_text(encoding="utf-8")) if evidence_path.exists() else {"records": []}
-            records = evidence.get("records", []) or []
-
-            if not _has_hook_observed_role(records, "aiwf-reviewer"):
-                # L2/L3: always block, --force is NOT honored. Must spawn subagent.
-                if level in ("L2_standard_team", "L3_full_power"):
-                    print(
-                        f"Review blocked: workflow level is {level}, which requires hook-observed aiwf-reviewer work.\n"
-                        f"  Fix: call Claude Code's native Agent/Task tool with subagent_type=aiwf-reviewer.\n"
-                        f"  Run review in that subagent role, then call aiwf state record-review.\n"
-                        f"  CLI role-evidence backfills do not satisfy this gate by themselves.\n"
-                        f"  Do NOT run record-review from planner-main or executor.",
-                        file=sys.stderr,
-                    )
-                    raise SystemExit(1)
-                elif not args.force:
-                    print(
-                        f"Review blocked: workflow level is {level}, which requires hook-observed aiwf-reviewer work.\n"
-                        f"  Actions:\n"
-                        f"    - Dispatch native subagent_type=aiwf-reviewer and run record-review there, or\n"
-                        f"    - If this is a legitimate Planner inline execution (L0 task), use --force to override.",
-                        file=sys.stderr,
-                    )
-                    raise SystemExit(1)
-
-    verdict = getattr(args, "verdict", "") or ""
-    effective_accepted = (args.result == "accepted") or verdict in ("PASS", "PASS_WITH_RISK")
-
-    # Guard: accepted review must confirm cleanup, docs, and root-cause checks.
-    # L2/L3: --force is NOT honored — must fix the issues, not bypass them.
-    quality_blockers = []
-    if getattr(args, "cleanup_code", "") == "needs_work":
-        quality_blockers.append("code cleanup needed (--cleanup-code needs_work)")
-    if getattr(args, "docs_checked", "") == "no":
-        quality_blockers.append("docs not updated for changed subsystems (--docs-checked no)")
-    if getattr(args, "root_cause", "") == "symptom_only":
-        quality_blockers.append("symptom patch, not root cause fix (--root-cause symptom_only)")
-    if quality_blockers:
-        if level in ("L2_standard_team", "L3_full_power"):
-            print(
-                "Review blocked: accepted/PASS verdict requires all quality checks to pass.\n"
-                + "\n".join(f"  - {b}" for b in quality_blockers) + "\n"
-                + "  Fix the issues and re-run record-review. --force is NOT honored at L2/L3.",
-                file=sys.stderr,
-            )
-            raise SystemExit(1)
-        elif not args.force:
-            print(
-                "Review blocked: accepted/PASS verdict requires all quality checks to pass.\n"
-                + "\n".join(f"  - {b}" for b in quality_blockers) + "\n"
-                + "  Fix the issues and re-run record-review, or use --force to override.",
-                file=sys.stderr,
-            )
-            raise SystemExit(1)
-
-    observations = []
-    valid_observation_severities = {"critical", "high", "warn", "low"}
-    for idx, raw in enumerate(getattr(args, "adversarial_observations", None) or [], start=1):
-        parts = raw.split(":::", 2)
-        if len(parts) == 3:
-            severity, kind, msg = (part.strip() for part in parts)
-            severity = severity.lower()
-            if severity not in valid_observation_severities:
-                print(f"Review record blocked: invalid adversarial severity: {severity}", file=sys.stderr)
-                raise SystemExit(1)
-        else:
-            severity, kind, msg = "warn", "review_observation", raw.strip()
-        observations.append({
-            "id": f"ADV-{idx:03d}",
-            "severity": severity,
-            "kind": kind or "review_observation",
-            "message": msg,
-            "suggestion": "",
-            "disposition": "pending",
-        })
-    blocking_observations = [
-        o for o in observations if o.get("severity") in ("critical", "high")
-    ]
-    if verdict in ("PASS", "PASS_WITH_RISK") and blocking_observations:
-        print(
-            "Review record blocked: CRITICAL/HIGH observations require REVISE or REJECT and rework.",
-            file=sys.stderr,
-        )
-        raise SystemExit(1)
-    # V2 quality dimensions
-    dims = {}
-    dim_scores = getattr(args, "dimension_scores", None) or []
-    dim_notes = getattr(args, "dimension_notes", None) or []
-    from ..core.state_schema import (
-        QUALITY_DIMENSIONS, VALID_DIMENSION_SCORES,
-        REVIEW_BASIS, VALID_BASIS_STATUSES,
-    )
-    for entry in dim_scores:
-        if "=" in entry:
-            name, score = entry.split("=", 1)
-            name = name.strip()
-            score = score.strip()
-            if name not in QUALITY_DIMENSIONS:
-                print(f"Review record blocked: unknown quality dimension: {name}", file=sys.stderr)
-                print(f"Valid dimensions: {', '.join(sorted(QUALITY_DIMENSIONS))}", file=sys.stderr)
-                raise SystemExit(1)
-            if score not in VALID_DIMENSION_SCORES or score == "unscored":
-                print(f"Review record blocked: invalid score for {name}: {score}", file=sys.stderr)
-                raise SystemExit(1)
-            dims[name] = {"score": score, "note": ""}
-    for entry in dim_notes:
-        if "=" in entry:
-            key, note = entry.split("=", 1)
-            name = key.replace("_note", "").strip()
-            if name not in QUALITY_DIMENSIONS:
-                print(f"Review record blocked: unknown quality dimension note: {name}", file=sys.stderr)
-                print(f"Valid dimensions: {', '.join(sorted(QUALITY_DIMENSIONS))}", file=sys.stderr)
-                raise SystemExit(1)
-            if name in dims:
-                dims[name]["note"] = note.strip()
-
-    # V2 review basis
-    basis = {}
-    basis_statuses = getattr(args, "basis_statuses", None) or []
-    basis_notes = getattr(args, "basis_notes", None) or []
-    for entry in basis_statuses:
-        if "=" in entry:
-            name, status = entry.split("=", 1)
-            name = name.strip()
-            status = status.strip()
-            if name not in REVIEW_BASIS:
-                print(f"Review record blocked: unknown review basis: {name}", file=sys.stderr)
-                raise SystemExit(1)
-            if status not in VALID_BASIS_STATUSES or status == "missing":
-                print(f"Review record blocked: invalid basis status for {name}: {status}", file=sys.stderr)
-                raise SystemExit(1)
-            basis[name] = {"status": status, "note": ""}
-    for entry in basis_notes:
-        if "=" in entry:
-            key, note = entry.split("=", 1)
-            name = key.replace("_note", "").strip()
-            if name not in REVIEW_BASIS:
-                print(f"Review record blocked: unknown review basis note: {name}", file=sys.stderr)
-                raise SystemExit(1)
-            if name in basis:
-                basis[name]["note"] = note.strip()
-
-    if verdict in ("PASS", "PASS_WITH_RISK"):
-        missing = [name for name in QUALITY_DIMENSIONS if name not in dims]
-        if missing:
-            print(
-                "Review record blocked: PASS/PASS_WITH_RISK requires scored quality dimensions.\n"
-                + "  Missing: " + ", ".join(missing),
-                file=sys.stderr,
-            )
-            raise SystemExit(1)
-        failed = [name for name, entry in dims.items() if entry.get("score") == "FAIL"]
-        if failed:
-            print(
-                "Review record blocked: closure verdict cannot include FAIL dimensions.\n"
-                + "  Failed: " + ", ".join(failed),
-                file=sys.stderr,
-            )
-            raise SystemExit(1)
-        risks = [name for name, entry in dims.items() if entry.get("score") == "RISK"]
-        if verdict == "PASS" and risks:
-            print(
-                "Review record blocked: PASS cannot include RISK dimensions; use PASS_WITH_RISK or resolve them.\n"
-                + "  Risk: " + ", ".join(risks),
-                file=sys.stderr,
-            )
-            raise SystemExit(1)
-        if verdict == "PASS_WITH_RISK":
-            if not risks:
-                print("Review record blocked: PASS_WITH_RISK requires at least one RISK dimension.", file=sys.stderr)
-                raise SystemExit(1)
-            missing_notes = [name for name in risks if not str(dims[name].get("note", "")).strip()]
-            if missing_notes:
-                print(
-                    "Review record blocked: RISK dimensions require dimension notes.\n"
-                    + "  Missing notes: " + ", ".join(missing_notes),
-                    file=sys.stderr,
-                )
-                raise SystemExit(1)
-        missing_basis = [name for name in REVIEW_BASIS if name not in basis]
-        if missing_basis:
-            print(
-                "Review record blocked: PASS/PASS_WITH_RISK requires review basis coverage.\n"
-                + "  Missing: " + ", ".join(missing_basis),
-                file=sys.stderr,
-            )
-            raise SystemExit(1)
-        basis_gaps = [name for name, entry in basis.items() if entry.get("status") == "gap"]
-        if basis_gaps:
-            print(
-                "Review record blocked: closure verdict cannot include review basis gaps.\n"
-                + "  Gaps: " + ", ".join(basis_gaps),
-                file=sys.stderr,
-            )
-            raise SystemExit(1)
-        basis_notes_missing = [
-            name for name, entry in basis.items()
-            if entry.get("status") == "not_applicable" and not str(entry.get("note", "")).strip()
-        ]
-        if basis_notes_missing:
-            print(
-                "Review record blocked: not_applicable review basis items require notes.\n"
-                + "  Missing notes: " + ", ".join(basis_notes_missing),
-                file=sys.stderr,
-            )
-            raise SystemExit(1)
-    elif verdict in ("REVISE", "REJECT"):
-        if not args.blockers:
-            print(
-                f"Review record blocked: {verdict} requires at least one --blocker explaining the quality failure.",
-                file=sys.stderr,
-            )
-            raise SystemExit(1)
-        missing_basis = [name for name in REVIEW_BASIS if name not in basis]
-        if missing_basis:
-            print(
-                f"Review record blocked: {verdict} requires review basis coverage.\n"
-                + "  Missing: " + ", ".join(missing_basis),
-                file=sys.stderr,
-            )
-            raise SystemExit(1)
-        basis_gaps = [name for name, entry in basis.items() if entry.get("status") == "gap"]
-        if not basis_gaps:
-            print(
-                f"Review record blocked: {verdict} requires at least one review basis gap.",
-                file=sys.stderr,
-            )
-            raise SystemExit(1)
-        gap_notes_missing = [
-            name for name in basis_gaps
-            if not str(basis[name].get("note", "")).strip()
-        ]
-        if gap_notes_missing:
-            print(
-                "Review record blocked: gap review basis items require notes.\n"
-                + "  Missing notes: " + ", ".join(gap_notes_missing),
-                file=sys.stderr,
-            )
-            raise SystemExit(1)
-        if dims:
-            failed = [name for name, entry in dims.items() if entry.get("score") == "FAIL"]
-            risks = [name for name, entry in dims.items() if entry.get("score") == "RISK"]
-            if verdict == "REVISE" and not (failed or risks):
-                print(
-                    "Review record blocked: REVISE with quality dimensions requires at least one RISK or FAIL dimension.",
-                    file=sys.stderr,
-                )
-                raise SystemExit(1)
-            if verdict == "REJECT" and not failed:
-                print(
-                    "Review record blocked: REJECT with quality dimensions requires at least one FAIL dimension.",
-                    file=sys.stderr,
-                )
-                raise SystemExit(1)
-
-    # closure_allowed is derived from result: accepted+no blockers → true
-    effective_closure = (args.result == "accepted" and not args.blockers)
 
     try:
+        _require_role_dispatch(Path.cwd(), "reviewer")
+        observations = _parse_observations(args.adversarial_observations or [])
+        if args.result == "accepted" and any(
+            item["severity"] in ("critical", "high") for item in observations
+        ):
+            raise ValueError("critical/high observations require needs_fix or rejected")
+        if args.result in ("needs_fix", "rejected") and not args.blockers:
+            raise ValueError("a blocking review requires at least one --blocker")
         review = record_review(
             str(Path.cwd()),
-            result=getattr(args, "result", "") or "",
-            verdict=getattr(args, "verdict", "") or "",
-            quality_dimensions=dims or None,
-            review_basis=basis or None,
-            closure_allowed=effective_closure,
-            accepted_evidence_ids=args.accepted_evidence_ids or None,
-            rejected_evidence_ids=args.rejected_evidence_ids or None,
+            result=args.result,
+            closure_allowed=args.result == "accepted" and not args.blockers,
             blockers=args.blockers or None,
             adversarial_observations=observations or None,
             cleanup_status=args.cleanup_status or "",
             structure_status=args.structure_status or "",
             summary=args.summary or "",
-            context_id=args.context_id or "",
-            cleanup_code=getattr(args, "cleanup_code", "") or "",
-            docs_checked=getattr(args, "docs_checked", "") or "",
-            root_cause=getattr(args, "root_cause", "") or "",
-            resolution=getattr(args, "resolution", "") or "",
-            resolution_evidence_ids=getattr(args, "resolution_evidence_ids", None) or None,
         )
-    except ValueError as e:
-        print(f"Review record blocked: {e}", file=sys.stderr)
+    except ValueError as exc:
+        print(f"Review record blocked: {exc}", file=sys.stderr)
         raise SystemExit(1)
-    verdict_str = f" verdict={review.get('verdict')}" if review.get('verdict') not in ('pending', '', None) else ""
-    print(f"Review recorded: result={review.get('result')}{verdict_str}")
+
+    print(f"Review recorded: result={review.get('result')}")
     print(f"  Closure allowed: {review.get('closure_allowed', False)}")
-    if review.get("reviewer_evidence_id"):
-        print(f"  Evidence: {review['reviewer_evidence_id']} (reviewer)")
-    if review.get("accepted_evidence_ids"):
-        print(f"  Accepted evidence: {len(review['accepted_evidence_ids'])}")
+    if review.get("reviewed_ref"):
+        print(f"  Reviewed ref: {review['reviewed_ref']}")
     if review.get("blockers"):
         print(f"  Blockers: {len(review['blockers'])}")
 
 
-def _cmd_record_role_evidence(args: argparse.Namespace) -> None:
-    """aiwf state record-role-evidence — explicit role evidence for hook gaps."""
-    from ..core.state_ops import record_role_evidence
+def _cmd_record_implementation(args: argparse.Namespace) -> None:
+    from ..core.state_ops import record_implementation
+
     try:
-        ev = record_role_evidence(
+        _require_role_dispatch(Path.cwd(), "executor")
+        implementation = record_implementation(
             str(Path.cwd()),
-            args.role,
-            summary=args.summary or "",
-            command=args.command or "",
-            changed_files=getattr(args, "changed_files", None) or None,
-            session_id=getattr(args, "session_id", "") or "",
-            agent_id=getattr(args, "agent_id", "") or "",
-            agent_type=getattr(args, "agent_type", "") or "",
-            context_id=getattr(args, "context_id", "") or "",
-            status=getattr(args, "status", None),
-            exit_code=getattr(args, "exit_code", None),
-            scan_git=bool(getattr(args, "scan_git", False)),
-            supports_plan=getattr(args, "supports_plan", "") or "",
-            supports_goal=getattr(args, "supports_goal", "") or "",
-            task_id=getattr(args, "task_id", "") or "",
+            summary=args.summary,
+            command=args.command,
+            exit_code=args.exit_code,
+            task_id=args.task_id,
         )
-    except ValueError as e:
-        print(f"Role evidence blocked: {e}", file=sys.stderr)
+    except ValueError as exc:
+        print(f"Implementation record blocked: {exc}", file=sys.stderr)
         raise SystemExit(1)
-    print(f"Role evidence recorded: {ev['id']} ({ev['agent_type']})")
-    if ev.get("working_tree_source") != "not_scanned":
-        print(f"  Git scan: {ev.get('working_tree_source')} / {len(ev.get('working_tree_changed_files', []) or [])} files")
 
-def _cmd_cleanup_check(args: argparse.Namespace) -> None:
-    """aiwf cleanup check — run lifecycle cleanup check (read-only)."""
-    from ..core.lifecycle_cleanup import check_lifecycle_cleanup
-    result = check_lifecycle_cleanup(str(Path.cwd()))
-    print("Cleanup check:")
-    print(f"  Cleanup:   {result['cleanup_status']}")
-    print(f"  Structure: {result['structure_status']}")
-    print(f"  Blockers:  {len(result['blockers'])}")
-    print(f"  Warnings:  {len(result['warnings'])}")
-    print(f"  Stale items: {len(result['stale_items'])}")
-    if result["blockers"]:
-        print("  Blockers:")
-        for b in result["blockers"][:10]: print(f"    - {b}")
-    if result["warnings"]:
-        print("  Warnings:")
-        for w in result["warnings"][:15]: print(f"    - {w}")
-    if result["stale_items"]:
-        print("  Stale:")
-        for s in result["stale_items"][:10]: print(f"    - {str(s)[:160]}")
-    if result["suggested_actions"]:
-        print("  Suggested:")
-        for s in result["suggested_actions"][:5]: print(f"    - {s}")
-    if not result["blockers"] and not result["warnings"]:
-        print("  No blockers.")
-
-def _cmd_mark_cleanup_fresh(args: argparse.Namespace) -> None:
-    """aiwf state mark-cleanup-fresh — mark cleanup as fresh."""
-    from ..core.state_ops import mark_cleanup_fresh
-    mark_cleanup_fresh(str(Path.cwd()), resolved_notes=args.notes or None)
-    print("Cleanup marked fresh: stale_items/blockers cleared")
-
-def _cmd_mark_cleanup_stale(args: argparse.Namespace) -> None:
-    """aiwf state mark-cleanup-stale — mark cleanup as stale."""
-    from ..core.state_ops import mark_cleanup_stale
-    mark_cleanup_stale(str(Path.cwd()), args.stale_items,
-                       blockers=args.blockers or None, notes=args.notes or None)
-    print(f"Cleanup marked stale: {len(args.stale_items)} stale items")
-
-def _cmd_cancel_close(args: argparse.Namespace) -> None:
-    """aiwf state cancel-close — reset close_attempt and unblock task activation."""
-    from ..core.state_ops import cancel_close
-    result = cancel_close(str(Path.cwd()))
-    print(result["message"])
+    print(f"Implementation recorded: {implementation['task_id']}")
+    print(f"  Implementation ref: {implementation['implementation_ref']}")
+    print(f"  Changed files: {len(implementation.get('changed_files', []) or [])}")
 
 
-def _cmd_prepare_close(args: argparse.Namespace) -> None:
-    """aiwf state prepare-close — run authoritative closure gate checks."""
-    from ..core.state_ops import prepare_close
-    result = prepare_close(str(Path.cwd()))
-    passed = result.get('passed', False)
-    print(f"Close prepared: passed={passed}")
-    if result.get('blockers'):
-        print(f"  Blockers ({len(result['blockers'])}):")
-        for b in result['blockers'][:5]: print(f"    - {b}")
-        print("  Resolve blockers before preparing closure")
-        print("  prepare-close is authoritative; close attempt was not prepared.")
-        raise SystemExit(1)
-    else:
-        # Post-hoc warnings: displayed even on pass — the model should review them
-        post_hoc = result.get("post_hoc_warnings", []) or []
-        if post_hoc:
-            print(f"  Post-hoc warnings ({len(post_hoc)}):")
-            for w in post_hoc[:5]:
-                print(f"    ! {w}")
-        summary = result.get("summary", "")
-        if summary:
-            print(summary)
-        task_id = result.get("state", {}).get("active_task_id", "") or ""
-        if task_id:
-            print(f"\nClosure gate passed. Next: run aiwf task close {task_id}.")
-        else:
-            print("\nClosure complete. Stop hook will revalidate.")
-
-def _cmd_set_goal_confirmed(args: argparse.Namespace) -> None:
-    """aiwf state set-goal-confirmed — toggle goal confirmation."""
-    import json
-    goal_path = Path.cwd() / ".aiwf" / "state" / "goal.json"
-    goal = json.loads(goal_path.read_text()) if goal_path.exists() else {}
-    goal["confirmed"] = args.confirmed == "true"
-    goal_path.write_text(json.dumps(goal, ensure_ascii=False, indent=2) + "\n")
-    print(f"Goal confirmed: {goal['confirmed']}")
-
-
-def _cmd_set_planner_inline(args: argparse.Namespace) -> None:
-    """aiwf state set-planner-inline — record Planner inline execution decision.
-
-    Only valid for L0_direct and L1_review_light. L2+ requires independent
-    subagents — planner_inline_session does NOT waive session diversity.
-    """
-    import json
-    from datetime import datetime, timezone
-    state_path = Path.cwd() / ".aiwf" / "state" / "state.json"
-    state = json.loads(state_path.read_text()) if state_path.exists() else {}
-    level = state.get("workflow_level", "")
-    if level in ("L2_standard_team", "L3_full_power"):
-        print(
-            f"Error: planner_inline_session is not valid for {level}.\n"
-            "  L2/L3 requires independent subagents (executor, tester, reviewer)\n"
-            "  dispatched via Agent tool. Inline execution is not allowed.\n"
-            "  Use aiwf state set-workflow-mode to downgrade if appropriate.",
-            file=sys.stderr,
-        )
-        raise SystemExit(1)
-    state["planner_inline_session"] = True
-    state["planner_inline_reason"] = args.reason
-    state["planner_inline_recorded_at"] = datetime.now(timezone.utc).isoformat()
-    state_path.write_text(json.dumps(state, ensure_ascii=False, indent=2) + "\n")
-    print(f"Planner inline session recorded: {args.reason[:120]}")
-    print(f"Valid at {level}: session diversity gate is not required at this level.")
-
-
-def _cmd_disposition_adversarial(args: argparse.Namespace) -> None:
-    """aiwf state disposition-adversarial — disposition a single adversarial observation."""
+def _cmd_record_disposition(args: argparse.Namespace) -> None:
     from ..core.state_ops import disposition_adversarial_observation
+
     try:
         result = disposition_adversarial_observation(
             str(Path.cwd()),
-            adv_id=args.adv_id,
-            disposition=args.disposition,
-            reason=args.reason or "",
-            disposed_by=args.disposed_by,
-        )
-        print(f"Adversarial observation {args.adv_id}: {args.disposition}")
-        if args.reason:
-            print(f"  Reason: {args.reason[:160]}")
-    except ValueError as e:
-        print(f"Error: {e}")
-        import sys; sys.exit(1)
-
-
-def _cmd_record_meta_critique(args: argparse.Namespace) -> None:
-    from ..core.state_ops import record_meta_critique
-    record_meta_critique(str(Path.cwd()), args.summary, recorded_by="planner")
-    print("Planner meta-critique recorded.")
-
-
-def _cmd_record_architecture_review(args: argparse.Namespace) -> None:
-    from ..core.state_ops import record_architecture_review
-    issues = []
-    for raw in getattr(args, "issue", None) or []:
-        parts = raw.split(":::", 1)
-        if len(parts) != 2:
-            print("Architecture review blocked: --issue requires SEVERITY:::DESCRIPTION", file=sys.stderr)
-            raise SystemExit(1)
-        issues.append({"severity": parts[0].strip(), "description": parts[1].strip()})
-    try:
-        result = record_architecture_review(
-            str(Path.cwd()),
-            status=args.status,
-            issues=issues,
-            summary=args.summary or "",
-            resolution=getattr(args, "resolution", "") or "",
-            resolution_evidence_ids=getattr(args, "resolution_evidence_ids", None) or None,
+            adv_id=args.observation_id,
+            disposition=args.decision,
+            reason=args.reason,
+            disposed_by="planner",
         )
     except ValueError as exc:
-        print(f"Architecture review blocked: {exc}", file=sys.stderr)
+        print(f"Disposition blocked: {exc}", file=sys.stderr)
         raise SystemExit(1)
-    print(f"Periodic architecture review recorded: {result['status']}")
-    if result["issues"]:
-        print(f"  Open issues: {len(result['issues'])}")
-
-
-def _cmd_set_workflow_mode(args: argparse.Namespace) -> None:
-    """aiwf state set-workflow-mode — record uncertainty routing shape."""
-    from ..core.workflow_patterns import set_workflow_mode
-    try:
-        state = set_workflow_mode(
-            str(Path.cwd()),
-            request_mode=args.request_mode,
-            workflow_pattern=args.workflow_pattern or "",
-            reason=args.reason or "",
-            external_research_required=args.external_research_required,
-        )
-    except ValueError as e:
-        print(f"Workflow mode update blocked: {e}", file=sys.stderr)
-        raise SystemExit(1)
-    print("Workflow mode recorded:")
-    print(f"  Request mode: {state.get('request_mode')}")
-    print(f"  Pattern:      {state.get('workflow_pattern')}")
-    if state.get("pattern_reason"):
-        print(f"  Reason:       {state['pattern_reason'][:160]}")
-    print(f"  External research required: {state.get('external_research_required', False)}")
+    print(f"Reviewer observation {result['id']}: {result['disposition']}")
 
 
 def _cmd_record_help(args: argparse.Namespace) -> None:
-    """aiwf record — show available record subcommands."""
-    print("AIWF Record Operations")
+    print("AIWF Task Records")
     print()
     print("Available subcommands:")
-    print("  aiwf record evidence             — record executor evidence")
-    print("  aiwf record evidence-view        — show compact task evidence for review")
-    print("  aiwf record testing              — record testing results")
-    print("  aiwf record review               — record review results")
-    print("  aiwf record architecture-review  — record architecture review")
-
-
-def _cmd_state_help(args: argparse.Namespace) -> None:
-    """aiwf state — show available state subcommands."""
-    print("AIWF State Operations")
-    print()
-    print("Available subcommands:")
-    print("  aiwf state record-quality-policy   — record quality policy")
-    print("  aiwf state record-quality-brief    — record task-specific quality brief")
-    print("  aiwf state start-context           — create/update context with dispatch")
-    print("  aiwf state record-testing          — record testing results")
-    print("  aiwf state record-review           — record review results")
-    print("  aiwf state record-role-evidence    — record explicit role evidence")
-    print("  aiwf state mark-cleanup-fresh      — mark cleanup as fresh")
-    print("  aiwf state mark-cleanup-stale      — mark cleanup as stale")
-    print("  aiwf state record-meta-critique    — record structured Planner meta-critique")
-    print("  aiwf state set-workflow-mode       — record uncertainty routing mode")
-    print("  aiwf state prepare-close           — run authoritative closure gate checks")
-    print("  aiwf state cancel-close            — reset close_attempt, recover from stuck closing state")
-
-def _cmd_record_quality_policy(args: argparse.Namespace) -> None:
-    """aiwf state record-quality-policy — write quality policy short keys to state.json."""
-    from ..core.state_ops import record_quality_policy
-    try:
-        policy = record_quality_policy(
-            str(Path.cwd()), args.task_type, args.workflow_level,
-            risk_flags=args.risk_flags or [], routing_reason=args.reason)
-    except ValueError as e:
-        print(f"Quality policy update blocked: {e}", file=sys.stderr)
-        raise SystemExit(1)
-    print(f"Quality policy recorded:")
-    print(f"  Level: {policy['workflow_level']}")
-    print(f"  Task type: {policy['task_type_label']}")
-    print(f"  Test: {policy['test_template']}")
-    print(f"  Review: {policy['review_template']}")
-    print(f"  Exploration: {policy['exploration_budget']}")
-    print(f"  Git: {policy['git_policy']}")
-    if policy.get('level_escalations_applied'):
-        for e in policy['level_escalations_applied']:
-            print(f"  Escalation: {e}")
+    print("  aiwf record implementation - record Executor handoff and Git snapshot")
+    print("  aiwf record testing        - record one validation pass")
+    print("  aiwf record review         - record reviewer judgment")
+    print("  aiwf record disposition    - record Planner decision on a finding")

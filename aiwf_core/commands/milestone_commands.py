@@ -5,7 +5,6 @@ import argparse
 from pathlib import Path
 import sys
 
-
 def _cmd_milestone_create(args: argparse.Namespace) -> None:
     from ..core.state.milestone_ops import upsert_milestone
     try:
@@ -42,7 +41,6 @@ def _cmd_milestone_create(args: argparse.Namespace) -> None:
     print(f"  Plans: {len(m.get('plan_ids', []) or [])}")
     print(f"  Tasks: {len(m.get('task_ids', []) or [])}")
 
-
 def _cmd_milestone_list(args: argparse.Namespace) -> None:
     from ..core.state.milestone_ops import list_milestones
     milestones = list_milestones(str(Path.cwd()))
@@ -58,7 +56,6 @@ def _cmd_milestone_list(args: argparse.Namespace) -> None:
             f"plans={len(m.get('plan_ids', []) or [])} "
             f"{m.get('title', '')}"
         )
-
 
 def _cmd_milestone_show(args: argparse.Namespace) -> None:
     from ..core.state.milestone_ops import get_milestone
@@ -90,29 +87,6 @@ def _cmd_milestone_show(args: argparse.Namespace) -> None:
     if acceptance.get("confirmed_by"):
         print(f"  Confirmed By: {acceptance['confirmed_by']}")
 
-
-def _cmd_milestone_update(args: argparse.Namespace) -> None:
-    from ..core.state.milestone_ops import upsert_milestone
-    try:
-        result = upsert_milestone(
-            str(Path.cwd()),
-            args.milestone_id,
-            goal_id=getattr(args, "goal_id", "") or "",
-            title=getattr(args, "title", "") or "",
-            status=getattr(args, "status", "") or "",
-            intent=getattr(args, "intent", "") or "",
-            plan_ids=getattr(args, "plan_ids", None) or None,
-            task_ids=getattr(args, "task_ids", None) or None,
-            advance_policy=getattr(args, "advance_policy", "") or "",
-            checkpoint_level=getattr(args, "checkpoint_level", "") or "",
-        )
-    except ValueError as e:
-        print(f"Milestone update blocked: {e}", file=sys.stderr)
-        raise SystemExit(1)
-    m = result["milestone"]
-    print(f"Milestone updated: {m['milestone_id']} status={m['status']}")
-
-
 def _cmd_milestone_cancel(args: argparse.Namespace) -> None:
     from ..core.state.milestone_ops import load_milestones, save_milestones
     from datetime import datetime, timezone
@@ -139,7 +113,6 @@ def _cmd_milestone_cancel(args: argparse.Namespace) -> None:
     print(f"Milestone not found: {args.milestone_id}", file=sys.stderr)
     raise SystemExit(1)
 
-
 def _cmd_milestone_assess(args: argparse.Namespace) -> None:
     from ..core.state.milestone_ops import record_milestone_assessment
     def _g(key, default=""):
@@ -152,7 +125,6 @@ def _cmd_milestone_assess(args: argparse.Namespace) -> None:
             _g("milestone_id"),
             verdict=_g("verdict"),
             summary=_g("summary"),
-            evidence_ids=_gl("evidence_ids"),
             coherence_check=_g("coherence_check"),
             open_gaps=_gl("open_gaps"),
             residual_risks=_gl("residual_risks"),
@@ -165,7 +137,6 @@ def _cmd_milestone_assess(args: argparse.Namespace) -> None:
         print(f"Milestone assessment blocked: {result.get('reason', 'unknown')}", file=sys.stderr)
         raise SystemExit(1)
     print(f"Milestone assessment recorded: {args.milestone_id} verdict={args.verdict}")
-
 
 def _cmd_milestone_close(args: argparse.Namespace) -> None:
     from ..core.state.milestone_ops import close_milestone
@@ -183,9 +154,6 @@ def _cmd_milestone_close(args: argparse.Namespace) -> None:
     print("  git add -A")
     print(f"  git commit -m \"milestone({args.milestone_id}): <title>\"")
 
-
-
-
 def _cmd_milestone_confirm(args: argparse.Namespace) -> None:
     from ..core.state.milestone_ops import confirm_milestone_acceptance
     result = confirm_milestone_acceptance(
@@ -199,7 +167,6 @@ def _cmd_milestone_confirm(args: argparse.Namespace) -> None:
         print(f"  - {blocker}")
     if not result.get("confirmed"):
         raise SystemExit(1)
-
 
 def _cmd_milestone_integration_test(args: argparse.Namespace) -> None:
     from ..core.state.milestone_ops import record_milestone_integration
@@ -278,27 +245,11 @@ def _cmd_milestone_arch_review(args: argparse.Namespace) -> None:
             cross_goal_issues=issues or None,
             notes=_g("notes"),
             resolution=_g("resolution"),
-            resolution_evidence_ids=_gl("resolution_evidence_ids"),
         )
     except ValueError as e:
         print(f"Architecture review blocked: {e}", file=sys.stderr)
         raise SystemExit(1)
     print(f"Architecture review recorded: {_g('milestone_id')} status={_g('status')}")
-
-def _cmd_milestone_archive(args: argparse.Namespace) -> None:
-    from ..core.state.milestone_ops import upsert_milestone
-    try:
-        result = upsert_milestone(
-            str(Path.cwd()),
-            args.milestone_id,
-            status="archived",
-        )
-    except ValueError as e:
-        print(f"Milestone archive blocked: {e}", file=sys.stderr)
-        raise SystemExit(1)
-    m = result["milestone"]
-    print(f"Milestone archived: {m['milestone_id']} reason={args.reason}")
-
 
 def _update_milestone_md(milestone_id: str, plan_ids=None, task_ids=None,
                         status: str = "", summary: str = "") -> None:
@@ -321,7 +272,6 @@ def _update_milestone_md(milestone_id: str, plan_ids=None, task_ids=None,
     write_narrative_doc(ms_doc, fm, body)
     sync_index(str(Path.cwd()))
 
-
 def _cmd_milestone_link_plan(args: argparse.Namespace) -> None:
     from ..core.state.milestone_ops import link_milestone_plan
     result = link_milestone_plan(str(Path.cwd()), args.milestone_id, args.plan_id)
@@ -330,7 +280,6 @@ def _cmd_milestone_link_plan(args: argparse.Namespace) -> None:
         ms = get_milestone(str(Path.cwd()), args.milestone_id)
         _update_milestone_md(args.milestone_id, plan_ids=ms.get("plan_ids", []))
     print(f"Milestone link-plan: {args.milestone_id} <- {args.plan_id} linked={result.get('linked', False)}")
-
 
 def _cmd_milestone_unlink_plan(args: argparse.Namespace) -> None:
     from ..core.state.milestone_ops import unlink_milestone_plan
@@ -341,7 +290,6 @@ def _cmd_milestone_unlink_plan(args: argparse.Namespace) -> None:
         _update_milestone_md(args.milestone_id, plan_ids=ms.get("plan_ids", []))
     print(f"Milestone unlink-plan: {args.milestone_id} -/-> {args.plan_id} unlinked={result.get('unlinked', False)}")
 
-
 def _cmd_milestone_link_task(args: argparse.Namespace) -> None:
     from ..core.state.milestone_ops import link_milestone_task
     result = link_milestone_task(str(Path.cwd()), args.milestone_id, args.task_id)
@@ -350,7 +298,6 @@ def _cmd_milestone_link_task(args: argparse.Namespace) -> None:
         ms = get_milestone(str(Path.cwd()), args.milestone_id)
         _update_milestone_md(args.milestone_id, task_ids=ms.get("task_ids", []))
     print(f"Milestone link-task: {args.milestone_id} <- {args.task_id} linked={result.get('linked', False)}")
-
 
 def _cmd_milestone_unlink_task(args: argparse.Namespace) -> None:
     from ..core.state.milestone_ops import unlink_milestone_task
@@ -361,7 +308,6 @@ def _cmd_milestone_unlink_task(args: argparse.Namespace) -> None:
         _update_milestone_md(args.milestone_id, task_ids=ms.get("task_ids", []))
     print(f"Milestone unlink-task: {args.milestone_id} -/-> {args.task_id} unlinked={result.get('unlinked', False)}")
 
-
 def _cmd_milestone_help(args: argparse.Namespace) -> None:
     print("AIWF Milestone — node and acceptance")
     print()
@@ -369,7 +315,6 @@ def _cmd_milestone_help(args: argparse.Namespace) -> None:
     print("  aiwf milestone create MS-001 --title '...'")
     print("  aiwf milestone show MS-001")
     print("  aiwf milestone list")
-    print("  aiwf milestone rename MS-001 --title '...'")
     print("  aiwf milestone cancel MS-001 --reason '...'")
     print("  aiwf milestone link-plan MS-001 PLAN-001")
     print("  aiwf milestone unlink-plan MS-001 PLAN-001")

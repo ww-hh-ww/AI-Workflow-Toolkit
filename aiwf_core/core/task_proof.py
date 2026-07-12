@@ -7,6 +7,7 @@ the recorded testing surface covers it.
 from __future__ import annotations
 
 import re
+import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -113,7 +114,12 @@ def read_task_proof_contract(base_dir: str, task: Dict[str, Any]) -> Optional[Ta
     commands = _extract_verification_commands(proof_section)
 
     placeholders: List[str] = []
-    for label in ("Structural Home", "Objective", "Forbidden Write", "Proof Standard"):
+    for label in (
+        "Structural Home",
+        "Objective",
+        "Contract Responsibility",
+        "Proof Standard",
+    ):
         content = _section(text, label)
         if _is_placeholder(content):
             placeholders.append(label)
@@ -197,4 +203,64 @@ def validate_testing_against_task(
         "missing_verification_results": missing_results,
         "mismatched_results": mismatched,
         "empty_observed_results": empty_observed,
+    }
+
+
+def build_task_proof(base_dir: str, task: Dict[str, Any]) -> Dict[str, Any]:
+    """Return the concise implementation/testing/review truth for one Task."""
+    base = Path(base_dir)
+
+    def read(name: str) -> Dict[str, Any]:
+        path = base / ".aiwf" / "records" / name
+        try:
+            return json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+        except Exception:
+            return {}
+
+    task_id = str(task.get("id") or "")
+    implementation = read("implementation.json")
+    testing = read("testing.json")
+    review = read("review.json")
+    if implementation.get("task_id") != task_id:
+        implementation = {}
+    if testing.get("task_id") != task_id:
+        testing = {}
+    if review.get("task_id") != task_id:
+        review = {}
+
+    origin = str(task.get("git_origin_ref") or "")
+    implementation_ref = str(implementation.get("implementation_ref") or "")
+    tested_ref = str(testing.get("tested_ref") or "")
+    reviewed_ref = str(review.get("reviewed_ref") or "")
+    diffs = []
+    if origin and implementation_ref:
+        diffs.append({
+            "name": "implementation",
+            "command": f"git diff {origin}..{implementation_ref}",
+        })
+    if implementation_ref and tested_ref:
+        diffs.append({
+            "name": "tester changes",
+            "command": f"git diff {implementation_ref}..{tested_ref}",
+        })
+    if origin and tested_ref:
+        diffs.append({
+            "name": "final task",
+            "command": f"git diff {origin}..{tested_ref}",
+        })
+    return {
+        "task_id": task_id,
+        "status": task.get("status", ""),
+        "git": {
+            "branch": task.get("git_branch", ""),
+            "origin_ref": origin,
+            "implementation_ref": implementation_ref,
+            "tested_ref": tested_ref,
+            "reviewed_ref": reviewed_ref,
+            "commit": (task.get("closure", {}) or {}).get("git_commit", ""),
+            "diffs": diffs,
+        },
+        "implementation": implementation,
+        "testing": testing,
+        "review": review,
     }

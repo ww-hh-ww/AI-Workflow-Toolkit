@@ -13,7 +13,6 @@ test -f "$ROOT/pyproject.toml"
 test ! -f "$ROOT/V45.6-CHANGELOG.md"
 test -x "$ROOT/bin/aiwf"
 test ! -d "$ROOT/.ai-workflow"
-test -f "$ROOT/docs/AIWF-TECHNICAL-REPORT.md"
 if test -d "$ROOT/.git"; then
 git -C "$ROOT" ls-files | grep -E '(^|/)\.DS_Store$|^\._' && {
   echo "tracked macOS metadata found" >&2
@@ -81,18 +80,20 @@ TMP="$(mktemp -d "${TMPDIR:-/tmp}/aiwf-embedded-release-audit-XXXXXX")"
   PYTHONPATH="$ROOT" "$ROOT/bin/aiwf" install reasonix >/dev/null
   test ! -d .ai-workflow
   test -f .aiwf/state/state.json
-  test -f .aiwf/state/goal.json
-  test -f .aiwf/state/contexts.json
-  test -f .aiwf/artifacts/evidence/records.json
-  test -f .aiwf/artifacts/quality/testing.json
-  test -f .aiwf/artifacts/quality/review.json
+  test -f .aiwf/state/goals.json
+  test -f .aiwf/state/plans.json
+  test -f .aiwf/state/tasks.json
+  test -f .aiwf/state/milestones.json
   test -f .aiwf/state/fix-loop.json
+  test -f .aiwf/records/implementation.json
+  test -f .aiwf/records/testing.json
+  test -f .aiwf/records/review.json
+  test -f .aiwf/records/events.json
   test ! -f .aiwf/state.json
   test ! -f .aiwf/review.json
   test -f .reasonix/settings.json
   test -f .reasonix/skills/aiwf-planner/SKILL.md
   test -f .reasonix/skills/aiwf-implement/SKILL.md
-  grep -q "Subagent Connection Recovery" .reasonix/skills/aiwf-planner/SKILL.md
   test ! -f .reasonix/agents/aiwf-executor.md
   test -x scripts/aiwf_status.py
   PYTHONPATH="$ROOT" "$ROOT/bin/aiwf" status | grep -qE "Reasonix"
@@ -108,12 +109,11 @@ TMP_CLAUDE="$(mktemp -d "${TMPDIR:-/tmp}/aiwf-embedded-claude-audit-XXXXXX")"
   test -f .claude/settings.json
   test -f .claude/skills/aiwf-planner/SKILL.md
   test -f .claude/agents/aiwf-executor.md
-  grep -q "Subagent Connection Recovery" .claude/skills/aiwf-planner/SKILL.md
   STOP_OUT="$(printf '{"session_id":"audit","cwd":"%s","hook_event_name":"Stop"}' "$TMP_CLAUDE" | env -u PYTHONPATH python3 scripts/aiwf_review_gate.py)"
   test -z "$STOP_OUT"
   STATUS_OUT="$(printf '{"session_id":"audit","cwd":"%s","hook_event_name":"UserPromptSubmit"}' "$TMP_CLAUDE" | env -u PYTHONPATH python3 scripts/aiwf_status.py)"
-  printf '%s' "$STATUS_OUT" | grep -q "Process:"
-  PYTHONPATH="$ROOT" "$ROOT/bin/aiwf" doctor | grep -q "All checks passed"
+  printf '%s' "$STATUS_OUT" | grep -q "aiwf status --prompt"
+  PYTHONPATH="$ROOT" "$ROOT/bin/aiwf" doctor | grep -q "healthy"
 )
 
 echo "release audit ok"

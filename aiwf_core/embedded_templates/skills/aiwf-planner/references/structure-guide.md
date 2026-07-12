@@ -1,58 +1,76 @@
 # Governance Structure Guide
 
-## Node semantics
+## Node Meanings
 
 | Node | Meaning | Key property |
-|------|---------|-------------|
-| Goal | Mission capability — WHAT outcome the system can produce. Decompose the mission capability model, not the implementation. | Parent-child Goal tree |
-| Plan | Mission mechanism — HOW this Goal will become true: operating model, information model, data/control flow, technical direction. | `plan dep add` for execution gates |
-| Task | Execution contract — one deliverable with proof standard, scope, and role dispatch. | `dependencies` for within-plan order |
-| Milestone | Acceptance proof — stable delivery point that proves integration, consumption, and readiness to continue. | `link-plan/link-task` then Architect `milestone-acceptance` |
+|------|---------|--------------|
+| Goal | Mission capability: what outcome the system can produce. | Parent-child Goal tree |
+| Plan | Mechanism: how this Goal becomes true. | Plan dependencies are execution gates |
+| Task | Execution contract: one deliverable with proof. | Task dependencies order work inside a Plan |
+| Milestone | Acceptance proof: integrated, consumed, stable slice. | Architect `milestone-acceptance` verifies it |
 
-## Relationship model
+## Relationships
 
-- **Goal tree** = decomposition (parent-child). A child is part of its parent's
-  capability domain. Not blocking.
-- **Goal relations** (`depends_on`, `blocks`, `supports`) = capability deps.
-  Logical — explain WHY Plans are ordered the way they are. Not blocking.
-- **Plan dependencies** = execution gates. Blocking. Must complete in order.
-- **Task dependencies** = within-plan ordering.
+- Goal tree: capability decomposition. Not blocking.
+- Goal relations: capability logic. Explain why Plans are ordered. Not blocking.
+- Plan dependencies: execution gates. Blocking.
+- Task dependencies: order inside a Plan.
 
-Goal deps explain Plan structure; they do not duplicate or replace it.
+Goal dependencies explain Plan structure; they do not replace it.
 
-## Planning order
+## Planning Order
 
 Think in this order:
 
-1. Mission capability model: what capabilities must exist for the fixed mission
-   to be true?
-2. Goal tree: where does each capability belong, and are gaps visible?
-3. Plan mechanism: what operating model, information model, feedback loop, risk
-   burn-down order, and technical direction make the Goal true?
-4. Task contracts: what is the next smallest deliverable that proves progress
-   without over-prescribing implementation?
-5. Milestone proof: what running-system acceptance point proves a stable slice
-   of the mission?
+1. mission capability model.
+2. Goal tree and visible gaps.
+3. Plan mechanism: operating model, information model, feedback, risk order,
+   technical direction.
+4. Cross-boundary consistency: shared truth, owner, proof.
+5. Task contracts: next smallest deliverable that proves progress. Do not invent it.
+6. Milestone proof: running-system acceptance point.
 
-## Structure discipline
+## Task Activation Readiness
 
-- **Change direction = revise the Plan.md**, not create a new one.
-  Re-open or create new Tasks under the revised Plan.
-- A cancelled Plan means the approach was wrong; write a better Plan.md.
-  Don't leave the corpse and start fresh.
-- If Architect reports a goal-level completeness gap, revise the Goal tree or
-  record a deferred reason before creating more Tasks under the old shape.
-- If Planner cannot name the main path, evidence path, or integration risk,
-  create exploration/design work first. Do not activate an implementation Task
-  to discover the architecture accidentally.
+Critical reread before activation. Before activating implementation, reread the
+relevant Goal.md, Plan.md, Task.md, and Milestone.md as a critic, not as their
+author.
+Before `aiwf task activate`, reread the relevant Goal.md, Plan.md, Task.md, and Milestone.md as a critic, not as their author.
+
+Answer:
+
+- Capability: what Goal capability does this Task advance?
+- Main path: what entry -> transform -> consume -> observe path matters?
+- Consumer: who consumes this Task output?
+- Invariant: what shared truth must not be guessed?
+- Proof: what observable result proves it works?
+- Old path: who owns removal, deprecation, compatibility, or migration?
+- Unknowns: are unresolved boundaries converted into exploration/design work or
+  deferred with a reason?
+
+If any answer is missing, do not activate implementation.
+Fix the Plan/Task contract first.
+
+## Structure Discipline
+
+- Change direction by revising Plan.md, not by creating a new parallel Plan.
+- If a Plan is cancelled because the approach was wrong, write the better
+  Plan.md and make the old decision visible.
+- If Architect reports a mission-required gap, revise the Goal tree or record a
+  deferred reason before creating more Tasks under the old shape.
+- If Planner cannot name main path, evidence path, or integration risk, create
+  exploration/design work first.
+- Put consistency at the lowest common boundary future work will reliably read.
+  Capture the smallest shared truth. Do not list functions unless the function
+  itself is the public boundary.
 
 ## Anti-patterns
 
-- 1:1 Goal→Plan mapping → merge or split the Goal.
-- Leaf goals describing implementation details → move to Plan/Task scope.
-- Goal tree deeper than 2-3 levels → collapse leaf goals into parent body.
-- New Plan instead of revising → violates structure discipline.
-- Task used as design discovery → create exploration/design work first.
-- Milestone used as a date checkpoint → rewrite as acceptance proof.
-- Plan lists Tasks but has no mechanism, data/control flow, risk order, or
-  validation strategy.
+- 1:1 Goal -> Plan mirror.
+- Leaf Goals that describe implementation details.
+- Goal tree deeper than 2-3 useful levels.
+- New Plan instead of revising the old direction.
+- Task used as design discovery.
+- Milestone used as a date checkpoint.
+- Plan with Tasks but no mechanism, data/control flow, risk order, or proof.
+- Cross-boundary work with no verified Shared truth, Owner, Proof, or Basis.

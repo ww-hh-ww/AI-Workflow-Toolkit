@@ -5,84 +5,17 @@ No Claude-specific logic.
 """
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any, Dict, List
-
-
-def _session_diversity_key(record: Dict[str, Any]) -> str:
-    """Compound key for session diversity: session_id + agent_id if subagent.
-
-    A Planner session and its subagents each count as distinct "sessions"
-    for diversity. An empty agent_id means the main/Planner agent.
-    """
-    sid = str(record.get("session_id", "") or "").strip()
-    aid = str(record.get("agent_id", "") or "").strip()
-    if not sid:
-        return ""
-    if aid:
-        return f"{sid}::{aid}"
-    return sid
-
-
-def accepted_evidence_session_ids(
-    evidence: Dict[str, Any],
-    context_id: str = "",
-) -> List[str]:
-    """Return distinct session diversity keys from accepted evidence records.
-
-    When context_id is provided, only records matching that context are
-    counted — each task's session diversity is independent of history.
-    Agent identity (subagent vs Planner) is included in the key so that
-    Planner, Tester, and Reviewer each count as distinct sessions.
-    """
-    records = evidence.get("records", [])
-    if not isinstance(records, list):
-        return []
-    seen = []
-    for record in records:
-        if not isinstance(record, dict) or record.get("status") != "accepted":
-            continue
-        if context_id and record.get("context_id") != context_id:
-            continue
-        key = _session_diversity_key(record)
-        if key and key not in seen:
-            seen.append(key)
-    return seen
-
-
-def session_diversity_required(state: Dict[str, Any]) -> bool:
-    """LEGACY: Independent session evidence was mechanical for L2/L3.
-
-    V1: Session diversity is NOT a runtime gate. Task.requirements controls
-    subagent dispatch. This function always returns False in V1.
-    """
-    return False
-
-
-def evidence_session_diversity_ok(
-    state: Dict[str, Any],
-    evidence: Dict[str, Any],
-    context_id: str = "",
-) -> bool:
-    if not session_diversity_required(state):
-        return True
-    return len(accepted_evidence_session_ids(evidence, context_id=context_id)) >= 3
-
 
 def closure_conditions_met(
     state: Dict[str, Any],
-    evidence: Dict[str, Any],
+    implementation: Dict[str, Any],
     testing: Dict[str, Any],
     review: Dict[str, Any],
     fix_loop: Dict[str, Any],
 ) -> Dict[str, Any]:
-    """Evaluate the 5 process-compliance closure gates.
-
-    Mirrors prepare_close — same 5 gates. The Stop hook uses this
-    to independently re-validate before allowing closure.
-    """
-    close_attempt = bool(state.get("close_attempt", False))
-    evidence_records = evidence.get("records", []) or []
+    """Keep Claude from stopping after review but before the active task closes."""
+    closing_task = state.get("phase") == "closing" and bool(state.get("active_task_id"))
     blockers = []
     missing = []
 
@@ -91,13 +24,14 @@ def closure_conditions_met(
         blockers.append("fix-loop is open — resolve or escalate before closing")
         missing.append("fix-loop")
 
-    if close_attempt or state.get("phase") == "closed":
-        if not evidence_records:
-            blockers.append("no evidence records")
-            missing.append("evidence")
-        elif not any(r.get("status") == "accepted" for r in evidence_records if isinstance(r, dict)):
-            blockers.append("no accepted evidence")
-            missing.append("accepted evidence")
+    if closing_task:
+        blockers.append("active task is ready to close; run aiwf task close before stopping")
+        missing.append("task_close")
+
+    if closing_task:
+        if not implementation.get("implementation_ref") and not testing.get("based_on_ref"):
+            blockers.append("implementation not recorded")
+            missing.append("implementation")
 
         tstat = testing.get("status", "missing")
         if tstat == "missing":
@@ -119,15 +53,24 @@ def closure_conditions_met(
             blockers.append("review closure_allowed is false")
             missing.append("review")
 
-        from .review_contract import quality_verdict_blockers
-        # V1: quality verdict check without workflow_level gating
-        verdict_blockers = quality_verdict_blockers(review)
-        if verdict_blockers:
-            blockers.extend(verdict_blockers)
+        tested_ref = str(testing.get("tested_ref") or "")
+        reviewed_ref = str(review.get("reviewed_ref") or "")
+        if not tested_ref:
+            blockers.append("tested snapshot is missing")
+            missing.append("testing")
+        elif reviewed_ref != tested_ref:
+            blockers.append("review does not match the tested snapshot")
             missing.append("review")
 
-    # No close attempt and not closed: not passed, but no blockers to report.
-    if not close_attempt and state.get("phase") != "closed":
+        pending = [
+            item for item in review.get("adversarial_observations", []) or []
+            if isinstance(item, dict) and item.get("disposition") == "pending"
+        ]
+        if pending:
+            blockers.append(f"{len(pending)} reviewer observation(s) need Planner disposition")
+            missing.append("review")
+
+    if not closing_task and not blockers:
         return {"passed": False, "blockers": [], "missing": []}
 
     passed = not bool(blockers)
@@ -137,4 +80,3 @@ def closure_conditions_met(
         "blockers": blockers,
         "missing": missing,
     }
-

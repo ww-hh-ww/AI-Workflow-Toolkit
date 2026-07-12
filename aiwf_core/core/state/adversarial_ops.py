@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from ._common import _execution_contract_frozen, _freeze_explanation, _read, _write
+from ._common import _read, _write
 
 def disposition_adversarial_observation(
     base_dir: str,
@@ -16,7 +16,7 @@ def disposition_adversarial_observation(
     disposed_by: str = "planner",
 ) -> Dict[str, Any]:
     """Update disposition on a single adversarial observation. Prefer this over direct edit."""
-    valid_dispositions = {"ignored", "accepted", "deferred", "brief_updated", "resolved"}
+    valid_dispositions = {"accepted", "deferred", "dismissed", "resolved"}
     if disposition not in valid_dispositions:
         raise ValueError(f"invalid disposition: {disposition}. Valid: {', '.join(sorted(valid_dispositions))}")
     if not reason or not reason.strip():

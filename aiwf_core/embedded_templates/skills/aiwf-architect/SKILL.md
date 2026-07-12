@@ -1,104 +1,83 @@
 ---
 name: aiwf-architect
-description: Manual independent post-success critique and milestone acceptance. Use when the user asks whether completed work still serves the mission, whether there is a better path, whether code/design/governance structure has drifted, or whether a milestone can be accepted.
+description: Manual independent post-success review and milestone acceptance.
 ---
 
 # AIWF Architect
 
 ## Role
 
-Review structure through mission fit and mission leverage. When the selected
-lens is `milestone-acceptance`, verify the milestone gate in a real
-environment.
+This skill dispatches the review. The main session does not perform it.
 
-This skill is the main-session dispatcher. Formal architecture review must run
-in an independent Architect subagent/session. The main session frames the
-review, asks the user for scope, dispatches the subagent, and presents findings.
-It does not perform the review itself.
+Architect reviews a path after apparent success. Planner designs and changes
+the path. Architect reports; Planner or the human decides what to do.
 
-Architect is Planner's post-success reflection:
+Mission is fixed. Architect may find that the current Goal tree or technical
+path cannot satisfy it, but it must not invent a broader mission.
 
-- Planner designs the path before success.
-- Architect critiques that path after apparent success.
-- Architect does not create tasks. Structural findings return to Planner for
-  disposition: create a task now, fold into current work, or defer with an
-  explicit reason.
-- Milestone acceptance is the exception: it may record milestone integration
-  tests and assessment, then ask the human before confirm/close.
+## Choose With The User
 
-## Required read
+Before dispatch, ask the user to choose:
 
-- `aiwf-project`
-- Mission or closest mission statement
-- Enough Goal/Plan/Task/Milestone context to offer useful review-scope choices
+- Review slice: full project, one milestone, recent completed work, one
+  capability path, or a named concern.
+- Lenses:
+  - `mission-mechanism`: right path and better structure.
+  - `code-reality`: real callers, consumers, old paths, and wiring.
+  - `governance-truth`: Goal/Plan/Task/Milestone structure and state truth.
+  - `milestone-acceptance`: real acceptance of one milestone.
+- External comparison: none, or a named current benchmark/standard/domain need.
 
-## Forbidden
+Do not infer these choices silently.
 
-- Do not implement or plan.
-- Do not modify source files.
-- Do not create or activate tasks.
-- Do not directly fix structure.
-- Do not change the mission or mutate the Goal tree.
+## Dispatch
+
+Use one `aiwf-architect` Agent for a small slice or a few related lenses.
+
+For a full project, all lenses, or substantial external comparison, ask
+whether to split. If the user agrees, dispatch one Agent per lens. Give every
+parallel Agent a unique directory:
+
+```text
+docs/architect/ARCH-{YYYYMMDD}/<lens>/
+```
+
+Each prompt must include:
+
+```text
+Mission: <fixed mission>
+Review slice: <user choice>
+Selected lenses: <user choice>
+External comparison: <none or user choice>
+Output directory: <unique directory>
+Relevant AIWF docs: <paths>
+References: <only references for selected lenses>
+```
+
+Use the project-local `aiwf-architect` Agent. External WebSearch belongs to the
+Agent assigned that comparison, not the main session.
+
+## Present
+
+Read the original reports and present their findings without softening them or
+inventing a new structural judgment. Merge duplicate points only when source
+attribution remains clear. Give the user the report paths.
+
+Do not turn findings into Tasks. Planner handles follow-up.
+
+For a passing milestone acceptance, ask the human to confirm. If approved, run
+`aiwf milestone confirm`, then `aiwf status --prompt`. Follow Planner and Close
+until the verification Task is closed, then run `aiwf milestone close`. The
+Architect subagent does not perform these close steps.
+
+## Boundaries
+
+- Do not implement, test, plan, or edit structure in this skill.
+- Do not change the mission or Goal tree.
 - Do not hand-edit `.aiwf/state/` or `.aiwf/records/`.
-- Do not infer review scope silently.
-- Do not use WebSearch in the main session. External benchmark research belongs
-  inside the subagent assigned that lens.
-- Do not synthesize new structural judgments from subagent reports. You may
-  merge, deduplicate, and present findings with source attribution.
-- Do not confirm or close a milestone unless `milestone-acceptance` was selected,
-  every Pass Standard item passed, and the human explicitly approved.
-- Do not treat tests passed, task counts, plan lists, or milestone status as an
-  architecture review.
+- Do not confirm or close a milestone without a passing acceptance report and
+  explicit human approval.
 
-## Workflow
+## Stop Condition
 
-FOLLOW EVERY STEP. CHECK OFF EACH ONE AS YOU GO. SKIP NOTHING.
-
-0. Read `aiwf-project`.
-1. Identify the mission or closest mission statement. If mission is unclear,
-   ask the user before dispatch.
-2. Ask the user to choose the review slice and lenses before dispatch. Lenses:
-   `mission-mechanism`, `code-reality`, `governance-truth`,
-   `milestone-acceptance`, or any subset. Useful slices: full project, a
-   milestone, recent closed tasks, a capability path, or a named structural
-   concern. Ask whether this review should include an external benchmark.
-   External benchmark is optional; use it only when the user wants current
-   domain expectations, standards, compliance facts, or a named comparison
-   baseline.
-3. Decide dispatch shape:
-   - Standard review: one `aiwf-architect` Agent may handle the selected slice
-     when scope is narrow or lenses are few.
-   - Deep split review: when the user selects full project, all lenses, or an
-     external benchmark, ask whether to split. If the user agrees, dispatch one
-     `aiwf-architect` Agent per selected lens: `mission-mechanism`,
-     `code-reality`, `governance-truth`, `milestone-acceptance`.
-   - External benchmark: only the `mission-mechanism` lens should use
-     WebSearch, unless the user explicitly assigns benchmark research to
-     another lens.
-   - Do not dispatch multiple agents to make the final judgment together. Each
-     lens returns its own report. Main session only collects and presents.
-4. Create the output directory: `mkdir -p docs/architect/ARCH-{YYYYMMDD}/`.
-   Then dispatch Architect subagents. In Claude Code, prefer the project-local
-   `aiwf-architect` Agent:
-   `Agent({subagent_type: "aiwf-architect", prompt: "Mission: <one-sentence mission>\nReview slice: <user-selected scope>\nLenses: <mission-mechanism | code-reality | governance-truth | milestone-acceptance | subset>\nOutput dir: docs/architect/ARCH-{date}/\nExternal benchmark: <none | user-requested benchmark/current standard/compliance/domain expectations>\nRelevant AIWF docs: <goals/plans/tasks/milestones paths>\nReferences: .claude/skills/aiwf-architect/references/design-review.md, code-review.md, structure-review.md, milestone-acceptance.md\nQuestion: Does the completed work truly advance the mission? Is there a better path? If milestone-acceptance is selected, verify the milestone gate. Follow /aiwf-architect workflow and present findings without softening."})`
-   Each subagent writes its findings under the output directory.
-5. Present findings to the user as findings, not as your own softened summary.
-   For split reviews, group by lens and source agent. Do not defend the project,
-   reconcile conflicts by invention, or turn findings into tasks yourself.
-   Planner decides disposition.
-
-## Expected subagent output
-
-- Capability Gap
-- Mission Fit + Leverage
-- Code Reality Findings
-- Governance Truth Findings
-- Milestone Acceptance Findings
-- Blockers
-- Advisories
-- Planner Disposition Candidates
-
-## Stop condition
-
-Stop after presenting the independent Architect findings. Wait for user or
-Planner disposition.
+Stop after presenting reports or when human action is required.

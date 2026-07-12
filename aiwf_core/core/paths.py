@@ -2,10 +2,11 @@
 
 V1: Six-zone workspace layout.
   state/   — machine truth (JSON)
-  records/ — evidence, testing, review, architecture-review, events (JSONL)
+  records/ — implementation, testing, review, events
   goals/ plans/ tasks/ milestones/ — narrative docs (Markdown)
+  memory/  — planner's small long-term project memory
   config/  — skill-map, command-policy
-  runtime/internal/ — toolkit-path, drift, diag, routing-debug
+  runtime/internal/ — toolkit-path, drift, hook and agent logs
 """
 
 import os
@@ -35,13 +36,12 @@ MILESTONES_JSON = ".aiwf/state/milestones.json"
 FIX_LOOP_JSON = ".aiwf/state/fix-loop.json"
 
 # ═══════════════════════════════════════════════════════════════════════════
-# Records zone — evidence, testing, review, architecture-review, events
+# Records zone — implementation, testing, review, events
 # ═══════════════════════════════════════════════════════════════════════════
 
-RECORDS_EVIDENCE = ".aiwf/records/evidence.json"
+RECORDS_IMPLEMENTATION = ".aiwf/records/implementation.json"
 RECORDS_TESTING = ".aiwf/records/testing.json"
 RECORDS_REVIEW = ".aiwf/records/review.json"
-RECORDS_ARCHITECTURE_REVIEW = ".aiwf/records/architecture-review.json"
 RECORDS_EVENTS = ".aiwf/records/events.json"
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -74,6 +74,7 @@ ALL_DIRS = [
     "state",
     "records",
     "goals", "plans", "tasks", "milestones",
+    "memory", "memory/notes",
     "config",
     "runtime", "runtime/internal",
 ]
@@ -92,15 +93,15 @@ LEGACY_MAP = {
     "task-ledger.json": TASKS_JSON,
     "milestones.json": MILESTONES_JSON,
     # artifacts/ → records/
-    "evidence.json": RECORDS_EVIDENCE,
+    "evidence.json": None,
     "testing.json": RECORDS_TESTING,
     "review.json": RECORDS_REVIEW,
-    "architecture-review.json": RECORDS_ARCHITECTURE_REVIEW,
+    "architecture-review.json": None,
     # Old full paths → records/
-    ".aiwf/artifacts/evidence/records.json": RECORDS_EVIDENCE,
+    ".aiwf/artifacts/evidence/records.json": None,
     ".aiwf/artifacts/quality/testing.json": RECORDS_TESTING,
     ".aiwf/artifacts/quality/review.json": RECORDS_REVIEW,
-    ".aiwf/artifacts/quality/architecture-review.json": RECORDS_ARCHITECTURE_REVIEW,
+    ".aiwf/artifacts/quality/architecture-review.json": None,
     # Old runtime paths
     ".aiwf/runtime/history/task-history.json": None,  # deleted, not migrated
     ".aiwf/runtime/history/task-ledger.json": TASKS_JSON,

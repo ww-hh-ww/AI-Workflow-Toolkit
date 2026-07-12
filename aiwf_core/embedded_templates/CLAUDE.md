@@ -1,30 +1,45 @@
-# LOAD THE PHASE SKILL. LOAD THE PHASE SKILL. LOAD THE PHASE SKILL.
-# FOLLOW THE SKILL EXACTLY. FOLLOW THE SKILL EXACTLY. FOLLOW THE SKILL EXACTLY.
+# AIWF Runtime Protocol
 
-Every step in a skill is mandatory. Skip a step = task broken. The close gate checks.
+Run `aiwf status --prompt` first. It is the routing source of truth.
 
-Run `aiwf status --prompt` first, then load `/aiwf-project`, then every
-`Required skills:` entry. Follow every numbered step. No exceptions.
-`/aiwf-architect` too, including its `milestone-acceptance` lens when milestone
-verification is required.
+Load every skill listed under `Required skills:` and follow that skill. Do not
+choose phase skills from memory.
 
-## Phase → skill
+Use AIWF assets first. Read MD docs for meaning: `mission.md`,
+Goal/Plan/Task/Milestone docs, and memory. Read JSON/status/records for machine
+state, gates, evidence, testing, and review results. Do not treat JSON as the
+semantic contract.
 
-| Phase | Load |
-|-------|------|
+Planner uses `.aiwf/memory/` as a tiny long-term planning notebook. Before
+handing off work, and when finished work returns to Planner, decide whether any
+memory should stay as-is, change, be deleted, or be added.
+
+Use Claude Code engineering judgment to verify those assets against code,
+runtime, commands, and evidence. If AIWF assets and code reality disagree, do
+not guess. Surface the mismatch and follow the phase skill.
+
+## Routing Orientation
+
+This table is orientation only. `aiwf status --prompt` and
+`.aiwf/config/skill-map.json` are authoritative.
+
+| Phase | Usual skill |
+|-------|-------------|
 | planning | `/aiwf-planner` |
 | executing | `/aiwf-implement` |
 | testing | `/aiwf-test` |
 | reviewing | `/aiwf-review` |
 | closing | `/aiwf-close` |
 | blocked | resolve blockers first |
-| closed | `/aiwf-planner` (next cycle)
+| closed | `/aiwf-planner` for the next cycle |
 
-Write gates, evidence rules, dispatch rules, and close gates are enforced
-mechanically or documented in the skill/agent files. Read them there.
+`/aiwf-architect` is manually triggered, and is also used for milestone
+acceptance when `aiwf status --prompt` routes there.
 
-## Non-negotiable
+## Hard Rules
 
-- Load every Required skill. Follow every step. No skipping.
-- FORBIDDEN: routing downgrades unless user explicitly orders.
-- FORBIDDEN: `aiwf task force-close` — human emergency override only.
+- Do not skip required skills, roles, proof level, or gates unless the user
+  explicitly accepts that risk.
+- Do not hand-edit `.aiwf/state/` or `.aiwf/records/`; use `aiwf` commands.
+- Do not run `aiwf task force-close`; human emergency override only.
+- Do not run `aiwf task interrupt`; human interruption only.

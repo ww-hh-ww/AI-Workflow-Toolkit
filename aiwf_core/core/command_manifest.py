@@ -61,7 +61,7 @@ COMMAND_MANIFEST: Dict[str, Dict] = {
         "tier": PRIMARY, "core": "verification",
         "caller": "executor/tester/reviewer", "trigger": "on-task",
         "visible": True, "tested": "yes", "in_status_prompt": False,
-        "keep": "evidence/testing/review/architecture-review",
+        "keep": "evidence/testing/review",
     },
     "ui": {
         "tier": PRIMARY, "core": "infra",
@@ -83,14 +83,7 @@ COMMAND_MANIFEST: Dict[str, Dict] = {
     },
 }
 
-
 def manifest_commands(tier: str | None = None) -> List[str]:
     if tier:
         return sorted(k for k, v in COMMAND_MANIFEST.items() if v["tier"] == tier)
     return sorted(COMMAND_MANIFEST.keys())
-
-
-def manifest_summary() -> str:
-    primary = manifest_commands(PRIMARY)
-    internal = manifest_commands(INTERNAL)
-    return f"PRIMARY({len(primary)}): {', '.join(primary)} | INTERNAL({len(internal)}): {', '.join(internal)}"

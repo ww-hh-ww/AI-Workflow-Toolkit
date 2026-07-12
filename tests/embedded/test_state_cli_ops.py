@@ -1,18 +1,28 @@
-"""State CLI ops: record-testing, mark-cleanup, prepare-close, help."""
-import json, os, shutil, subprocess, sys, tempfile, unittest
+"""Current public CLI routing and calibration contracts."""
+import json
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+import unittest
 from pathlib import Path
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
-TIMEOUT = 15
+ROOT = Path(__file__).resolve().parent.parent.parent
+
 
 class TestStateCliOps(unittest.TestCase):
-
     @classmethod
     def setUpClass(cls):
-        cls.tmp = Path(tempfile.mkdtemp(prefix="awsco_"))
-        env = os.environ.copy(); env["PYTHONPATH"] = str(PROJECT_ROOT)
-        subprocess.run([sys.executable, "-m", "aiwf_core.cli", "install", "claude", "--force"],
-                       capture_output=True, text=True, cwd=str(cls.tmp), env=env, timeout=20)
+        cls.tmp = Path(tempfile.mkdtemp(prefix="aiwf_cli_"))
+        env = os.environ.copy()
+        env["PYTHONPATH"] = str(ROOT)
+        result = subprocess.run(
+            [sys.executable, "-m", "aiwf_core.cli", "install", "claude", "--force"],
+            cwd=str(cls.tmp), env=env, capture_output=True, text=True, timeout=20,
+        )
+        if result.returncode:
+            raise AssertionError(result.stderr)
 
     @classmethod
     def tearDownClass(cls):
@@ -20,633 +30,208 @@ class TestStateCliOps(unittest.TestCase):
 
     def setUp(self):
         from aiwf_core.core.state_schema import MVP_STATE_FILES
-        (self.tmp/".aiwf").mkdir(parents=True, exist_ok=True)
-        for fn, dfn in MVP_STATE_FILES.items():
-            p = self.tmp / ".aiwf" / fn; p.parent.mkdir(parents=True, exist_ok=True); p.write_text(json.dumps(dfn(), indent=2)+"\n")
+        for name, factory in MVP_STATE_FILES.items():
+            path = self.tmp / ".aiwf" / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(factory(), indent=2) + "\n")
 
     def _run(self, *args):
-        env = os.environ.copy(); env["PYTHONPATH"] = str(PROJECT_ROOT)
-        return subprocess.run([sys.executable, "-m", "aiwf_core.cli"] + list(args),
-                              capture_output=True, text=True, cwd=str(self.tmp), env=env, timeout=TIMEOUT)
+        env = os.environ.copy()
+        env["PYTHONPATH"] = str(ROOT)
+        return subprocess.run(
+            [sys.executable, "-m", "aiwf_core.cli", *args],
+            cwd=str(self.tmp), env=env, capture_output=True, text=True, timeout=15,
+        )
 
-    @staticmethod
-    def _v2_full_dimensions():
-        from aiwf_core.core.state_schema import QUALITY_DIMENSIONS
-        return {dim: {"score": "PASS", "note": ""} for dim in QUALITY_DIMENSIONS}
+    def test_fixloop_public_cli_opens_and_resolves(self):
+        opened = self._run(
+            "fixloop", "open", "--route", "planner",
+            "--reason", "Executor found a contract conflict",
+            "--required-fix", "Clarify the active contract", "--source", "executor",
+        )
+        self.assertEqual(opened.returncode, 0, opened.stderr)
+        fix_path = self.tmp / ".aiwf" / "state" / "fix-loop.json"
+        current = json.loads(fix_path.read_text())
+        self.assertEqual(current["route"], "planner")
+        self.assertEqual(current["required_fixes"], ["Clarify the active contract"])
 
-    @staticmethod
-    def _v2_full_basis():
-        from aiwf_core.core.state_schema import REVIEW_BASIS
-        return {name: {"status": "covered", "note": ""} for name in REVIEW_BASIS}
+        resolved = self._run(
+            "fixloop", "resolve", "--resolution", "Planner confirmed the contract",
+            "--source", "planner",
+        )
+        self.assertEqual(resolved.returncode, 0, resolved.stderr)
+        self.assertEqual(json.loads(fix_path.read_text())["status"], "resolved")
 
-    def _seed_review_ready(self):
-        """Fill phase-gate fields needed before record-review."""
-        (self.tmp/".aiwf" / "records" / "testing.jsonl").write_text(json.dumps(
-            {"status": "adequate", "commands": ["pytest"]}, indent=2))
+    def test_status_prompt_follows_fixloop_route(self):
+        cases = {
+            "planner": "/aiwf-planner",
+            "executor": "/aiwf-implement",
+            "tester": "/aiwf-test",
+            "environment": "/aiwf-planner",
+        }
+        path = self.tmp / ".aiwf" / "state" / "fix-loop.json"
+        for route, skill in cases.items():
+            path.write_text(json.dumps({
+                "status": "open", "route": route, "reason": "route test",
+                "required_fixes": [], "required_verification": [],
+            }))
+            status = self._run("status", "--prompt")
+            self.assertEqual(status.returncode, 0, status.stderr)
+            self.assertIn(f"[ATTN] {skill}", status.stdout)
+            self.assertIn(".aiwf/state/fix-loop.json", status.stdout)
 
-    def _set_l2(self):
-        state_path = self.tmp / ".aiwf" / "state" / "state.json"
+    def test_task_calibration_is_replaced_not_duplicated(self):
+        created = self._run(
+            "task", "create", "TASK-CAL", "--title", "Calibrate me",
+            "--goal", "GOAL-001", "--plan", "PLAN-001",
+        )
+        self.assertEqual(created.returncode, 0, created.stderr)
+        for summary in ["First actual result.", "Final actual result."]:
+            result = self._run("task", "calibrate", "TASK-CAL", "--summary", summary)
+            self.assertEqual(result.returncode, 0, result.stderr)
+        task_md = (self.tmp / ".aiwf/tasks/TASK-CAL.md").read_text()
+        self.assertEqual(task_md.count("## Closure Calibration"), 1)
+        self.assertIn("Final actual result.", task_md)
+        self.assertNotIn("First actual result.", task_md)
+
+    def test_status_routes_missing_calibration_before_close(self):
+        state_path = self.tmp / ".aiwf/state/state.json"
         state = json.loads(state_path.read_text())
-        state["workflow_level"] = "L2_standard_team"
-        state["phase"] = "testing"
-        state_path.write_text(json.dumps(state, indent=2) + "\n")
+        state.update({"phase": "reviewing", "active_task_id": "TASK-CAL"})
+        state_path.write_text(json.dumps(state))
+        task_doc = self.tmp / ".aiwf/tasks/TASK-CAL.md"
+        task_doc.parent.mkdir(parents=True, exist_ok=True)
+        task_doc.write_text("---\nid: TASK-CAL\n---\n\n# TASK-CAL\n")
+        (self.tmp / ".aiwf/records/testing.json").write_text(json.dumps({
+            "status": "adequate", "commands": [],
+        }))
+        (self.tmp / ".aiwf/records/review.json").write_text(json.dumps({
+            "result": "accepted", "closure_allowed": True, "blockers": [],
+        }))
 
-    def _write_hook_records(self, records):
-        path = self.tmp / ".aiwf" / "records" / "evidence.jsonl"
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps({"records": records}, indent=2) + "\n")
+        missing = self._run("status", "--prompt")
+        self.assertIn("[ATTN] /aiwf-planner", missing.stdout)
+        self.assertIn("Next: calibrate before close", missing.stdout)
 
-    def _seed_close_ready(self):
-        s = json.loads((self.tmp/".aiwf" / "state" / "state.json").read_text())
-        s["phase"] = "reviewing"
-        (self.tmp/".aiwf" / "state" / "state.json").write_text(json.dumps(s, indent=2))
-        (self.tmp/".aiwf" / "records" / "testing.jsonl").write_text(json.dumps(
-            {"status": "adequate", "commands": ["pytest"]}, indent=2))
-        (self.tmp/".aiwf" / "records" / "evidence.jsonl").write_text(json.dumps(
-            {"records": [
-                {"id": "EV-001", "status": "accepted", "trust": "machine_observed",
-                 "tool_name": "Write", "trust_level": "command_observed",
-                 "session_id": "exec-session", "agent_type": "aiwf-executor"},
-                {"id": "EV-002", "status": "accepted", "trust": "machine_observed",
-                 "tool_name": "Bash", "trust_level": "command_observed",
-                 "session_id": "test-session", "agent_type": "aiwf-tester"},
-                {"id": "EV-003", "status": "accepted", "trust": "machine_observed",
-                 "tool_name": "Bash", "trust_level": "command_observed",
-                 "session_id": "review-session", "agent_type": "aiwf-reviewer"},
-            ]}, indent=2))
-        (self.tmp/".aiwf" / "records" / "review.jsonl").write_text(json.dumps({
-            "verdict": "PASS",
-            "result": "accepted",
-            "closure_allowed": True,
-            "blockers": [],
-            "cleanup_status": "fresh",
-            "cleanup_blockers": [],
-            "stale_items": [],
-            "structure_status": "accepted",
-            "structure_blockers": [],
-            "quality_dimensions": self._v2_full_dimensions(),
-            "review_basis": self._v2_full_basis(),
-        }, indent=2))
-
-    # ── record-testing ──
-    @unittest.skip("V1: state hidden, record is new")
-    def test_record_testing_writes_fields(self):
-        self._run("record", "evidence", "--role", "executor", "--summary", "test", "--status", "accepted")
-        r = self._run("record", "testing", "--status", "passed",
-                      "--context-id", "CTX-001", "--command", "npm test",
-                      "--untested-risk", "manual UI", "--coverage-summary", "targeted passed",
-                      "--supports-plan", "PLAN-001", "--supports-goal", "GOAL-001")
-        self.assertEqual(r.returncode, 0)
-        t = json.loads((self.tmp/".aiwf" / "records" / "testing.jsonl").read_text())
-        self.assertEqual(t["status"], "passed")
-        self.assertEqual(t["context_id"], "CTX-001")
-        self.assertEqual(t["commands"], ["npm test"])
-        self.assertIn("manual UI", t["untested_risks"])
-        self.assertEqual(t["coverage_summary"], "targeted passed")
-        self.assertEqual(t["supports_plan"], "PLAN-001")
-        self.assertEqual(t["supports_goal"], "GOAL-001")
-        self.assertIn("Evidence:", r.stdout)
-        self.assertIn("Supports plan: PLAN-001", r.stdout)
-        self.assertIn("Supports goal: GOAL-001", r.stdout)
-        ev = json.loads((self.tmp/".aiwf" / "records" / "evidence.jsonl").read_text())
-        self.assertEqual(ev["records"][-1]["agent_type"], "tester")
-        self.assertEqual(ev["records"][-1]["command"], "npm test")
-        self.assertEqual(ev["records"][-1]["supports_plan"], "PLAN-001")
-        self.assertEqual(ev["records"][-1]["supports_goal"], "GOAL-001")
-
-    @unittest.skip("V1: state hidden, record is new")
-    def test_l2_record_testing_accepts_shared_session_hook_observed_tester(self):
-        self._set_l2()
-        self._write_hook_records([
-            {"id": "EV-EXEC", "status": "accepted", "trust": "machine_observed",
-             "tool_name": "Write", "session_id": "shared-parent", "agent_type": "aiwf-executor"},
-            {"id": "EV-TEST", "status": "accepted", "trust": "machine_observed",
-             "tool_name": "Bash", "session_id": "shared-parent", "agent_type": "aiwf-tester"},
-        ])
-
-        r = self._run("record", "testing", "--status", "adequate",
-                      "--command", "pytest", "--supports-plan", "PLAN-001",
-                      "--supports-goal", "GOAL-001")
-
-        self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertIn("Testing recorded", r.stdout)
-
-    @unittest.skip("V1: state hidden, record is new")
-    def test_l2_record_review_rejects_without_hook_observed_reviewer(self):
-        self._set_l2()
-        self._seed_review_ready()
-        self._write_hook_records([
-            {"id": "EV-EXEC", "status": "accepted", "trust": "machine_observed",
-             "tool_name": "Write", "session_id": "shared-parent", "agent_type": "aiwf-executor"},
-            {"id": "EV-ROLE", "status": "accepted", "trust": "machine_observed",
-             "tool_name": "AIWFRoleEvidence", "session_id": "shared-parent",
-             "agent_type": "aiwf-reviewer"},
-        ])
-
-        r = self._run("record", "review",
-                      "--verdict", "PASS",
-                      "--result", "accepted",
-                      "--closure-allowed",
-                      "--accepted-evidence-id", "EV-EXEC",
-                      "--cleanup-status", "fresh",
-                      "--structure-status", "accepted",
-                      "--summary", "reviewed evidence",
-                      *self._dimension_args(),
-                      *self._basis_args())
-
-        # V2: hook-observed reviewer is no longer a gate for record-review at L2
-        self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertIn("Review recorded", r.stdout)
-
-    @unittest.skip("V1: state hidden, record is new")
-    def test_record_role_evidence_writes_executor_record(self):
-        r = self._run("record", "evidence",
-                      "--role", "executor",
-                      "--summary", "implemented scoped files",
-                      "--changed-file", "src/a.py",
-                      "--supports-plan", "PLAN-001",
-                      "--supports-goal", "GOAL-001")
-        self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertIn("Role evidence recorded:", r.stdout)
-        ev = json.loads((self.tmp/".aiwf" / "records" / "evidence.jsonl").read_text())
-        rec = ev["records"][-1]
-        self.assertEqual(rec["agent_type"], "executor")
-        self.assertEqual(rec["changed_files"], ["src/a.py"])
-        self.assertEqual(rec["trust"], "machine_observed")
-        self.assertEqual(rec["supports_plan"], "PLAN-001")
-        self.assertEqual(rec["supports_goal"], "GOAL-001")
-
-    @unittest.skip("V1: state hidden, record is new")
-    def test_record_role_evidence_can_bind_explicit_task_id(self):
-        r = self._run("record", "evidence",
-                      "--role", "tester",
-                      "--summary", "post-hoc tester evidence",
-                      "--task-id", "TASK-EXPLICIT",
-                      "--session-id", "tester-session",
-                      "--agent-id", "aiwf-tester",
-                      "--agent-type", "aiwf-tester",
-                      "--command", "pytest")
-
-        self.assertEqual(r.returncode, 0, r.stderr)
-        ev = json.loads((self.tmp/".aiwf" / "records" / "evidence.jsonl").read_text())
-        rec = ev["records"][-1]
-        self.assertEqual(rec["task_id"], "TASK-EXPLICIT")
-        self.assertEqual(rec["agent_type"], "aiwf-tester")
-        self.assertEqual(rec["session_id"], "tester-session")
-
-    @unittest.skip("V1: state hidden, record is new")
-    def test_governance_repair_opens_narrow_plan_registry_window(self):
-        r = self._run(
-            "governance", "repair",
-            "--target", "plan-registry",
-            "--reason", "legacy goal_id mismatch blocks activation",
+        task_doc.write_text(
+            "---\nid: TASK-CAL\n---\n\n# TASK-CAL\n\n"
+            "## Closure Calibration\n\nActually done.\n"
         )
+        ready = self._run("status", "--prompt")
+        self.assertIn("[ATTN] /aiwf-close", ready.stdout)
+        self.assertIn("Next: close task", ready.stdout)
 
-        self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertIn("Governance repair opened", r.stdout)
-        fl = json.loads((self.tmp/".aiwf" / "state" / "fix-loop.json").read_text())
-        self.assertEqual(fl["status"], "open")
-        self.assertTrue(any(".aiwf/state/plans.json" in x for x in fl.get("required_fixes", [])))
-        self.assertTrue(any(rp.get("target") == ".aiwf/state/plans.json" for rp in fl.get("active_repairs", [])))
+    def test_status_routes_after_a_completed_plan_task(self):
+        state_path = self.tmp / ".aiwf/state/state.json"
+        state = json.loads(state_path.read_text())
+        state.update({
+            "phase": "planning", "active_task_id": None,
+            "active_plan_id": "PLAN-AFTER-TASK",
+        })
+        state_path.write_text(json.dumps(state))
+        (self.tmp / ".aiwf/state/plans.json").write_text(json.dumps({
+            "active_plan_id": "PLAN-AFTER-TASK",
+            "plans": [{
+                "plan_id": "PLAN-AFTER-TASK", "status": "open",
+                "task_ids": ["TASK-DONE", "TASK-NEXT"],
+                "task_status": {"TASK-DONE": "closed", "TASK-NEXT": "ready"},
+            }],
+        }))
+        (self.tmp / ".aiwf/state/tasks.json").write_text(json.dumps({
+            "tasks": [
+                {"id": "TASK-DONE", "status": "closed"},
+                {"id": "TASK-NEXT", "status": "ready"},
+            ],
+        }))
+        plan_doc = self.tmp / ".aiwf/plans/PLAN-AFTER-TASK.md"
+        plan_doc.parent.mkdir(parents=True, exist_ok=True)
+        plan_doc.write_text("---\nid: PLAN-AFTER-TASK\n---\n\n# Plan\n")
 
-    @unittest.skip("V1: state hidden, record is new")
-    def test_record_role_evidence_scan_git_corroborates_working_tree(self):
-        subprocess.run(["git", "init", "-b", "main"], cwd=str(self.tmp), capture_output=True, text=True, timeout=TIMEOUT)
-        subprocess.run(["git", "config", "user.email", "a@b.c"], cwd=str(self.tmp), capture_output=True, text=True, timeout=TIMEOUT)
-        subprocess.run(["git", "config", "user.name", "aiwf-test"], cwd=str(self.tmp), capture_output=True, text=True, timeout=TIMEOUT)
-        (self.tmp / "README.md").write_text("baseline\n")
-        subprocess.run(["git", "add", "README.md"], cwd=str(self.tmp), capture_output=True, text=True, timeout=TIMEOUT)
-        subprocess.run(["git", "commit", "-m", "baseline"], cwd=str(self.tmp), capture_output=True, text=True, timeout=TIMEOUT)
-        (self.tmp / "src").mkdir(exist_ok=True)
-        (self.tmp / "src" / "bridge.py").write_text("value = 1\n")
+        result = self._run("status", "--prompt")
 
-        r = self._run("record", "evidence",
-                      "--role", "executor",
-                      "--summary", "implemented bridge file",
-                      "--scan-git")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("[ATTN] /aiwf-planner", result.stdout)
+        self.assertIn("Focus: After a Task", result.stdout)
+        self.assertIn("compare the actual result with the Plan", result.stdout)
+        self.assertIn(".aiwf/plans/PLAN-AFTER-TASK.md", result.stdout)
 
-        self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertIn("Git scan:", r.stdout)
-        ev = json.loads((self.tmp/".aiwf" / "records" / "evidence.jsonl").read_text())
-        rec = ev["records"][-1]
-        self.assertEqual(rec["changed_files_source"], "role_delivery_git_scan")
-        self.assertEqual(rec["working_tree_source"], "git_diff")
-        self.assertIn("src/bridge.py", rec["working_tree_changed_files"])
-        self.assertIn("src/bridge.py", rec["changed_files"])
-        self.assertEqual(rec["attribution"], "role_command")
+    def test_status_routes_plan_close_out_when_no_tasks_remain(self):
+        state_path = self.tmp / ".aiwf/state/state.json"
+        state = json.loads(state_path.read_text())
+        state.update({
+            "phase": "planning", "active_task_id": None,
+            "active_plan_id": "PLAN-CLOSE-OUT",
+        })
+        state_path.write_text(json.dumps(state))
+        (self.tmp / ".aiwf/state/plans.json").write_text(json.dumps({
+            "active_plan_id": "PLAN-CLOSE-OUT",
+            "plans": [{
+                "plan_id": "PLAN-CLOSE-OUT", "status": "open",
+                "task_ids": ["TASK-DONE"],
+                "task_status": {"TASK-DONE": "closed"},
+            }],
+        }))
+        (self.tmp / ".aiwf/state/tasks.json").write_text(json.dumps({
+            "tasks": [{"id": "TASK-DONE", "status": "closed"}],
+        }))
 
-    @unittest.skip("V1: state hidden, record is new")
-    def test_record_review_writes_review_and_reviewer_evidence(self):
-        self._seed_review_ready()
-        self._run("record", "evidence", "--role", "executor",
-                  "--summary", "implemented", "--status", "accepted")
-        ev = json.loads((self.tmp/".aiwf" / "records" / "evidence.jsonl").read_text())
-        exec_id = ev["records"][-1]["id"]
-        r = self._run("record", "review",
-                      "--result", "accepted",
-                      "--closure-allowed",
-                      "--accepted-evidence-id", exec_id,
-                      "--cleanup-status", "fresh",
-                      "--structure-status", "accepted",
-                      "--summary", "reviewed evidence")
-        self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertIn("Evidence:", r.stdout)
-        review = json.loads((self.tmp/".aiwf" / "records" / "review.jsonl").read_text())
-        reviewer_id = review["reviewer_evidence_id"]
-        self.assertIn(reviewer_id, review["accepted_evidence_ids"])
-        ev = json.loads((self.tmp/".aiwf" / "records" / "evidence.jsonl").read_text())
-        reviewer = [rec for rec in ev["records"] if rec["id"] == reviewer_id][0]
-        self.assertEqual(reviewer["agent_type"], "reviewer")
+        result = self._run("status", "--prompt")
 
-    def _dimension_args(self, overrides=None, notes=None):
-        from aiwf_core.core.state_schema import QUALITY_DIMENSIONS
-        overrides = overrides or {}
-        notes = notes or {}
-        args = []
-        for dim in QUALITY_DIMENSIONS:
-            args.extend(["--dimension-score", f"{dim}={overrides.get(dim, 'PASS')}"])
-            if dim in notes:
-                args.extend(["--dimension-note", f"{dim}_note={notes[dim]}"])
-        return args
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Focus: Close Out a Plan", result.stdout)
+        self.assertIn("confirm the delivered parts work together", result.stdout)
 
-    def _dimension_map(self, overrides=None, notes=None):
-        from aiwf_core.core.state_schema import QUALITY_DIMENSIONS
-        overrides = overrides or {}
-        notes = notes or {}
-        return {
-            dim: {"score": overrides.get(dim, "PASS"), "note": notes.get(dim, "")}
-            for dim in QUALITY_DIMENSIONS
-        }
+    def test_closed_plan_rejects_new_task_links(self):
+        plans_path = self.tmp / ".aiwf/state/plans.json"
+        plans_path.write_text(json.dumps({
+            "active_plan_id": None,
+            "plans": [{
+                "plan_id": "PLAN-HISTORY", "id": "PLAN-HISTORY",
+                "status": "closed", "task_ids": [], "task_status": {},
+            }],
+        }))
 
-    def _basis_args(self, overrides=None, notes=None):
-        from aiwf_core.core.state_schema import REVIEW_BASIS
-        overrides = overrides or {}
-        notes = notes or {}
-        args = []
-        for name in REVIEW_BASIS:
-            args.extend(["--basis-status", f"{name}={overrides.get(name, 'covered')}"])
-            if name in notes:
-                args.extend(["--basis-note", f"{name}_note={notes[name]}"])
-        return args
+        linked = self._run("plan", "link-task", "PLAN-HISTORY", "TASK-LATE")
+        self.assertNotEqual(linked.returncode, 0)
+        self.assertIn("is closed", linked.stderr)
 
-    def _basis_map(self, overrides=None, notes=None):
-        from aiwf_core.core.state_schema import REVIEW_BASIS
-        overrides = overrides or {}
-        notes = notes or {}
-        return {
-            name: {"status": overrides.get(name, "covered"), "note": notes.get(name, "")}
-            for name in REVIEW_BASIS
-        }
-
-    @unittest.skip("V1: state hidden, record is new")
-    def test_record_review_verdict_pass_requires_all_quality_dimensions(self):
-        r = self._run("record", "review",
-                      "--verdict", "PASS",
-                      "--cleanup-status", "fresh",
-                      "--structure-status", "accepted",
-                      "--summary", "quality verdict")
-        # V2: quality dimensions are optional for PASS
-        self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertIn("Review recorded", r.stdout)
-
-    @unittest.skip("V1: state hidden, record is new")
-    def test_record_review_verdict_pass_with_all_dimensions_allows_closure(self):
-        self._seed_review_ready()
-        r = self._run("record", "review",
-                      "--verdict", "PASS",
-                      "--cleanup-status", "fresh",
-                      "--structure-status", "accepted",
-                      "--summary", "quality verdict",
-                      *self._dimension_args(),
-                      *self._basis_args())
-        self.assertEqual(r.returncode, 0, r.stderr)
-        review = json.loads((self.tmp/".aiwf" / "records" / "review.jsonl").read_text())
-        self.assertEqual(review["verdict"], "PASS")
-        self.assertEqual(review["result"], "accepted")
-        self.assertTrue(review["closure_allowed"])
-        self.assertEqual(review["review_basis"]["goal"]["status"], "covered")
-
-    @unittest.skip("V1: state hidden, record is new")
-    def test_record_review_verdict_pass_requires_review_basis(self):
-        r = self._run("record", "review",
-                      "--verdict", "PASS",
-                      "--cleanup-status", "fresh",
-                      "--structure-status", "accepted",
-                      "--summary", "quality verdict",
-                      *self._dimension_args())
-        # V2: review basis is optional for PASS
-        self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertIn("Review recorded", r.stdout)
-
-    @unittest.skip("V1: state hidden, record is new")
-    def test_record_review_verdict_pass_rejects_basis_gap(self):
-        r = self._run("record", "review",
-                      "--verdict", "PASS",
-                      "--cleanup-status", "fresh",
-                      "--structure-status", "accepted",
-                      "--summary", "quality verdict",
-                      *self._dimension_args(),
-                      *self._basis_args({"testing": "gap"}, {"testing": "tests did not cover plan"}))
-        # V2: review basis gaps do not block PASS; basis is optional
-        self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertIn("Review recorded", r.stdout)
-
-    @unittest.skip("V1: state hidden, record is new")
-    def test_record_review_verdict_pass_rejects_risk_dimension(self):
-        r = self._run("record", "review",
-                      "--verdict", "PASS",
-                      "--cleanup-status", "fresh",
-                      "--structure-status", "accepted",
-                      "--summary", "quality verdict",
-                      *self._dimension_args({"risk_debt": "RISK"}))
-        # V2: RISK dimensions are allowed with PASS
-        self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertIn("Review recorded", r.stdout)
-
-    @unittest.skip("V1: state hidden, record is new")
-    def test_record_review_pass_with_risk_requires_risk_note(self):
-        r = self._run("record", "review",
-                      "--verdict", "PASS_WITH_RISK",
-                      "--cleanup-status", "fresh",
-                      "--structure-status", "accepted",
-                      "--summary", "quality verdict",
-                      *self._dimension_args({"risk_debt": "RISK"}))
-        # V2: RISK dimension notes are optional
-        self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertIn("Review recorded", r.stdout)
-
-    @unittest.skip("V1: state hidden, record is new")
-    def test_record_review_pass_with_risk_records_quality_dimensions(self):
-        self._seed_review_ready()
-        r = self._run("record", "review",
-                      "--verdict", "PASS_WITH_RISK",
-                      "--cleanup-status", "fresh",
-                      "--structure-status", "accepted",
-                      "--summary", "quality verdict",
-                      *self._dimension_args(
-                          {"risk_debt": "RISK"},
-                          {"risk_debt": "deferred manual verification remains"},
-                      ),
-                      *self._basis_args())
-        self.assertEqual(r.returncode, 0, r.stderr)
-        review = json.loads((self.tmp/".aiwf" / "records" / "review.jsonl").read_text())
-        self.assertEqual(review["verdict"], "PASS_WITH_RISK")
-        self.assertEqual(review["quality_dimensions"]["risk_debt"]["score"], "RISK")
-        self.assertTrue(review["closure_allowed"])
-
-    @unittest.skip("V1: state hidden, record is new")
-    def test_record_review_pass_with_risk_rejects_symptom_only(self):
-        r = self._run("record", "review",
-                      "--verdict", "PASS_WITH_RISK",
-                      "--cleanup-status", "fresh",
-                      "--structure-status", "accepted",
-                      "--root-cause", "symptom_only",
-                      "--summary", "quality verdict",
-                      *self._dimension_args(
-                          {"risk_debt": "RISK"},
-                          {"risk_debt": "temporary risk accepted"},
-                      ))
-        # V2: --root-cause symptom_only no longer blocks PASS_WITH_RISK
-        self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertIn("Review recorded", r.stdout)
-
-    @unittest.skip("V1: state hidden, record is new")
-    def test_record_review_revise_requires_blocker(self):
-        r = self._run("record", "review",
-                      "--verdict", "REVISE",
-                      "--summary", "quality verdict",
-                      *self._basis_args({"testing": "gap"}, {"testing": "missing changed-file risk test"}))
-        self.assertNotEqual(r.returncode, 0)
-        self.assertIn("REVISE requires at least one --blocker", r.stderr)
-
-    @unittest.skip("V1: state hidden, record is new")
-    def test_record_review_revise_requires_review_basis(self):
-        # V2: REVISE only requires --blocker; quality dimensions and review basis are optional
-        r = self._run("record", "review",
-                      "--verdict", "REVISE",
-                      "--blocker", "test adequacy risk",
-                      "--summary", "quality verdict",
-                      *self._dimension_args({"test_adequacy": "RISK"}))
-        self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertIn("Review recorded", r.stdout)
-        review = json.loads((self.tmp/".aiwf" / "records" / "review.jsonl").read_text())
-        self.assertEqual(review["verdict"], "REVISE")
-
-    @unittest.skip("V1: state hidden, record is new")
-    def test_record_review_revise_with_all_pass_dimensions_is_blocked(self):
-        # V2: REVISE only requires --blocker; quality dimensions are optional
-        r = self._run("record", "review",
-                      "--verdict", "REVISE",
-                      "--blocker", "needs targeted fix",
-                      "--summary", "quality verdict",
-                      *self._dimension_args(),
-                      *self._basis_args({"testing": "gap"}, {"testing": "missing changed-file risk test"}))
-        self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertIn("Review recorded", r.stdout)
-        review = json.loads((self.tmp/".aiwf" / "records" / "review.jsonl").read_text())
-        self.assertEqual(review["verdict"], "REVISE")
-        self.assertIn("needs targeted fix", review["blockers"])
-
-    @unittest.skip("V1: state hidden, record is new")
-    def test_record_review_revise_with_no_basis_gap_is_blocked(self):
-        # V2: REVISE only requires --blocker; review basis is optional
-        r = self._run("record", "review",
-                      "--verdict", "REVISE",
-                      "--blocker", "needs targeted fix",
-                      "--summary", "quality verdict",
-                      *self._dimension_args({"test_adequacy": "RISK"}),
-                      *self._basis_args())
-        self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertIn("Review recorded", r.stdout)
-        review = json.loads((self.tmp/".aiwf" / "records" / "review.jsonl").read_text())
-        self.assertEqual(review["verdict"], "REVISE")
-
-    @unittest.skip("V1: state hidden, record is new")
-    def test_record_review_revise_records_needs_fix_without_closure(self):
-        self._seed_review_ready()
-        r = self._run("record", "review",
-                      "--verdict", "REVISE",
-                      "--blocker", "test adequacy risk",
-                      "--summary", "quality verdict",
-                      *self._dimension_args({"test_adequacy": "RISK"}),
-                      *self._basis_args({"testing": "gap"}, {"testing": "missing changed-file risk test"}))
-        self.assertEqual(r.returncode, 0, r.stderr)
-        review = json.loads((self.tmp/".aiwf" / "records" / "review.jsonl").read_text())
-        self.assertEqual(review["verdict"], "REVISE")
-        self.assertEqual(review["result"], "needs_fix")
-        self.assertFalse(review["closure_allowed"])
-        self.assertIn("test adequacy risk", review["blockers"])
-        self.assertEqual(review["review_basis"]["testing"]["status"], "gap")
-
-    @unittest.skip("V1: state hidden, record is new")
-    def test_record_review_reject_with_dimensions_requires_fail(self):
-        # V2: REJECT only requires --blocker; quality dimensions and review basis are optional
-        r = self._run("record", "review",
-                      "--verdict", "REJECT",
-                      "--blocker", "wrong architecture direction",
-                      "--summary", "quality verdict",
-                      *self._dimension_args({"architecture_fit": "RISK"}),
-                      *self._basis_args({"plan": "gap"}, {"plan": "plan mismatches implementation"}))
-        self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertIn("Review recorded", r.stdout)
-        review = json.loads((self.tmp/".aiwf" / "records" / "review.jsonl").read_text())
-        self.assertEqual(review["verdict"], "REJECT")
-        self.assertIn("wrong architecture direction", review["blockers"])
-
-    @unittest.skip("V1: state hidden, record is new")
-    def test_record_review_reject_records_rejected_without_closure(self):
-        self._seed_review_ready()
-        r = self._run("record", "review",
-                      "--verdict", "REJECT",
-                      "--blocker", "wrong architecture direction",
-                      "--summary", "quality verdict",
-                      *self._dimension_args({"architecture_fit": "FAIL"}),
-                      *self._basis_args({"plan": "gap"}, {"plan": "plan mismatches implementation"}))
-        self.assertEqual(r.returncode, 0, r.stderr)
-        review = json.loads((self.tmp/".aiwf" / "records" / "review.jsonl").read_text())
-        self.assertEqual(review["verdict"], "REJECT")
-        self.assertEqual(review["result"], "rejected")
-        self.assertFalse(review["closure_allowed"])
-        self.assertIn("wrong architecture direction", review["blockers"])
-
-    @unittest.skip("V1: state hidden, record is new")
-    def test_record_testing_output_is_short(self):
-        r = self._run("record", "testing", "--status", "adequate",
-                      "--command", "pytest")
-        self.assertLess(len(r.stdout), 500)
-        self.assertNotIn("{", r.stdout)
-
-    # ── mark-cleanup ──
-    @unittest.skip("V1: state hidden, record is new")
-    def test_mark_cleanup_fresh_clears_stale(self):
-        # Pre-seed stale
-        rv = json.loads((self.tmp/".aiwf" / "records" / "review.jsonl").read_text())
-        rv["cleanup_status"] = "stale"; rv["stale_items"] = ["old"]; rv["cleanup_blockers"] = ["b"]
-        (self.tmp/".aiwf" / "records" / "review.jsonl").write_text(json.dumps(rv, indent=2))
-        self._run("record_legacy", "--note", "resolved")
-        rv2 = json.loads((self.tmp/".aiwf" / "records" / "review.jsonl").read_text())
-        self.assertEqual(rv2["cleanup_status"], "fresh")
-        self.assertEqual(rv2["stale_items"], [])
-        self.assertEqual(rv2["cleanup_blockers"], [])
-
-    @unittest.skip("V1: state hidden, record is new")
-    def test_mark_cleanup_stale_writes_fields(self):
-        self._run("record_legacy", "--stale-item", "old-ctx",
-                  "--blocker", "needs review", "--note", "found stale context")
-        rv = json.loads((self.tmp/".aiwf" / "records" / "review.jsonl").read_text())
-        self.assertEqual(rv["cleanup_status"], "stale")
-        self.assertIn("old-ctx", rv["stale_items"])
-        self.assertIn("needs review", rv["cleanup_blockers"])
-
-    # ── prepare-close ──
-    @unittest.skip("V1: state hidden, record is new")
-    def test_prepare_close_completes_closure(self):
-        self._seed_close_ready()
-        self._run("record_legacy")
-        s = json.loads((self.tmp/".aiwf" / "state" / "state.json").read_text())
-        self.assertTrue(s["closure_allowed"])
-        self.assertEqual(s["phase"], "closing")
-        self.assertFalse(s["close_attempt"])
-
-    @unittest.skip("V1: state hidden, record is new")
-    def test_prepare_close_output_short(self):
-        r = self._run("record_legacy")
-        self.assertLess(len(r.stdout), 1200)
-
-    @unittest.skip("V1: state hidden, record is new")
-    def test_prepare_close_summary_surfaces_quality_verdict(self):
-        self._seed_close_ready()
-        review_path = self.tmp/".aiwf" / "records" / "review.jsonl"
-        review = json.loads(review_path.read_text())
-        review["verdict"] = "PASS_WITH_RISK"
-        review["quality_dimensions"] = self._dimension_map(
-            {"risk_debt": "RISK"},
-            {"risk_debt": "accepted deferred risk"},
+        created = self._run(
+            "task", "create", "TASK-LATE", "--title", "Late work",
+            "--plan", "PLAN-HISTORY",
         )
-        review["review_basis"] = self._basis_map()
-        review_path.write_text(json.dumps(review, indent=2))
-        r = self._run("record_legacy")
-        self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertIn("Review: accepted, verdict=PASS_WITH_RISK", r.stdout)
-        self.assertIn("Quality verdict: quality dimensions PASS=7 RISK=1 FAIL=0", r.stdout)
-        self.assertIn("Review basis: review basis covered=6 gap=0", r.stdout)
+        self.assertNotEqual(created.returncode, 0)
+        self.assertIn("is closed", created.stderr)
+        tasks = json.loads((self.tmp / ".aiwf/state/tasks.json").read_text())
+        self.assertNotIn("TASK-LATE", [item.get("id") for item in tasks.get("tasks", [])])
 
-    # ── state help ──
-    @unittest.skip("V1: state hidden, record is new")
-    def test_state_help_lists_all_7(self):
-        env = os.environ.copy(); env["PYTHONPATH"] = str(PROJECT_ROOT)
-        r = subprocess.run([sys.executable, "-m", "aiwf_core.cli", "state"],
-                          capture_output=True, text=True, cwd=str(self.tmp), env=env, timeout=TIMEOUT)
-        for sub in ["record-quality-policy", "record-quality-brief", "start-context",
-                     "record-testing", "mark-cleanup-fresh", "mark-cleanup-stale", "prepare-close"]:
-            self.assertIn(sub, r.stdout, f"Missing: {sub}")
+    def test_closed_plan_rejects_structural_mutation(self):
+        (self.tmp / ".aiwf/state/plans.json").write_text(json.dumps({
+            "active_plan_id": None,
+            "plans": [
+                {
+                    "plan_id": "PLAN-HISTORY", "id": "PLAN-HISTORY",
+                    "status": "closed", "task_ids": ["TASK-OLD"],
+                    "task_status": {"TASK-OLD": "closed"},
+                    "dependencies": ["PLAN-DEP"],
+                },
+                {"plan_id": "PLAN-DEP", "id": "PLAN-DEP", "status": "closed"},
+                {"plan_id": "PLAN-NEW-DEP", "id": "PLAN-NEW-DEP", "status": "open"},
+            ],
+        }))
 
-    # ── skill text ──
-    @unittest.skip("V1: state hidden, record is new")
-    def test_test_skill_has_record_testing_cli(self):
-        c = (self.tmp/".claude"/"skills"/"aiwf-test"/"SKILL.md").read_text()
-        self.assertIn("tester_required", c)
-
-    @unittest.skip("V1: state hidden, record is new")
-    def test_cli_no_modify_claude_md(self):
-        before = (self.tmp/"CLAUDE.md").read_text()
-        self._run("record", "testing", "--status", "passed")
-        self._run("record_legacy")
-        self._run("record_legacy")
-        after = (self.tmp/"CLAUDE.md").read_text()
-        self.assertEqual(before, after)
-
-
-
-    # ── wording consistency ──
-
-    @unittest.skip("V1: state hidden, record is new")
-    def test_agent_tester_no_hand_edit_testing_json(self):
-        c2 = (self.tmp/".claude"/"agents"/"aiwf-tester.md").read_text()
-        self.assertNotIn("Update `.aiwf/records/testing.jsonl`", c2)
-        self.assertIn("aiwf state record-testing", c2)
-
-    @unittest.skip("V1: state hidden, record is new")
-    def test_agent_tester_says_do_not_hand_edit(self):
-        c2 = (self.tmp/".claude"/"agents"/"aiwf-tester.md").read_text()
-        self.assertIn("do not hand-edit", c2.lower())
-
-    @unittest.skip("V1: state hidden, record is new")
-    def test_prepare_close_no_can_proceed_wording(self):
-        r = self._run("record_legacy")
-        self.assertNotIn("Can proceed to Stop gate", r.stdout)
-
-    @unittest.skip("V1: state hidden, record is new")
-    def test_prepare_close_explains_authoritative_gate(self):
-        r = self._run("record_legacy")
-        self.assertIn("prepare-close is authoritative", r.stdout)
-
-    @unittest.skip("V1: state hidden, record is new")
-    def test_prepare_close_no_closure_success(self):
-        r = self._run("record_legacy")
-        self.assertNotIn("closure allowed", r.stdout.lower())
-        self.assertNotIn("closure complete", r.stdout.lower())
-
-    @unittest.skip("V1: state hidden, record is new")
-    def test_review_skill_has_cleanup_helpers(self):
-        c2 = (self.tmp/".claude"/"agents"/"aiwf-reviewer.md").read_text()
-        # V1: reviewer agent teaches simple --result accepted command, not PASS/cleanup-status
-        self.assertIn("accepted", c2)
-        self.assertIn("--result", c2)
-
-
-
-
-    @unittest.skip("V1: state hidden, record is new")
-    def test_prepare_close_blockers_printed_once(self):
-        # Seed cleanup stale
-        self._seed_close_ready()
-        self._run("record_legacy", "--stale-item", "old-context")
-        r = self._run("record_legacy")
-        count = r.stdout.count("Blockers (")
-        self.assertEqual(count, 1, f"Blockers printed {count} times, should be 1")
-        self.assertIn("Resolve blockers before preparing closure", r.stdout)
-        self.assertNotIn("closure allowed", r.stdout.lower())
+        commands = [
+            ("plan", "unlink-task", "PLAN-HISTORY", "TASK-OLD"),
+            ("plan", "dep", "add", "PLAN-HISTORY", "PLAN-NEW-DEP"),
+            (
+                "plan", "dep", "remove", "PLAN-HISTORY", "PLAN-DEP",
+                "--reason", "change history",
+            ),
+            ("plan", "create", "PLAN-HISTORY", "--title", "rewrite history"),
+        ]
+        for command in commands:
+            result = self._run(*command)
+            self.assertNotEqual(result.returncode, 0, command)
+            self.assertIn("closed", result.stderr.lower(), command)
 
 
 if __name__ == "__main__":

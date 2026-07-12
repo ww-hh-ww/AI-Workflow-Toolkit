@@ -1,10 +1,4 @@
-"""Goal Tree Registry — recursive functional skeleton for AIWF.
-
-goals.json is a lightweight registry for the Rooted Functional Tree model.
-It lives alongside (not replacing) the legacy singleton goal.json.
-
-This module provides CRUD + validation. It does NOT integrate with task
-activation, task close, or CLI — those come in later stages."""
+"""Goal Tree Registry operations."""
 
 from __future__ import annotations
 
@@ -20,14 +14,11 @@ from ..state_schema import (
     default_goals,
 )
 
-
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
-
 def _goals_path(base_dir: str) -> Path:
     return Path(base_dir) / ".aiwf" / "state" / "goals.json"
-
 
 def _read(path: Path, default: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     try:
@@ -35,11 +26,9 @@ def _read(path: Path, default: Optional[Dict[str, Any]] = None) -> Dict[str, Any
     except Exception:
         return default or {}
 
-
 def _write(path: Path, data: Dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-
 
 # ── goal entry ────────────────────────────────────────────────────────────
 
@@ -78,7 +67,6 @@ def _empty_goal(
         "updated_at": now,
     }
 
-
 # ── registry CRUD ─────────────────────────────────────────────────────────
 
 def load_goal_tree(base_dir: str, auto_create: bool = True) -> Dict[str, Any]:
@@ -96,7 +84,6 @@ def load_goal_tree(base_dir: str, auto_create: bool = True) -> Dict[str, Any]:
     data.setdefault("relations", [])
     return data
 
-
 def save_goal_tree(base_dir: str, tree: Dict[str, Any]) -> None:
     tree.setdefault("schema_version", 1)
     tree.setdefault("active_goal_id", None)
@@ -105,67 +92,25 @@ def save_goal_tree(base_dir: str, tree: Dict[str, Any]) -> None:
     tree.setdefault("relations", [])
     _write(_goals_path(base_dir), tree)
 
-
-def _seed_from_legacy(base_dir: str) -> Dict[str, Any]:
-    """Create initial goals.json with GOAL-001 from legacy goal.json."""
-    data = default_goals()
-    legacy_path = Path(base_dir) / ".aiwf" / "state" / "goal.json"
-    if legacy_path.exists():
-        try:
-            legacy = json.loads(legacy_path.read_text(encoding="utf-8"))
-            active_goal = legacy.get("active_goal") or legacy.get("current_goal") or ""
-            confirmed = legacy.get("confirmed", False)
-            intent = legacy.get("original_intent") or legacy.get("current_goal") or ""
-            status = "open" if confirmed else "discussion"
-        except Exception:
-            active_goal = ""
-            intent = ""
-            status = "discussion"
-    else:
-        active_goal = ""
-        intent = ""
-        status = "discussion"
-
-    goal = _empty_goal(
-        LEGACY_GOAL_ID,
-        title=active_goal[:120] if active_goal else LEGACY_GOAL_ID,
-        parent_goal_id=None,
-        status=status,
-        intent=intent,
-    )
-    data["goals"].append(goal)
-    data["roots"].append(LEGACY_GOAL_ID)
-    if status == "active":
-        data["active_goal_id"] = LEGACY_GOAL_ID
-    return data
-
-
-# ── query ─────────────────────────────────────────────────────────────────
-
 def _find_goal(tree: Dict[str, Any], goal_id: str) -> Optional[Dict[str, Any]]:
     for goal in tree.get("goals", []) or []:
         if isinstance(goal, dict) and (goal.get("id") == goal_id):
             return goal
     return None
 
-
 def list_goals(base_dir: str) -> List[Dict[str, Any]]:
     return list(load_goal_tree(base_dir).get("goals", []) or [])
-
 
 def get_goal(base_dir: str, goal_id: str) -> Dict[str, Any]:
     return _find_goal(load_goal_tree(base_dir), goal_id) or {}
 
-
 def goal_exists(base_dir: str, goal_id: str) -> bool:
     return bool(get_goal(base_dir, goal_id))
-
 
 def list_roots(base_dir: str) -> List[Dict[str, Any]]:
     tree = load_goal_tree(base_dir)
     root_ids = set(tree.get("roots", []) or [])
     return [g for g in tree.get("goals", []) or [] if isinstance(g, dict) and g.get("id") in root_ids]
-
 
 def get_active_goal(base_dir: str) -> Dict[str, Any]:
     tree = load_goal_tree(base_dir)
@@ -176,60 +121,7 @@ def get_active_goal(base_dir: str) -> Dict[str, Any]:
             return g
     return {}
 
-
 # ── mutation ──────────────────────────────────────────────────────────────
-
-def upsert_goal(
-    base_dir: str,
-    goal_id: str,
-    title: str = "",
-    parent_goal_id: Optional[str] = None,
-    status: str = "",
-    intent: str = "",
-    acceptance_boundary: str = "",
-) -> Dict[str, Any]:
-    if status and status not in VALID_GOAL_STATUSES:
-        raise ValueError(f"invalid goal status: {status}")
-
-    tree = load_goal_tree(base_dir)
-    goal = _find_goal(tree, goal_id)
-
-    if not goal:
-        goal = _empty_goal(
-            goal_id,
-            title=title,
-            parent_goal_id=parent_goal_id,
-            status=status or "open",
-            intent=intent,
-            acceptance_boundary=acceptance_boundary,
-        )
-        tree["goals"].append(goal)
-        if goal_id not in tree["roots"]:
-            tree["roots"].append(goal_id)
-    else:
-        goal.setdefault("child_goal_ids", [])
-        goal.setdefault("children_order", [])
-        goal.setdefault("attached_plan_ids", [])
-        goal.setdefault("open_gaps", [])
-        goal.setdefault("admission_trace", None)
-        if title:
-            goal["title"] = title
-        if status:
-            goal["status"] = status
-        if intent:
-            goal["intent"] = intent
-        if acceptance_boundary:
-            goal["acceptance_boundary"] = acceptance_boundary
-        goal["updated_at"] = _now()
-
-    if goal.get("status") == "open":
-        tree["active_goal_id"] = goal_id
-    elif tree.get("active_goal_id") == goal_id and goal.get("status") != "open":
-        tree["active_goal_id"] = None
-
-    save_goal_tree(base_dir, tree)
-    return {"goal": goal, "tree": tree}
-
 
 def add_child_goal(base_dir: str, parent_id: str, child_id: str,
                    title: str = "", intent: str = "") -> Dict[str, Any]:
@@ -267,7 +159,6 @@ def add_child_goal(base_dir: str, parent_id: str, child_id: str,
     save_goal_tree(base_dir, tree)
     return {"parent": parent, "child": child, "tree": tree}
 
-
 def init_root(base_dir: str, goal_id: str,
               title: str = "", intent: str = "") -> Dict[str, Any]:
     """Create a root Goal."""
@@ -295,75 +186,12 @@ def init_root(base_dir: str, goal_id: str,
     save_goal_tree(base_dir, tree)
     return {"goal": goal, "tree": tree}
 
-
 # ── validation ────────────────────────────────────────────────────────────
-
-def validate_goal_tree(base_dir: str) -> Dict[str, Any]:
-    """Return {valid: bool, issues: [...]}. Does not mutate."""
-    tree = load_goal_tree(base_dir, auto_create=False)
-    issues = []
-    goals = tree.get("goals", []) or []
-    goal_ids = {g["id"] for g in goals if isinstance(g, dict) and g.get("id")}
-    roots = set(tree.get("roots", []) or [])
-
-    for g in goals:
-        if not isinstance(g, dict):
-            continue
-        gid = g.get("id", "")
-
-        # roots reference existing Goals
-        if gid in roots:
-            if g.get("parent_goal_id") is not None:
-                issues.append(f"{gid}: root Goal has parent_goal_id set")
-    
-        # parent-child consistency
-        parent = g.get("parent_goal_id")
-        if parent is not None and parent not in goal_ids:
-            issues.append(f"{gid}: parent_goal_id {parent} does not exist")
-        if parent is not None:
-            parent_goal = _find_goal(tree, parent)
-            if parent_goal and gid not in (parent_goal.get("child_goal_ids", []) or []):
-                issues.append(f"{gid}: parent_goal_id {parent} does not list this goal as child")
-
-        # child IDs exist
-        for cid in g.get("child_goal_ids", []) or []:
-            if cid not in goal_ids:
-                issues.append(f"{gid}: child_goal_id {cid} does not exist")
-            else:
-                child = _find_goal(tree, cid)
-                if child and child.get("parent_goal_id") != gid:
-                    issues.append(
-                        f"{gid}: child_goal_id {cid} has parent_goal_id {child.get('parent_goal_id')}"
-                    )
-
-        # children_order only references child_ids
-        child_set = set(g.get("child_goal_ids", []) or [])
-        for cid in g.get("children_order", []) or []:
-            if cid not in child_set:
-                issues.append(f"{gid}: children_order references {cid} not in child_goal_ids")
-
-        # missing children_order entries
-        for cid in child_set:
-            if cid not in set(g.get("children_order", []) or []):
-                issues.append(f"{gid}: child_goal_id {cid} missing from children_order")
-
-    # root set consistency
-    for rid in roots:
-        if rid not in goal_ids:
-            issues.append(f"root {rid} is not a known goal")
-
-    # no cycles
-    cycle_issues = _detect_cycles(tree)
-    issues.extend(cycle_issues)
-
-    return {"valid": len(issues) == 0, "issues": issues}
-
 
 def _validate_no_cycles(tree: Dict[str, Any]) -> None:
     issues = _detect_cycles(tree)
     if issues:
         raise ValueError("goal tree cycle detected: " + "; ".join(issues))
-
 
 def _detect_cycles(tree: Dict[str, Any]) -> List[str]:
     """Simple DFS cycle detection on the goal tree."""
@@ -390,162 +218,7 @@ def _detect_cycles(tree: Dict[str, Any]) -> List[str]:
             dfs(gid, [gid])
     return issues
 
-
 # ── structural operations: graft & prune ──────────────────────────────────
-
-def graft_branch(base_dir: str, source_id: str, target_parent_id: str,
-                 reason: str = "",
-                 interface_consumed: str = "",
-                 capability_provided: str = "",
-                 relation_to_parent: str = "",
-                 affected_plan_ids: Optional[List[str]] = None,
-                 whether_parent_meaning_changes: bool = False) -> Dict[str, Any]:
-    """Graft a Temporary Root or branch into the main Goal Tree through an interface.
-
-    Every graft records: interface consumed from parent, capability provided by
-    source, relation to parent, affected plans, and whether the graft changes
-    the parent's meaning. This is "graft through interface", not just reparenting.
-    """
-    tree = load_goal_tree(base_dir)
-    source = _find_goal(tree, source_id)
-    if not source:
-        raise ValueError(f"source goal not found: {source_id}")
-
-    target = _find_goal(tree, target_parent_id)
-    if not target:
-        raise ValueError(f"target parent goal not found: {target_parent_id}")
-
-    if source_id == target_parent_id:
-        raise ValueError("cannot graft a goal onto itself")
-
-    affected = list(dict.fromkeys(affected_plan_ids or []))
-
-    # Check for cycles before grafting
-    old_parent = source.get("parent_goal_id")
-    source["parent_goal_id"] = target_parent_id
-    try:
-        _validate_no_cycles(tree)
-    except ValueError:
-        source["parent_goal_id"] = old_parent
-        raise ValueError(f"graft would create a cycle: {source_id} → {target_parent_id}")
-
-    # Remove from roots if it was a root
-    if source_id in tree.get("roots", []):
-        tree["roots"] = [r for r in tree["roots"] if r != source_id]
-
-    if old_parent:
-        old_parent_goal = _find_goal(tree, old_parent)
-        if old_parent_goal:
-            old_parent_goal["child_goal_ids"] = [
-                c for c in old_parent_goal.get("child_goal_ids", []) or [] if c != source_id
-            ]
-            old_parent_goal["children_order"] = [
-                c for c in old_parent_goal.get("children_order", []) or [] if c != source_id
-            ]
-            old_parent_goal["updated_at"] = _now()
-
-    # Update target's children
-    if source_id not in target.setdefault("child_goal_ids", []):
-        target["child_goal_ids"].append(source_id)
-    if source_id not in target.setdefault("children_order", []):
-        target["children_order"].append(source_id)
-
-    # Record graft through interface — the contract of the graft
-    graft_record = {
-        "source_id": source_id,
-        "target_parent_id": target_parent_id,
-        "reason": reason,
-        "interface_consumed": interface_consumed,
-        "capability_provided": capability_provided,
-        "relation_to_parent": relation_to_parent,
-        "affected_plan_ids": affected,
-        "whether_parent_meaning_changes": whether_parent_meaning_changes,
-        "previous_parent": old_parent,
-        "grafted_at": _now(),
-    }
-    source.setdefault("graft_history", []).append(graft_record)
-
-    # Record interface trace on the source for later inspection
-    if interface_consumed:
-        source.setdefault("graft_interface", {})["consumed"] = interface_consumed
-    if capability_provided:
-        source.setdefault("graft_interface", {})["provided"] = capability_provided
-    if relation_to_parent:
-        source.setdefault("graft_interface", {})["relation_to_parent"] = relation_to_parent
-    if whether_parent_meaning_changes:
-        source.setdefault("graft_interface", {})["parent_meaning_changes"] = True
-
-    source["visibility"] = "default"  # Entering main tree — becomes visible
-    source["updated_at"] = _now()
-    target["updated_at"] = _now()
-
-    save_goal_tree(base_dir, tree)
-    return {
-        "grafted": True,
-        "source": source,
-        "target_parent": target,
-        "graft_record": graft_record,
-        "affected_plan_ids": affected,
-    }
-
-
-def prune_branch(base_dir: str, branch_id: str, reason: str = "") -> Dict[str, Any]:
-    """Archive a failed, obsolete, or superseded branch.
-
-    Archives by default — does NOT delete files or evidence.
-    Returns info about abandoned Plans/Tasks for human review.
-    """
-    tree = load_goal_tree(base_dir)
-    branch = _find_goal(tree, branch_id)
-    if not branch:
-        raise ValueError(f"branch not found: {branch_id}")
-
-    # Cannot prune the active root
-    if (branch_id in tree.get("roots", []) and
-            tree.get("active_goal_id") == branch_id and
-            branch.get("status") == "open"):
-        raise ValueError(f"cannot prune the active root: {branch_id}")
-
-    # Collect info about what's being abandoned
-    abandoned_plans = list(branch.get("attached_plan_ids", []) or [])
-    abandoned_children = list(branch.get("child_goal_ids", []) or [])
-
-    # Remove from roots if present
-    if branch_id in tree.get("roots", []):
-        tree["roots"] = [r for r in tree["roots"] if r != branch_id]
-
-    # Remove from parent's children
-    parent_id = branch.get("parent_goal_id")
-    if parent_id:
-        parent = _find_goal(tree, parent_id)
-        if parent:
-            parent["child_goal_ids"] = [c for c in parent.get("child_goal_ids", []) or [] if c != branch_id]
-            parent["children_order"] = [c for c in parent.get("children_order", []) or [] if c != branch_id]
-            parent["updated_at"] = _now()
-
-    # Archive, don't delete
-    branch["status"] = "archived"
-    branch["visibility"] = "archived_only"
-    branch["prune_reason"] = reason
-    branch["pruned_at"] = _now()
-    branch["abandoned_plans"] = abandoned_plans
-    branch["abandoned_child_goals"] = abandoned_children
-    branch["updated_at"] = _now()
-
-    # Clear active_goal_id if this was it
-    if tree.get("active_goal_id") == branch_id:
-        tree["active_goal_id"] = None
-
-    save_goal_tree(base_dir, tree)
-    return {
-        "pruned": True,
-        "branch": branch,
-        "abandoned_plans": abandoned_plans,
-        "abandoned_child_goals": abandoned_children,
-    }
-
-
-# ── sibling relations ──────────────────────────────────────────────────────
 
 def add_relation(base_dir: str, source_id: str, target_id: str,
                  rel_type: str = "depends_on", reason: str = "",
@@ -597,7 +270,6 @@ def add_relation(base_dir: str, source_id: str, target_id: str,
     save_goal_tree(base_dir, tree)
     return {"added": True, "relation": rel}
 
-
 def remove_relation(base_dir: str, source_id: str, target_id: str) -> Dict[str, Any]:
     """Remove a sibling relation."""
     tree = load_goal_tree(base_dir)
@@ -607,10 +279,3 @@ def remove_relation(base_dir: str, source_id: str, target_id: str) -> Dict[str, 
                     if not (r.get("source_id") == source_id and r.get("target_id") == target_id)]
     save_goal_tree(base_dir, tree)
     return {"removed": len(relations) < before}
-
-
-def get_relations(base_dir: str, node_id: str) -> List[Dict[str, Any]]:
-    """Get all relations involving a node (as source or target)."""
-    tree = load_goal_tree(base_dir)
-    return [r for r in tree.get("relations", []) or []
-            if r.get("source_id") == node_id or r.get("target_id") == node_id]

@@ -13,14 +13,11 @@ from ..state_schema import (
     default_milestones,
 )
 
-
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
-
 def _milestones_path(base_dir: str) -> Path:
     return Path(base_dir) / ".aiwf" / "state" / "milestones.json"
-
 
 def _read(path: Path, default: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     try:
@@ -28,15 +25,12 @@ def _read(path: Path, default: Optional[Dict[str, Any]] = None) -> Dict[str, Any
     except Exception:
         return default or {}
 
-
 def _write(path: Path, data: Dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
-
 def _unique(items: List[str]) -> List[str]:
     return [str(x) for x in dict.fromkeys(items or []) if str(x)]
-
 
 def _empty_milestone(
     milestone_id: str,
@@ -128,7 +122,6 @@ def _empty_milestone(
         "updated_at": now,
     }
 
-
 def _ensure_user_acceptance(milestone: Dict[str, Any]) -> Dict[str, Any]:
     policy = str(milestone.get("advance_policy") or "checkpoint")
     verdict = str((milestone.get("stage_synthesis", {}) or {}).get("verdict") or "pending")
@@ -147,14 +140,12 @@ def _ensure_user_acceptance(milestone: Dict[str, Any]) -> Dict[str, Any]:
             acceptance["status"] = "pending"
     return acceptance
 
-
 def _invalidate_user_acceptance(milestone: Dict[str, Any]) -> None:
     acceptance = _ensure_user_acceptance(milestone)
     acceptance["status"] = "pending" if acceptance.get("required") else "not_required"
     acceptance["confirmed_by"] = ""
     acceptance["summary"] = ""
     acceptance["confirmed_at"] = ""
-
 
 def _find_milestone(data: Dict[str, Any], milestone_id: str) -> Optional[Dict[str, Any]]:
     for milestone in data.get("milestones", []) or []:
@@ -163,7 +154,6 @@ def _find_milestone(data: Dict[str, Any], milestone_id: str) -> Optional[Dict[st
         ):
             return milestone
     return None
-
 
 def load_milestones(base_dir: str) -> Dict[str, Any]:
     path = _milestones_path(base_dir)
@@ -176,25 +166,20 @@ def load_milestones(base_dir: str) -> Dict[str, Any]:
         _write(path, data)
     return data
 
-
 def save_milestones(base_dir: str, milestones: Dict[str, Any]) -> None:
     milestones.setdefault("schema_version", 1)
     milestones.setdefault("active_milestone_id", None)
     milestones.setdefault("milestones", [])
     _write(_milestones_path(base_dir), milestones)
 
-
 def list_milestones(base_dir: str) -> List[Dict[str, Any]]:
     return list(load_milestones(base_dir).get("milestones", []) or [])
-
 
 def get_milestone(base_dir: str, milestone_id: str) -> Dict[str, Any]:
     return _find_milestone(load_milestones(base_dir), milestone_id) or {}
 
-
 def milestone_exists(base_dir: str, milestone_id: str) -> bool:
     return bool(get_milestone(base_dir, milestone_id))
-
 
 def upsert_milestone(
     base_dir: str,
@@ -309,7 +294,6 @@ def upsert_milestone(
     save_milestones(base_dir, data)
     return {"milestone": milestone, "milestones": data}
 
-
 def link_milestone_plan(base_dir: str, milestone_id: str, plan_id: str) -> Dict[str, Any]:
     """Link a plan to a milestone."""
     data = load_milestones(base_dir)
@@ -321,7 +305,6 @@ def link_milestone_plan(base_dir: str, milestone_id: str, plan_id: str) -> Dict[
     milestone["updated_at"] = _now()
     save_milestones(base_dir, data)
     return {"linked": True, "milestone_id": milestone_id, "plan_id": plan_id}
-
 
 def unlink_milestone_plan(base_dir: str, milestone_id: str, plan_id: str) -> Dict[str, Any]:
     """Unlink a plan from a milestone."""
@@ -336,7 +319,6 @@ def unlink_milestone_plan(base_dir: str, milestone_id: str, plan_id: str) -> Dic
     save_milestones(base_dir, data)
     return {"unlinked": True, "milestone_id": milestone_id, "plan_id": plan_id}
 
-
 def link_milestone_task(base_dir: str, milestone_id: str, task_id: str) -> Dict[str, Any]:
     """Link a task to a milestone."""
     data = load_milestones(base_dir)
@@ -348,7 +330,6 @@ def link_milestone_task(base_dir: str, milestone_id: str, task_id: str) -> Dict[
     milestone["updated_at"] = _now()
     save_milestones(base_dir, data)
     return {"linked": True, "milestone_id": milestone_id, "task_id": task_id}
-
 
 def unlink_milestone_task(base_dir: str, milestone_id: str, task_id: str) -> Dict[str, Any]:
     """Unlink a task from a milestone."""
@@ -362,7 +343,6 @@ def unlink_milestone_task(base_dir: str, milestone_id: str, task_id: str) -> Dic
     milestone["updated_at"] = _now()
     save_milestones(base_dir, data)
     return {"unlinked": True, "milestone_id": milestone_id, "task_id": task_id}
-
 
 def attach_plan_to_milestone(base_dir: str, milestone_id: str, plan_id: str,
                              task_ids: Optional[List[str]] = None) -> Dict[str, Any]:
@@ -378,7 +358,6 @@ def attach_plan_to_milestone(base_dir: str, milestone_id: str, plan_id: str,
     milestone["updated_at"] = _now()
     save_milestones(base_dir, data)
     return {"attached": True, "milestone": milestone}
-
 
 def reconcile_plan_to_milestone(base_dir: str, plan: Dict[str, Any]) -> Dict[str, Any]:
     milestone_id = str(plan.get("milestone_id") or "")
@@ -400,13 +379,11 @@ def reconcile_plan_to_milestone(base_dir: str, plan: Dict[str, Any]) -> Dict[str
     save_milestones(base_dir, data)
     return {"reconciled": True, "milestone": milestone}
 
-
 def record_milestone_assessment(
     base_dir: str,
     milestone_id: str,
     verdict: str,
     summary: str,
-    evidence_ids: Optional[List[str]] = None,
     coherence_check: str = "",
     open_gaps: Optional[List[str]] = None,
     residual_risks: Optional[List[str]] = None,
@@ -439,7 +416,6 @@ def record_milestone_assessment(
 
     return {"recorded": True, "milestone": milestone}
 
-
 def _get_active_verification_task(base_dir: str, milestone_id: str) -> Optional[Dict[str, Any]]:
     """Return the active task if it's a milestone_verification task for the given milestone."""
     try:
@@ -464,33 +440,30 @@ def _get_active_verification_task(base_dir: str, milestone_id: str) -> Optional[
         pass
     return None
 
-
 def _auto_fill_verification_task_testing(base_dir: str, milestone_id: str, status: str, summary: str) -> None:
     """When milestone integration-test runs under an active verification task,
     auto-fill a testing record so the task can close without manual record-testing."""
     task = _get_active_verification_task(base_dir, milestone_id)
     if not task:
         return
-    testing_path = Path(base_dir) / ".aiwf" / "records" / "testing.json"
-    import json
-    existing = {}
-    if testing_path.exists():
-        try:
-            existing = json.loads(testing_path.read_text(encoding="utf-8"))
-        except Exception:
-            pass
     testing_status = "passed" if status == "passed" else "failed"
-    existing["status"] = testing_status
-    existing.setdefault("commands", [])
-    existing["commands"].append({
-        "command": f"milestone integration-test {milestone_id}",
-        "output_summary": summary,
-    })
-    existing["coverage_summary"] = f"milestone integration {status}: {summary}"
-    existing["recorded_at"] = _now()
-    testing_path.parent.mkdir(parents=True, exist_ok=True)
-    testing_path.write_text(json.dumps(existing, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    command = f"aiwf milestone integration-test {milestone_id}"
+    from .testing_ops import record_testing
 
+    record_testing(
+        base_dir,
+        status=testing_status,
+        commands=[command],
+        coverage_summary=f"milestone integration {status}: {summary}",
+        failure_summary=summary if testing_status == "failed" else "",
+        failed_commands=[command] if testing_status == "failed" else None,
+        verification_results=[{
+            "command": command,
+            "expected": "milestone pass standard holds in the real environment",
+            "observed": summary,
+            "matched": testing_status == "passed",
+        }],
+    )
 
 def _auto_fill_verification_task_review(base_dir: str, milestone_id: str, verdict: str, summary: str) -> None:
     """When milestone assess runs under an active verification task,
@@ -498,22 +471,38 @@ def _auto_fill_verification_task_review(base_dir: str, milestone_id: str, verdic
     task = _get_active_verification_task(base_dir, milestone_id)
     if not task:
         return
-    review_path = Path(base_dir) / ".aiwf" / "records" / "review.json"
-    import json
-    existing = {}
-    if review_path.exists():
-        try:
-            existing = json.loads(review_path.read_text(encoding="utf-8"))
-        except Exception:
-            pass
     review_result = "accepted" if verdict in ("PASS", "PASS_WITH_RISK") else "needs_fix"
-    existing["result"] = review_result
-    existing["summary"] = f"milestone assessment {verdict}: {summary}"
-    existing["blockers"] = []
-    existing["recorded_at"] = _now()
-    review_path.parent.mkdir(parents=True, exist_ok=True)
-    review_path.write_text(json.dumps(existing, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    accepted = review_result == "accepted"
+    from .review_ops import record_review
 
+    record_review(
+        base_dir,
+        result=review_result,
+        closure_allowed=accepted,
+        blockers=[] if accepted else [summary or f"milestone assessment {verdict}"],
+        cleanup_status="fresh",
+        structure_status="accepted" if accepted else "needs_work",
+        summary=f"milestone assessment {verdict}: {summary}",
+    )
+
+    import json
+    state_path = Path(base_dir) / ".aiwf" / "state" / "state.json"
+    try:
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+    except Exception:
+        state = {}
+    if accepted:
+        state["phase"] = "closing"
+        state_path.write_text(json.dumps(state, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    else:
+        from .fixloop_ops import open_fix_loop
+        open_fix_loop(
+            base_dir,
+            route="planner",
+            reason=summary or f"Milestone assessment {verdict}",
+            required_fixes=[summary] if summary else [],
+            source="architect",
+        )
 
 def record_milestone_integration(
     base_dir: str,
@@ -617,7 +606,6 @@ def record_milestone_integration(
 
     return {"recorded": True, "milestone_id": milestone_id, "integration_test": it}
 
-
 def record_milestone_arch_review(
     base_dir: str,
     milestone_id: str,
@@ -626,7 +614,6 @@ def record_milestone_arch_review(
     cross_goal_issues: Optional[List[Any]] = None,
     notes: str = "",
     resolution: str = "",
-    resolution_evidence_ids: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """Record milestone-level architecture review — cross-Goal interface integrity."""
     if status not in ("intact", "issues_found"):
@@ -684,7 +671,6 @@ def record_milestone_arch_review(
     ar["cross_goal_issues"] = issues
     ar["notes"] = notes
     ar["resolution"] = resolution.strip()
-    ar["resolution_evidence_ids"] = _unique(resolution_evidence_ids or [])
     ar["recorded_at"] = _now()
     _invalidate_user_acceptance(milestone)
     if status == "issues_found":
@@ -703,59 +689,6 @@ def record_milestone_arch_review(
     milestone["updated_at"] = _now()
     save_milestones(base_dir, data)
     return {"recorded": True, "milestone_id": milestone_id, "architecture_review": ar}
-
-
-def check_milestone_activatable(base_dir: str, milestone_id: str) -> List[str]:
-    """Return reasons a pending milestone cannot be activated. Empty = ready.
-
-    Activation conditions:
-    - Milestone status is 'pending'
-    - Every covered_goal has at least one plan
-    - Every plan for those goals has at least one task assigned
-
-    Read-only. Used by status prompt to suggest activation.
-    """
-    data = load_milestones(base_dir)
-    milestone = _find_milestone(data, milestone_id)
-    if not milestone:
-        return [f"milestone not found: {milestone_id}"]
-
-    reasons = []
-
-    if milestone.get("status") != "open":
-        reasons.append(f"milestone status is '{milestone.get('status')}', not 'pending'")
-        return reasons
-
-    covered_goals = milestone.get("covered_goal_ids", []) or []
-    if not covered_goals:
-        reasons.append("milestone has no covered_goal_ids")
-        return reasons
-
-    try:
-        from .plan_ops import load_plans
-
-        plans_data = load_plans(base_dir)
-        all_plans = plans_data.get("plans", []) or []
-
-        for gid in covered_goals:
-            gid_str = str(gid)
-            goal_plans = [
-                p for p in all_plans
-                if str(p.get("goal_id") or p.get("target_goal_id") or "") == gid_str
-            ]
-            if not goal_plans:
-                reasons.append(f"covered goal '{gid_str}' has no plan")
-                continue
-            for p in goal_plans:
-                task_ids = p.get("task_ids", []) or []
-                if not task_ids:
-                    pid = p.get("plan_id") or p.get("id") or "?"
-                    reasons.append(f"plan '{pid}' (goal '{gid_str}') has no tasks assigned")
-    except Exception as e:
-        reasons.append(f"activation check failed: {e}")
-
-    return reasons
-
 
 def check_milestone_technical_readiness(base_dir: str, milestone_id: str) -> List[str]:
     """Return technical blockers preventing milestone acceptance/close.
@@ -799,7 +732,12 @@ def check_milestone_technical_readiness(base_dir: str, milestone_id: str) -> Lis
             if not task:
                 blockers.append(f"milestone task missing: {task_id}")
                 continue
-            if task.get("status") not in ("closed", "rejected"):
+            if (
+                task.get("kind") == "milestone_verification"
+                and task.get("milestone_id") == milestone_id
+            ):
+                continue
+            if task.get("status") not in ("closed", "cancelled"):
                 blockers.append(f"milestone task not terminal: {task_id} status={task.get('status')}")
     except Exception as e:
         blockers.append(f"milestone task completion check failed: {e}")
@@ -860,7 +798,6 @@ def check_milestone_technical_readiness(base_dir: str, milestone_id: str) -> Lis
         )
     return blockers
 
-
 def confirm_milestone_acceptance(
     base_dir: str,
     milestone_id: str,
@@ -899,7 +836,6 @@ def confirm_milestone_acceptance(
     save_milestones(base_dir, data)
     return {"confirmed": True, "milestone": milestone, "blockers": []}
 
-
 def check_milestone_readiness(base_dir: str, milestone_id: str) -> List[str]:
     """Return all blockers preventing final milestone close."""
     # V1: Doc requirements come from Milestone.md, verified by verification Task.
@@ -917,7 +853,6 @@ def check_milestone_readiness(base_dir: str, milestone_id: str) -> List[str]:
         )
     return blockers
 
-
 def _find_verification_task(base_dir: str, milestone_id: str) -> Optional[Dict[str, Any]]:
     """Find the milestone verification task, if one exists."""
     try:
@@ -931,7 +866,6 @@ def _find_verification_task(base_dir: str, milestone_id: str) -> Optional[Dict[s
     except Exception:
         pass
     return None
-
 
 def close_milestone(base_dir: str, milestone_id: str) -> Dict[str, Any]:
     data = load_milestones(base_dir)

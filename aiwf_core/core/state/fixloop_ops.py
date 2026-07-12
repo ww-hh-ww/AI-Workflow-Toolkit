@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from ._common import _execution_contract_frozen, _freeze_explanation, _read, _write
+from ._common import _read, _write
 
 def open_fix_loop(
     base_dir: str,
@@ -17,12 +17,11 @@ def open_fix_loop(
     source: str = "reviewer",
     invalidated_files: Optional[List[str]] = None,
     invalidated_obligations: Optional[List[str]] = None,
-    invalidated_evidence_ids: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """Open a fix-loop with route, reason, required fixes, and verification.
 
     If already open: increments attempt_count, appends route_history.
-    Sets max_attempts from workflow_level on first open.
+    Uses a small fixed retry limit before asking for escalation.
     If attempt_count > max_attempts: escalation_required=true, rollback_recommended
     if checkpoint exists.
     Does NOT auto-execute fixes, modify goal/scope/context, or auto-close workflow.
@@ -45,23 +44,19 @@ def open_fix_loop(
     fix_loop["required_fixes"] = required_fixes or (fix_loop.get("required_fixes") if was_open else [])
     fix_loop["required_verification"] = required_verification or (fix_loop.get("required_verification") if was_open else [])
 
-    # Record invalidated scope: what files, obligations, and evidence this fix-loop invalidates
-    if invalidated_files or invalidated_obligations or invalidated_evidence_ids:
+    # Record the concrete files or obligations invalidated by this finding.
+    if invalidated_files or invalidated_obligations:
         fix_loop["invalidated_scope"] = {
             "files": list(invalidated_files or []),
             "obligations": list(invalidated_obligations or []),
-            "evidence_ids": list(invalidated_evidence_ids or []),
             "reason": reason,
         }
     fix_loop["source"] = source
     fix_loop["attempt_count"] = attempt
 
-    # Set max_attempts from workflow_level on first open
+    # Keep retry behavior independent from any retired routing scheme.
     if not was_open or not fix_loop.get("max_attempts"):
-        state = _read(state_path)
-        level = state.get("workflow_level", "L1_review_light")
-        from ..state_schema import LEVEL_MAX_ATTEMPTS
-        fix_loop["max_attempts"] = LEVEL_MAX_ATTEMPTS.get(level, 2)
+        fix_loop["max_attempts"] = 2
 
     # Append route history
     history = fix_loop.get("route_history", []) or []
@@ -78,20 +73,12 @@ def open_fix_loop(
 
     _write(fix_loop_path, fix_loop)
 
-    # Opening a fix-loop invalidates any prior closure preparation. Otherwise a
-    # stale prepare-close result could still be used to close the active task.
     state = _read(state_path)
-    state["closure_allowed"] = False
-    state["close_attempt"] = False
-    state["close_prepared_task_id"] = ""
-    state["close_prepared_at"] = ""
     if state.get("phase") != "closed":
         state["phase"] = "reviewing"
     _write(state_path, state)
 
     return fix_loop
-
-
 
 def _extract_paths_from_fixes(required_fixes: List[str]) -> List[str]:
     """Extract likely file paths from human-readable required_fixes strings.
@@ -114,7 +101,6 @@ def _extract_paths_from_fixes(required_fixes: List[str]) -> List[str]:
             if "/" in f_clean or f_clean.endswith((".py", ".sh", ".md", ".json", ".js", ".ts", ".yaml", ".yml", ".toml", ".cfg", ".ini", ".txt", ".css", ".html")):
                 paths.append(f_clean)
     return sorted(set(paths))
-
 
 def _revalidate_required_fixes(
     base: Path,
@@ -187,7 +173,6 @@ def _revalidate_required_fixes(
         )
 
     return result
-
 
 def resolve_fix_loop(
     base_dir: str,
@@ -300,7 +285,6 @@ def resolve_fix_loop(
 
     return fix_loop
 
-
 def _check_verification_coverage(
     required_verification: List[str],
     testing: Dict[str, Any],
@@ -332,7 +316,6 @@ def _check_verification_coverage(
             continue
         uncovered.append(str(item)[:120])
     return uncovered
-
 
 def _invalidate_delta_review(
     base: Path,
@@ -375,90 +358,3 @@ def _invalidate_delta_review(
                       f"{len(required_fixes)} fixes, "
                       f"{len(invalidated_scope.get('files', []) or [])} invalidated files")
     _write(review_path, review)
-
-
-def request_architecture_change(
-    base_dir: str,
-    source: str,
-    reason: str,
-    proposed_change: str,
-    affected_files: Optional[List[str]] = None,
-    affected_modules: Optional[List[str]] = None,
-    current_contract_gap: str = "",
-    scope_impact: str = "",
-    risk: str = "",
-    user_decision_required: bool = False,
-) -> Dict[str, Any]:
-    """Append an architecture change request to fix-loop.json. Does NOT modify brief."""
-    base = Path(base_dir)
-    fl_path = base / ".aiwf" / "state" / "fix-loop.json"
-    fl = _read(fl_path)
-
-    acrs = fl.get("architecture_change_requests", []) or []
-    next_id = f"ACR-{len(acrs) + 1:03d}"
-    from datetime import datetime, timezone
-    ts = datetime.now(timezone.utc).isoformat()
-
-    acr = {
-        "id": next_id,
-        "status": "proposed",
-        "source": source,
-        "reason": reason,
-        "proposed_change": proposed_change,
-        "affected_files": affected_files or [],
-        "affected_modules": affected_modules or [],
-        "current_contract_gap": current_contract_gap,
-        "scope_impact": scope_impact,
-        "risk": risk,
-        "planner_decision": "",
-        "user_decision_required": user_decision_required,
-        "created_at": ts,
-        "resolved_at": "",
-    }
-    acrs.append(acr)
-    fl["architecture_change_requests"] = acrs
-    _write(fl_path, fl)
-    return acr
-
-
-def decide_architecture_change(
-    base_dir: str,
-    acr_id: str,
-    status: str,
-    decision: str,
-) -> Dict[str, Any]:
-    """Update an architecture change request status + decision.
-    Raises ValueError if acr_id is not found.
-    """
-    base = Path(base_dir)
-    fl_path = base / ".aiwf" / "state" / "fix-loop.json"
-    fl = _read(fl_path)
-
-    acrs = fl.get("architecture_change_requests", []) or []
-    from datetime import datetime, timezone
-    ts = datetime.now(timezone.utc).isoformat()
-
-    found = False
-    for acr in acrs:
-        if acr.get("id") == acr_id:
-            acr["status"] = status
-            acr["planner_decision"] = decision
-            acr["resolved_at"] = ts
-            found = True
-            break
-
-    if not found:
-        raise ValueError(f"architecture change request not found: {acr_id}")
-
-    fl["architecture_change_requests"] = acrs
-    _write(fl_path, fl)
-    return {"id": acr_id, "status": status, "decision": decision}
-
-
-def list_architecture_changes(base_dir: str) -> List[Dict[str, Any]]:
-    """Return list of architecture change requests."""
-    base = Path(base_dir)
-    fl_path = base / ".aiwf" / "state" / "fix-loop.json"
-    fl = _read(fl_path)
-    return fl.get("architecture_change_requests", []) or []
-

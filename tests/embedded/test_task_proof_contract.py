@@ -18,6 +18,28 @@ def _write_task(base: Path, task_id: str, body: str) -> dict:
 
 
 class TestTaskProofContract(unittest.TestCase):
+    def test_forbidden_write_is_optional(self):
+        from aiwf_core.core.task_proof import activation_proof_blockers
+
+        base = Path(tempfile.mkdtemp(prefix="aiwf_proof_"))
+        task_dir = base / ".aiwf/tasks"
+        task_dir.mkdir(parents=True)
+        (task_dir / "TASK-OPTIONAL.md").write_text(
+            "# TASK-OPTIONAL\n\n"
+            "## Fixed Contract\n\n"
+            "### Structural Home\n\nGoal and Plan.\n\n"
+            "### Objective\n\nObservable output.\n\n"
+            "### Contract Responsibility\n\nOwn the entry path.\n\n"
+            "### Proof Standard\n\n"
+            "Done When:\n\n- Running: command prints hello.\n\n"
+            "Verification Commands:\n\n"
+            "| Command | Expected Observable Output |\n"
+            "|---|---|\n| python3 app.py | hello |\n",
+            encoding="utf-8",
+        )
+        task = {"id": "TASK-OPTIONAL", "doc_path": ".aiwf/tasks/TASK-OPTIONAL.md"}
+        self.assertEqual(activation_proof_blockers(str(base), task), [])
+
     def test_strict_task_packet_blocks_unfilled_proof_before_activation(self):
         from aiwf_core.core.task_proof import activation_proof_blockers
 
@@ -36,6 +58,10 @@ class TestTaskProofContract(unittest.TestCase):
 ### Objective
 
 Ship the route.
+
+### Contract Responsibility
+
+(fill)
 
 ### Forbidden Write
 
@@ -81,6 +107,10 @@ Goal GOAL-001 / Plan PLAN-001; this task wires the CLI route.
 ### Objective
 
 CLI route is reachable from the supported entry path.
+
+### Contract Responsibility
+
+The CLI status route is reachable and proves prompt routing from the supported entry path.
 
 ### Forbidden Write
 
@@ -133,10 +163,8 @@ Verification Commands:
         self.assertEqual(proof["missing_verification_results"], [])
         self.assertEqual(proof["mismatched_results"], [])
 
-    def test_prepare_close_blocks_passed_testing_missing_task_packet_command(self):
-        from aiwf_core.core.state_ops import prepare_close
-        from aiwf_core.core.state_schema import QUALITY_DIMENSIONS, REVIEW_BASIS
-
+    def test_task_close_blocks_passed_testing_missing_task_command(self):
+        from aiwf_core.core.task_ledger import close_task
         base = Path(tempfile.mkdtemp(prefix="awproof_"))
         for rel in (".aiwf/state", ".aiwf/records", ".aiwf/tasks"):
             (base / rel).mkdir(parents=True, exist_ok=True)
@@ -156,6 +184,10 @@ Goal GOAL-001 / Plan PLAN-001.
 
 CLI route is reachable from the supported entry path.
 
+### Contract Responsibility
+
+The installed CLI status prompt route is reachable and produces prompt routing.
+
 ### Forbidden Write
 
 legacy-runner/**
@@ -174,16 +206,14 @@ Verification Commands:
 """,
         )
         task["status"] = "active"
+        task["requirements"] = {"tester_required": True, "reviewer_required": True}
         (base / ".aiwf/state/tasks.json").write_text(
             json.dumps({"schema_version": 1, "default_max_active": 1, "tasks": [task]}),
             encoding="utf-8",
         )
         (base / ".aiwf/state/state.json").write_text(json.dumps({
             "phase": "reviewing",
-            "workflow_level": "L1_review_light",
             "active_task_id": "TASK-003",
-            "close_attempt": False,
-            "closure_allowed": False,
             "scope_violation": False,
         }), encoding="utf-8")
         (base / ".aiwf/state/fix-loop.json").write_text(
@@ -194,48 +224,34 @@ Verification Commands:
             "goals": [{
                 "id": "GOAL-001",
                 "meta_critique": {"status": "recorded"},
-                "quality_brief": {"non_goals": ["test"]},
             }],
         }), encoding="utf-8")
-        (base / ".aiwf/records/evidence.json").write_text(json.dumps({
-            "records": [{
-                "id": "EV-001",
-                "status": "accepted",
-                "trust_level": "role_recorded",
-                "session_id": "s1",
-                "task_id": "TASK-003",
-            }],
+        (base / ".aiwf/records/implementation.json").write_text(json.dumps({
+            "task_id": "TASK-003", "implementation_ref": "abc",
         }), encoding="utf-8")
         (base / ".aiwf/records/testing.json").write_text(json.dumps({
             "status": "passed",
             "commands": ["python3 -m pytest tests/embedded -q"],
-            "evidence_ids": ["EV-001"],
+            "task_id": "TASK-003", "based_on_ref": "abc", "tested_ref": "def",
         }), encoding="utf-8")
         (base / ".aiwf/records/review.json").write_text(json.dumps({
-            "verdict": "PASS",
             "result": "accepted",
             "closure_allowed": True,
             "cleanup_status": "fresh",
             "blockers": [],
             "stale_items": [],
-            "accepted_evidence_ids": ["EV-001"],
-            "quality_dimensions": {
-                dim: {"score": "PASS", "note": ""} for dim in QUALITY_DIMENSIONS
-            },
-            "review_basis": {
-                name: {"status": "covered", "note": ""} for name in REVIEW_BASIS
-            },
+            "task_id": "TASK-003", "reviewed_ref": "def",
         }), encoding="utf-8")
 
-        result = prepare_close(str(base))
+        result = close_task(str(base), "TASK-003")
 
-        self.assertFalse(result["passed"])
+        self.assertFalse(result["closed"])
         self.assertTrue(
-            any("Task Packet proof not covered" in blocker for blocker in result["blockers"]),
+            any("missing Verification Command" in blocker for blocker in result["blockers"]),
             result["blockers"],
         )
 
-    def test_prepare_close_blocks_mismatched_verification_result(self):
+    def test_proof_validation_reports_mismatched_result(self):
         from aiwf_core.core.task_proof import validate_testing_against_task
 
         base = Path(tempfile.mkdtemp(prefix="awproof_"))
@@ -253,6 +269,10 @@ Goal GOAL-001 / Plan PLAN-001.
 ### Objective
 
 Route runs.
+
+### Contract Responsibility
+
+The route command runs and reports the expected passing test result.
 
 ### Forbidden Write
 

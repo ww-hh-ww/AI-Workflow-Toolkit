@@ -1,237 +1,121 @@
 # Task Contract Reference
 
-Task.md is the execution contract. The active Task.md is frozen by hash at
-activation and must not be edited by the model during execution.
+Task.md is the execution contract. Once activated, it is frozen and the model
+must not edit it.
 
-## Writing a Task.md
+## Frontmatter
 
-Every Task.md frontmatter MUST include:
+An implementation Task needs a real `goal_id` and `plan_id`. A milestone
+verification Task uses `kind=milestone_verification` and `milestone_id` instead.
 
-```
-id: TASK-XXX
-type: task
-title: ...
-goal_id: GOAL-XXX      # required — which Goal this serves
-plan_id: PLAN-XXX      # required — which Plan this belongs to
-milestone_id: MS-XXX   # optional — which Milestone verifies this
-```
+Set `executor_required`, `tester_required`, and `reviewer_required` from the
+work's real need. When true, the role must be dispatched. When false, the role
+may be performed inline. First implementation requires Executor only when
+`executor_required=true`; later repair may be inline when it is tiny and clear.
 
-These are not optional. A task without `goal_id` breaks the Goal→Plan→Task
-hierarchy and the Milestone view. A task without `plan_id` is an orphan.
+## Fixed Contract
 
-## Task Packet
+Every Task must say:
 
-Write Task.md as three layers. This is how Planner avoids both extremes:
-under-specifying the task so roles rediscover everything, and over-specifying
-implementation so roles stop thinking.
+- Structural Home: why this Task belongs under its Goal and Plan, or milestone.
+- Objective: the outcome, not a file-edit recipe.
+- Contract Responsibility: the result this Task owns and must prove.
+- Done When: observable criteria marked Built, Wired, or Running.
+- Verification Commands: exact commands and expected observable results for
+  Wired and Running claims.
+- Dispatch Decisions: which independent roles are worth using.
 
-### Fixed Contract
+Add these only when real:
 
-Non-negotiable governance. Violating this is failure, not judgment.
+- Forbidden Write for explicit user or project no-go paths.
+- Tester Write when tests may be written outside obvious `tests/` or `test/`
+  locations.
+- Rollback Strategy for schema, directory layout, install, parser, broad
+  removal, or batch rename.
+- Unsupported Cases when the chosen support boundary is intentional and known
+  before failure.
 
-- Structural Home: why this Task belongs under its Goal and Plan. A Task
-  without a mission-relevant home is probably hidden planning work.
-- Objective: 1-2 sentences, stated as an outcome, not an implementation recipe.
-- Scope and Forbidden Write: what the task may not touch. Forbidden Write is
-  mechanically enforced at write time.
-- Proof Standard: Done When levels and Verification Commands. For strict Task
-  Packets this is machine-read: Wired/Running require concrete commands, and
-  close checks that testing recorded those exact commands.
-- Dispatch Decisions: executor/tester/reviewer/rollback flags and why.
-- Rollback Strategy: required for schema, directory layout, install, parser,
-  batch rename, broad removal.
+Omit empty optional sections.
 
-### Known Context
+## Known Context
 
-Facts and map, not conclusions. Include:
-  - Known surfaces: files, modules, commands, schemas, APIs, or runtime flows
-    that are relevant.
-  - Existing interfaces and invariants the implementation must respect.
-  - Dependencies: crates/packages/services already available that should be
-    used or avoided.
-  - Likely integration points when known, plus the evidence needed to prove the
-    new behavior is consumed on the main path.
-  - Unknowns that were resolved before activation, or explicitly deferred with
-    a reason.
+Use free bullets. Record only verified facts that help the next role start in
+the right place or avoid a likely wrong edit.
 
-  For new modules or public APIs, Planner MUST identify the expected consumer
-  or runtime path. An exact file:line is ideal when known, but do not invent it.
-  If the consumer/main path is unknown, the Task is not ready; create
-  exploration/design work or request Architect/code-reality review first.
+Useful facts may include:
 
-  Example:
-    Known surfaces: crates/edr-agent/src/runner.rs, src/storage/
-    Expected consumer: agent startup/runtime event loop consumes storage events
-    Interface constraint: fn on_event(&mut self, event: StorageEvent) -> Result<()>
-    Proof of wiring: command must trigger runtime path and show storage event handled
-    Dependencies: serde, tokio::sync::RwLock (already in Cargo.toml)
-  If you (Planner) skip Context, every subagent re-discovers it. That is waste.
+- real files, symbols, commands, schemas, fixtures, and runtime entry points;
+- expected consumer and main path;
+- interfaces, invariants, data shape, state, permissions, IDs, timestamps, and
+  error semantics;
+- integration, registration, config, install, deployment, CLI, help, or
+  generated surfaces needed to prove wiring;
+- representative inputs, difficult cases, platform or environment traps;
+- old paths, bypasses, duplicate mechanisms, and compatibility paths;
+- nearby patterns, dependencies, or helpers worth reusing;
+- important Unknowns and what would resolve them.
 
-### Open Judgment
+These are anchors, not instructions. Do not list every function. Do not invent
+facts to complete the section. If consumer, invariant, owner, main path, or
+proof is important and Unknown, the implementation Task is not ready.
 
-The intended thinking space for independent roles.
+When a Task crosses a boundary, include the smallest shared slice later roles
+must not guess: Input, Output, Consumer, Invariant, Owner, Proof, and Basis.
 
-- Executor Judgment: implementation choices intentionally left open.
-- Tester Judgment: failure dimensions to attack beyond executor self-check.
-- Reviewer Judgment: quality, interface, caller, and contract questions the
-  reviewer must judge.
+## Open Judgment
 
-Executor Requirements: State the outcome AND what the executor should self-verify.
-The executor covers basic correctness (happy path, obvious edge cases). Be specific
-enough that the executor knows the target but doesn't micromanage HOW.
-  Good: "Replace SHA-256 with bcrypt. Self-verify: new passwords use bcrypt,
-         old SHA-256 passwords still validate, login e2e passes."
-  Bad: "Edit src/auth.py line 42."
+Leave room for independent roles to think. Write only useful questions:
 
-Tester Requirements: Dimensions the executor did NOT cover. No overlap with
-executor's self-verification. Tester adds value by going beyond happy path:
-boundary values, error paths, concurrency, resource exhaustion, surprising
-combinations. At least three distinct failure modes.
-  Executor covers: happy path, basic correctness (specified above).
-  Tester covers: boundary (empty, max, negative), error injection, concurrency.
-  Good: "Boundary: empty password, 1MB password, null. Error: db connection
-         refused, auth timeout. Concurrency: 100 simultaneous logins."
+- Executor: what local implementation choice needs code-based judgment?
+- Tester: how could the promised behavior fail or false-pass?
+- Reviewer: what connection, semantic change, old path, or complexity should be
+  doubted?
 
-Reviewer Requirements: Minimum hard gates. Reviewer brings relational review.
-  "Confirm scope/forbidden write. Verify Done When. Apply relational review."
+Omit a role's questions when there is no meaningful open judgment. Do not
+script the answer.
 
-Proof Standard: Observable, indisputable proof. Pick the right proof level for
-each Done When item:
+## Proof
 
-| Level | Meaning | How to verify | When to use |
-|-------|---------|--------------|-------------|
-| **Built** | struct/fn exists and compiles | grep for the symbol, `cargo build` | Internal refactors, utility functions, private helpers |
-| **Wired** | call chain is reachable — the new code is actually called | `grep` the caller site, trace imports, verify the registration point calls it | New modules, new `pub` APIs, config wiring |
-| **Running** | end-to-end executable — a real action produces the expected effect | `cargo run` + trigger the flow + observe the output | Subsystems, user-visible features, cross-module integration |
+| Level | Meaning | Use for |
+|-------|---------|---------|
+| Built | code exists and compiles | private helpers and internal refactors |
+| Wired | expected caller or consumer uses it | APIs, modules, config, registration |
+| Running | a real action produces the result | user behavior and cross-component flows |
 
-"Built" is the minimum for tasks that refactor internals.
-"Wired" is required whenever Context lists a registration point.
-"Running" is required whenever the task creates a user-visible behavior.
+One easy case does not prove a broad support claim. Verification must cover the
+representative cases named by the Plan and the Task.
 
-Every Done When item must state which level it targets. Every Wired or Running
-item must include a verification command. The last Done When item is always the
-highest applicable level.
+Executor leaves one concise implementation evidence record with git refs and a
+strong self-check. Tester records one validation result containing every exact
+required command, expected result, observed result, and match decision.
+Reviewer judges the contract, diff, callers, evidence, testing, and old paths.
 
-Verification Commands: For each Wired or Running criterion, list the exact command that
-proves the outcome or consumption path. Executor records the output of every command in evidence (use
-`aiwf record evidence --command "<cmd> ::: <output>"` for each). Tester checks
-evidence has output for every command — blank = executor didn't finish.
-Reviewer spot-checks 1-2 commands by re-running them (the only defense against
-fabricated evidence).
-```
-## Verification Commands
-| 命令 | 期望输出 |
-|------|---------|
-| cargo build 2>&1 \| grep "warning:" \| wc -l | 0 |
-| cargo test -p <crate> | 0 failures |
-| grep <OLD_CONSTANT> <path>/ | 空 |
-```
-Executor records actual output for each command in evidence. Tester checks
-the evidence, not the table.
+## Dispatch
 
-Rollback Strategy: yes/no. yes for schema, directory layout, install, parser,
-batch renames. When yes, include:
-```
-Rollback Strategy required: yes
-Method: Git
-Before work: inspect git status and git diff
-Rollback: git restore for selected files; git reset only by human decision
-```
+Ask:
 
-Report Policy: `ask` default. `silent_until_done` only when user explicitly asks.
+1. Does implementation need code exploration, design judgment, or impact
+   tracing? If yes, require Executor.
+2. Could independent testing find meaningful failure modes? If yes, require
+   Tester.
+3. Could relational review catch missing wiring, interface drift, or unjustified
+   complexity? If yes, require Reviewer.
 
-Dependencies: Tasks this must wait for.
+File count is not the deciding signal.
 
-## Dispatch — Judgment Framework
+## Failure And Close
 
-Don't read a table mechanically. Ask, in order:
+Record failures when found. Confirmed implementation defects route to Executor.
+Contract or user decisions return to Planner. Do not soften a failure into a
+pass.
 
-1. Can this be implemented safely inline? If the code requires design judgment,
-   exploration of impact, or craftsmanship — don't inline. Open executor.
-2. Can this be tested safely inline? If a destructive mindset could find bugs
-   you'd miss — don't inline. Open tester.
-3. Can this be reviewed safely inline? If someone reading the full diff could
-   spot unjustified complexity, missing connections, or interface problems
-   you'd overlook — don't inline. Open reviewer.
+Before close, Planner writes Closure Calibration with what actually happened.
+`task interrupt` and `task force-close` remain human-only.
 
-File count is not a signal. A 20-file rename is trivial. A one-file new
-abstraction deserves review. Pick the roles the change is worth.
+## Quality Check
 
-## Dispatch — Reference Table
-
-| Change nature | executor | tester | reviewer | rollback |
-|---------------|----------|--------|----------|----------|
-| Trivial (typo, comment, rename, config) | false | false | false | false |
-| Simple (no new abstraction, low consumer impact) | false | true | false | false |
-| Normal (new abstraction, shared utility, consumer impact) | true | true | true | false |
-| Complex (public API, refactor, state machine) | true | true | true | true |
-
-For simple tasks: pick ONE of tester or reviewer, not both.
-
-### What each role brings
-
-**executor** — Independent implementation. Full exploration of impact, best
-quality within boundaries. Worth it when: new abstraction, design judgment
-needed, shared utility, public API, refactoring.
-
-**tester** — Independent testing. Destructive mindset, new tests against
-objectives, multiple attack angles. Worth it when: change has meaningful
-failure modes, public API, shared utility, cross-module impact.
-
-**reviewer** — Independent relational review. Full-diff connected analysis,
-prove justified, zero downgrade, interface shape. Worth it when: new
-abstraction, consumers affected, public API, structural impact.
-
-**rollback** — Git-based rollback plan. Worth it when: state schema, record
-format, directory layout, install output, parser, batch rename, broad removal.
-
-## Lifecycle
-
-Normal path:
-```
-planner creates → planner activates → implement evidence →
-test testing → review review → close → planner resumes
-```
-
-Failure path:
-- Record the actual result honestly.
-- Let Planner decide: revise, fix-loop, new Task, or ask human.
-- Do not force-close unless human explicitly does it.
-
-Runtime:
-- `task close` closes the current active task only.
-- `task force-close` is human-only.
-- Active Task.md must remain unchanged after activation.
-
-## Emergency
-
-**Fix-loop exhausted**: `aiwf status` shows `fix-loop open` + `escalation_required=true`.
-Stop. Tell the human: "Fix-loop exhausted after N attempts. Review scope,
-consider `aiwf task force-close`."
-
-**TUI / terminal corruption**: Tell the human: "Run `reset`."
-
-**Force-close**: `aiwf task force-close` is human-only.
-
-## Bad contract signs
-
-- Allowed Write broader than needed.
-- Structural home missing or copied from the title.
-- Done When repeats the title.
-- Done When proves an artifact exists but not the mission-relevant outcome.
-- Tester Requirements only say "run tests."
-- Executor and Tester test the same things — overlap waste. Executor covers
-  happy path; Tester covers boundary, error, concurrency. No overlap.
-- Executor Requirements don't specify what to self-verify — executor does
-  bare minimum, Tester finds basic bugs that should've been caught round 1.
-- Reviewer Requirements don't mention scope or forbidden paths.
-- High-risk work has no rollback strategy.
-- Context section missing — Planner explored it but didn't write it down,
-  forcing every subagent to re-discover file paths, interfaces, and deps.
-- Context claims an exact implementation path that Planner has not verified.
-- Consumer/main path unknown for new code, but task activated anyway.
-- Role opened for a change that doesn't deserve it (wasted dispatch).
-- Role closed for a change that does deserve it (missed risk).
-- Task introduces a replacement but no task owns the removal of the old thing.
-- Dead code is silenced (`#[allow(dead_code)]`) instead of deleted or deprecated
-  with a decision recorded.
+- Is the responsibility broad enough to justify the real change?
+- Can Executor find the main path without being told how to code?
+- Do commands prove consumption or behavior rather than artifact existence?
+- Are shared interfaces and old paths visible where they matter?
+- Do independent roles still have a real question to answer?

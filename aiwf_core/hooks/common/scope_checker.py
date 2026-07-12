@@ -9,8 +9,18 @@ import subprocess
 
 from ...core.event_model import NormalizedEvent, ScopeResult
 from ...core.scope_policy import check_scope, check_bash_command
-from ...core.state_schema import default_contexts
 from ...core.state.goal_ops import get_active_goal
+
+
+DEFAULT_WRITE_POLICY: Dict[str, Any] = {
+    "project_writes_require_active_task": True,
+    "freeze_active_task_md": True,
+    "first_implementation_requires_executor": True,
+    "tester_project_writes": "test_assets_only",
+    "architect_project_writes": "reports_only",
+    "explorer_project_writes": "deny",
+    "critic_project_writes": "deny",
+}
 
 
 def _read_json(path: Path, default: Dict) -> Dict:
@@ -20,6 +30,69 @@ def _read_json(path: Path, default: Dict) -> Dict:
         return json.loads(path.read_text(encoding="utf-8"))
     except Exception:
         return default
+
+
+def _read_write_policy(cwd: Path) -> Dict[str, Any]:
+    """Read project write policy, falling back to today's strict defaults."""
+    policy = dict(DEFAULT_WRITE_POLICY)
+    raw = _read_json(cwd / ".aiwf" / "config" / "write-policy.json", {})
+    if not isinstance(raw, dict):
+        return policy
+    for key in (
+        "project_writes_require_active_task",
+        "freeze_active_task_md",
+        "first_implementation_requires_executor",
+    ):
+        if isinstance(raw.get(key), bool):
+            policy[key] = raw[key]
+    if raw.get("tester_project_writes") in ("deny", "test_assets_only", "allow_all"):
+        policy["tester_project_writes"] = raw["tester_project_writes"]
+    for key in ("explorer_project_writes", "critic_project_writes"):
+        if raw.get(key) in ("deny", "allow"):
+            policy[key] = raw[key]
+    if raw.get("architect_project_writes") in ("deny", "reports_only", "allow"):
+        policy["architect_project_writes"] = raw["architect_project_writes"]
+    return policy
+
+
+def _role_project_write_mode(role: str, write_policy: Dict[str, Any]) -> str:
+    role = role.lower()
+    if "architect" in role:
+        return str(write_policy.get("architect_project_writes") or "deny")
+    if "explorer" in role:
+        return str(write_policy.get("explorer_project_writes") or "deny")
+    if "critic" in role:
+        return str(write_policy.get("critic_project_writes") or "deny")
+    return "allow"
+
+
+def _role_read_only_name(role: str) -> str:
+    role = role.lower()
+    for name in ("architect", "explorer", "critic"):
+        if name in role:
+            return f"aiwf-{name}"
+    return "this role"
+
+
+def _configured_read_only_role_can_write(role: str, write_policy: Dict[str, Any]) -> bool:
+    role = role.lower()
+    return (
+        any(name in role for name in ("architect", "explorer", "critic"))
+        and _role_project_write_mode(role, write_policy) == "allow"
+    )
+
+
+def _is_architect_report_path(path: str) -> bool:
+    """Return whether path is an Architect-owned Markdown report."""
+    parts = Path(path).parts
+    return (
+        len(parts) >= 4
+        and parts[0] == "docs"
+        and parts[1] == "architect"
+        and parts[2].startswith("ARCH-")
+        and ".." not in parts
+        and parts[-1].lower().endswith(".md")
+    )
 
 
 def _is_gitignored(file_path: str, cwd: Path) -> bool:
@@ -64,6 +137,11 @@ def _get_active_task_requirements(cwd: Path) -> Optional[Dict[str, Any]]:
             val = fm.get(key)
             if isinstance(val, bool):
                 reqs[key] = val
+        tester_write = fm.get("tester_write", [])
+        if isinstance(tester_write, list):
+            reqs["tester_write"] = [str(x).strip() for x in tester_write if str(x).strip()]
+        elif isinstance(tester_write, str) and tester_write.strip():
+            reqs["tester_write"] = [s.strip() for s in tester_write.replace(",", " ").split() if s.strip()]
         return reqs or None
     except Exception:
         return None
@@ -93,6 +171,107 @@ def _get_task_forbidden_write(cwd: Path, task_id: str) -> list:
         return []
 
 
+def _is_test_asset_path(path: str) -> bool:
+    """Return True for project test/verification assets a tester may write."""
+    p = path.strip().lstrip("./").replace("\\", "/")
+    parts = p.split("/")
+    filename = parts[-1] if parts else p
+    lowered = p.lower()
+    lower_name = filename.lower()
+    test_dirs = {
+        "test",
+        "tests",
+        "__tests__",
+        "spec",
+        "specs",
+        "e2e",
+        "integration",
+        "integration_tests",
+        "fixtures",
+        "__fixtures__",
+        "snapshots",
+        "__snapshots__",
+        "golden",
+        "goldens",
+        "expected",
+    }
+
+    if any(part.lower() in test_dirs for part in parts[:-1]):
+        return True
+    if lower_name.startswith("test_") or lower_name.startswith("test-"):
+        return True
+    if any(marker in lower_name for marker in (
+        ".test.", ".spec.",
+        "_test.", "-test.", "_spec.", "-spec.",
+        "_tests.", "-tests.",
+        ".e2e.", "_e2e.", "-e2e.",
+        ".integration.", "_integration.", "-integration.",
+        "_validation.", "-validation.", ".validation.",
+    )):
+        return True
+    if lower_name in {
+        "tests.rs",
+        "test.rs",
+        "conftest.py",
+        "pytest.ini",
+        "tox.ini",
+        "jest.config.js",
+        "jest.config.ts",
+        "vitest.config.js",
+        "vitest.config.ts",
+        "playwright.config.js",
+        "playwright.config.ts",
+    }:
+        return True
+    if lowered.endswith((".snap", ".snapshot", ".golden", ".expected")):
+        return True
+    return False
+
+
+def _tester_write_allowed(path: str, reqs: Dict[str, Any]) -> bool:
+    from ...core.scope_policy import _matches
+
+    tester_write = [str(p).strip() for p in (reqs.get("tester_write") or []) if str(p).strip()]
+    if tester_write:
+        return any(_matches(path, pattern) for pattern in tester_write)
+    return _is_test_asset_path(path)
+
+
+def _is_planner_inline_role(role: str) -> bool:
+    if not role:
+        return True
+    if any(blocked in role for blocked in ("executor", "tester", "reviewer", "architect")):
+        return False
+    return "planner" in role or "main" in role
+
+
+def _task_has_executor_evidence(cwd: Path, task_id: str) -> bool:
+    if not task_id:
+        return False
+    implementation = _read_json(cwd / ".aiwf/records/implementation.json", {})
+    return (
+        str(implementation.get("task_id") or "") == str(task_id)
+        and bool(implementation.get("implementation_ref"))
+    )
+
+
+def _closed_plan_for_path(cwd: Path, normalized: str) -> str:
+    path = Path(normalized)
+    if len(path.parts) != 3 or path.parts[:2] != (".aiwf", "plans"):
+        return ""
+    if path.suffix.lower() != ".md":
+        return ""
+    plan_id = path.stem
+    plans = _read_json(cwd / ".aiwf" / "state" / "plans.json", {"plans": []})
+    for plan in plans.get("plans", []) or []:
+        if not isinstance(plan, dict):
+            continue
+        current_id = str(plan.get("plan_id") or plan.get("id") or "")
+        if current_id == plan_id and str(plan.get("status") or "") == "closed":
+            return plan_id
+    return ""
+
+
 def check_file_write(event: NormalizedEvent) -> ScopeResult:
     """Check if a file write/edit is within active scope.
 
@@ -108,6 +287,7 @@ def check_file_write(event: NormalizedEvent) -> ScopeResult:
     cwd = Path(event.cwd) if event.cwd else Path.cwd()
 
     state = _read_json(cwd / ".aiwf" / "state" / "state.json", {})
+    write_policy = _read_write_policy(cwd)
     from ...core.scope_policy import _is_governance_file, _normalize_path
     normalized = _normalize_path(file_path, str(cwd))
 
@@ -124,6 +304,19 @@ def check_file_write(event: NormalizedEvent) -> ScopeResult:
             ),
         )
 
+    role = str(event.agent_type or "").lower()
+    if (
+        "architect" in role
+        and _role_project_write_mode(role, write_policy) in ("reports_only", "allow")
+        and _is_architect_report_path(normalized)
+    ):
+        return ScopeResult(
+            file_path=normalized,
+            allowed=True,
+            active_context_id=state.get("active_context_id") or "(none)",
+            reason="aiwf-architect may write its assigned Markdown review report",
+        )
+
     # ── Fix-loop repair window: allow explicit repair targets ──
     fix_loop = _read_json(cwd / ".aiwf" / "state" / "fix-loop.json", {})
     if fix_loop.get("status") == "open":
@@ -137,21 +330,75 @@ def check_file_write(event: NormalizedEvent) -> ScopeResult:
                 p_clean = p.lstrip("./")
                 candidates = {p_clean, "." + p_clean}
                 if normalized in candidates or any(normalized.endswith("/" + c) for c in candidates):
-                    role = str(event.agent_type or "").lower()
                     active_task_id = state.get("active_task_id")
                     if (
                         not _is_governance_file(normalized)
                         and active_task_id
                     ):
                         reqs = _get_active_task_requirements(cwd) or {}
-                        if reqs.get("executor_required") and "executor" not in role:
+                        tester_test_write = (
+                            "tester" in role
+                            and reqs.get("tester_required")
+                            and _tester_write_allowed(normalized, reqs)
+                        )
+                        if _role_project_write_mode(role, write_policy) != "allow":
+                            role_name = _role_read_only_name(role)
                             return ScopeResult(
                                 file_path=normalized,
                                 allowed=False,
                                 active_context_id=state.get("active_context_id") or "(none)",
                                 reason=(
-                                    f"fix-loop repair for project file '{normalized}' requires executor subagent. "
-                                    "Dispatch aiwf-executor for the fix instead of repairing inline."
+                                    f"{role_name} is read-only for project files. It may inspect and run checks, "
+                                    f"but must not write '{normalized}'."
+                                ),
+                            )
+                        tester_mode = write_policy.get("tester_project_writes")
+                        tester_can_write = (
+                            tester_mode == "allow_all"
+                            or (tester_mode == "test_assets_only" and tester_test_write)
+                        )
+                        role_can_write = _configured_read_only_role_can_write(role, write_policy)
+                        if "tester" in role and not tester_can_write:
+                            return ScopeResult(
+                                file_path=normalized,
+                                allowed=False,
+                                active_context_id=state.get("active_context_id") or "(none)",
+                                reason=(
+                                    f"fix-loop tester repair may write test/verification assets only. "
+                                    f"Dispatch aiwf-executor for implementation writes to '{normalized}'."
+                                ),
+                            )
+                        if (
+                            write_policy.get("first_implementation_requires_executor")
+                            and reqs.get("executor_required")
+                            and "executor" not in role
+                            and not tester_can_write
+                            and not role_can_write
+                            and not _task_has_executor_evidence(cwd, active_task_id)
+                        ):
+                            if (
+                                _is_planner_inline_role(role)
+                                and _task_has_executor_evidence(cwd, active_task_id)
+                            ):
+                                return ScopeResult(
+                                    file_path=normalized,
+                                    allowed=True,
+                                    active_context_id=state.get("active_context_id") or "(none)",
+                                    reason=(
+                                        f"fix-loop inline repair allowed for '{normalized}': "
+                                        f"task {active_task_id} already has an Executor implementation. "
+                                        "Planner may choose inline repair for tiny, well-understood follow-up fixes; "
+                                        "dispatch aiwf-executor for unclear or high-risk repairs."
+                                    ),
+                                )
+                            return ScopeResult(
+                                file_path=normalized,
+                                allowed=False,
+                                active_context_id=state.get("active_context_id") or "(none)",
+                                reason=(
+                                    f"fix-loop repair for project file '{normalized}' requires aiwf-executor because "
+                                    f"task {active_task_id} has no Executor implementation yet. "
+                                    "A Task's first implementation must come from Executor; later tiny repairs may be inline."
                                 ),
                             )
                     return ScopeResult(
@@ -162,9 +409,20 @@ def check_file_write(event: NormalizedEvent) -> ScopeResult:
 
     # ── Governance files ──
     if _is_governance_file(normalized):
+        closed_plan_id = _closed_plan_for_path(cwd, normalized)
+        if closed_plan_id:
+            return ScopeResult(
+                file_path=normalized,
+                allowed=False,
+                active_context_id=state.get("active_context_id") or "(none)",
+                reason=(
+                    f"Plan '{closed_plan_id}' is closed and records completed work. "
+                    "Create a new Plan for new work; only the human may correct this document."
+                ),
+            )
         active_task_id = state.get("active_task_id")
         # Only the active Task.md is frozen during execution
-        if active_task_id:
+        if active_task_id and write_policy.get("freeze_active_task_md"):
             task_md_path = f".aiwf/tasks/{active_task_id}.md"
             if normalized == task_md_path:
                 return ScopeResult(
@@ -174,7 +432,7 @@ def check_file_write(event: NormalizedEvent) -> ScopeResult:
                     reason=(
                         f"active Task.md '{normalized}' is frozen during execution. "
                         f"Do NOT modify the active Task.md. "
-                        f"Other governance MDs (goals, plans, milestones, other tasks) may be edited."
+                        f"Other governance MDs (mission, goals, plans, milestones, other tasks) may be edited."
                     ),
                 )
 
@@ -183,7 +441,7 @@ def check_file_write(event: NormalizedEvent) -> ScopeResult:
 
     # ── Project files: require active task ──
     active_task_id = state.get("active_task_id")
-    if not active_task_id:
+    if not active_task_id and write_policy.get("project_writes_require_active_task"):
         return ScopeResult(
             file_path=normalized,
             allowed=False,
@@ -194,19 +452,77 @@ def check_file_write(event: NormalizedEvent) -> ScopeResult:
             ),
         )
 
-    # ── Executor subagent requirement ──
+    # ── Role write boundaries ──
     reqs = _get_active_task_requirements(cwd) or {}
-    role = str(event.agent_type or "").lower()
-    if reqs.get("executor_required") and "executor" not in role:
+    if _role_project_write_mode(role, write_policy) != "allow":
+        role_name = _role_read_only_name(role)
         return ScopeResult(
             file_path=normalized,
             allowed=False,
             active_context_id=state.get("active_context_id") or "(none)",
             reason=(
-                f"Task.requirements.executor_required=true: project writes must be performed by "
-                f"an aiwf-executor subagent. Dispatch aiwf-executor before writing '{normalized}'."
+                f"{role_name} is read-only for project files. It may inspect and run checks, "
+                f"but must not write '{normalized}'."
             ),
         )
+
+    tester_mode = write_policy.get("tester_project_writes")
+    tester_test_write = (
+        "tester" in role
+        and tester_mode == "test_assets_only"
+        and _tester_write_allowed(normalized, reqs)
+    )
+    tester_can_write = (
+        "tester" in role
+        and (
+            tester_mode == "allow_all"
+            or tester_test_write
+        )
+    )
+    role_can_write = _configured_read_only_role_can_write(role, write_policy)
+    if "tester" in role and not tester_can_write:
+        return ScopeResult(
+            file_path=normalized,
+            allowed=False,
+            active_context_id=state.get("active_context_id") or "(none)",
+            reason=(
+                f"aiwf-tester may write test/verification assets only. "
+                f"Dispatch aiwf-executor for implementation writes to '{normalized}'."
+            ),
+        )
+    if tester_test_write and not reqs.get("tester_required"):
+        return ScopeResult(
+            file_path=normalized,
+            allowed=False,
+            active_context_id=state.get("active_context_id") or "(none)",
+            reason=(
+                f"Task.requirements.tester_required is not true, so aiwf-tester may not write "
+                f"test asset '{normalized}'."
+            ),
+        )
+
+    if (
+        write_policy.get("first_implementation_requires_executor")
+        and reqs.get("executor_required")
+        and "executor" not in role
+        and not _task_has_executor_evidence(cwd, active_task_id)
+    ):
+        if tester_can_write or role_can_write:
+            pass
+        elif _is_planner_inline_role(role) and _task_has_executor_evidence(cwd, active_task_id):
+            pass
+        else:
+            return ScopeResult(
+                file_path=normalized,
+                allowed=False,
+                active_context_id=state.get("active_context_id") or "(none)",
+                reason=(
+                    f"Task.requirements.executor_required=true: the first implementation write for "
+                    f"task {active_task_id} must be performed by an aiwf-executor subagent. "
+                    f"After the Executor implementation exists, Planner may choose inline repair for tiny fixes. "
+                    f"Dispatch aiwf-executor before writing '{normalized}'."
+                ),
+            )
 
     # ── Forbidden write: mechanically enforce Task.md forbidden_write patterns ──
     forbidden = _get_task_forbidden_write(cwd, active_task_id)
@@ -254,16 +570,74 @@ def check_bash(event: NormalizedEvent) -> Dict:
     if policy_result:
         return policy_result
 
+    closed_plan_result = _check_closed_plan_bash(command, cwd)
+    if closed_plan_result:
+        return closed_plan_result
+
     # ── Active Task.md: block bash writes to frozen contract ──
     active_lock_result = _check_active_task_md_bash(command, cwd)
     if active_lock_result:
         return active_lock_result
 
+    state = _read_json(cwd / ".aiwf/state/state.json", {})
+    if state.get("active_task_id"):
+        import re
+        if re.search(r"(^|[;&|]\s*)git\s+commit\b", command, re.IGNORECASE):
+            return {
+                "allowed": False,
+                "decision": "deny",
+                "command": command[:200],
+                "matched_pattern": "git commit",
+                "reason": (
+                    "The active Task is committed by 'aiwf task close' after testing and review. "
+                    "Do not create an unreviewed commit during the Task."
+                ),
+            }
+
     return check_bash_command(command)
+
+
+def _check_closed_plan_bash(command: str, cwd: Path) -> Optional[Dict]:
+    """Block shell writes to closed Plan documents."""
+    plans = _read_json(cwd / ".aiwf" / "state" / "plans.json", {"plans": []})
+    closed_ids = [
+        str(plan.get("plan_id") or plan.get("id") or "")
+        for plan in plans.get("plans", []) or []
+        if isinstance(plan, dict) and str(plan.get("status") or "") == "closed"
+    ]
+    if not closed_ids:
+        return None
+
+    import re
+    write_pattern = re.compile(
+        r">>|(?<![<])>|\b(?:rm|unlink|mv|cp|tee|truncate)\b|"
+        r"\b(?:sed|perl)\b[^\n]*(?:\s-i|\s--in-place)|"
+        r"\bopen\s*\([^\n]*['\"](?:w|a)|\bdd\b[^\n]*\bof=",
+        re.IGNORECASE,
+    )
+    if not write_pattern.search(command):
+        return None
+    for plan_id in closed_ids:
+        relative = f".aiwf/plans/{plan_id}.md"
+        if relative not in command and str(cwd / relative) not in command:
+            continue
+        return {
+            "allowed": False,
+            "decision": "deny",
+            "command": command[:200],
+            "matched_pattern": relative,
+            "reason": (
+                f"Plan '{plan_id}' is closed and records completed work. "
+                "Create a new Plan for new work; only the human may correct this document."
+            ),
+        }
+    return None
 
 
 def _check_active_task_md_bash(command: str, cwd: Path) -> Optional[Dict]:
     """Block bash commands that write to or delete the active Task.md during execution."""
+    if not _read_write_policy(cwd).get("freeze_active_task_md"):
+        return None
     state_path = cwd / ".aiwf" / "state" / "state.json"
     if not state_path.exists():
         return None

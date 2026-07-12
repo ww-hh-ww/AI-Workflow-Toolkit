@@ -32,15 +32,15 @@ class TestInstall(unittest.TestCase):
     def test_v2_state_files_created_without_flat_runtime_state(self):
         expected = [
             ".aiwf/state/state.json",
-            ".aiwf/records/evidence.json",
+            ".aiwf/records/implementation.json",
             ".aiwf/state/fix-loop.json",
             ".aiwf/state/goals.json",
             ".aiwf/state/milestones.json",
+            ".aiwf/state/mission.json",
             ".aiwf/state/plans.json",
             ".aiwf/state/tasks.json",
             ".aiwf/records/review.json",
             ".aiwf/records/testing.json",
-            ".aiwf/records/architecture-review.json",
             ".aiwf/records/events.json",
         ]
         for rel in expected:
@@ -53,28 +53,281 @@ class TestInstall(unittest.TestCase):
         self.assertFalse((self.tmp / ".aiwf" / "negative-memory.md").exists())
         # V1 layout — state/, records/, goals/, plans/, tasks/, milestones/, config/, runtime/
         self.assertTrue((self.tmp / ".aiwf" / "README.md").exists())
+        self.assertTrue((self.tmp / ".aiwf" / "mission.md").exists())
+        self.assertTrue((self.tmp / ".aiwf" / "config" / "write-policy.json").exists())
+        self.assertTrue((self.tmp / ".aiwf" / "config" / "agent-models.json").exists())
         self.assertTrue((self.tmp / ".aiwf" / "records").is_dir())
         self.assertTrue((self.tmp / ".aiwf" / "runtime").is_dir())
         self.assertTrue((self.tmp / ".aiwf" / "config").is_dir())
         self.assertFalse((self.tmp / ".aiwf" / "artifacts").is_dir(), "artifacts/ directory retired in V1")
         self.assertFalse((self.tmp / ".aiwf" / "archive").is_dir(), "archive/ directory retired in V1")
 
+    def test_mission_md_is_write_surface_and_sync_derives_json(self):
+        tmp = Path(tempfile.mkdtemp(prefix="awmission_"))
+        try:
+            r = _run([sys.executable, "-m", "aiwf_core.cli", "install", "claude", "--force"], tmp)
+            self.assertEqual(r.returncode, 0, r.stderr)
+
+            mission_md = tmp / ".aiwf" / "mission.md"
+            mission_md.write_text("""---
+id: MISSION-001
+type: mission
+status: active
+---
+
+# Mission
+
+## Statement
+
+Ship the product safely.
+
+## Boundaries
+
+- No cloud dependency
+- No silent data loss
+
+## Goal Roots
+
+- GOAL-ROOT
+
+## Milestones
+
+- MS-DEPLOY
+""", encoding="utf-8")
+
+            sync = _run([sys.executable, "-m", "aiwf_core.cli", "sync"], tmp)
+            self.assertEqual(sync.returncode, 0, sync.stderr)
+
+            mission = json.loads((tmp / ".aiwf" / "state" / "mission.json").read_text(encoding="utf-8"))
+            self.assertEqual(mission["statement"], "Ship the product safely.")
+            self.assertEqual(mission["boundaries"], ["No cloud dependency", "No silent data loss"])
+            self.assertEqual(mission["goal_tree_root_ids"], ["GOAL-ROOT"])
+            self.assertEqual(mission["milestone_ids"], ["MS-DEPLOY"])
+
+            show = _run([sys.executable, "-m", "aiwf_core.cli", "mission", "show"], tmp)
+            self.assertEqual(show.returncode, 0, show.stderr)
+            self.assertIn("Ship the product safely.", show.stdout)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_install_merges_human_only_command_policy(self):
+        tmp = Path(tempfile.mkdtemp(prefix="awpol_"))
+        try:
+            policy_path = tmp / ".aiwf" / "config" / "command-policy.json"
+            policy_path.parent.mkdir(parents=True, exist_ok=True)
+            policy_path.write_text(json.dumps({
+                "schema_version": 1,
+                "description": "old policy",
+                "deny": [{
+                    "command": "aiwf task force-close",
+                    "reason": "old force close rule",
+                    "human_only": True,
+                }],
+            }), encoding="utf-8")
+
+            r = _run([sys.executable, "-m", "aiwf_core.cli", "install", "claude", "--force"], tmp)
+
+            self.assertEqual(r.returncode, 0, r.stderr)
+            policy = json.loads(policy_path.read_text(encoding="utf-8"))
+            denied = {entry["command"]: entry for entry in policy["deny"]}
+            self.assertTrue(denied["aiwf task force-close"]["human_only"])
+            self.assertTrue(denied["aiwf task interrupt"]["human_only"])
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_install_writes_default_write_policy(self):
+        policy = self._j(".aiwf/config/write-policy.json")
+        self.assertEqual(policy["schema_version"], 1)
+        self.assertTrue(policy["project_writes_require_active_task"])
+        self.assertTrue(policy["freeze_active_task_md"])
+        self.assertTrue(policy["first_implementation_requires_executor"])
+        self.assertEqual(policy["tester_project_writes"], "test_assets_only")
+        self.assertNotIn("reviewer_project_writes", policy)
+        self.assertEqual(policy["architect_project_writes"], "reports_only")
+        self.assertEqual(policy["explorer_project_writes"], "deny")
+        self.assertEqual(policy["critic_project_writes"], "deny")
+        allowed = policy["allowed_values"]
+        self.assertEqual(allowed["tester_project_writes"], ["deny", "test_assets_only", "allow_all"])
+        self.assertNotIn("reviewer_project_writes", allowed)
+        self.assertEqual(allowed["architect_project_writes"], ["deny", "reports_only", "allow"])
+        self.assertEqual(allowed["explorer_project_writes"], ["deny", "allow"])
+        self.assertEqual(allowed["critic_project_writes"], ["deny", "allow"])
+
+    def test_reinstall_refreshes_write_policy_help_without_overwriting_choice(self):
+        tmp = Path(tempfile.mkdtemp(prefix="awwritepolicy_"))
+        try:
+            policy_path = tmp / ".aiwf" / "config" / "write-policy.json"
+            policy_path.parent.mkdir(parents=True, exist_ok=True)
+            policy_path.write_text(json.dumps({
+                "schema_version": 1,
+                "description": "old help",
+                "allowed_values": {"architect_project_writes": ["deny", "allow"]},
+                "architect_project_writes": "deny",
+                "reviewer_project_writes": "deny",
+            }), encoding="utf-8")
+
+            result = _run(
+                [sys.executable, "-m", "aiwf_core.cli", "install", "claude", "--force"],
+                tmp,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            policy = json.loads(policy_path.read_text(encoding="utf-8"))
+            self.assertEqual(policy["architect_project_writes"], "deny")
+            self.assertNotIn("reviewer_project_writes", policy)
+            self.assertEqual(
+                policy["allowed_values"]["architect_project_writes"],
+                ["deny", "reports_only", "allow"],
+            )
+            self.assertIn("reports_only", policy["description"])
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_aiwf_subagents_inherit_claude_code_tools(self):
+        for agent in ["aiwf-executor", "aiwf-tester", "aiwf-reviewer",
+                      "aiwf-architect", "aiwf-explorer", "aiwf-critic"]:
+            content = (
+                PROJECT_ROOT
+                / "aiwf_core"
+                / "embedded_templates"
+                / "agents"
+                / f"{agent}.md"
+            ).read_text(encoding="utf-8")
+            frontmatter = content.split("---", 2)[1]
+            self.assertNotIn("tools:", frontmatter)
+            self.assertNotIn("disallowedTools:", frontmatter)
+
+    def test_agent_models_config_controls_generated_agents(self):
+        tmp = Path(tempfile.mkdtemp(prefix="awmodels_"))
+        try:
+            first = _run(
+                [sys.executable, "-m", "aiwf_core.cli", "install", "claude", "--force"],
+                tmp,
+            )
+            self.assertEqual(first.returncode, 0, first.stderr)
+
+            config_path = tmp / ".aiwf" / "config" / "agent-models.json"
+            config = json.loads(config_path.read_text(encoding="utf-8"))
+            self.assertEqual(config["models"]["claude"]["aiwf-executor"], "inherit")
+            self.assertEqual(config["models"]["claude"]["aiwf-explorer"], "inherit")
+
+            executor = (tmp / ".claude" / "agents" / "aiwf-executor.md").read_text()
+            explorer = (tmp / ".claude" / "agents" / "aiwf-explorer.md").read_text()
+            self.assertNotIn("model:", executor.split("---", 2)[1])
+            self.assertNotIn("model:", explorer.split("---", 2)[1])
+
+            config["models"]["claude"]["aiwf-executor"] = "opus"
+            config["models"]["claude"]["aiwf-explorer"] = "inherit"
+            config_path.write_text(json.dumps(config, indent=2), encoding="utf-8")
+            second = _run(
+                [sys.executable, "-m", "aiwf_core.cli", "install", "claude", "--force"],
+                tmp,
+            )
+            self.assertEqual(second.returncode, 0, second.stderr)
+
+            executor = (tmp / ".claude" / "agents" / "aiwf-executor.md").read_text()
+            explorer = (tmp / ".claude" / "agents" / "aiwf-explorer.md").read_text()
+            self.assertIn("model: opus", executor.split("---", 2)[1])
+            self.assertNotIn("model:", explorer.split("---", 2)[1])
+
+            reasonix_first = _run(
+                [sys.executable, "-m", "aiwf_core.cli", "install", "reasonix", "--force"],
+                tmp,
+            )
+            self.assertEqual(reasonix_first.returncode, 0, reasonix_first.stderr)
+            review_skill = (
+                tmp / ".reasonix" / "skills" / "aiwf-review" / "SKILL.md"
+            ).read_text()
+            self.assertNotIn("model:", review_skill.split("---", 2)[1])
+            self.assertNotIn("allowed-tools:", review_skill.split("---", 2)[1])
+
+            config = json.loads(config_path.read_text(encoding="utf-8"))
+            config["models"]["reasonix"]["aiwf-reviewer"] = "deepseek-chat"
+            config_path.write_text(json.dumps(config, indent=2), encoding="utf-8")
+            reasonix_second = _run(
+                [sys.executable, "-m", "aiwf_core.cli", "install", "reasonix", "--force"],
+                tmp,
+            )
+            self.assertEqual(reasonix_second.returncode, 0, reasonix_second.stderr)
+            review_skill = (
+                tmp / ".reasonix" / "skills" / "aiwf-review" / "SKILL.md"
+            ).read_text()
+            self.assertIn("model: deepseek-chat", review_skill.split("---", 2)[1])
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_reinstall_preserves_custom_claude_hooks(self):
+        tmp = Path(tempfile.mkdtemp(prefix="awhooks_"))
+        try:
+            settings_path = tmp / ".claude" / "settings.json"
+            settings_path.parent.mkdir(parents=True, exist_ok=True)
+            settings_path.write_text(json.dumps({
+                "hooks": {
+                    "PreToolUse": [{
+                        "matcher": "Bash",
+                        "hooks": [
+                            {"type": "command", "command": "./custom-security-hook.sh"},
+                            {"type": "command", "command": "${CLAUDE_PROJECT_DIR}/scripts/aiwf_old.py"},
+                        ],
+                    }],
+                    "SessionEnd": [{
+                        "hooks": [{"type": "command", "command": "./custom-session-hook.sh"}],
+                    }],
+                    "Notification": [{
+                        "hooks": [{"type": "command", "command": "${CLAUDE_PROJECT_DIR}/scripts/aiwf_retired.py"}],
+                    }],
+                },
+                "permissions": {"deny": ["Bash(rm:*)"]},
+                "customSetting": "keep-me",
+            }), encoding="utf-8")
+
+            for _ in range(2):
+                result = _run(
+                    [sys.executable, "-m", "aiwf_core.cli", "install", "claude", "--force"],
+                    tmp,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+
+            installed = json.loads(settings_path.read_text(encoding="utf-8"))
+            commands = []
+            for entries in installed["hooks"].values():
+                for entry in entries:
+                    commands.extend(
+                        handler.get("command", "")
+                        for handler in entry.get("hooks", [])
+                        if isinstance(handler, dict)
+                    )
+
+            self.assertIn("./custom-security-hook.sh", commands)
+            self.assertIn("./custom-session-hook.sh", commands)
+            self.assertFalse(any("aiwf_old.py" in command for command in commands))
+            self.assertEqual(sum("aiwf_scope_check.py" in command for command in commands), 1)
+            self.assertEqual(sum("aiwf_status.py" in command for command in commands), 1)
+            self.assertEqual(installed["permissions"]["deny"], ["Bash(rm:*)"])
+            self.assertEqual(installed["customSetting"], "keep-me")
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
     def test_settings_json_has_nested_hooks(self):
         s = self._j(".claude/settings.json")
-        for ev in ["UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop"]:
+        for ev in ["UserPromptSubmit", "PreToolUse", "PostToolUse", "SubagentStop", "Stop"]:
             for entry in s["hooks"][ev]:
                 for h in entry["hooks"]:
                     self.assertEqual(h["type"], "command")
                     self.assertIn("command", h)
 
-    def test_pre_tool_use_has_snapshot_and_scope_and_bash(self):
+    def test_pre_tool_use_has_scope_bash_and_agent_gates(self):
         s = self._j(".claude/settings.json")
         matchers = [e.get("matcher", "") for e in s["hooks"]["PreToolUse"]]
-        self.assertIn("Write|Edit|MultiEdit|Bash|Agent|Task", matchers)  # snapshot
-        self.assertIn("Write|Edit|MultiEdit", matchers)       # scope check
-        self.assertIn("Bash", matchers)                        # bash guard
+        self.assertIn("Write|Edit|MultiEdit", matchers)
+        self.assertIn("Bash", matchers)
+        self.assertIn("Agent|Task", matchers)
         post_matchers = [e.get("matcher", "") for e in s["hooks"]["PostToolUse"]]
-        self.assertIn("Write|Edit|MultiEdit|Bash|Agent|Task", post_matchers)
+        self.assertIn("Skill", post_matchers)
+        self.assertIn("Agent|Task", post_matchers)
+        self.assertIn("Write|Edit|MultiEdit", post_matchers)
+        stop_matchers = [e.get("matcher", "") for e in s["hooks"]["SubagentStop"]]
+        self.assertIn("aiwf-executor|aiwf-tester|aiwf-reviewer", stop_matchers)
 
     def test_skills_exist_with_frontmatter(self):
         """Expected top-level skills installed, with SKILL.md frontmatter."""
@@ -89,9 +342,8 @@ class TestInstall(unittest.TestCase):
         """Reference files exist under their parent skill directories."""
         refs = {
             "aiwf-planner": ["references/task-contract.md", "references/structure-guide.md",
-                           "references/writing-guide.md"],
-            "aiwf-review": ["references/review-output.md", "references/trace-checklist.md",
-                          "references/verify-checklist.md"],
+                           "references/writing-guide.md", "references/goal-writing.md",
+                           "references/plan-writing.md", "references/milestone-writing.md"],
             "aiwf-architect": [
                 "references/code-review.md",
                 "references/design-review.md",
@@ -110,6 +362,24 @@ class TestInstall(unittest.TestCase):
             path = self.tmp / ".claude" / "skills" / retired
             self.assertFalse(path.exists(), f"Retired skill should not exist: {retired}")
 
+    def test_reinstall_removes_retired_review_references(self):
+        tmp = Path(tempfile.mkdtemp(prefix="awretiredrefs_"))
+        try:
+            references = tmp / ".claude" / "skills" / "aiwf-review" / "references"
+            references.mkdir(parents=True)
+            for name in ["review-output.md", "trace-checklist.md", "verify-checklist.md"]:
+                (references / name).write_text("old", encoding="utf-8")
+
+            result = _run(
+                [sys.executable, "-m", "aiwf_core.cli", "install", "claude", "--force"],
+                tmp,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertFalse(references.exists())
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
     def test_subagents_exist(self):
         """Expected Claude agents installed."""
         for agent in ["aiwf-explorer", "aiwf-executor", "aiwf-tester",
@@ -120,16 +390,14 @@ class TestInstall(unittest.TestCase):
         self.assertFalse((self.tmp / ".claude" / "agents" / "aiwf-curator.md").exists(),
                         "aiwf-curator should not be installed")
 
-    def test_claude_subagents_have_connection_recovery(self):
+    def test_claude_prompts_do_not_inject_interruption_protocol(self):
         for agent in ["aiwf-executor", "aiwf-tester", "aiwf-reviewer", "aiwf-architect"]:
             content = (self.tmp / ".claude" / "agents" / f"{agent}.md").read_text()
-            self.assertIn("Connection Recovery", content)
-            self.assertIn("PAUSED_FOR_PLANNER", content)
-            self.assertIn("re-dispatch", content)
-            self.assertIn("interrupted before completing", content)
+            self.assertNotIn("Connection Recovery", content)
+            self.assertNotIn("PAUSED_FOR_PLANNER", content)
         planner = (self.tmp / ".claude" / "skills" / "aiwf-planner" / "SKILL.md").read_text()
-        self.assertIn("Connection Recovery", planner)
-        self.assertIn("interrupted", planner.lower())
+        self.assertNotIn("Connection Recovery", planner)
+        self.assertNotIn("PAUSED_FOR_PLANNER", planner)
 
     def test_planner_and_reviewer_explain_governance_recovery_paths(self):
         planner = (self.tmp / ".claude" / "skills" / "aiwf-planner" / "SKILL.md").read_text()
@@ -137,10 +405,7 @@ class TestInstall(unittest.TestCase):
         executor = (self.tmp / ".claude" / "agents" / "aiwf-executor.md").read_text()
         self.assertIn("do not edit project source files", planner.lower())
         self.assertIn("do not hand-edit `.aiwf/state/`", planner.lower())
-        self.assertIn("Connection Recovery", reviewer)
-        self.assertIn("PAUSED_FOR_PLANNER", reviewer)
-        self.assertIn("record evidence", executor.lower())
-        self.assertIn("Connection Recovery", executor)
+        self.assertIn("record implementation", executor.lower())
 
     def test_status_shows_embedded_mode(self):
         r = _run([sys.executable, "-m", "aiwf_core.cli", "status"], self.tmp)
@@ -151,9 +416,9 @@ class TestInstall(unittest.TestCase):
         self.assertTrue((self.tmp / "CLAUDE.md").exists())
 
     def test_scripts_are_executable(self):
-        for s in ["aiwf_status.py", "aiwf_pre_snapshot.py", "aiwf_scope_check.py",
-                  "aiwf_bash_guard.py", "aiwf_capture_evidence.py",
-                  "aiwf_review_gate.py"]:
+        for s in ["aiwf_status.py", "aiwf_scope_check.py", "aiwf_bash_guard.py",
+                  "aiwf_review_gate.py", "aiwf_skill_log.py", "aiwf_agent_log.py",
+                  "aiwf_agent_gate.py", "aiwf_auto_sync.py"]:
             p = self.tmp / "scripts" / s
             self.assertTrue(p.exists(), f"Missing: {s}")
             self.assertTrue(p.stat().st_mode & 0o111, f"Not executable: {s}")
@@ -176,9 +441,9 @@ class TestInstall(unittest.TestCase):
         content = (self.tmp / "CLAUDE.md").read_text()
         self.assertIn("aiwf status", content)
         self.assertNotIn("aiwf-init", content)
-        self.assertIn("Mechanical truth", content)
-        self.assertIn("Skill index", content)
-        self.assertIn("authoritative close gate", content)
+        self.assertIn("routing source of truth", content)
+        self.assertIn("Use AIWF assets first", content)
+        self.assertIn("Do not hand-edit `.aiwf/state/`", content)
 
     def test_claude_md_managed_block_idempotent(self):
         """Second install does not duplicate managed block."""
@@ -273,7 +538,7 @@ class TestReasonixInstall(unittest.TestCase):
     def test_reasonix_install_output_starts_with_status(self):
         self.assertIn("reasonix", self.result.stdout)
         self.assertIn("aiwf status --prompt", self.result.stdout)
-        self.assertIn("describing your goal or question naturally", self.result.stdout)
+        self.assertIn("Describe the goal or question", self.result.stdout)
 
     def test_reasonix_settings_use_reasonix_project_dir(self):
         settings = self._j(".reasonix/settings.json")
@@ -293,37 +558,78 @@ class TestReasonixInstall(unittest.TestCase):
         self.assertTrue(commands)
         self.assertTrue(all("AIWF_HOOK_ENGINE=reasonix" in c and "REASONIX_PROJECT_DIR}/scripts/" in c for c in commands))
 
-    def test_reasonix_subagent_skills_have_connection_recovery_without_hard_budget(self):
+    def test_reinstall_preserves_custom_reasonix_hooks(self):
+        tmp = Path(tempfile.mkdtemp(prefix="awhooks_reasonix_"))
+        try:
+            settings_path = tmp / ".reasonix" / "settings.json"
+            settings_path.parent.mkdir(parents=True, exist_ok=True)
+            settings_path.write_text(json.dumps({
+                "hooks": {
+                    "PreToolUse": [
+                        {"command": "./custom-reasonix-hook.sh", "match": "^bash$"},
+                        {"command": "${REASONIX_PROJECT_DIR}/scripts/aiwf_old.py", "match": "^bash$"},
+                    ],
+                    "SessionEnd": [{"command": "./custom-reasonix-session-hook.sh"}],
+                    "Notification": [{"command": "${REASONIX_PROJECT_DIR}/scripts/aiwf_retired.py"}],
+                },
+                "customSetting": "keep-me",
+            }), encoding="utf-8")
+
+            for _ in range(2):
+                result = _run(
+                    [sys.executable, "-m", "aiwf_core.cli", "install", "reasonix", "--force"],
+                    tmp,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+
+            installed = json.loads(settings_path.read_text(encoding="utf-8"))
+            commands = [
+                entry.get("command", "")
+                for entries in installed["hooks"].values()
+                for entry in entries
+                if isinstance(entry, dict)
+            ]
+            self.assertIn("./custom-reasonix-hook.sh", commands)
+            self.assertIn("./custom-reasonix-session-hook.sh", commands)
+            self.assertFalse(any("aiwf_old.py" in command for command in commands))
+            self.assertEqual(sum("aiwf_scope_check.py" in command for command in commands), 1)
+            self.assertEqual(sum("aiwf_status.py" in command for command in commands), 1)
+            self.assertEqual(installed["customSetting"], "keep-me")
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_reasonix_subagent_skills_have_no_hard_budget_or_interruption_protocol(self):
         for skill in ["aiwf-implement", "aiwf-test", "aiwf-review", "aiwf-architect"]:
             content = (self.tmp / ".reasonix" / "skills" / skill / "SKILL.md").read_text()
             self.assertIn("runAs: subagent", content)
             self.assertNotIn("max-iters:", content)
             self.assertNotIn("runaway loops", content)
             self.assertNotIn("Do not retry the same command", content)
-            self.assertIn("Connection Recovery", content)
-            self.assertIn("PAUSED_FOR_PLANNER", content)
+            self.assertNotIn("Connection Recovery", content)
+            self.assertNotIn("PAUSED_FOR_PLANNER", content)
         planner = (self.tmp / ".reasonix" / "skills" / "aiwf-planner" / "SKILL.md").read_text()
         self.assertIn("runAs: inline", planner)
-        self.assertIn("Connection Recovery", planner)
+        self.assertNotIn("PAUSED_FOR_PLANNER", planner)
 
     def test_reasonix_planner_prompt_contains_lifecycle(self):
-        # Lifecycle reference contains the task lifecycle in V1 flow format.
+        # Lifecycle reference contains the compact task lifecycle orientation.
         lifecycle = (self.tmp / ".reasonix" / "skills" / "aiwf-planner" / "references" / "lifecycle.md").read_text()
         for phrase in [
             "task create",
+            "task critique",
             "task activate",
-            "record evidence",
-            "record testing",
-            "record review",
+            "records the implementation snapshot",
+            "records the tested snapshot",
+            "records review",
             "task close",
         ]:
             self.assertIn(phrase, lifecycle)
-        self.assertIn("planner", lifecycle)
+        self.assertIn("Planner", lifecycle)
 
         # REASONIX.md carries the constitution — platform-neutral hard boundaries.
         reasonix_md = (self.tmp / "REASONIX.md").read_text()
-        self.assertIn("authoritative close gate", reasonix_md)
-        self.assertIn("Hard gates", reasonix_md)
+        self.assertIn("routing source of truth", reasonix_md)
+        self.assertIn("Hard Rules", reasonix_md)
 
         # Planner-main provides the core workflow orchestrator guidance.
         planner = (self.tmp / ".reasonix" / "skills" / "aiwf-planner" / "SKILL.md").read_text()
@@ -332,10 +638,10 @@ class TestReasonixInstall(unittest.TestCase):
         # aiwf-init is retired; check planner SKILL.md is the primary planning entry
         self.assertIn("AIWF Planner", planner)
 
-    def test_connection_recovery_source_is_shared_partial(self):
+    def test_connection_recovery_partials_are_removed(self):
         shared = PROJECT_ROOT / "aiwf_core" / "embedded_templates" / "shared"
-        self.assertTrue((shared / "connection_recovery_planner.md").exists())
-        self.assertTrue((shared / "connection_recovery_test.md").exists())
+        self.assertFalse((shared / "connection_recovery_planner.md").exists())
+        self.assertFalse((shared / "connection_recovery_test.md").exists())
         handwritten_sources = [
             PROJECT_ROOT / "aiwf_core" / "embedded_templates" / "skills" / "aiwf-implement" / "SKILL.md",
             PROJECT_ROOT / "aiwf_core" / "embedded_templates" / "skills" / "aiwf-test" / "SKILL.md",
@@ -347,7 +653,7 @@ class TestReasonixInstall(unittest.TestCase):
             PROJECT_ROOT / "aiwf_core" / "embedded_templates" / "agents" / "aiwf-reviewer.md",
         ]
         for path in handwritten_sources:
-            self.assertNotIn("PAUSED_FOR_PLANNER", path.read_text(), f"Recovery text should live in shared partials: {path}")
+            self.assertNotIn("PAUSED_FOR_PLANNER", path.read_text())
 
     def test_reasonix_hook_payload_blocks_by_exit_code(self):
         env = os.environ.copy()

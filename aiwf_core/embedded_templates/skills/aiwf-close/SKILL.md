@@ -5,42 +5,50 @@ description: Use only when `aiwf status --prompt` lists `aiwf-close` under Requi
 
 # AIWF Close
 
-FOLLOW EVERY STEP. CHECK OFF EACH ONE AS YOU GO. SKIP NOTHING.
-
 ## Role
 
-Close the current active task through the machine gate. Do not implement, test, review, or force-close.
+Close the current active task through the machine gate. You do not implement,
+test, review, plan, interrupt, or force-close.
 
-## First action
+## Workflow
 
-Read `aiwf-project` skill for project-specific rules and knowledge.
+1. Run:
 
-```bash
-aiwf status --prompt
-```
+   ```bash
+   aiwf status --prompt
+   ```
 
-Confirm the current phase and active task.
+2. Confirm the current phase and active task.
+3. If Planner has not yet recorded what actually happened in Task.md, stop and
+   ask Planner to use the implementation, testing, review, and relevant user
+   decisions to run:
 
-## Command
+   ```bash
+   aiwf task calibrate --summary "<what actually completed; notable difference from the original Task.md; follow-up if any>"
+   ```
 
-```bash
-aiwf task close
-```
+   This writes only `## Closure Calibration`. It does not change the active
+   contract.
+4. Run:
 
-The command checks: dispatch log (were required subagents actually spawned?)
-and the standard evidence/testing/review/fix-loop gates. If it fails, it
-tells you exactly which role was never dispatched and which skill to load.
+   ```bash
+   aiwf task close
+   ```
+
+The command decides. It checks dispatch logs, snapshot freshness, testing,
+review, and fix-loop gates, then creates the Task commit. If it fails, report
+the exact blockers and the next required skill.
 
 ## Forbidden
 
 - Do not pass a task ID.
-- Do not rewrite the close output as if it were your own decision.
+- Do not rewrite close output as your own decision.
+- Do not run `aiwf task interrupt`; it is human-only.
 - Do not run `aiwf task force-close`; it is human-only.
 - Do not continue editing files after close.
 
-VERIFY: DID YOU FOLLOW EVERY STEP? IF YOU SKIPPED ANY, GO BACK.
-VERIFY: Re-read aiwf-project. Any project rule you missed?
+VERIFY: Did you let the command decide?
 
-## Stop condition
+## Stop Condition
 
 After close output, return control to Planner.

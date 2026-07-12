@@ -7,5 +7,10 @@
       "reason": "force-close bypasses all gates on the active task. Human emergency override only.",
       "human_only": true
     },
+    {
+      "command": "aiwf task interrupt",
+      "reason": "interrupt releases the active task execution window. Human interruption only.",
+      "human_only": true
+    }
   ]
 }

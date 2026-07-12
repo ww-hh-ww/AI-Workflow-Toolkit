@@ -1,0 +1,64 @@
+# Activation Critique
+
+Use this before `aiwf task activate`. This is critic mode, not author mode.
+Its job is to correct the governance files before implementation starts.
+
+Run two passes. Each pass asks the same question:
+
+> What would make this Task false or useless even if completed?
+
+Pass 2 must not copy Pass 1. Re-check the weakest assumption from Pass 1 from
+a different angle. When the Plan commits to a technical method, compare that
+method with the raw problem, representative inputs, and support boundary. Ask
+whether another mechanism fits the problem more directly.
+
+Critical reread before activation. Reread the relevant Goal.md, Plan.md,
+Task.md, and Milestone.md as claims to test, not truth to trust. Look for
+missing proof, guessed facts, vague handoff, placeholder text, mismatched
+boundaries, hidden old paths, and unresolved Unknowns. Do not defend the plan;
+try to break it.
+
+## Required Actions
+
+1. Extract what the relevant Goal.md, Plan.md, Task.md, and Milestone.md claim.
+2. Read `.aiwf/memory/project-facts.md` and scan `.aiwf/memory/MEMORY.md` for
+   facts that may change those claims.
+3. Explore code reality with `rg` and file reads. Do not rely on memory or the
+   governance files.
+4. Compare the governance claims against code reality. Check main path,
+   consumer, invariant, proof, runtime entrypoints, and old
+   path or bypass risk.
+5. If the governance files are wrong, incomplete, or too confident, revise the
+   relevant MD and run `aiwf sync`.
+6. If the main path, consumer, invariant, or proof is still guessed, do not
+   activate. Create exploration/design work or ask the user.
+7. If a chosen technical method has no source-backed basis or was never
+   compared against the raw problem, return to Plan formation. Use independent
+   option exploration before recording another critique pass.
+8. Confirm the project worktree is clean and the current branch is the feature
+   branch for this Plan. Do not start a Task on main, master, trunk, detached
+   HEAD, or a branch already bound to another Plan.
+
+## Boundary
+
+This step must read enough code to judge the design contract. Read as Planner:
+trace callers, inspect entrypoints, follow data/control flow, check consumers,
+and compare the intended structure with the real one.
+
+It may revise governance MD and run `aiwf sync`.
+
+It must not implement project behavior, edit project source, rewrite tests to
+fit the Task, or start solving the engineering problem. If reality shows the
+contract is wrong, fix the governance MD and sync. If reality is still unclear,
+create exploration/design work or ask the user.
+
+Do not fill a fixed output form. At the end of each pass, briefly state what
+reality was checked, the weakest assumption, whether the contract changed, and
+whether it can be defended. Only after a pass concludes that activation is
+honest, run:
+
+```text
+aiwf task critique <TASK-ID>
+```
+
+Do not record a critique pass for a guessed or broken contract.

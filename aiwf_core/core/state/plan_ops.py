@@ -6,23 +6,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from ..state_schema import (
-    DEFAULT_PLAN_KIND, DEFAULT_PLAN_PHASE, LEGACY_GOAL_ID,
-    VALID_PLAN_KINDS, VALID_PLAN_PHASES, VALID_WORK_INTENTS, default_plans,
-)
-
-
-def _is_valid_work_intent(intent: str) -> bool:
-    return not intent or intent in VALID_WORK_INTENTS
-
+from ..state_schema import LEGACY_GOAL_ID, default_plans
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
-
 def _plans_path(base_dir: str) -> Path:
     return Path(base_dir) / ".aiwf" / "state" / "plans.json"
-
 
 def _read(path: Path, default: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     try:
@@ -30,11 +20,9 @@ def _read(path: Path, default: Optional[Dict[str, Any]] = None) -> Dict[str, Any
     except Exception:
         return default or {}
 
-
 def _write(path: Path, data: Dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-
 
 def _empty_plan(plan_id: str, goal_id: str = "", task_ids: Optional[List[str]] = None,
                 status: str = "open", milestone_id: str = "",
@@ -66,17 +54,21 @@ def _empty_plan(plan_id: str, goal_id: str = "", task_ids: Optional[List[str]] =
         "updated_at": now,
     }
 
-
 def _find_plan(plans: Dict[str, Any], plan_id: str) -> Optional[Dict[str, Any]]:
     for plan in plans.get("plans", []) or []:
         if isinstance(plan, dict) and (plan.get("plan_id") == plan_id or plan.get("id") == plan_id):
             return plan
     return None
 
-
 def _plan_id(plan: Dict[str, Any]) -> str:
     return str(plan.get("plan_id") or plan.get("id") or "")
 
+def _require_open_plan(plan: Dict[str, Any], operation: str) -> None:
+    if str(plan.get("status") or "open") == "closed":
+        raise ValueError(
+            f"plan {_plan_id(plan)} is closed; cannot {operation}. "
+            "Create a new Plan for new work."
+        )
 
 def validate_plan_dependencies(plans: Dict[str, Any]) -> None:
     """Validate the complete Plan dependency graph."""
@@ -108,7 +100,6 @@ def validate_plan_dependencies(plans: Dict[str, Any]) -> None:
     for plan_id in sorted(by_id):
         visit(plan_id)
 
-
 def plan_dependency_blockers(base_dir: str, plan_id: str) -> List[str]:
     plans = load_plans(base_dir)
     plan = _find_plan(plans, plan_id)
@@ -125,7 +116,6 @@ def plan_dependency_blockers(base_dir: str, plan_id: str) -> List[str]:
             blockers.append(f"plan dependency not complete: {dependency_id} (status={status})")
     return blockers
 
-
 def plan_readiness(base_dir: str, plan_id: str) -> Dict[str, Any]:
     plan = get_plan(base_dir, plan_id)
     blockers = plan_dependency_blockers(base_dir, plan_id)
@@ -136,12 +126,12 @@ def plan_readiness(base_dir: str, plan_id: str) -> Dict[str, Any]:
         "blockers": blockers,
     }
 
-
 def add_plan_dependency(base_dir: str, plan_id: str, dependency_id: str) -> Dict[str, Any]:
     plans = load_plans(base_dir)
     plan = _find_plan(plans, plan_id)
     if not plan:
         raise ValueError(f"plan not found: {plan_id}")
+    _require_open_plan(plan, "add a dependency")
     if not _find_plan(plans, dependency_id):
         raise ValueError(f"plan dependency not found: {plan_id} -> {dependency_id}")
     dependencies = list(plan.get("dependencies", []) or [])
@@ -153,7 +143,6 @@ def add_plan_dependency(base_dir: str, plan_id: str, dependency_id: str) -> Dict
     save_plans(base_dir, plans)
     return {"plan": plan, "dependency_id": dependency_id, "added": True}
 
-
 def remove_plan_dependency(base_dir: str, plan_id: str, dependency_id: str,
                            reason: str) -> Dict[str, Any]:
     reason = reason.strip()
@@ -163,6 +152,7 @@ def remove_plan_dependency(base_dir: str, plan_id: str, dependency_id: str,
     plan = _find_plan(plans, plan_id)
     if not plan:
         raise ValueError(f"plan not found: {plan_id}")
+    _require_open_plan(plan, "remove a dependency")
     dependencies = list(plan.get("dependencies", []) or [])
     if dependency_id not in dependencies:
         raise ValueError(f"plan dependency not present: {plan_id} -> {dependency_id}")
@@ -178,7 +168,6 @@ def remove_plan_dependency(base_dir: str, plan_id: str, dependency_id: str,
     save_plans(base_dir, plans)
     return {"plan": plan, "dependency_id": dependency_id, "removed": True, "reason": reason}
 
-
 def _legacy_task_refs(base: Path) -> Dict[str, Dict[str, str]]:
     ledger = _read(base / ".aiwf" / "state" / "tasks.json", {})
     refs: Dict[str, Dict[str, str]] = {}
@@ -193,7 +182,6 @@ def _legacy_task_refs(base: Path) -> Dict[str, Dict[str, str]]:
             "goal_id": str(task.get("goal_id") or task.get("parent_goal") or LEGACY_GOAL_ID),
         }
     return refs
-
 
 def migrate_legacy_plans(base_dir: str, plans: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Manual/dev audit helper to identify retired markdown/task refs.
@@ -245,7 +233,6 @@ def migrate_legacy_plans(base_dir: str, plans: Optional[Dict[str, Any]] = None) 
         _write(_plans_path(base_dir), data)
     return data
 
-
 def load_plans(base_dir: str, migrate: bool = False) -> Dict[str, Any]:
     path = _plans_path(base_dir)
     data = _read(path, default_plans())
@@ -257,14 +244,12 @@ def load_plans(base_dir: str, migrate: bool = False) -> Dict[str, Any]:
         _write(path, data)
     return migrate_legacy_plans(base_dir, data) if migrate else data
 
-
 def save_plans(base_dir: str, plans: Dict[str, Any]) -> None:
     plans.setdefault("schema_version", 1)
     plans.setdefault("legacy_goal_id", LEGACY_GOAL_ID)
     plans.setdefault("active_plan_id", None)
     plans.setdefault("plans", [])
     _write(_plans_path(base_dir), plans)
-
 
 def upsert_plan(base_dir: str, plan_id: str, goal_id: str = "", task_ids: Optional[List[str]] = None,
                 status: str = "open", milestone_id: str = "", title: str = "",
@@ -303,11 +288,13 @@ def upsert_plan(base_dir: str, plan_id: str, goal_id: str = "", task_ids: Option
 
     plans = load_plans(base_dir)
     plan = _find_plan(plans, plan_id)
+    previous_goal = str(plan.get("goal_id") or "") if plan else ""
     if not plan:
         plan = _empty_plan(plan_id, goal_id=goal_id, task_ids=task_ids or [],
                            status=status, milestone_id=milestone_id)
         plans["plans"].append(plan)
     else:
+        _require_open_plan(plan, "update it")
         # V2 minimal update: only id, goal, status, milestone, task_ids, title
         plan.setdefault("id", plan_id)
         plan.setdefault("plan_id", plan_id)
@@ -336,7 +323,7 @@ def upsert_plan(base_dir: str, plan_id: str, goal_id: str = "", task_ids: Option
         plan["remaining_task_ids"] = [
             tid for tid in plan.get("task_ids", []) or []
             if tid not in set(plan.get("closed_task_ids", []) or [])
-            and plan.get("task_status", {}).get(tid) != "rejected"
+            and plan.get("task_status", {}).get(tid) != "cancelled"
         ]
         plan["updated_at"] = _now()
     if title:
@@ -345,69 +332,51 @@ def upsert_plan(base_dir: str, plan_id: str, goal_id: str = "", task_ids: Option
         plans["active_plan_id"] = plan_id
     validate_plan_dependencies(plans)
     save_plans(base_dir, plans)
+    if effective_goal or previous_goal:
+        from .goal_tree_ops import load_goal_tree, save_goal_tree
+
+        tree = load_goal_tree(base_dir, auto_create=False)
+        changed = False
+        changed_goals: List[Dict[str, Any]] = []
+        for goal in tree.get("goals", []) or []:
+            attached = list(goal.get("attached_plan_ids", []) or [])
+            previous_attached = list(attached)
+            should_own = goal.get("id") == effective_goal
+            if should_own and plan_id not in attached:
+                attached.append(plan_id)
+                changed = True
+            elif not should_own and plan_id in attached:
+                attached = [item for item in attached if item != plan_id]
+                changed = True
+            goal["attached_plan_ids"] = attached
+            if attached != previous_attached:
+                changed_goals.append(goal)
+        if changed:
+            save_goal_tree(base_dir, tree)
+            from ..index_ops import parse_md, write_narrative_doc
+
+            for goal in changed_goals:
+                doc_path = str(goal.get("doc_path") or "")
+                if not doc_path:
+                    continue
+                path = Path(base_dir) / doc_path
+                if not path.exists():
+                    continue
+                frontmatter, body = parse_md(path)
+                if frontmatter is None:
+                    continue
+                frontmatter["attached_plan_ids"] = list(goal.get("attached_plan_ids", []) or [])
+                write_narrative_doc(path, frontmatter, body)
     if milestone_id:
         attach_plan_to_milestone(base_dir, milestone_id, plan_id, task_ids=plan.get("task_ids", []) or [])
     return {"plan": plan, "plans": plans}
-
-
-def set_active_plan(base_dir: str, plan_id: str) -> Dict[str, Any]:
-    """Explicitly activate a Plan. This is a planner-executor decision.
-
-    Creating a Plan does NOT auto-activate it. The planner-executor must
-    choose which Plan becomes active, after verifying its contracts are
-    ready — preventing plan_only_drift deadlocks where the wrong plan
-    is active and can't be edited.
-    """
-    plans = load_plans(base_dir)
-    plan = _find_plan(plans, plan_id)
-    if not plan:
-        raise ValueError(f"plan not found: {plan_id}")
-    blockers = plan_dependency_blockers(base_dir, plan_id)
-    if blockers:
-        raise ValueError("; ".join(blockers))
-    plans["active_plan_id"] = plan_id
-    save_plans(base_dir, plans)
-    state_path = Path(base_dir) / ".aiwf" / "state" / "state.json"
-    if state_path.exists():
-        import json
-        try:
-            state = json.loads(state_path.read_text(encoding="utf-8"))
-        except Exception:
-            state = {}
-        state["active_plan_id"] = plan_id
-        state["phase"] = "planning"
-        state["active_task_id"] = None
-        state["close_attempt"] = False
-        state["closure_allowed"] = False
-        state["close_prepared_task_id"] = ""
-        state["close_prepared_at"] = ""
-        state_path.write_text(json.dumps(state, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    return {"activated": True, "plan": plan, "plans": plans}
-
-
-def deactivate_plan(base_dir: str) -> Dict[str, Any]:
-    """Clear the active plan. Returns to discussing phase."""
-    plans = load_plans(base_dir)
-    prev = plans.get("active_plan_id")
-    plans["active_plan_id"] = None
-    save_plans(base_dir, plans)
-    state_path = Path(base_dir) / ".aiwf" / "state" / "state.json"
-    if state_path.exists():
-        import json
-        try:
-            state = json.loads(state_path.read_text(encoding="utf-8"))
-        except Exception:
-            state = {}
-        state["active_plan_id"] = ""
-        state["phase"] = "planning"
-        state_path.write_text(json.dumps(state, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    return {"deactivated": True, "previous": prev, "plans": plans}
 
 def attach_task_to_plan(base_dir: str, plan_id: str, task_id: str) -> Dict[str, Any]:
     plans = load_plans(base_dir)
     plan = _find_plan(plans, plan_id)
     if not plan:
         return {"attached": False, "plan": None, "plans": plans, "reason": f"plan not found: {plan_id}"}
+    _require_open_plan(plan, "link a Task")
     try:
         from ..task_ledger import load_ledger, save_ledger
 
@@ -451,7 +420,7 @@ def attach_task_to_plan(base_dir: str, plan_id: str, task_id: str) -> Dict[str, 
     plan["remaining_task_ids"] = [
         tid for tid in plan.get("task_ids", []) or []
         if tid not in set(plan.get("closed_task_ids", []) or [])
-        and plan.get("task_status", {}).get(tid) != "rejected"
+        and plan.get("task_status", {}).get(tid) != "cancelled"
     ]
     plan["updated_at"] = _now()
     save_plans(base_dir, plans)
@@ -463,12 +432,12 @@ def attach_task_to_plan(base_dir: str, plan_id: str, task_id: str) -> Dict[str, 
             pass
     return {"attached": True, "plan": plan, "plans": plans}
 
-
 def detach_task_from_plan(base_dir: str, plan_id: str, task_id: str) -> Dict[str, Any]:
     plans = load_plans(base_dir)
     plan = _find_plan(plans, plan_id)
     if not plan:
         return {"detached": False, "plan": None, "plans": plans}
+    _require_open_plan(plan, "unlink a Task")
     plan["task_ids"] = [tid for tid in plan.get("task_ids", []) or [] if tid != task_id]
     plan.setdefault("task_status", {}).pop(task_id, None)
     plan["closed_task_ids"] = [tid for tid in plan.get("closed_task_ids", []) or [] if tid != task_id]
@@ -476,14 +445,11 @@ def detach_task_from_plan(base_dir: str, plan_id: str, task_id: str) -> Dict[str
     save_plans(base_dir, plans)
     return {"detached": True, "plan": plan, "plans": plans}
 
-
 def get_plan(base_dir: str, plan_id: str, migrate: bool = False) -> Dict[str, Any]:
     return _find_plan(load_plans(base_dir, migrate=migrate), plan_id) or {}
 
-
 def plan_exists(base_dir: str, plan_id: str) -> bool:
     return bool(get_plan(base_dir, plan_id, migrate=False))
-
 
 def reconcile_task_to_plan(base_dir: str, task: Dict[str, Any]) -> Dict[str, Any]:
     """Roll closed task progress into its parent plan registry entry."""
@@ -503,24 +469,27 @@ def reconcile_task_to_plan(base_dir: str, task: Dict[str, Any]) -> Dict[str, Any
     task_status = plan.setdefault("task_status", {})
     task_status[task_id] = str(task.get("status", "unknown") or "unknown")
     closed = [tid for tid in task_ids if task_status.get(tid) == "closed"]
-    remaining = [tid for tid in task_ids if task_status.get(tid) not in ("closed", "rejected")]
+    remaining = [tid for tid in task_ids if task_status.get(tid) not in ("closed", "cancelled")]
 
-    evidence = _read(Path(base_dir) / ".aiwf" / "records" / "evidence.json", {"records": []})
-    changed = sorted({
-        f for rec in evidence.get("records", []) or []
-        if isinstance(rec, dict)
-        for f in (rec.get("changed_files") or [])
-        if f
-    })
     plan["closed_task_ids"] = closed
     plan["remaining_task_ids"] = remaining
-    plan["evidence_rollup"] = {
+    from ..task_ledger import load_ledger
+
+    commits = [
+        str((item.get("closure", {}) or {}).get("git_commit") or "")
+        for item in load_ledger(base_dir).get("tasks", []) or []
+        if isinstance(item, dict) and item.get("id") in closed
+    ]
+    plan["task_rollup"] = {
         "summary": f"{len(closed)}/{len(task_ids)} plan tasks closed",
         "closed_count": len(closed),
         "total_count": len(task_ids),
         "remaining_task_ids": remaining,
-        "changed_files": changed,
+        "git_commits": [item for item in commits if item],
     }
+    commit = str((task.get("closure", {}) or {}).get("git_commit") or "")
+    if commit:
+        plan["git_head_ref"] = commit
     # V1: task close updates rollup only; plan close must be explicit
     plan["updated_at"] = _now()
     save_plans(base_dir, plans)
@@ -551,67 +520,3 @@ def reconcile_task_to_plan(base_dir: str, task: Dict[str, Any]) -> Dict[str, Any
         "milestone_progress": milestone_progress,
         "goal_progress": goal_progress,
     }
-
-
-def rebase_plan_registry(base_dir: str, fix: str = "legacy-goal-id") -> Dict[str, Any]:
-    """Repair mechanical Plan registry drift without hand-editing plans.json."""
-    if fix != "legacy-goal-id":
-        raise ValueError(f"unknown plan rebase fix: {fix}")
-
-    plans = load_plans(base_dir)
-    ledger_path = Path(base_dir) / ".aiwf" / "state" / "tasks.json"
-    ledger = _read(ledger_path, {"tasks": [], "execution_window": {"active_task_ids": []}})
-    task_by_id = {
-        str(t.get("id", "")): t
-        for t in ledger.get("tasks", []) or []
-        if isinstance(t, dict) and t.get("id")
-    }
-    changes: List[Dict[str, Any]] = []
-
-    for plan in plans.get("plans", []) or []:
-        if not isinstance(plan, dict):
-            continue
-        plan_id = str(plan.get("plan_id") or plan.get("id") or "")
-        target_goal = str(plan.get("target_goal_id") or "")
-        old_goal = str(plan.get("goal_id") or "")
-        if target_goal and old_goal != target_goal:
-            plan["goal_id"] = target_goal
-            changes.append({
-                "kind": "plan_goal_rebased",
-                "plan_id": plan_id,
-                "from": old_goal,
-                "to": target_goal,
-            })
-        task_status = plan.setdefault("task_status", {})
-        task_ids = list(dict.fromkeys(plan.get("task_ids", []) or []))
-        for task_id in task_ids:
-            task = task_by_id.get(str(task_id))
-            if not task:
-                continue
-            if target_goal and (task.get("goal_id") != target_goal or task.get("parent_goal") != target_goal):
-                before = task.get("goal_id") or task.get("parent_goal") or ""
-                task["goal_id"] = target_goal
-                task["parent_goal"] = target_goal
-                changes.append({
-                    "kind": "task_goal_rebased",
-                    "task_id": task_id,
-                    "plan_id": plan_id,
-                    "from": before,
-                    "to": target_goal,
-                })
-            task["plan_id"] = plan_id
-            task["parent_plan"] = plan_id
-            task_status[str(task_id)] = str(task.get("status", "unknown") or "unknown")
-        closed = [tid for tid in task_ids if task_status.get(tid) == "closed"]
-        remaining = [
-            tid for tid in task_ids
-            if task_status.get(tid) not in ("closed", "rejected")
-        ]
-        plan["closed_task_ids"] = closed
-        plan["remaining_task_ids"] = remaining
-        plan["updated_at"] = _now()
-
-    save_plans(base_dir, plans)
-    if ledger_path.exists():
-        _write(ledger_path, ledger)
-    return {"changed": bool(changes), "changes": changes, "plans": plans, "ledger": ledger}

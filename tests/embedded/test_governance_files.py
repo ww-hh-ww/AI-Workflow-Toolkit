@@ -1,121 +1,71 @@
-"""Governance file policy: .aiwf artifacts allowed, classified separately."""
-import json, os, shutil, subprocess, sys, tempfile, unittest
+import json
+import os
+import subprocess
+import sys
+import tempfile
+import unittest
 from pathlib import Path
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
-def _install(cwd):
-    env = os.environ.copy(); env["PYTHONPATH"] = str(PROJECT_ROOT)
-    subprocess.run([sys.executable, "-m", "aiwf_core.cli", "install", "claude", "--force"],
-                   capture_output=True, text=True, cwd=str(cwd), env=env, timeout=20)
+ROOT = Path(__file__).resolve().parent.parent.parent
+
 
 class TestGovernanceFiles(unittest.TestCase):
-    """Governance file writes are always allowed, classified separately."""
-
     @classmethod
     def setUpClass(cls):
-        cls.tmp = Path(tempfile.mkdtemp(prefix="awgv_"))
-        _install(cls.tmp)
-
-    @classmethod
-    def tearDownClass(cls):
-        shutil.rmtree(cls.tmp, ignore_errors=True)
-
-    def setUp(self):
-        from aiwf_core.core.state_schema import MVP_STATE_FILES
-        for fn, dfn in MVP_STATE_FILES.items():
-            p = self.tmp / ".aiwf" / fn; p.parent.mkdir(parents=True, exist_ok=True); p.write_text(json.dumps(dfn(), indent=2) + "\n")
-
-    def _set_scope(self, allowed):
-        s = json.loads((self.tmp / ".aiwf" / "state" / "state.json").read_text())
-        s["active_context_id"] = "CTX-001"
-        (self.tmp / ".aiwf" / "state" / "state.json").write_text(json.dumps(s, indent=2))
-        (self.tmp / ".aiwf" / "state" / "state.json").write_text(json.dumps(
-            {"contexts": [{"id": "CTX-001", "allowed_write": allowed}]}, indent=2))
+        cls.tmp = Path(tempfile.mkdtemp(prefix="aiwf_governance_"))
+        env = os.environ.copy()
+        env["PYTHONPATH"] = str(ROOT)
+        result = subprocess.run(
+            [sys.executable, "-m", "aiwf_core.cli", "install", "claude", "--force"],
+            cwd=str(cls.tmp), env=env, capture_output=True, text=True, timeout=20,
+        )
+        if result.returncode:
+            raise AssertionError(result.stderr)
 
     def _scope_check(self, path):
-        inp = json.dumps({"session_id": "t", "cwd": str(self.tmp),
-                         "tool_name": "Write", "tool_input": {"file_path": path}})
-        env = os.environ.copy(); env["PYTHONPATH"] = str(PROJECT_ROOT)
-        r = subprocess.run([sys.executable, str(self.tmp / "scripts" / "aiwf_scope_check.py")],
-                          input=inp, capture_output=True, text=True,
-                          cwd=str(self.tmp), env=env, timeout=10)
-        try: out = json.loads(r.stdout.strip()) if r.stdout.strip() else {}
-        except: out = {}
-        return r.returncode, out
+        payload = json.dumps({
+            "session_id": "test",
+            "cwd": str(self.tmp),
+            "tool_name": "Write",
+            "tool_input": {"file_path": path},
+        })
+        env = os.environ.copy()
+        env["PYTHONPATH"] = str(ROOT)
+        result = subprocess.run(
+            [sys.executable, str(self.tmp / "scripts" / "aiwf_scope_check.py")],
+            input=payload, cwd=str(self.tmp), env=env,
+            capture_output=True, text=True, timeout=10,
+        )
+        return json.loads(result.stdout) if result.stdout.strip() else {}
 
-    # ── MVP state files ──
-    def test_state_json_allowed(self):
-        self._set_scope(["src/"]); _, out = self._scope_check(".aiwf/state/state.json")
-        self.assertNotIn("permissionDecision", out)
+    def test_narrative_governance_is_writable_without_active_task(self):
+        for path in [
+            ".aiwf/mission.md",
+            ".aiwf/goals/GOAL-001.md",
+            ".aiwf/plans/PLAN-001.md",
+            ".aiwf/tasks/TASK-001.md",
+            ".aiwf/memory/project-facts.md",
+            ".aiwf/config/write-policy.json",
+        ]:
+            self.assertNotIn("permissionDecision", self._scope_check(path), path)
 
-    def test_review_json_allowed(self):
-        self._set_scope(["src/"]); _, out = self._scope_check(".aiwf/records/review.jsonl")
-        self.assertNotIn("permissionDecision", out)
+    def test_machine_truth_requires_cli(self):
+        for path in [
+            ".aiwf/state/state.json",
+            ".aiwf/state/tasks.json",
+            ".aiwf/records/review.json",
+        ]:
+            output = self._scope_check(path)
+            decision = output.get("hookSpecificOutput", {}).get("permissionDecision")
+            self.assertEqual(decision, "deny", path)
 
-    # ── report and assets ──
-    def test_report_md_allowed(self):
-        self._set_scope(["src/"]); _, out = self._scope_check(".aiwf/records/闭合报告.md")
-        self.assertNotIn("permissionDecision", out)
-
-    def test_project_map_md_allowed(self):
-        self._set_scope(["src/"]); _, out = self._scope_check(".aiwf/records/项目地图.md")
-        self.assertNotIn("permissionDecision", out)
-
-    def test_ideas_md_allowed(self):
-        self._set_scope(["src/"]); _, out = self._scope_check(".aiwf/records/ideas.md")
-        self.assertNotIn("permissionDecision", out)
-
-    def test_current_state_md_allowed(self):
-        self._set_scope(["src/"]); _, out = self._scope_check(".aiwf/records/当前状态.md")
-        self.assertNotIn("permissionDecision", out)
-
-    def test_assets_project_map_allowed(self):
-        self._set_scope(["src/"]); _, out = self._scope_check(".aiwf/assets/project-map.json")
-        self.assertNotIn("permissionDecision", out)
-
-    def test_assets_test_map_allowed(self):
-        self._set_scope(["src/"]); _, out = self._scope_check(".aiwf/assets/test-map.json")
-        self.assertNotIn("permissionDecision", out)
-
-    # ── experiment artifacts ──
-    def test_experiment_artifacts_allowed(self):
-        self._set_scope(["src/"])
-        _, out = self._scope_check(".aiwf/experiment-artifacts/experiment-report.md")
-        self.assertNotIn("permissionDecision", out)
-
-    def test_internal_snapshot_allowed(self):
-        self._set_scope(["src/"])
-        _, out = self._scope_check(".aiwf/runtime/internal/pre-tool-snapshot.json")
-        self.assertNotIn("permissionDecision", out)
-
-    # ── project files still denied ──
-    def test_project_file_still_denied(self):
-        self._set_scope(["src/"])
-        _, out = self._scope_check("danger/x.py")
-        self.assertEqual(out.get("hookSpecificOutput", {}).get("permissionDecision"), "deny")
-
-    # ── classification ──
-    def test_classify_governance(self):
-        from aiwf_core.core.scope_policy import classify_file_change
-        self.assertEqual(classify_file_change(".aiwf/state/state.json"), "governance")
-        self.assertEqual(classify_file_change(".aiwf/records/闭合报告.md"), "governance")
-        self.assertEqual(classify_file_change(".aiwf/records/项目地图.md"), "governance")
-        self.assertEqual(classify_file_change(".aiwf/records/ideas.md"), "governance")
-        self.assertEqual(classify_file_change(".aiwf/assets/project-map.json"), "governance")
-        self.assertEqual(classify_file_change(".aiwf/experiment-artifacts/x.md"), "governance")
-        self.assertEqual(classify_file_change("src/main.py"), "project")
-        self.assertEqual(classify_file_change("danger/x.py"), "project")
-
-    def test_governance_not_in_scope_violation(self):
-        """Governance files never trigger project scope violation."""
-        self._set_scope(["src/"])
-        from aiwf_core.hooks.common.evidence_writer import check_and_record_scope_violations
-        files = [".aiwf/records/闭合报告.md", ".aiwf/assets/x.json", ".aiwf/experiment-artifacts/r.md"]
-        violations = check_and_record_scope_violations(
-            files, {"id": "CTX-001", "allowed_write": ["src/"]}, self.tmp)
-        self.assertEqual(len(violations), 0)
-
+    def test_project_write_without_active_task_is_denied(self):
+        output = self._scope_check("src/main.py")
+        self.assertEqual(
+            output.get("hookSpecificOutput", {}).get("permissionDecision"),
+            "deny",
+        )
 
 if __name__ == "__main__":
     unittest.main()

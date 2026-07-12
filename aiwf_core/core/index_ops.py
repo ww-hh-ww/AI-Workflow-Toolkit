@@ -16,10 +16,8 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import yaml
 
-
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
-
 
 def _read_json(path: Path, default=None) -> Dict[str, Any]:
     try:
@@ -27,11 +25,9 @@ def _read_json(path: Path, default=None) -> Dict[str, Any]:
     except Exception:
         return default or {}
 
-
 def _write_json(path: Path, data: Dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-
 
 def _empty_json_entry(etype: str, eid: str, fm: Dict[str, Any]) -> Dict[str, Any]:
     """Create a minimal JSON entry from MD frontmatter for a newly registered doc."""
@@ -71,7 +67,6 @@ def _empty_json_entry(etype: str, eid: str, fm: Dict[str, Any]) -> Dict[str, Any
         entry["task_ids"] = list(fm.get("task_ids", []) or [])
     return entry
 
-
 # ── md parse/write ────────────────────────────────────────────────────
 
 def parse_md(path: Path) -> Tuple[Optional[Dict[str, Any]], str]:
@@ -101,7 +96,6 @@ def parse_md(path: Path) -> Tuple[Optional[Dict[str, Any]], str]:
 
     return fm, body
 
-
 def write_narrative_doc(path: Path, frontmatter: Dict[str, Any], body: str) -> None:
     """Write a narrative .md file with YAML frontmatter + body."""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -111,7 +105,6 @@ def write_narrative_doc(path: Path, frontmatter: Dict[str, Any], body: str) -> N
                         allow_unicode=True, sort_keys=False).rstrip("\n")
     content = f"---\n{fm_yaml}\n---\n\n{normalized_body}"
     path.write_text(content, encoding="utf-8")
-
 
 # ── index check ───────────────────────────────────────────────────────
 
@@ -158,7 +151,6 @@ def check_index(base_dir: str) -> Dict[str, Any]:
         "issues": issues[:50],
     }
 
-
 def _check_one(root: Path, entry: Dict[str, Any], etype: str, issues: List[Dict[str, str]]) -> None:
     eid = entry.get("id", "?")
     doc_path_str = entry.get("doc_path", "")
@@ -183,185 +175,31 @@ def _check_one(root: Path, entry: Dict[str, Any], etype: str, issues: List[Dict[
         issues.append({"type": etype, "id": eid,
                        "issue": f"frontmatter type '{fm.get('type')}' != JSON type '{etype}'"})
 
-
 # ── index refresh ─────────────────────────────────────────────────────
-
-def refresh_index(base_dir: str) -> Dict[str, Any]:
-    """Scan all narrative .md files and update JSON title_cache, summary_cache.
-
-    Returns summary of what was updated.
-    """
-    root = Path(base_dir)
-    updated: List[str] = []
-
-    for etype, state_path, entries_key in [
-        ("task", root / ".aiwf" / "state" / "tasks.json", "tasks"),
-        ("plan", root / ".aiwf" / "state" / "plans.json", "plans"),
-        ("goal", root / ".aiwf" / "state" / "goals.json", "goals"),
-        ("milestone", root / ".aiwf" / "state" / "milestones.json", "milestones"),
-    ]:
-        if not state_path.exists():
-            continue
-        data = _read_json(state_path)
-        entries = data.get(entries_key, []) or []
-        changed = False
-        for entry in entries:
-            doc_path_str = entry.get("doc_path", "")
-            if not doc_path_str:
-                dirs = {"goal": ".aiwf/goals", "plan": ".aiwf/plans",
-                        "task": ".aiwf/tasks", "milestone": ".aiwf/milestones"}
-                eid = entry.get("id", "")
-                subdir = dirs.get(etype, f".aiwf/{etype}s")
-                doc_path_str = f"{subdir}/{eid}.md"
-                entry["doc_path"] = doc_path_str
-            full_path = root / doc_path_str
-            if not full_path.exists():
-                continue
-            fm, body = parse_md(full_path)
-            if fm is None:
-                continue
-
-            # Update title: frontmatter.title primary, body H1 fallback
-            fm_title = (fm or {}).get("title", "").strip()
-            if fm_title:
-                title = fm_title
-            elif body.strip():
-                first_line = body.strip().split("\n")[0]
-                title = first_line[2:].strip() if first_line.startswith("# ") else ""
-            else:
-                title = ""
-            if title:
-                if entry.get("title") != title:
-                    entry["title"] = title
-                    changed = True
-                if entry.get("title_cache") != title:
-                    entry["title_cache"] = title
-
-            updated.append(f"{etype}:{entry.get('id', '?')}")
-
-        if changed:
-            _write_json(state_path, data)
-
-    return {"refreshed": len(updated), "updated": updated}
-
-
-# ── index repair ──────────────────────────────────────────────────────
-
-def repair_index(base_dir: str) -> Dict[str, Any]:
-    """Safe repairs only: fix missing frontmatter, update caches.
-
-    Does NOT modify Markdown body content.
-    """
-    root = Path(base_dir)
-    repaired: List[str] = []
-    fixed_files: List[str] = []
-
-    for etype, state_path, entries_key, doc_subdir in [
-        ("task", root / ".aiwf" / "state" / "tasks.json", "tasks", ".aiwf/tasks"),
-        ("plan", root / ".aiwf" / "state" / "plans.json", "plans", ".aiwf/plans"),
-        ("goal", root / ".aiwf" / "state" / "goals.json", "goals", ".aiwf/goals"),
-        ("milestone", root / ".aiwf" / "state" / "milestones.json", "milestones", ".aiwf/milestones"),
-    ]:
-        if not state_path.exists():
-            continue
-        data = _read_json(state_path)
-        entries = data.get(entries_key, []) or []
-        changed = False
-        for entry in entries:
-            eid = entry.get("id", "")
-            doc_path_str = entry.get("doc_path", "")
-            if not doc_path_str:
-                dirs = {"goal": ".aiwf/goals", "plan": ".aiwf/plans",
-                        "task": ".aiwf/tasks", "milestone": ".aiwf/milestones"}
-                subdir = dirs.get(etype, f".aiwf/{etype}s")
-                doc_path_str = f"{subdir}/{eid}.md"
-                entry["doc_path"] = doc_path_str
-            full_path = root / doc_path_str
-            if not full_path.exists():
-                continue
-
-            fm, body = parse_md(full_path)
-
-            # Fix missing frontmatter
-            if fm is None:
-                fm = {"id": eid, "type": etype}
-                write_narrative_doc(full_path, fm, body)
-                fm, body = parse_md(full_path)
-                fixed_files.append(str(doc_path_str))
-
-            # Fix missing id/type in frontmatter
-            need_rewrite = False
-            if fm and fm.get("id") != eid:
-                fm["id"] = eid
-                need_rewrite = True
-            if fm and fm.get("type") != etype:
-                fm["type"] = etype
-                need_rewrite = True
-            if need_rewrite and fm:
-                write_narrative_doc(full_path, fm, body)
-                fixed_files.append(str(doc_path_str))
-
-            # Update title_cache: frontmatter.title primary, body H1 fallback
-            if body:
-                fm_title = (fm or {}).get("title", "").strip()
-                if fm_title:
-                    title = fm_title
-                elif body.strip():
-                    first_line = body.strip().split("\n")[0]
-                    title = first_line[2:].strip() if first_line.startswith("# ") else ""
-                else:
-                    title = ""
-                if title and entry.get("title_cache") != title:
-                    entry["title_cache"] = title
-                    changed = True
-
-            repaired.append(f"{etype}:{eid}")
-
-        if changed:
-            _write_json(state_path, data)
-
-    return {"repaired": len(repaired), "items": repaired, "fixed_files": fixed_files}
-
-
-# ── sync ──────────────────────────────────────────────────────────────
 
 FRONTMATTER_TO_JSON_MAP = {
     "goal": {
-        "title": "title",
-        "status": "status",
-        "parent_goal_id": "parent_goal_id",
-        "child_goal_ids": "child_goal_ids",
-        "attached_plan_ids": "attached_plan_ids",
-        "report_policy": "report_policy",
+        "title": "title", "status": "status", "parent_goal_id": "parent_goal_id",
+        "child_goal_ids": "child_goal_ids", "attached_plan_ids": "attached_plan_ids",
     },
     "plan": {
-        "title": "title",
-        "status": "status",
-        "goal_id": "goal_id",
-        "milestone_id": "milestone_id",
-        "report_policy": "report_policy",
+        "title": "title", "status": "status", "goal_id": "goal_id",
+        "milestone_id": "milestone_id", "report_policy": "report_policy",
         "dependencies": "dependencies",
     },
     "task": {
-        "title": "title",
-        "contract_status": "status",
-        "goal_id": "goal_id",
-        "plan_id": "plan_id",
-        "milestone_id": "milestone_id",
-        "kind": "kind",
+        "title": "title", "contract_status": "status", "goal_id": "goal_id",
+        "plan_id": "plan_id", "milestone_id": "milestone_id", "kind": "kind",
         "executor_required": "requirements.executor_required",
         "tester_required": "requirements.tester_required",
         "reviewer_required": "requirements.reviewer_required",
         "rollback_required": "requirements.rollback_required",
-        "report_policy": "report_policy",
-        "dependencies": "dependencies",
+        "tester_write": "requirements.tester_write",
+        "report_policy": "report_policy", "dependencies": "dependencies",
     },
     "milestone": {
-        "title": "title",
-        "status": "status",
-        "goal_id": "goal_id",
-        "plan_ids": "plan_ids",
-        "task_ids": "task_ids",
+        "title": "title", "status": "status", "goal_id": "goal_id",
+        "plan_ids": "plan_ids", "task_ids": "task_ids",
         "covered_goal_ids": "covered_goal_ids",
         "verification_task_id": "verification_task_id",
         "integration_test_required": "integration_test.required",
@@ -372,24 +210,18 @@ FRONTMATTER_TO_JSON_MAP = {
     },
 }
 
-MACHINE_OWNED_TASK_FIELDS = {
-    "activated_at", "closed_at", "close_mode",
-    "changed_files", "evidence_ids", "test_ids", "review_ids",
-    "created_at", "updated_at",
-    "requirements",  # sub-object; only explicit dotted keys synced
-}
-
 MACHINE_OWNED_FIELDS = {
-    "task": MACHINE_OWNED_TASK_FIELDS,
-    "goal": {"created_at", "updated_at",
-             "goal_version", "original_intent", "current_goal", "active_goal",
-             "goal_status", "confirmed", "quality_brief"},
-    "plan": {"created_at", "updated_at",
-             "remaining_task_ids", "plan_status"},
-    "milestone": {"created_at", "updated_at",
-                  "integration_test", "architecture_review", "user_acceptance"},
+    "goal": {"created_at", "updated_at"},
+    "plan": {"created_at", "updated_at", "task_ids", "remaining_task_ids"},
+    "task": {
+        "created_at", "updated_at", "activated_at", "closed_at", "close_mode",
+        "requirements", "git_origin_ref", "closure",
+    },
+    "milestone": {
+        "created_at", "updated_at", "integration_test", "architecture_review",
+        "user_acceptance",
+    },
 }
-
 
 def _parse_list_field(value: str) -> list:
     """Parse a frontmatter list field into a Python list."""
@@ -403,7 +235,6 @@ def _parse_list_field(value: str) -> list:
         except (json.JSONDecodeError, ValueError):
             pass
     return [item.strip() for item in raw.replace(",", " ").split() if item.strip()]
-
 
 def sync_index(base_dir: str, dry_run: bool = False) -> Dict[str, Any]:
     """Sync MD frontmatter -> JSON for all entities with narrative docs.
@@ -419,6 +250,8 @@ def sync_index(base_dir: str, dry_run: bool = False) -> Dict[str, Any]:
     errors: List[str] = []
     changes: List[str] = []
     synced: List[str] = []
+
+    _sync_mission(root, dry_run, changes, errors, synced)
 
     for etype, json_path, entries_key in [
         ("goal", root / ".aiwf" / "state" / "goals.json", "goals"),
@@ -464,10 +297,14 @@ def sync_index(base_dir: str, dry_run: bool = False) -> Dict[str, Any]:
                 errors.append(f"{etype}:{eid}: title is empty")
 
             if etype == "task":
-                if not fm.get("goal_id", "").strip():
-                    errors.append(f"{etype}:{eid}: goal_id is empty — every task must have a goal")
-                if not fm.get("plan_id", "").strip():
-                    errors.append(f"{etype}:{eid}: plan_id is empty — every task must belong to a plan")
+                if fm.get("kind") == "milestone_verification":
+                    if not fm.get("milestone_id", "").strip():
+                        errors.append(f"{etype}:{eid}: milestone verification task requires milestone_id")
+                else:
+                    if not fm.get("goal_id", "").strip():
+                        errors.append(f"{etype}:{eid}: goal_id is empty — every task must have a goal")
+                    if not fm.get("plan_id", "").strip():
+                        errors.append(f"{etype}:{eid}: plan_id is empty — every task must belong to a plan")
             elif etype == "plan":
                 if not fm.get("goal_id", "").strip():
                     errors.append(f"{etype}:{eid}: goal_id is empty — every plan must have a goal")
@@ -478,23 +315,26 @@ def sync_index(base_dir: str, dry_run: bool = False) -> Dict[str, Any]:
                 continue
 
             _LIST_KEYS = ("task_ids", "plan_ids", "covered_goal_ids",
-                         "attached_plan_ids", "child_goal_ids", "dependencies")
+                         "attached_plan_ids", "child_goal_ids", "dependencies",
+                         "tester_write")
             _BOOL_KEYS = ("executor_required", "tester_required",
-                         "reviewer_required", "rollback_required")
+                         "reviewer_required", "rollback_required",
+                         "integration_test_required", "architecture_review_required",
+                         "human_acceptance_required", "verification_task_required")
 
             for fm_key, json_key in mapping.items():
                 fm_value = fm.get(fm_key)
 
                 if json_key == "title":
                     fm_value = (fm.get("title") or "").strip()
-                elif json_key in _LIST_KEYS:
+                elif fm_key in _LIST_KEYS or json_key in _LIST_KEYS:
                     if isinstance(fm_value, list):
                         pass  # YAML parsed list, use directly
                     elif fm_value is not None:
                         fm_value = _parse_list_field(str(fm_value))
                     else:
                         fm_value = []
-                elif json_key in _BOOL_KEYS or "." in json_key:
+                elif fm_key in _BOOL_KEYS or json_key in _BOOL_KEYS:
                     if isinstance(fm_value, bool):
                         pass  # YAML parsed bool, use directly
                     else:
@@ -581,6 +421,102 @@ def sync_index(base_dir: str, dry_run: bool = False) -> Dict[str, Any]:
         "locked": False,
     }
 
+def _section_text(body: str, heading: str) -> str:
+    lines = body.splitlines()
+    capture = False
+    captured: List[str] = []
+    wanted = f"## {heading}".strip().lower()
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("## "):
+            if capture:
+                break
+            capture = stripped.lower() == wanted
+            continue
+        if capture:
+            captured.append(line)
+    return "\n".join(captured).strip()
+
+def _section_bullets(body: str, heading: str) -> List[str]:
+    text = _section_text(body, heading)
+    items: List[str] = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped.startswith("- "):
+            continue
+        value = stripped[2:].strip()
+        if not value or value.lower().startswith("unknown"):
+            continue
+        items.append(value)
+    return items
+
+def _sync_mission(
+    root: Path,
+    dry_run: bool,
+    changes: List[str],
+    errors: List[str],
+    synced: List[str],
+) -> None:
+    """Derive state/mission.json from .aiwf/mission.md.
+
+    mission.md is the human/Planner write surface. mission.json is derived state
+    for commands, status, UI, and context dispatch.
+    """
+    md_path = root / ".aiwf" / "mission.md"
+    if not md_path.exists():
+        return
+
+    fm, body = parse_md(md_path)
+    if fm is None:
+        fm = {}
+
+    mission_id = str(fm.get("id") or "MISSION-001").strip() or "MISSION-001"
+    if fm.get("type") and str(fm.get("type")).strip() != "mission":
+        errors.append(f"mission:{mission_id}: frontmatter type '{fm.get('type')}' != mission")
+        return
+
+    from .state_schema import default_mission, VALID_MISSION_STATUSES
+
+    state_path = root / ".aiwf" / "state" / "mission.json"
+    current = _read_json(state_path, default_mission())
+    mission = dict(current or default_mission())
+
+    statement = _section_text(body, "Statement")
+    if statement.lower().startswith("unknown"):
+        statement = ""
+    boundaries = _section_bullets(body, "Boundaries")
+    goal_roots = _section_bullets(body, "Goal Roots")
+    milestones = _section_bullets(body, "Milestones")
+
+    status = str(fm.get("status") or mission.get("status") or "draft").strip() or "draft"
+    if status not in VALID_MISSION_STATUSES:
+        errors.append(f"mission:{mission_id}: invalid status '{status}'")
+        return
+
+    expected = dict(mission)
+    expected["schema_version"] = int(fm.get("schema_version") or expected.get("schema_version") or 1)
+    expected["id"] = mission_id
+    expected["type"] = "mission"
+    expected["status"] = status
+    expected["version"] = int(fm.get("version") or expected.get("version") or 1)
+    expected["statement"] = statement
+    expected["boundaries"] = boundaries
+    expected["goal_tree_root_ids"] = goal_roots
+    expected["milestone_ids"] = milestones
+    expected["updated_at"] = _now()
+    expected.setdefault("created_at", current.get("created_at") or "")
+
+    comparable = dict(expected)
+    comparable.pop("updated_at", None)
+    current_comparable = dict(current or {})
+    current_comparable.pop("updated_at", None)
+    if not state_path.exists() or comparable != current_comparable:
+        changes.append("mission:MISSION-001: synced from mission.md")
+        if not dry_run:
+            if not expected.get("created_at"):
+                expected["created_at"] = _now()
+            _write_json(state_path, expected)
+    synced.append(f"mission:{mission_id}")
 
 def _sync_plan_task_relations(root: Path, dry_run: bool, changes: List[str]) -> None:
     """Derive Plan.task_ids, task_status, remaining_task_ids from Task.plan_id."""
@@ -623,12 +559,18 @@ def _sync_plan_task_relations(root: Path, dry_run: bool, changes: List[str]) -> 
         if plan.get("remaining_task_ids") != remaining:
             plan["remaining_task_ids"] = remaining
             plan_changed = True
-        rollup = plan.get("evidence_rollup", {}) or {}
+        rollup = plan.get("task_rollup", {}) or {}
         expected_rollup = f"{closed_count}/{len(task_ids)} tasks closed under this plan."
-        if rollup.get("summary") != expected_rollup or rollup.get("closed_task_count") != closed_count:
-            plan["evidence_rollup"] = {"summary": expected_rollup,
-                                       "closed_task_count": closed_count,
-                                       "total_task_count": len(task_ids)}
+        if rollup.get("summary") != expected_rollup or rollup.get("closed_count") != closed_count:
+            rollup.update({
+                "summary": expected_rollup,
+                "closed_count": closed_count,
+                "total_count": len(task_ids),
+            })
+            plan["task_rollup"] = rollup
+            plan_changed = True
+        if "evidence_rollup" in plan:
+            plan.pop("evidence_rollup", None)
             plan_changed = True
 
         if plan_changed:
@@ -637,7 +579,6 @@ def _sync_plan_task_relations(root: Path, dry_run: bool, changes: List[str]) -> 
                 tmp_path = Path(str(plans_path) + ".tmp")
                 _write_json(tmp_path, plans_data)
                 tmp_path.rename(plans_path)
-
 
 def _sync_milestone_plan_relations(root: Path, dry_run: bool, changes: List[str]) -> None:
     """Sync plan.milestone_id from milestone.plan_ids. Milestone.md is authoritative."""
@@ -711,7 +652,6 @@ def _sync_milestone_plan_relations(root: Path, dry_run: bool, changes: List[str]
         _write_json(tmp_path, plans_data)
         tmp_path.rename(plans_path)
 
-
 def _sync_goal_children_order(root: Path, dry_run: bool, changes: List[str]) -> None:
     """Prune children_order to match child_goal_ids. Remove stale entries from
     removed/reparented goals."""
@@ -748,7 +688,6 @@ def _sync_goal_children_order(root: Path, dry_run: bool, changes: List[str]) -> 
         _write_json(tmp_path, goals_data)
         tmp_path.rename(goals_path)
 
-
 # ── narrative doc generation ──────────────────────────────────────────
 
 def generate_narrative_doc_path(entity_id: str, entity_type: str) -> str:
@@ -762,73 +701,47 @@ def generate_narrative_doc_path(entity_id: str, entity_type: str) -> str:
     safe_id = "".join(c for c in entity_id if c.isalnum() or c in "-_.()")
     return f"{subdir}/{safe_id}.md"
 
-
 # ── default narrative templates ──────────────────────────────────────
 
 _GOAL_TEMPLATE = """# {id} — {title}
 
-## Intent
+## Mission Capability
 
-(fill)
+Unknown — blocks: capability this Goal makes true and who or what uses it
 
-## Success Criteria
+## Success
 
-(fill)
+- Unknown — blocks: observable mission-path behavior, not artifact existence
 
-## Non-goals
+## Structural Home
 
-(fill)
+Unknown — blocks: why this capability belongs here and which missing pieces or
+neighboring capabilities matter
 
-## Context
+## Plan Handoff
 
-(fill)
-
-## Human Decisions
-
-(fill)
-
-## Open Questions
-
-(fill)
+Unknown — blocks: what later Plans must preserve, decide, or prove
 """
 
 _PLAN_TEMPLATE = """# {id} — {title}
 
-## Intent
+## Goal Link And Current Problem
 
-(fill)
+Unknown — blocks: capability advanced and verified limitation or risk changed
 
-## Current Problems
+## Target Mechanism
 
-(fill)
-
-## Target Design
-
-(fill)
+Unknown — blocks: operating loop, information model, and main path from entry
+to consumer to observable result
 
 ## Key Decisions
 
-(fill)
+- Unknown — blocks: important choice, source-backed basis, and credible alternative
 
-## Non-goals
+## Delivery And Validation
 
-(fill)
-
-## Task Breakdown
-
-(fill)
-
-## Risks
-
-(fill)
-
-## Validation Strategy
-
-(fill)
-
-## Open Questions
-
-(fill)
+- Unknown — blocks: ordered deliverables or experiments that prove risk early
+  and integrate the mechanism
 """
 
 _TASK_TEMPLATE = """# {id} — {title}
@@ -837,81 +750,46 @@ _TASK_TEMPLATE = """# {id} — {title}
 
 ### Structural Home
 
-(fill — why this Task belongs under its Goal and Plan)
+Unknown — blocks: why this Task belongs under its Goal and Plan
 
 ### Objective
 
-(fill — outcome, not implementation recipe)
+Unknown — blocks: outcome, not implementation recipe
 
-### Scope
+### Contract Responsibility
 
-Scope (what files may be touched) lives on the Plan. This section documents
-only restrictions — files the executor must NOT touch.
-
-### Forbidden Write
-
-(fill)
+Unknown — blocks: the outcome this task is responsible for delivering and proving.
+Do not list every file the agent may touch.
 
 ### Proof Standard
 
 Done When:
 
-(fill — each item tagged Built/Wired/Running)
+Unknown — blocks: each item tagged Built/Wired/Running
 
 Verification Commands:
 
 | Command | Expected Observable Output |
 |---------|----------------------------|
-| (fill) | (fill) |
+| Unknown — blocks: | Unknown — blocks: |
 
 ### Dispatch Decisions
 
-Review the task complexity and set frontmatter booleans deliberately (see references/task-contract.md):
-- Trivial (typo/doc): all false. Simple (single file): executor=false, tester=true, reviewer=false. Normal (multi-file): all true. Complex (API/refactor): all true + rollback.
-
-### Rollback Strategy required: no
-
-(fill — if yes, describe Git-based rollback)
+Unknown — blocks: set frontmatter role booleans from the work's real need and
+briefly explain any non-obvious choice
 
 ## Known Context
 
-### Known Surfaces
+Write free bullets with only verified facts that prevent wrong edits or wasted
+rediscovery: main path, consumer, invariants, integration anchors, old paths,
+tests, representative cases, and real Unknowns.
 
-(fill — files/modules/commands/schemas/APIs/runtime flows already known)
-
-### Interfaces And Invariants
-
-(fill — existing contracts the implementation must preserve)
-
-### Integration Evidence
-
-(fill — expected consumer/main path or explain why this is Built-only)
-
-### Resolved Or Deferred Unknowns
-
-(fill — unknowns resolved before activation, or deferred with reason)
+- Unknown — blocks: verified facts and anchors needed before implementation
 
 ## Open Judgment
 
-### Executor Judgment
-
-(fill — implementation choices intentionally left open)
-
-### Tester Judgment
-
-(fill — failure dimensions to attack beyond executor self-check)
-
-### Reviewer Judgment
-
-(fill — quality/interface/caller/contract questions reviewer must judge)
-
-## Report Policy
-
-Default `ask`. Only change to `silent_until_done` if the user explicitly asked for quiet mode.
-
-## Dependencies
-
-(fill)
+Add only questions that give Executor, Tester, or Reviewer meaningful room for
+independent judgment. Remove this section when there is no open judgment.
 """
 
 _TASK_MS_VERIFY_TEMPLATE = """# {id} — {title}
@@ -935,97 +813,43 @@ Verify milestone {milestone_id}.
 
 The authoritative Pass Standard is in `.aiwf/milestones/{milestone_id}.md`.
 
-## Integration Test Requirements
+## Verification
 
-(fill — what must the integration tester verify?)
-
-## Architect Review Requirements
-
-(fill — is architecture review required? what must be checked?)
-
-## Milestone Review Requirements
-
-(fill — what must the final milestone reviewer verify?)
-
-## Residual Risk Handling
-
-(fill — which risks are acceptable? which block?)
-
-## Human Acceptance Check
-
-(fill — is explicit human acceptance required?)
+Unknown — blocks: real commands and runtime scenarios for every Pass Standard
+item, plus cross-Goal interfaces and main paths that must remain intact
 
 ## Done When
 
-- [ ] Integration test passed and testing record exists (aiwf record testing)
-- [ ] Architecture review intact (if required)
-- [ ] Milestone review passed and review record exists (aiwf record review)
-- [ ] Records in records/review.json, records/architecture-review.json
+- [ ] Every Pass Standard item was exercised in the running system
+- [ ] Main-path evidence recorded with `aiwf milestone integration-test`
+- [ ] Architecture integrity recorded with `aiwf milestone arch-review`
 - [ ] Assessment recorded: aiwf milestone assess {milestone_id} --verdict PASS
+- [ ] Human explicitly confirmed before milestone close
 """
 
 _MILESTONE_TEMPLATE = """# {id} — {title}
 
 ## Purpose
 
-What stage result is being proven by this milestone?
+Unknown — blocks: stable mission slice being proven
 
-(fill)
+## Coverage
 
-## Covered Plans / Tasks
-
-- (fill)
+- Unknown — blocks: Goals, Plans, Tasks, and capability claims included
 
 ## Pass Standard
 
-What exactly counts as passing? Which flows must work? Which old mechanisms must not return?
+- Unknown — blocks: concrete, observable, end-to-end acceptance criteria
 
-(fill)
+## Real Verification
 
-## Milestone Verification Task Requirement
+Unknown — blocks: running-system commands or scenarios, evidence needed, and
+architecture questions for the `milestone-acceptance` lens
 
-A milestone verification Task (kind=milestone_verification) is REQUIRED before close.
-This Task coordinates: integration tester, architect reviewer, milestone reviewer.
+## Human Acceptance
 
-(fill with verification task ID once created)
-
-## Integration Test Requirements
-
-What cross-Goal integration points must be verified?
-
-(fill)
-
-## Architect Review Requirements
-
-Is a structure-level architecture review required for this milestone? (yes/no)
-
-(fill)
-
-## Documentation Requirements
-
-What docs must be updated before milestone close?
-
-(fill)
-
-## Residual Risk Policy
-
-Which risks are acceptable? Which risks block the milestone?
-
-(fill)
-
-## Human Acceptance Requirement
-
-Is explicit human acceptance required? (yes/no)
-
-(fill)
-
-## Final Verdict
-
-To be filled by milestone reviewer after verification Task completes.
-
-(fill)
+Unknown — blocks: what the human is being asked to accept after technical proof
 """
-
 
 def create_narrative_for_entity(base_dir: str, entity_id: str, entity_type: str,
                                 title: str = "", status: str = "",
@@ -1067,10 +891,12 @@ def create_narrative_for_entity(base_dir: str, entity_id: str, entity_type: str,
         fm["plan_id"] = plan_id
         fm["milestone_id"] = milestone_id
         fm["kind"] = kind or "implementation"
-        fm["executor_required"] = True
-        fm["tester_required"] = True
-        fm["reviewer_required"] = True
+        is_milestone_verification = kind == "milestone_verification"
+        fm["executor_required"] = not is_milestone_verification
+        fm["tester_required"] = not is_milestone_verification
+        fm["reviewer_required"] = not is_milestone_verification
         fm["rollback_required"] = False
+        fm["tester_write"] = []
         fm["report_policy"] = "ask"
         fm["dependencies"] = []
         if kind == "milestone_verification":
@@ -1096,7 +922,7 @@ def create_narrative_for_entity(base_dir: str, entity_id: str, entity_type: str,
 
     else:
         fm["title"] = title
-        body = f"# {entity_id} — {title}\n\n(fill)\n"
+        body = f"# {entity_id} — {title}\n\nUnknown — blocks: unsupported narrative type requires explicit content.\n"
 
     full_path = root / doc_path_str
     write_narrative_doc(full_path, fm, body)

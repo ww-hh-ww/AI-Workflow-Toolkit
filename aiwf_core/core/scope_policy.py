@@ -9,7 +9,6 @@ from typing import Dict, List, Optional
 
 from .event_model import ScopeResult
 
-
 def check_scope(
     file_path: str,
     active_context: Optional[Dict] = None,
@@ -20,7 +19,7 @@ def check_scope(
 
     Args:
         file_path: The path being written to (absolute or relative).
-        active_context: The active context dict from contexts.json.
+        active_context: Optional forbidden-write rules from the active Task.
         state: The current state dict from state.json.
         project_root: Project root for normalizing absolute paths to relative.
 
@@ -30,8 +29,7 @@ def check_scope(
     # Normalize path: strip ./ prefix and convert absolute to relative
     normalized = _normalize_path(file_path, project_root)
 
-    # Governance files: always allow writes to the 7 MVP .aiwf state files.
-    # Planner and skills must be able to update AIWF state without self-locking.
+    # Narrative governance files are writable. Machine truth remains CLI-only.
     if _is_governance_file(normalized):
         return ScopeResult(
             file_path=normalized, allowed=True,
@@ -64,42 +62,26 @@ def check_scope(
     # Governance files always allowed; project files allowed (checked by scope_checker.py)
     return ScopeResult(file_path=normalized, allowed=True, reason="allowed")
 
-
-def check_changed_files_scope(
-    changed_files: List[str],
-    active_context: Optional[Dict] = None,
-) -> List[ScopeResult]:
-    """Check a batch of changed files against active scope. Returns violations."""
-    violations: List[ScopeResult] = []
-    for f in changed_files:
-        result = check_scope(f, active_context)
-        if not result.allowed:
-            violations.append(result)
-    return violations
-
-
 DANGEROUS_BASH_PATTERNS: List[Dict] = [
-    # Pattern -> (decision, reason)
     {"pattern": "sudo ", "decision": "deny", "reason": "sudo execution is dangerous"},
     {"pattern": "rm -rf", "decision": "deny", "reason": "rm -rf is destructive"},
     {"pattern": "rm -r ", "decision": "deny", "reason": "recursive rm is destructive"},
     {"pattern": "git reset --hard", "decision": "deny", "reason": "git reset --hard discards work"},
     {"pattern": "git clean -f", "decision": "deny", "reason": "git clean -f deletes untracked files"},
-    {"pattern": "git checkout -- ", "decision": "deny", "reason": "git checkout -- discards changes"},
-    {"pattern": "npm publish", "decision": "deny", "reason": "npm publish pushes to registry"},
-    {"pattern": "git push", "decision": "ask", "reason": "git push modifies remote"},
-    {"pattern": "chmod -R 777", "decision": "deny", "reason": "chmod -R 777 is insecure"},
-    {"pattern": "curl ", "decision": "ask", "reason": "curling to shell is risky"},
-    {"pattern": "wget ", "decision": "ask", "reason": "wget to shell is risky"},
+    {"pattern": "git checkout -- ", "decision": "deny", "reason": "git checkout -- discards work"},
+    {"pattern": "npm publish", "decision": "deny", "reason": "npm publish modifies a registry"},
+    {"pattern": "git push", "decision": "ask", "reason": "git push modifies a remote"},
+    {"pattern": "chmod -R 777", "decision": "deny", "reason": "recursive world-writable chmod is unsafe"},
+    {"pattern": "curl ", "decision": "ask", "reason": "network shell input requires review"},
+    {"pattern": "wget ", "decision": "ask", "reason": "network shell input requires review"},
     {"pattern": "sed -i", "decision": "ask", "reason": "sed -i modifies files in place"},
     {"pattern": "perl -pi", "decision": "ask", "reason": "perl -pi modifies files in place"},
-    {"pattern": "> /dev/", "decision": "deny", "reason": "writing to /dev/ is risky"},
-    {"pattern": "mkfs.", "decision": "deny", "reason": "mkfs is destructive"},
+    {"pattern": "> /dev/", "decision": "deny", "reason": "writing to a device is unsafe"},
+    {"pattern": "mkfs.", "decision": "deny", "reason": "filesystem formatting is destructive"},
     {"pattern": "dd if=", "decision": "deny", "reason": "dd can overwrite disks"},
     {"pattern": ":(){ :|:& };:", "decision": "deny", "reason": "fork bomb"},
     {"pattern": "chown -R", "decision": "deny", "reason": "recursive chown is dangerous"},
 ]
-
 
 def check_bash_command(command: str) -> Dict:
     """Check a Bash command for dangerous patterns and mechanical truth bypasses.
@@ -164,7 +146,6 @@ def check_bash_command(command: str) -> Dict:
         "reason": "",
     }
 
-
 def _normalize_path(file_path: str, project_root: str = "") -> str:
     """Normalize a file path to project-relative POSIX form.
 
@@ -194,16 +175,16 @@ def _normalize_path(file_path: str, project_root: str = "") -> str:
 
     return fp
 
-
 GOVERNANCE_ALLOWED_PREFIXES = [
+    ".aiwf/mission.md",
     ".aiwf/runtime/internal/",
     # narrative/markdown governance directories (JSON state/records are protected truth)
     ".aiwf/goals/",
     ".aiwf/plans/",
     ".aiwf/tasks/",
     ".aiwf/milestones/",
+    ".aiwf/memory/",
     ".aiwf/config/",
-    ".aiwf/assets/",
 ]
 
 GOVERNANCE_UNKNOWN_POLICY = "deny"  # deny unknown .aiwf paths
@@ -211,9 +192,7 @@ GOVERNANCE_UNKNOWN_POLICY = "deny"  # deny unknown .aiwf paths
 def _is_governance_file(normalized_path: str) -> bool:
     """Check if a normalized path is an allowed AIWF governance file.
 
-    Covers: 7 MVP state files, reports/, baseline.json, assets/,
-    experiment-artifacts/, internal/. These must always be writable
-    by planner/skills to avoid self-lock.
+    Covers narrative governance, memory, config, and internal runtime files.
     """
     for prefix in GOVERNANCE_ALLOWED_PREFIXES:
         if prefix.endswith("/"):
@@ -223,12 +202,6 @@ def _is_governance_file(normalized_path: str) -> bool:
             if normalized_path == prefix:
                 return True
     return False
-
-
-def classify_file_change(file_path: str) -> str:
-    """Classify a changed file as 'project' or 'governance'."""
-    return "governance" if _is_governance_file(file_path) else "project"
-
 
 def _matches(file_path: str, pattern: str) -> bool:
     """Check if a normalized relative file_path matches a pattern.

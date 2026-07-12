@@ -11,7 +11,7 @@ from typing import Any, Dict, List, NamedTuple
 
 from .constants import VERSION
 from .core.state_schema import MVP_STATE_FILES
-from .core.paths import ALL_DIRS, STATE_JSON, GOALS_JSON, PLANS_JSON, TASKS_JSON, MILESTONES_JSON, FIX_LOOP_JSON, RECORDS_EVIDENCE, RECORDS_TESTING, RECORDS_REVIEW, RECORDS_ARCHITECTURE_REVIEW, RECORDS_EVENTS, WORKSPACE_DRIFT_JSON
+from .core.paths import ALL_DIRS, STATE_JSON, GOALS_JSON, PLANS_JSON, TASKS_JSON, MILESTONES_JSON, FIX_LOOP_JSON, RECORDS_IMPLEMENTATION, RECORDS_TESTING, RECORDS_REVIEW, RECORDS_EVENTS, WORKSPACE_DRIFT_JSON
 from .io import read_json, rel, write_json, write_text
 from .utils import now
 
@@ -201,6 +201,9 @@ def _build_settings_json(target: EmbedTarget | None = None) -> Dict[str, Any]:
                 {"matcher": "Agent|Task",                           **_h(q_agent_log)},
                 {"matcher": "Write|Edit|MultiEdit",                 **_h(q_auto_sync)},
             ],
+            "SubagentStop": [
+                {"matcher": "aiwf-executor|aiwf-tester|aiwf-reviewer", **_h(q_agent_log)},
+            ],
             "Stop": [_h(q_review_gate)],
         },
         "permissions": {
@@ -224,6 +227,57 @@ def _build_settings_json(target: EmbedTarget | None = None) -> Dict[str, Any]:
     }
 
 
+def _is_aiwf_hook_handler(handler: Any) -> bool:
+    """Return whether a hook handler is managed by AIWF."""
+    if not isinstance(handler, dict):
+        return False
+    command = str(handler.get("command") or "").replace("\\", "/")
+    return "scripts/aiwf_" in command
+
+
+def _without_aiwf_hook_handlers(entry: Any) -> Any:
+    """Remove AIWF-owned handlers while preserving user handlers in the group."""
+    if not isinstance(entry, dict):
+        return entry
+    if isinstance(entry.get("hooks"), list):
+        handlers = [
+            handler for handler in entry["hooks"]
+            if not _is_aiwf_hook_handler(handler)
+        ]
+        if not handlers:
+            return None
+        preserved = dict(entry)
+        preserved["hooks"] = handlers
+        return preserved
+    if _is_aiwf_hook_handler(entry):
+        return None
+    return entry
+
+
+def _merge_hooks(existing_hooks: Any, managed_hooks: Dict[str, Any]) -> Dict[str, Any]:
+    """Refresh AIWF hooks without taking ownership of other project hooks."""
+    merged: Dict[str, Any] = {}
+    if isinstance(existing_hooks, dict):
+        for event_name, current_entries in existing_hooks.items():
+            if not isinstance(current_entries, list):
+                merged[event_name] = current_entries
+                continue
+            preserved = []
+            for entry in current_entries:
+                clean = _without_aiwf_hook_handlers(entry)
+                if clean is not None:
+                    preserved.append(clean)
+            if preserved:
+                merged[event_name] = preserved
+
+    for event_name, managed_entries in managed_hooks.items():
+        current_entries = merged.get(event_name, [])
+        if not isinstance(current_entries, list):
+            current_entries = []
+        merged[event_name] = current_entries + list(managed_entries or [])
+    return merged
+
+
 def _write_settings(target: EmbedTarget | None = None) -> Path:
     target = target or _target("claude")
     d = _config_dir(target)
@@ -233,9 +287,7 @@ def _write_settings(target: EmbedTarget | None = None) -> Path:
     if target.exists():
         existing = json.loads(target.read_text(encoding="utf-8"))
         new_hooks = settings.get("hooks", {})
-        existing.setdefault("hooks", {})
-        for event_name, matcher_entries in new_hooks.items():
-            existing["hooks"][event_name] = matcher_entries
+        existing["hooks"] = _merge_hooks(existing.get("hooks"), new_hooks)
         for perm in settings.get("permissions", {}).get("allow", []):
             existing.setdefault("permissions", {}).setdefault("allow", [])
             if perm not in existing["permissions"]["allow"]:
@@ -251,7 +303,6 @@ def _write_settings(target: EmbedTarget | None = None) -> Path:
 _TEMPLATE_ROOT = Path(__file__).resolve().parent / "embedded_templates"
 
 SKILL_TEMPLATES = {
-    "aiwf-project": "skills/aiwf-project/SKILL.md",
     "aiwf-critic": "skills/aiwf-critic/SKILL.md",
     "aiwf-planner": "skills/aiwf-planner/SKILL.md",
     "aiwf-implement": "skills/aiwf-implement/SKILL.md",
@@ -266,6 +317,11 @@ SKILL_REFERENCE_TEMPLATES = {
         "references/task-contract.md": "skills/aiwf-planner/references/task-contract.md",
         "references/structure-guide.md": "skills/aiwf-planner/references/structure-guide.md",
         "references/writing-guide.md": "skills/aiwf-planner/references/writing-guide.md",
+        "references/goal-writing.md": "skills/aiwf-planner/references/goal-writing.md",
+        "references/plan-writing.md": "skills/aiwf-planner/references/plan-writing.md",
+        "references/milestone-writing.md": "skills/aiwf-planner/references/milestone-writing.md",
+        "references/activation-critique.md": "skills/aiwf-planner/references/activation-critique.md",
+        "references/lifecycle.md": "skills/aiwf-planner/references/lifecycle.md",
     },
     "aiwf-implement": {
         "inline-execution.md": "shared/inline-execution.md",
@@ -274,9 +330,6 @@ SKILL_REFERENCE_TEMPLATES = {
         "inline-execution.md": "shared/inline-execution.md",
     },
     "aiwf-review": {
-        "references/review-output.md": "skills/aiwf-review/references/review-output.md",
-        "references/trace-checklist.md": "skills/aiwf-review/references/trace-checklist.md",
-        "references/verify-checklist.md": "skills/aiwf-review/references/verify-checklist.md",
         "inline-execution.md": "shared/inline-execution.md",
     },
     "aiwf-architect": {
@@ -294,6 +347,10 @@ AGENT_TEMPLATES = {
     "aiwf-tester.md": "agents/aiwf-tester.md",
     "aiwf-reviewer.md": "agents/aiwf-reviewer.md",
     "aiwf-architect.md": "agents/aiwf-architect.md",
+}
+
+REASONIX_ONLY_SKILL_TEMPLATES = {
+    "aiwf-explorer": "agents/aiwf-explorer.md",
 }
 
 SCRIPT_TEMPLATES = {
@@ -314,43 +371,11 @@ def _template_text(relative_path: str) -> str:
     return (_TEMPLATE_ROOT / relative_path).read_text(encoding="utf-8")
 
 
-def _reasonix_semantic_text(text: str) -> str:
-    """Adapt Claude-only gate semantics before applying product-name substitutions."""
-    text = text.replace(
-        "The **Stop hook** (`scripts/aiwf_review_gate.py`) mechanically verifies all gates only after "
-        "`prepare-close` sets `close_attempt=true`. Claude Code can then block Stop; an ordinary Stop "
-        "without a close attempt is not treated as workflow closure. Reasonix Stop is non-gating, so "
-        "`prepare-close` is the authoritative Reasonix closure gate.",
-        "The **Stop hook** (`scripts/aiwf_review_gate.py`) reports gate status but is non-gating in "
-        "Reasonix. It never blocks closure, regardless of `close_attempt`; successful `prepare-close` "
-        "is the authoritative Reasonix closure gate.",
-    ).replace(
-        "Claude Stop revalidates and can block only when `close_attempt=true`; an ordinary stop before "
-        "prepare-close does not manufacture a closure attempt. Reasonix Stop only reports, so successful "
-        "`prepare-close` is authoritative there.",
-        "Reasonix Stop never blocks closure, regardless of `close_attempt`; successful `prepare-close` "
-        "is authoritative.",
-    ).replace(
-        "Claude Stop revalidates and can block only when `close_attempt=true`; ordinary Stop does not "
-        "create a closure attempt. Reasonix Stop reports only.",
-        "Reasonix Stop never blocks closure, regardless of `close_attempt`; successful `prepare-close` "
-        "is authoritative.",
-    ).replace(
-        "`prepare-close` is authoritative; Claude Stop checks close_attempt again.",
-        "`prepare-close` is authoritative; Reasonix Stop is report-only.",
-    ).replace(
-        "Reasonix Stop is non-gating, so `prepare-close` is the authoritative Reasonix closure gate.",
-        "Reasonix Stop never blocks closure, regardless of `close_attempt`; successful `prepare-close` "
-        "is the authoritative Reasonix closure gate.",
-    )
-    return "\n".join(line for line in text.splitlines() if not line.startswith("- Claude Stop"))
-
-
 def _target_template_text(relative_path: str, target: EmbedTarget) -> str:
     text = _template_text(relative_path)
-    text = _inject_shared_partials(relative_path, text)
+    if target.mode == "reasonix" and relative_path in REASONIX_ROLE_SKILL_TEMPLATES:
+        text = _reasonix_role_skill_text(relative_path, text)
     if target.mode == "reasonix":
-        text = _reasonix_semantic_text(text)
         text = text.replace("Claude Code", "Reasonix")
         text = text.replace("Claude-compatible", "Reasonix-compatible")
         text = text.replace("Claude", "Reasonix")
@@ -359,40 +384,68 @@ def _target_template_text(relative_path: str, target: EmbedTarget) -> str:
     return text
 
 
-SHARED_PARTIALS = {
-    "skills/aiwf-planner/SKILL.md": ["shared/connection_recovery_planner.md"],
-    "skills/aiwf-implement/SKILL.md": ["shared/connection_recovery_implement.md"],
-    "skills/aiwf-test/SKILL.md": ["shared/connection_recovery_test.md"],
-    "skills/aiwf-review/SKILL.md": ["shared/connection_recovery_review.md"],
-    "skills/aiwf-architect/SKILL.md": ["shared/connection_recovery_architect.md"],
-    "agents/aiwf-executor.md": ["shared/connection_recovery_implement.md"],
-    "agents/aiwf-tester.md": ["shared/connection_recovery_test.md"],
-    "agents/aiwf-reviewer.md": ["shared/connection_recovery_review.md"],
-    "agents/aiwf-architect.md": ["shared/connection_recovery_architect.md"],
+REASONIX_ROLE_SKILL_TEMPLATES = {
+    "skills/aiwf-implement/SKILL.md": "agents/aiwf-executor.md",
+    "skills/aiwf-test/SKILL.md": "agents/aiwf-tester.md",
+    "skills/aiwf-review/SKILL.md": "agents/aiwf-reviewer.md",
+    "skills/aiwf-architect/SKILL.md": "agents/aiwf-architect.md",
+    "skills/aiwf-critic/SKILL.md": "agents/aiwf-critic.md",
 }
 
 
-def _inject_shared_partials(relative_path: str, text: str) -> str:
-    partials = SHARED_PARTIALS.get(relative_path, [])
-    if not partials:
-        return text
-    blocks = [_template_text(path).rstrip("\n") for path in partials]
-    return text.rstrip("\n") + "\n\n" + "\n\n".join(blocks) + "\n"
+def _reasonix_role_skill_text(relative_path: str, skill_text: str) -> str:
+    """Keep the public skill identity but use the role prompt Reasonix runs."""
+    role_text = _template_text(REASONIX_ROLE_SKILL_TEMPLATES[relative_path])
+    skill_end = skill_text.find("\n---", 4)
+    role_end = role_text.find("\n---", 4)
+    if skill_end == -1 or role_end == -1:
+        return skill_text
+    role_body = role_text[role_end + len("\n---"):].lstrip("\n")
+    return skill_text[:skill_end + len("\n---")] + "\n\n" + role_body
 
 
 REASONIX_SUBAGENT_SKILL_CONFIG = {
     "aiwf-planner": {"runAs": "inline"},
-    "aiwf-implement": {"runAs": "subagent", "allowed-tools": "read,write,edit_file,bash,glob", "model": "deepseek-chat"},
-    "aiwf-test": {"runAs": "subagent", "allowed-tools": "read,bash,glob", "model": "deepseek-chat"},
-    "aiwf-review": {"runAs": "subagent", "allowed-tools": "read,bash,glob", "model": "deepseek-chat"},
+    "aiwf-implement": {"runAs": "subagent", "description": "Implement the active Task.md contract."},
+    "aiwf-test": {"runAs": "subagent", "description": "Independently test the active Task.md claim."},
+    "aiwf-review": {"runAs": "subagent", "description": "Independently review the active Task.md result."},
     "aiwf-close": {"runAs": "inline"},
-    "aiwf-architect": {"runAs": "subagent", "allowed-tools": "read,bash,glob", "model": "deepseek-chat"},
+    "aiwf-architect": {"runAs": "subagent", "description": "Independently review completed work against the fixed mission."},
+    "aiwf-critic": {"runAs": "subagent", "description": "Independently challenge a project claim, decision, or result."},
+    "aiwf-explorer": {"runAs": "subagent", "description": "Locate facts or independently compare approaches before planning."},
 }
+
+REASONIX_SKILL_AGENT = {
+    "aiwf-implement": "aiwf-executor",
+    "aiwf-test": "aiwf-tester",
+    "aiwf-review": "aiwf-reviewer",
+    "aiwf-architect": "aiwf-architect",
+    "aiwf-critic": "aiwf-critic",
+    "aiwf-explorer": "aiwf-explorer",
+}
+
+
+def _configured_agent_model(target: EmbedTarget, agent_name: str) -> str:
+    config_path = _aiwf_dir() / "config" / "agent-models.json"
+    template_path = _TEMPLATE_ROOT / "config" / "agent-models.json"
+    source = config_path if config_path.exists() else template_path
+    try:
+        config = json.loads(source.read_text(encoding="utf-8"))
+        backend = config.get("models", {}).get(target.mode, {})
+        value = str(backend.get(agent_name) or "inherit").strip()
+        return value or "inherit"
+    except Exception:
+        return "inherit"
 
 
 def _reasonix_skill_text(relative_path: str, text: str) -> str:
     skill_name = relative_path.split("/")[1]
-    config = REASONIX_SUBAGENT_SKILL_CONFIG.get(skill_name, {})
+    config = dict(REASONIX_SUBAGENT_SKILL_CONFIG.get(skill_name, {}))
+    agent_name = REASONIX_SKILL_AGENT.get(skill_name)
+    if agent_name:
+        model = _configured_agent_model(_target("reasonix"), agent_name)
+        if model != "inherit":
+            config["model"] = model
     if config:
         text = _merge_frontmatter(text, config)
     return text
@@ -439,6 +492,16 @@ def _write_skills(target: EmbedTarget | None = None) -> List[Path]:
             write_text(out_path, _target_template_text(rel_template, target_config))
             paths.append(out_path)
 
+    if target_config.mode == "reasonix":
+        for skill_name, template_path in REASONIX_ONLY_SKILL_TEMPLATES.items():
+            skill_dir = d / skill_name
+            skill_dir.mkdir(parents=True, exist_ok=True)
+            skill_path = skill_dir / "SKILL.md"
+            text = _target_template_text(template_path, target_config)
+            text = _reasonix_skill_text(f"skills/{skill_name}/SKILL.md", text)
+            write_text(skill_path, text)
+            paths.append(skill_path)
+
     return paths
 
 
@@ -451,7 +514,11 @@ def _write_agents(target: EmbedTarget | None = None) -> List[Path]:
     paths = []
     for name, template_path in AGENT_TEMPLATES.items():
         agent_path = d / name
-        write_text(agent_path, _target_template_text(template_path, target_config))
+        text = _target_template_text(template_path, target_config)
+        model = _configured_agent_model(target_config, Path(name).stem)
+        if model != "inherit":
+            text = _merge_frontmatter(text, {"model": model})
+        write_text(agent_path, text)
         paths.append(agent_path)
     return paths
 
@@ -471,10 +538,9 @@ def _write_state_files() -> List[Path]:
         "state/tasks.json": d / "state" / "tasks.json",
         "state/milestones.json": d / "state" / "milestones.json",
         "state/fix-loop.json": d / "state" / "fix-loop.json",
-        "records/evidence.json": d / "records" / "evidence.json",
+        "records/implementation.json": d / "records" / "implementation.json",
         "records/testing.json": d / "records" / "testing.json",
         "records/review.json": d / "records" / "review.json",
-        "records/architecture-review.json": d / "records" / "architecture-review.json",
         "records/events.json": d / "records" / "events.json",
     }
     # Write .aiwf/README.md
@@ -488,22 +554,30 @@ def _write_state_files() -> List[Path]:
                 "",
                 "Zones:",
                 "- `state/` — machine truth (JSON): registries, canonical state, gate inputs.",
-                "- `records/` — evidence, testing, review, architecture-review, events (JSONL).",
+                "- `records/` — current implementation, testing, review, and event records.",
                 "- `goals/` — goal narrative docs (Markdown).",
                 "- `plans/` — plan narrative docs (Markdown).",
                 "- `tasks/` — task narrative docs (Markdown, execution contract).",
                 "- `milestones/` — milestone narrative docs (Markdown).",
-                "- `config/` — configuration (skill-map, command-policy).",
-                "- `runtime/internal/` — toolkit-path, drift, diag, routing-debug.",
+                "- `memory/` — Planner's tiny long-term planning memory.",
+                "- `config/` — configuration (skill-map, command-policy, write-policy, agent-models).",
+                "- `runtime/internal/` — toolkit-path, drift, hook, and agent logs.",
                 "",
                 "Human entry points:",
                 "- `aiwf status`",
                 "- `aiwf doctor`",
                 "- Narrative docs in `goals/`, `plans/`, `tasks/`, `milestones/`",
+                "- `memory/project-facts.md` — tiny Planner memory; keep only durable planning facts.",
             ]),
             encoding="utf-8",
         )
         paths.append(readme_target)
+    mission_target = d / "mission.md"
+    mission_src = _TEMPLATE_ROOT / "mission.md"
+    if mission_src.exists() and not mission_target.exists():
+        import shutil
+        shutil.copy2(str(mission_src), str(mission_target))
+        paths.append(mission_target)
     # Write config/skill-map.json
     skill_map_target = d / "config" / "skill-map.json"
     if not skill_map_target.exists():
@@ -515,13 +589,129 @@ def _write_state_files() -> List[Path]:
             paths.append(skill_map_target)
     # Write config/command-policy.json
     cmd_policy_target = d / "config" / "command-policy.json"
+    cmd_policy_src = _TEMPLATE_ROOT / "config" / "command-policy.json"
     if not cmd_policy_target.exists():
         import shutil
-        src = _TEMPLATE_ROOT / "config" / "command-policy.json"
-        if src.exists():
+        if cmd_policy_src.exists():
             cmd_policy_target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(str(src), str(cmd_policy_target))
+            shutil.copy2(str(cmd_policy_src), str(cmd_policy_target))
             paths.append(cmd_policy_target)
+    elif cmd_policy_src.exists():
+        try:
+            current = json.loads(cmd_policy_target.read_text(encoding="utf-8"))
+            template = json.loads(cmd_policy_src.read_text(encoding="utf-8"))
+            current.setdefault("deny", [])
+            existing = {
+                str(entry.get("command") or "")
+                for entry in current.get("deny", []) or []
+                if isinstance(entry, dict)
+            }
+            changed = False
+            for entry in template.get("deny", []) or []:
+                command = str(entry.get("command") or "")
+                if command and command not in existing:
+                    current["deny"].append(entry)
+                    existing.add(command)
+                    changed = True
+            if changed:
+                cmd_policy_target.write_text(
+                    json.dumps(current, ensure_ascii=False, indent=2) + "\n",
+                    encoding="utf-8",
+                )
+                paths.append(cmd_policy_target)
+        except Exception:
+            pass
+    # Write config/write-policy.json
+    write_policy_target = d / "config" / "write-policy.json"
+    write_policy_src = _TEMPLATE_ROOT / "config" / "write-policy.json"
+    if not write_policy_target.exists():
+        import shutil
+        if write_policy_src.exists():
+            write_policy_target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(str(write_policy_src), str(write_policy_target))
+            paths.append(write_policy_target)
+    elif write_policy_src.exists():
+        try:
+            current = json.loads(write_policy_target.read_text(encoding="utf-8"))
+            template = json.loads(write_policy_src.read_text(encoding="utf-8"))
+            changed = False
+            if "reviewer_project_writes" in current:
+                current.pop("reviewer_project_writes", None)
+                changed = True
+            for key in ("schema_version", "description", "allowed_values"):
+                if current.get(key) != template.get(key):
+                    current[key] = template.get(key)
+                    changed = True
+            for key, value in template.items():
+                if key not in current:
+                    current[key] = value
+                    changed = True
+            if changed:
+                write_policy_target.write_text(
+                    json.dumps(current, ensure_ascii=False, indent=2) + "\n",
+                    encoding="utf-8",
+                )
+                paths.append(write_policy_target)
+        except Exception:
+            pass
+    # Write config/agent-models.json. Refresh help/default keys, preserve choices.
+    agent_models_target = d / "config" / "agent-models.json"
+    agent_models_src = _TEMPLATE_ROOT / "config" / "agent-models.json"
+    if not agent_models_target.exists():
+        import shutil
+        if agent_models_src.exists():
+            agent_models_target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(str(agent_models_src), str(agent_models_target))
+            paths.append(agent_models_target)
+    elif agent_models_src.exists():
+        try:
+            current = json.loads(agent_models_target.read_text(encoding="utf-8"))
+            template = json.loads(agent_models_src.read_text(encoding="utf-8"))
+            changed = False
+            for key in ("schema_version", "description", "allowed_values"):
+                if current.get(key) != template.get(key):
+                    current[key] = template.get(key)
+                    changed = True
+            current_models = current.setdefault("models", {})
+            for backend, defaults in template.get("models", {}).items():
+                backend_models = current_models.setdefault(backend, {})
+                for agent_name, value in defaults.items():
+                    if agent_name not in backend_models:
+                        backend_models[agent_name] = value
+                        changed = True
+            if changed:
+                agent_models_target.write_text(
+                    json.dumps(current, ensure_ascii=False, indent=2) + "\n",
+                    encoding="utf-8",
+                )
+                paths.append(agent_models_target)
+        except Exception:
+            pass
+    memory_templates = {
+        "memory/MEMORY.md": _TEMPLATE_ROOT / "memory" / "MEMORY.md",
+        "memory/project-facts.md": _TEMPLATE_ROOT / "memory" / "project-facts.md",
+    }
+    # Copy notes/ directory (topic files) — never overwrite existing
+    notes_src = _TEMPLATE_ROOT / "memory" / "notes"
+    notes_target = d / "memory" / "notes"
+    if notes_src.exists() and notes_src.is_dir():
+        import shutil
+        notes_target.mkdir(parents=True, exist_ok=True)
+        for f in notes_src.iterdir():
+            target = notes_target / f.name
+            if not target.exists():
+                if f.is_dir():
+                    shutil.copytree(str(f), str(target))
+                else:
+                    shutil.copy2(str(f), str(target))
+                paths.append(target)
+    for rel_path, src in memory_templates.items():
+        target = d / rel_path
+        if src.exists() and not target.exists():
+            import shutil
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(str(src), str(target))
+            paths.append(target)
     for filename, default_fn in MVP_STATE_FILES.items():
         target = file_paths.get(filename, d / filename)
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -530,6 +720,14 @@ def _write_state_files() -> List[Path]:
             # The --force flag regenerates scripts/settings, not state data.
             write_json(target, default_fn())
             paths.append(target)
+    try:
+        from .core.index_ops import sync_index
+        sync_index(str(Path.cwd()))
+        mission_state = d / "state" / "mission.json"
+        if mission_state.exists() and mission_state not in paths:
+            paths.append(mission_state)
+    except Exception:
+        pass
     return paths
 
 
@@ -572,7 +770,6 @@ def _write_instruction_md(target: EmbedTarget | None = None) -> Path:
     instruction_path = _project_root() / target.instruction_file
     content = CLAUDE_MD_CONTENT
     if target.mode == "reasonix":
-        content = _reasonix_semantic_text(content)
         content = content.replace("Claude Code", "Reasonix").replace("Claude", "Reasonix")
         content = content.replace("/aiwf-planner", "/skill aiwf-planner")
     block = f"{AIWF_MANAGED_BLOCK_START}\n{content}\n{AIWF_MANAGED_BLOCK_END}\n"
@@ -622,17 +819,16 @@ def _migrate_legacy_paths():
         "milestones.json": "state/milestones.json",
         "fix-loop.json": "state/fix-loop.json",
         "task-ledger.json": "state/tasks.json",
-        "evidence.json": "records/evidence.json",
+        "evidence.json": "",
         "testing.json": "records/testing.json",
         "review.json": "records/review.json",
-        "architecture-review.json": "records/architecture-review.json",
     }
 
     migrated = []
     for old_name, new_path in legacy_map.items():
         old = aiwf / old_name
         new = aiwf / new_path
-        if old.exists() and not new.exists():
+        if new_path and old.exists() and not new.exists():
             new.parent.mkdir(parents=True, exist_ok=True)
             import shutil
             shutil.move(str(old), str(new))
@@ -655,10 +851,19 @@ def _migrate_legacy_paths():
     ]
     for orphan in orphan_cleanup:
         old_path = aiwf / orphan
-        new_path = aiwf / legacy_map.get(orphan, "")
-        if old_path.exists() and new_path and (aiwf / new_path).exists():
+        target = legacy_map.get(orphan, "")
+        new_path = aiwf / target if target else None
+        if old_path.exists() and (not target or (new_path and new_path.exists())):
             old_path.unlink()
             migrated.append(f"cleaned orphan: {orphan}")
+    for retired in [
+        aiwf / "architecture-review.json",
+        aiwf / "records" / "architecture-review.json",
+        aiwf / "records" / "evidence.json",
+    ]:
+        if retired.exists():
+            retired.unlink()
+            migrated.append(f"removed retired record: {retired.relative_to(aiwf)}")
 
     if migrated:
         print(f"aiwf: migrated {len(migrated)} files to v2 layout")
@@ -668,12 +873,24 @@ def _migrate_legacy_paths():
 
 def _remove_retired_skills(target: EmbedTarget) -> List[Path]:
     removed: List[Path] = []
-    for name in ["aiwf-milestone"]:
+    for name in ["aiwf-milestone", "aiwf-project"]:
         path = _skills_dir(target) / name
         if path.exists():
             import shutil
             shutil.rmtree(str(path), ignore_errors=True)
             removed.append(path)
+    for relative_path in [
+        "aiwf-review/references/review-output.md",
+        "aiwf-review/references/trace-checklist.md",
+        "aiwf-review/references/verify-checklist.md",
+    ]:
+        path = _skills_dir(target) / relative_path
+        if path.exists():
+            path.unlink()
+            removed.append(path)
+        references_dir = path.parent
+        if references_dir.exists() and not any(references_dir.iterdir()):
+            references_dir.rmdir()
     return removed
 
 def install_embedded(mode: str = "claude", force: bool = False) -> Dict[str, Any]:
@@ -727,10 +944,6 @@ def install_embedded(mode: str = "claude", force: bool = False) -> Dict[str, Any
         readme_rel = rel(readme_path)
         if readme_rel not in results["created"]:
             results["created"].append(readme_rel)
-
-    # PROJECT-MAP and ideas are NOT auto-created on install.
-    # Impact.project_map controls when project-map is generated.
-    # Ideas inbox is deprecated; decisions go into plan sections.
 
     # Write git baseline so PostToolUse diffs exclude install artifacts
     from .hooks.common.diff_snapshot import write_install_baseline
@@ -792,7 +1005,10 @@ def doctor(mode: str | None = None) -> Dict[str, Any]:
         try:
             settings_data = json.loads(settings_path.read_text(encoding="utf-8"))
             hooks_cfg = settings_data.get("hooks", {})
-            for event_name in ["UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop"]:
+            event_names = ["UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop"]
+            if target.mode == "claude":
+                event_names.append("SubagentStop")
+            for event_name in event_names:
                 entries = hooks_cfg.get(event_name, [])
                 if target.mode == "reasonix":
                     valid_schema = all(
@@ -812,7 +1028,10 @@ def doctor(mode: str | None = None) -> Dict[str, Any]:
                     "valid_schema": valid_schema,
                 }
         except Exception:
-            for ev in ["UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop"]:
+            event_names = ["UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop"]
+            if target.mode == "claude":
+                event_names.append("SubagentStop")
+            for ev in event_names:
                 checks["hooks"][ev] = {"configured": False, "valid_schema": False}
 
     for sf in MVP_STATE_FILES:
@@ -881,44 +1100,6 @@ def doctor(mode: str | None = None) -> Dict[str, Any]:
         checks["overall"] = "issues_found"
 
     return checks
-
-
-def show_status() -> str:
-    root = _project_root()
-    target = _detect_installed_target(root) or _target("claude")
-    lines = [f"AIWF V{VERSION} — Embedded {target.product_name} Mode", ""]
-
-    state_path = root / ".aiwf" / "state" / "state.json"
-    if state_path.exists():
-        state = read_json(state_path, {})
-        lines.append(f"Project: {root}")
-        lines.append(f"Goal: {state.get('active_goal', '(none)')}")
-        lines.append(f"Phase: {state.get('phase', 'unknown')}")
-        lines.append(f"Active context: {state.get('active_context_id', '(none)')}")
-        lines.append(f"Scope violation: {state.get('scope_violation', False)}")
-        lines.append(f"Close attempt: {state.get('close_attempt', False)}")
-    else:
-        lines.append(f"Project: {root}")
-        lines.append(f"Not initialized. Run: aiwf install {target.mode}")
-
-    lines.append("")
-    lines.append("State files:")
-    for sf in MVP_STATE_FILES:
-        path = root / ".aiwf" / sf
-        status = "✓" if path.exists() else "✗"
-        lines.append(f"  {status} {sf}")
-
-    lines.append("")
-    lines.append("Entry: aiwf status --prompt")
-    lines.append("Skills: aiwf-planner, aiwf-implement, aiwf-test, aiwf-review, aiwf-close, aiwf-architect")
-    lines.append("Scripts: scripts/aiwf_*.py")
-    lines.append("")
-    lines.append("Continue:")
-    lines.append(f"  {target.entry_command}            # check AIWF status")
-    lines.append("  Then describe your goal or question naturally.")
-    lines.append("  aiwf doctor                                  # check installation health")
-
-    return "\n".join(lines) + "\n"
 
 
 def _detect_installed_target(root: Path) -> EmbedTarget | None:

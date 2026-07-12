@@ -1,28 +1,46 @@
 # Code Reality Review
 
-Read code to test the mission claim, not to perform a task-level review.
+Use this when the selected lens is `code-reality`.
+
+Read code to test the mission claim. Do not review only changed lines.
 
 ## Main Path
 
-- What is the main path that should realize the reviewed capability?
-- Is the new capability actually consumed on that path?
-- Are there zero-caller functions, modules, config keys, or commands?
-  - Abandoned old code: cleanup candidate.
-  - New unwired code: bug.
+Ask:
+
+- What path actually delivers the reviewed capability?
+- Who calls it?
+- Is the new capability consumed there?
+- Does an old path still bypass it?
+- Are two mechanisms now doing the same job?
+
+For zero-caller code, decide which case it is:
+
+- abandoned old code: cleanup candidate;
+- new but unwired code: bug.
+
+## Public Reality
+
+Check the governed project's public surfaces:
+
+- commands;
+- help text;
+- templates;
+- docs;
+- user entry points;
+- deployment or integration scripts.
+
+They must point to the real main path. If they describe an old path or a path
+that is not wired, report it.
 
 ## Structure
 
+Ask:
+
 - Are module responsibilities clear?
-- Are two mechanisms doing the same job?
-- Are old and new paths both still live?
-- Are abstractions carrying their weight, or hiding simple behavior?
-- Are public interfaces consistent with local conventions?
-- Do the governed project's public entry points still match its real main path?
-
-## Drift
-
-- Does code reality match the Plan/Goal/Task story?
-- Did implementation introduce a design decision that was never promoted back
-  into planning docs?
+- Are abstractions carrying their weight?
+- Are data flow and control flow easy to follow?
+- Did implementation introduce a design decision that planning docs do not
+  mention?
 - Does duplicated or unwired code show the design has split into competing
   paths?

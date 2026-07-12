@@ -82,14 +82,16 @@ class TestScopePathNormalization(unittest.TestCase):
                              allowed_write=["src/calculator.js"])
         self.assertNotIn("permissionDecision", out)
 
-    def test_governance_files_always_allowed(self):
-        """Writes to .aiwf/*.json governance files are always allowed (no self-lock)."""
-        for gf in ["state.json", "goal.json", "contexts.json", "evidence.json",
-                    "testing.json", "review.json", "fix-loop.json"]:
-            _, out = _scope_check(self.tmp, "Write", f".aiwf/{gf}",
+    def test_governance_markdown_is_writable(self):
+        for path in [
+            ".aiwf/mission.md", ".aiwf/goals/GOAL-001.md",
+            ".aiwf/plans/PLAN-001.md", ".aiwf/tasks/TASK-002.md",
+            ".aiwf/milestones/MS-001.md", ".aiwf/memory/project-facts.md",
+        ]:
+            _, out = _scope_check(self.tmp, "Write", path,
                                  allowed_write=["src/calculator.js"])
             self.assertNotIn("permissionDecision", out,
-                            f"Governance file .aiwf/{gf} must always be allowed")
+                            f"Governance Markdown {path} must be writable")
 
     def test_direct_edit_to_core_mechanical_truth_denied(self):
         """Models cannot bypass state operations by directly editing core truth."""
@@ -98,12 +100,21 @@ class TestScopePathNormalization(unittest.TestCase):
                              allowed_write=["src/calculator.js"])
         self.assertEqual(out.get("hookSpecificOutput", {}).get("permissionDecision"), "deny")
 
-    def test_direct_edits_to_context_and_fixloop_truth_denied(self):
+    def test_mission_md_governance_write_allowed_without_active_task(self):
+        """mission.md is a Planner governance MD, not a project file."""
+        _, out = _scope_check(self.tmp, "Write", ".aiwf/mission.md",
+                             allowed_write=["src/calculator.js"])
+        self.assertNotIn("permissionDecision", out)
+
+    def test_direct_edits_to_machine_truth_denied(self):
         for rel in [
-            ".aiwf/state/goal.json",
             ".aiwf/state/state.json",
+            ".aiwf/state/goals.json",
+            ".aiwf/state/tasks.json",
             ".aiwf/state/fix-loop.json",
-            ".aiwf/runtime/history/task-ledger.json",
+            ".aiwf/records/implementation.json",
+            ".aiwf/records/testing.json",
+            ".aiwf/records/review.json",
         ]:
             _, out = _scope_check(self.tmp, "Edit", rel, allowed_write=["src/calculator.js"])
             self.assertEqual(out.get("hookSpecificOutput", {}).get("permissionDecision"), "deny")
@@ -153,9 +164,11 @@ class TestCoreScopePolicyNormalization(unittest.TestCase):
 
     def test_is_governance_file(self):
         from aiwf_core.core.scope_policy import _is_governance_file
-        self.assertTrue(_is_governance_file(".aiwf/state/state.json"))
-        self.assertTrue(_is_governance_file(".aiwf/records/review.jsonl"))
         self.assertTrue(_is_governance_file(".aiwf/runtime/internal/baseline.json"))
+        self.assertTrue(_is_governance_file(".aiwf/mission.md"))
+        self.assertTrue(_is_governance_file(".aiwf/goals/GOAL-001.md"))
+        self.assertFalse(_is_governance_file(".aiwf/state/state.json"))
+        self.assertFalse(_is_governance_file(".aiwf/records/review.json"))
         self.assertFalse(_is_governance_file("src/main.py"))
 
     def test_matches_exact(self):

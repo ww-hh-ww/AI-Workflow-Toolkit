@@ -27,30 +27,26 @@ Do not turn AIWF into a fake runtime, managed terminal executor, or low-capabili
 
 The source of truth is the `.aiwf/*.json` state files, not model session memory.
 
-Prompt files define desired behavior and role tendencies. Machine-readable `.aiwf` state files enforce workflow truth. If a rule affects correctness, closure, scope, evidence, testing, review, cleanup, or fix-loop routing, it must be represented as a machine-readable contract and enforced by code/tests.
+Markdown holds mission, structure, and task meaning. JSON under `.aiwf/state/` and `.aiwf/records/` holds runtime status and concise records. State changes go through the CLI; `aiwf sync` compiles supported Markdown frontmatter into JSON.
 
 ## Required Flow
 
 ```text
 Install
 -> Planner discussion + pre-planning research
--> Quality policy and evaluation contract
--> Architecture Brief (structural boundaries)
--> Context dispatch (allowed_write / forbidden_write)
+-> Mission, Goal, Plan, and Task design
+-> Activation critique against project reality
 -> Scoped implementation (Executor)
--> Independent testing (Tester, adversarial mode L2+)
--> Adversarial review (Reviewer — contract critique)
--> Planner meta-critique (disposition adversarial observations)
--> Cleanup before review
+-> Independent testing (Tester)
+-> Independent review (Reviewer)
+-> Planner disposition and Closure Calibration
 -> Fix loop if needed
--> Closure (prepare_close + Stop hook dual gate)
--> Report/current-state for the next cycle
+-> Closure (`aiwf task close` + Stop hook)
+-> Task.md records the actual outcome for the next cycle
 ```
 
-Review must not happen before cleanup.
 Testing must not be reduced to a review checklist.
 Adversarial observations must be dispositioned before task close.
-Architecture review triggers are advisory, signaled by status --prompt.
 
 ## Correct Mainlines
 
@@ -82,7 +78,7 @@ Do not restore the removed external orchestration path. In particular, do not re
 
 ## Code Quality
 
-Keep modules small and separated. Do not mix planner, state operations, context dispatch, executor policy, testing, review, cleanup, closure, hooks, and UI.
+Keep modules small and separated. Do not mix planning, state operations, role dispatch, write policy, testing, review, closure, hooks, and UI.
 
 A module approaching 300 lines should be split unless there is a clear reason.
 
@@ -90,24 +86,13 @@ A module approaching 300 lines should be split unless there is a clear reason.
 
 Every new workflow rule needs a contract test.
 
-Tests must cover:
-
-- happy path
-- wrong order rejection
-- stale state handling
-- planner rebase behavior
-- context dispatch behavior
-- no removed external runtime resurrection
+Tests must cover the happy path, wrong-order rejection, stale state, installed
+Claude hooks, and absence of the removed external runtime.
 
 ## Key Modules
 
-- `task_gravity.py` — Emergent historical pressure (pure function, no writes)
 - `task_ledger.py` — Multi-task ledger with execution-window gates
-- `cross_task_quality.py` — Cross-task quality signals from task-history
-- `current_state.py` — Mechanical carry-forward summary generation
-- `closure_contract.py` — Dual-gate closure enforcement (prepare_close + Stop hook)
-- `quality_policy.py` — L0-L3 workflow level policies with adversarial flags
-- `routing.py` — Resource-based routing with cross-task escalation
+- `closure_contract.py` — Stop hook enforcement while a reviewed Task still needs close
 - `state_ops.py` — State mutation helpers (skills call these, never hand-edit JSON)
 - `state_schema.py` — Schema defaults and validation for all .aiwf/*.json files
 
@@ -121,4 +106,3 @@ A change is done only when:
 - workflow remains model-centered
 - Claude Code native capabilities are preserved
 - adversarial observation disposition is machine-readable (not free text alone)
-- gravity is pure (no side effects in read paths)

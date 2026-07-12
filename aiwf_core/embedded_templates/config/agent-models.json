@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "description": "Models used when AIWF installs subagents. Use inherit, a backend model alias, or a full model ID. Re-run aiwf install <backend> --force after changing this file.",
+  "allowed_values": "inherit | backend model alias | full model ID",
+  "models": {
+    "claude": {
+      "aiwf-executor": "inherit",
+      "aiwf-tester": "inherit",
+      "aiwf-reviewer": "inherit",
+      "aiwf-architect": "inherit",
+      "aiwf-critic": "inherit",
+      "aiwf-explorer": "inherit"
+    },
+    "reasonix": {
+      "aiwf-executor": "inherit",
+      "aiwf-tester": "inherit",
+      "aiwf-reviewer": "inherit",
+      "aiwf-architect": "inherit",
+      "aiwf-critic": "inherit",
+      "aiwf-explorer": "inherit"
+    }
+  }
+}

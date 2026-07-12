@@ -1,4 +1,5 @@
 import json, sys
+from datetime import datetime, timezone
 from pathlib import Path
 from aiwf_core.adapters.claude.normalize_event import parse_claude_stdin, normalize
 from aiwf_core.adapters.claude.responses import allow, deny_pre_tool_use
@@ -54,6 +55,17 @@ def main():
             f"Cannot dispatch {subagent_type}: skill not loaded.\n"
             f"  → Load /{required_skill} first, then dispatch {subagent_type}."
         )
+
+    dispatch_path = base / ".aiwf" / "runtime" / "internal" / "agent-dispatch.jsonl"
+    dispatch_path.parent.mkdir(parents=True, exist_ok=True)
+    entry = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "subagent_type": subagent_type,
+        "task_id": active_task_id,
+        "status": "started",
+    }
+    with open(dispatch_path, "a", encoding="utf-8") as handle:
+        handle.write(json.dumps(entry) + "\n")
 
     allow()
 

@@ -1,33 +1,47 @@
 # Milestone Acceptance
 
-Milestone acceptance is a gate, not architecture reflection. It asks whether the
-selected milestone can be closed under its current Pass Standard.
+Use this when the selected lens is `milestone-acceptance`.
 
-## Scope Trace
+This is a gate for one milestone. It is not a broad architecture review.
 
-- Read the milestone Pass Standard as the authoritative acceptance criteria.
-- Trace the milestone scope through related Goals, Plans, Tasks, and capability
-  claims before testing.
-- If `verification_task_required: true` and `verification_task_id` is empty,
-  stop and return to Planner for a `kind=milestone_verification` task.
+## Acceptance Boundary
 
-## Real Environment Verification
+Ask:
 
-- Verify each Pass Standard item against the running system.
-- Do not treat code reading, mocks, or "should work" reasoning as verification.
-- Every new capability from the milestone must be consumed on the real main
-  path; built but never called is not done.
-- Record observable evidence sufficient for a future agent to understand what
-  was verified and what happened.
+- What exactly does the milestone Pass Standard require?
+- Which Goals, Plans, Tasks, and capability claims feed this milestone?
+- Is a separate `kind=milestone_verification` task required? If yes and it is
+  missing, stop and return that to Planner.
 
-## Records And Closure
+## Real Verification
 
-- Record one `aiwf milestone integration-test` result for each Pass Standard
-  item.
+Verify each Pass Standard item in the running system.
+
+Do not accept:
+
+- code reading alone;
+- mocks alone;
+- "should work" reasoning;
+- a component that exists but is not consumed on the real main path.
+
+Record enough observable evidence for a future agent to understand what was
+checked and what happened.
+
+## Records And Close
+
+- Record observable commands with `aiwf milestone integration-test`.
+- Record interface and main-path integrity with
+  `aiwf milestone arch-review <ID> --status intact --notes "<what held>"`.
+  When integrity does not hold, use
+  `--status issues_found --issue "high:::<specific issue>"`.
 - Record `aiwf milestone assess --verdict PASS` only after all required checks
   pass.
-- If any required check fails, record/return FAIL and stop.
-- If PASS, ask the human to confirm and close. Do not run confirm or close
-  before explicit human approval.
-- Surface architecture risks separately for Planner disposition. Do not turn
-  milestone acceptance into mission leverage review.
+- Use `REVISE` or `REJECT` when a required check fails.
+- If PASS, ask the human: "Confirm and close this milestone?"
+- Do not run `aiwf milestone confirm` or `aiwf milestone close` before explicit
+  human approval.
+- After approval, the main session runs `aiwf milestone confirm`, follows
+  `aiwf status --prompt` to calibrate and close the verification Task, then runs
+  `aiwf milestone close`.
+- Report architecture risks separately for Planner. Do not turn acceptance into
+  broad mission review.

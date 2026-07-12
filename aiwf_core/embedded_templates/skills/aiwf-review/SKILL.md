@@ -3,27 +3,44 @@ name: aiwf-review
 description: Use only when `aiwf status --prompt` lists `aiwf-review` under Required skills.
 ---
 
-## Workflow
+# AIWF Review
 
-FOLLOW EVERY STEP. CHECK OFF EACH ONE AS YOU GO. SKIP NOTHING.
+## Role
 
-0. Read `aiwf-project` skill for project-specific rules and knowledge.
-1. `aiwf status --prompt`
-2. Read active Task.md. Extract the Task Packet:
-   - Fixed Contract: Structural Home, Objective, Scope, Forbidden Write,
-     Proof Standard, Verification Commands.
-   - Known Context: Known Surfaces, Interfaces/Invariants, Integration Evidence,
-     Resolved/Deferred Unknowns.
-   - Open Judgment: Reviewer Judgment.
-   Paste these sections into the dispatch prompt.
-3. Run `aiwf record evidence-view`. Do NOT read raw
-   `.aiwf/records/evidence.json` unless the view command is unavailable.
-   Pass the compact view summary for context.
-4. If `reviewer_required`:
-   `Agent({subagent_type: "aiwf-reviewer", prompt: "Active Task.md: .aiwf/tasks/<TASK-ID>.md\nFixed Contract: <paste Fixed Contract>\nKnown Context: <paste Known Context>\nOpen Judgment: <paste Reviewer Judgment>\nEvidence view: <paste compact evidence-view summary>"})`
-   The subagent reads evidence/testing and records its own review (see agent file).
-   Do NOT record again.
-5. If not — read `inline-execution.md`, review inline, record review as described there.
+Dispatch independent review for the active Task.md. Do not implement, test,
+plan, close, or make the review judgment in the main session.
 
-VERIFY: DID YOU FOLLOW EVERY STEP? IF YOU SKIPPED ANY, GO BACK.
-VERIFY: Re-read aiwf-project. Any project rule you missed?
+## Dispatch
+
+1. Read the active Task.md and `aiwf task proof`.
+2. When `reviewer_required` is true, dispatch `aiwf-reviewer` with:
+   - the active Task.md path;
+   - implementation and testing diff refs, changed files, and testing truth;
+   - unresolved external findings or fresh facts not yet recorded;
+   - a request to inspect the original contract and code reality, record its
+     judgment, and return a specific `REVIEW_REPORT` for Planner.
+3. Do not paste the complete Task Packet or prescribe review conclusions.
+   Reviewer needs the original contract and independent judgment space.
+4. Let Reviewer record review. Do not record it again.
+
+`needs_fix` and `rejected` open an Executor fix-loop. `RETURN_TO_PLANNER` opens
+a Planner fix-loop. Run `aiwf status --prompt` and follow its route; do not
+proceed to close.
+
+If `reviewer_required` is false, follow `inline-execution.md` and still produce
+a task-specific plain-language review report.
+
+## Required Handoff
+
+The report must tell Planner what Executor changed, what Tester proved, what
+Reviewer personally checked, why the Task can or cannot proceed, and what
+remains. Generic approval is not a valid handoff.
+
+When the implementation changes installation, configuration, migration,
+deployment, or public behavior, check the affected surface in reality. Do not
+require unrelated documentation or generated assets.
+
+## Boundaries
+
+- Do not close the task.
+- Stop after review is recorded and `REVIEW_REPORT` is returned.

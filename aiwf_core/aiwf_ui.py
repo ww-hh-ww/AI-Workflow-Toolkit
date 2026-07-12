@@ -32,12 +32,12 @@ def load_all(root: Path) -> dict:
     plans = rj(root / ".aiwf" / "state" / "plans.json")
     tasks = rj(root / ".aiwf" / "state" / "tasks.json")
     milestones = rj(root / ".aiwf" / "state" / "milestones.json")
-    evidence = rj(root / ".aiwf" / "records" / "evidence.json")
+    implementation = rj(root / ".aiwf" / "records" / "implementation.json")
     testing = rj(root / ".aiwf" / "records" / "testing.json")
     review = rj(root / ".aiwf" / "records" / "review.json")
     return {
         "state": state, "goals": goals, "plans": plans, "tasks": tasks,
-        "milestones": milestones, "evidence": evidence, "testing": testing,
+        "milestones": milestones, "implementation": implementation, "testing": testing,
         "review": review,
     }
 
@@ -1005,17 +1005,17 @@ def _run_sync_inline(root):
 def _show_records_inline(stdscr, data, task_id):
     """Show records overlay in the TUI right panel area."""
     h, w = stdscr.getmaxyx()
-    evidence = data["evidence"]
+    implementation = data["implementation"]
     testing = data["testing"]
     review = data["review"]
 
     lines = [f"── {task_id} 记录 ──", ""]
-    recs = evidence.get("records", []) or []
-    rlabel = {"executor": "执行", "tester": "测试", "reviewer": "审查", "planner": "规划"}
-    lines.append(f"证据 ({len(recs)} 条):")
-    for r in recs[:h - 8]:
-        role = rlabel.get(r.get('role',''), r.get('role','?'))
-        lines.append(f"  {r.get('id','?')} [{role}] {r.get('summary','')[:80]}")
+    lines.append("实现:")
+    if implementation.get("implementation_ref"):
+        lines.append(f"  {implementation.get('summary', '')[:120]}")
+        lines.append(f"  ref={implementation.get('implementation_ref', '')[:12]}")
+    else:
+        lines.append("  缺失")
     lines.append("")
     tlabel = {"passed": "✓ 通过", "failed": "✗ 失败", "adequate": "△ 基本", "missing": "缺失"}
     lines.append(f"测试: {tlabel.get(testing.get('status',''), testing.get('status','?'))}")
