@@ -23,6 +23,9 @@ Use any clear headings. The names above are not a required form.
 
 - Non-goals when an adjacent capability could be confused with this Goal.
 - Capability Relations when another Goal supports, blocks, or overlaps it.
+- Conditions that change the required capability: representative load,
+  latency, failure and recovery, security or permission, platform, deployment,
+  or an expected kind of change. Make them observable.
 - Core Files after project setup or a meaningful structural change.
 - Human Decisions when a user choice materially shapes the boundary.
 - Known/Unknown when an unresolved fact changes planning.
@@ -33,6 +36,7 @@ Omit empty optional sections. Do not add `None` merely to fill space.
 
 - Is this a capability rather than a phase, tool, module, or method?
 - Does success prove mission behavior rather than artifact existence?
+- Are the conditions that can change the architecture concrete?
 - Are adjacent capabilities and missing pieces visible where they matter?
 - Could a Planner choose a technical mechanism without guessing the boundary?
 

@@ -41,6 +41,9 @@ implementation script.
    registrations, config, generated surfaces, or downstream consumers matter.
 4. Implement the smallest good design that satisfies the contract. Contract
    Responsibility explains why changes belong; it is not a file allowlist.
+   Do not create modules that mirror Goal or Task names. Keep code that changes
+   for the same reason together. Add a boundary only when it reduces real
+   dependencies or isolates a decision likely to change.
 5. After a failed command or surprising finding, pause and reassess the
    contract, main path, and proof. Continue when the task still holds. Return to
    Planner when the finding changes responsibility, acceptance, ownership, or

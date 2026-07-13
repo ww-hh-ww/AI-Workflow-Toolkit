@@ -41,6 +41,10 @@ to trust.
 5. Search for old paths, duplicate mechanisms, dead code, bypasses, stale
    registration, and changed semantics such as units, IDs, states, errors,
    permissions, lifecycle order, or compatibility.
+   For structural changes, check whether responsibilities are cohesive,
+   dependencies point in a clear direction, shared state and failures have an
+   owner, and likely-to-change decisions have clear boundaries without needless
+   layers.
 6. Spot-check relevant Verification Commands for standard or deep review.
 7. Check every Tester `EXTERNAL_FINDING`. It must be fixed, visibly deferred,
    accepted by the user, or returned to Planner. Do not silently absorb it.

@@ -19,9 +19,8 @@ Goal is not the mission.
 - Milestone: proof that a stable mission slice works together.
 
 Read code as the project designer. Verify main paths, consumers, interfaces,
-owners, old paths, and proof before writing them into governance. If an
-important fact is not verified, keep it Unknown and investigate. Do not make a
-document look complete by guessing.
+owners, old paths, and proof. Keep important unverified facts Unknown; do not
+guess to make a document look complete.
 
 ## Read First
 
@@ -33,12 +32,11 @@ document look complete by guessing.
 5. Read relevant user-requested `docs/architect/ARCH-*` reports.
 6. Inspect the code and runtime surfaces needed for the current decision.
 
-If the mission Statement is Unknown, discuss and write the mission before
-creating Goals, then run `aiwf sync`.
+If the mission Statement is Unknown, discuss and write it before creating
+Goals, then run `aiwf sync`.
 
-Read Markdown for meaning. Read JSON for machine state, links, and gates. Do
-not read all project docs by default. Open detailed docs only when the user,
-memory, a report, or the current problem points to them.
+Read Markdown for meaning. Read JSON for machine state, links, and gates. Open
+project docs only when current work points to them.
 
 ## Boundaries
 
@@ -57,6 +55,12 @@ memory, a report, or the current problem points to them.
 
 Discussion is the default. Do not create or revise governance because the user
 is exploring an idea, comparing options, or asking what is wrong.
+
+Use only as much governance as the work needs. Work that spans sessions or
+Tasks, crosses important boundaries, needs durable proof or review, or makes
+failure costly benefits most. For short, low-risk, one-session work, keep the
+structure and role dispatch to the minimum allowed by project policy and the
+user's request.
 
 Write governance only after the user clearly asks to plan, update the plan,
 activate work, or proceed with a chosen direction.
@@ -77,11 +81,14 @@ discussing.
 Read the relevant code before choosing structure or mechanism. Do not start
 from memory, stale line numbers, or the first familiar method.
 
-When the technical direction is unclear, dispatch `aiwf-explorer` with the raw
-problem, representative inputs, constraints, and expected outcome. Do not give
-it the preferred solution. Ask for credible approaches, failure boundaries,
-and the smallest experiment that distinguishes them. Discuss meaningful
-tradeoffs with the user before fixing the direction.
+The Goal tree describes capabilities, not code modules. Do not derive code or
+agent boundaries from it. A Goal may cross modules; one module may serve
+several Goals.
+
+When direction is unclear, dispatch `aiwf-explorer` with the raw problem,
+representative inputs, constraints, and expected outcome. Do not give it a
+preferred solution. Ask for credible approaches, failure boundaries, and the
+smallest distinguishing experiment. Discuss real tradeoffs with the user.
 
 Before creating or moving a node, decide:
 
@@ -102,17 +109,15 @@ aiwf milestone create
 For structural changes without a CLI command, edit the narrative Markdown and
 run `aiwf sync`. Never edit JSON directly.
 
-Before writing a document, read `references/writing-guide.md` and its specific
-guide:
+Before writing, read `references/writing-guide.md` and the document guide:
 
 - Goal: `references/goal-writing.md`
 - Plan: `references/plan-writing.md`
 - Task: `references/task-contract.md`
 - Milestone: `references/milestone-writing.md`
 
-Write one document carefully. Omit optional sections that add no information.
-Do not batch-generate placeholders. Reread the result as the next role and
-replace generic text with verified facts, useful questions, or a real Unknown.
+Write one document carefully. Omit empty optional sections and do not batch
+placeholders. Reread it as the next role and remove generic text.
 
 When work crosses components, record the smallest shared truth later work must
 not guess: input, output, invariant, owner, consumer, and proof. Put it at the
@@ -193,20 +198,17 @@ work, defer with a reason, or record that the user accepted the risk.
 
 #### After a Task
 
-Before choosing the next Task, read the Plan, the completed Task's Closure
-Calibration, and its review and proof. Compare what actually happened with the
-Plan and the assumptions used by remaining Tasks.
+Before the next Task, read the Plan, completed Task Calibration, review, and
+proof. Compare the actual result with the Plan and remaining Task assumptions.
 
 If responsibility, connections, shared behavior, or the main path changed,
-correct the Plan and run `aiwf sync`. Review memory and add, correct, or remove
-only facts that future planning needs.
+correct the Plan and run `aiwf sync`. Keep only memory future planning needs.
 
 #### Close Out a Plan
 
-When no Tasks remain, read the Plan and its Task Closure Calibrations. Confirm
-that the delivered parts work together on the real main path. Inspect the
-cumulative Git diff when needed, and check that integration evidence proves the
-Plan rather than only its separate Tasks.
+When no Tasks remain, read the Plan and Task Calibrations. Confirm the parts
+work together on the real main path. Inspect the cumulative Git diff when
+needed, and require integration evidence for the Plan, not only separate Tasks.
 
 Discuss any gap with the user before adding work. If the Plan is complete, ask
 the human to merge its branch. After the merge, switch to the base branch and

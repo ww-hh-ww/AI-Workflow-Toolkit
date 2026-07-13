@@ -28,7 +28,7 @@ class TestPromptClarityContract(unittest.TestCase):
             "Add, correct, or delete",
             "#### After a Task",
             "#### Close Out a Plan",
-            "Compare what actually happened",
+            "Compare the actual result",
             "Do not modify a closed Plan",
         ]:
             self.assertIn(required, planner)
@@ -53,6 +53,34 @@ class TestPromptClarityContract(unittest.TestCase):
             "independent roles",
         ]:
             self.assertIn(required, combined)
+
+    def test_planning_separates_capabilities_from_code_architecture(self):
+        planner = read("skills/aiwf-planner/SKILL.md")
+        goal = read("skills/aiwf-planner/references/goal-writing.md")
+        plan = read("skills/aiwf-planner/references/plan-writing.md")
+        critique = read("skills/aiwf-planner/references/activation-critique.md")
+        executor = read("agents/aiwf-executor.md")
+        reviewer = read("agents/aiwf-reviewer.md")
+
+        plan_text = " ".join(plan.split())
+        critique_text = " ".join(critique.split())
+        executor_text = " ".join(executor.split())
+        reviewer_text = " ".join(reviewer.split())
+
+        self.assertIn("Goal tree describes capabilities, not code modules", planner)
+        self.assertIn("short, low-risk", planner)
+        self.assertIn("conditions that can change the architecture", goal)
+        for required in [
+            "Do not mirror the Goal tree in code",
+            "data and state each part owns",
+            "dependency direction",
+            "failure ownership",
+            "real condition, expected response or threshold",
+        ]:
+            self.assertIn(required, plan_text)
+        self.assertIn("module boundaries follow ownership", critique_text)
+        self.assertIn("Do not create modules that mirror Goal or Task names", executor_text)
+        self.assertIn("likely-to-change decisions have clear boundaries", reviewer_text)
 
     def test_md_guides_require_decisions_without_required_forms(self):
         guides = "\n".join([

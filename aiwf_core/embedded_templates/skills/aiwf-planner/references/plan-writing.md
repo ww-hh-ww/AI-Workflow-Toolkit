@@ -50,6 +50,20 @@ decision as the basis.
 If credible mechanisms cannot yet be distinguished, return to Planner
 exploration before creating implementation Tasks.
 
+Do not mirror the Goal tree in code. Choose module boundaries by responsibility,
+the data and state each part owns, dependency direction, failure ownership, and
+what changes together. Put a decision likely to change behind a stable boundary
+only when that reduces real coupling.
+
+For structural work, inspect only the views that matter: code responsibilities
+and dependencies; runtime data, control, state, and failure paths; deployment
+and integration. A Plan may cross modules, and one module may support several
+Goals.
+
+Do not write only "fast", "reliable", "secure", or "easy to change". Describe
+the real condition, expected response or threshold, and the tradeoff that
+changes the design.
+
 Decide public behavior, support boundaries, shared interfaces, and Task order
 here. Leave local and reversible code choices to Executor.
 
@@ -57,6 +71,8 @@ here. Leave local and reversible code choices to Executor.
 
 - Does the Plan explain a mechanism, not just list work?
 - Does the main path reach the Goal's hardest risk?
+- Do module boundaries contain change instead of copying Goal or Task shape?
+- Are the conditions and tradeoffs that change the design testable?
 - Are shared truths and old paths owned when they matter?
 - Does Task order prove uncertainty early and integration before completion?
 - Could each Task deliver mission progress without inventing missing design?

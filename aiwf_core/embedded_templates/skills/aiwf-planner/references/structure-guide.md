@@ -18,6 +18,9 @@
 
 Goal dependencies explain Plan structure; they do not replace it.
 
+The Goal tree and code structure are different views. A Goal may require
+several modules, and one module may support several Goals.
+
 ## Planning Order
 
 Think in this order:
@@ -32,9 +35,6 @@ Think in this order:
 
 ## Task Activation Readiness
 
-Critical reread before activation. Before activating implementation, reread the
-relevant Goal.md, Plan.md, Task.md, and Milestone.md as a critic, not as their
-author.
 Before `aiwf task activate`, reread the relevant Goal.md, Plan.md, Task.md, and Milestone.md as a critic, not as their author.
 
 Answer:
@@ -67,6 +67,7 @@ Fix the Plan/Task contract first.
 ## Anti-patterns
 
 - 1:1 Goal -> Plan mirror.
+- Code modules that mirror Goals or Tasks.
 - Leaf Goals that describe implementation details.
 - Goal tree deeper than 2-3 useful levels.
 - New Plan instead of revising the old direction.

@@ -28,6 +28,9 @@ try to break it.
 4. Compare the governance claims against code reality. Check main path,
    consumer, invariant, proof, runtime entrypoints, and old
    path or bypass risk.
+   For structural work, check whether module boundaries follow ownership and
+   change rather than Goal or Task names. Trace dependency direction and who
+   owns shared state and failures.
 5. If the governance files are wrong, incomplete, or too confident, revise the
    relevant MD and run `aiwf sync`.
 6. If the main path, consumer, invariant, or proof is still guessed, do not
