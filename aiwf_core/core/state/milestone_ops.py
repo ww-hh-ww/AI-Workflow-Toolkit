@@ -414,21 +414,16 @@ def record_milestone_assessment(
 
 def _get_active_verification_task(base_dir: str, milestone_id: str) -> Optional[Dict[str, Any]]:
     """Return the active task if it's a milestone_verification task for the given milestone."""
-    state = _read(Path(base_dir) / ".aiwf" / "state" / "state.json", {})
-    active_id = state.get("active_task_id", "")
-    if not active_id:
-        return None
-    tasks_data = _read(Path(base_dir) / ".aiwf" / "state" / "tasks.json", {})
-    for task in tasks_data.get("tasks", []) or []:
-        if not isinstance(task, dict):
-            continue
-        if (
-            task.get("id") == active_id
-            and task.get("kind") == "milestone_verification"
-            and task.get("milestone_id") == milestone_id
-        ):
-            return task
-    return None
+    from ..task_ledger import load_ledger
+
+    matches = [
+        task for task in load_ledger(base_dir).get("tasks", []) or []
+        if isinstance(task, dict)
+        and task.get("status") == "active"
+        and task.get("kind") == "milestone_verification"
+        and task.get("milestone_id") == milestone_id
+    ]
+    return matches[0] if len(matches) == 1 else None
 
 def _auto_fill_verification_task_testing(base_dir: str, milestone_id: str, status: str, summary: str) -> None:
     """When milestone integration-test runs under an active verification task,
@@ -441,7 +436,7 @@ def _auto_fill_verification_task_testing(base_dir: str, milestone_id: str, statu
     from .testing_ops import record_testing
 
     record_testing(
-        base_dir,
+        str(task.get("worktree_path") or base_dir),
         status=testing_status,
         commands=[command],
         coverage_summary=f"milestone integration {status}: {summary}",
@@ -453,6 +448,7 @@ def _auto_fill_verification_task_testing(base_dir: str, milestone_id: str, statu
             "observed": summary,
             "matched": testing_status == "passed",
         }],
+        task_id=str(task.get("id") or ""),
     )
 
 def _auto_fill_verification_task_review(base_dir: str, milestone_id: str, verdict: str, summary: str) -> None:
@@ -466,28 +462,24 @@ def _auto_fill_verification_task_review(base_dir: str, milestone_id: str, verdic
     from .review_ops import record_review
 
     record_review(
-        base_dir,
+        str(task.get("worktree_path") or base_dir),
         result=review_result,
         closure_allowed=accepted,
         blockers=[] if accepted else [summary or f"milestone assessment {verdict}"],
         cleanup_status="fresh",
         structure_status="accepted" if accepted else "needs_work",
         summary=f"milestone assessment {verdict}: {summary}",
+        task_id=str(task.get("id") or ""),
     )
-
-    state_path = Path(base_dir) / ".aiwf" / "state" / "state.json"
-    state = _read(state_path, {})
-    if accepted:
-        state["phase"] = "closing"
-        _write(state_path, state)
-    else:
+    if not accepted:
         from .fixloop_ops import open_fix_loop
         open_fix_loop(
-            base_dir,
+            str(task.get("worktree_path") or base_dir),
             route="planner",
             reason=summary or f"Milestone assessment {verdict}",
             required_fixes=[summary] if summary else [],
             source="architect",
+            task_id=str(task.get("id") or ""),
         )
 
 def record_milestone_integration(

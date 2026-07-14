@@ -6,7 +6,7 @@ from pathlib import Path
 
 from .flow import cmd_status
 from .ops_commands import _cmd_doctor, _cmd_fix_loop_help, _cmd_fix_loop_open, _cmd_fix_loop_resolve, _cmd_fix_loop_status, _cmd_install
-from .plan_commands import _cmd_plan_attach, _cmd_plan_cancel, _cmd_plan_close, _cmd_plan_create, _cmd_plan_dep_add, _cmd_plan_dep_remove, _cmd_plan_dep_show, _cmd_plan_detach, _cmd_plan_help, _cmd_plan_list, _cmd_plan_show
+from .plan_commands import _cmd_plan_attach, _cmd_plan_bind_worktree, _cmd_plan_cancel, _cmd_plan_close, _cmd_plan_create, _cmd_plan_dep_add, _cmd_plan_dep_remove, _cmd_plan_dep_show, _cmd_plan_detach, _cmd_plan_help, _cmd_plan_list, _cmd_plan_show
 from .state_commands import _cmd_record_disposition, _cmd_record_help, _cmd_record_implementation, _cmd_record_review, _cmd_record_testing
 from .goal_tree_commands import _cmd_goal_cancel, _cmd_goal_close, _cmd_goal_create, _cmd_goal_help, _cmd_goal_tree_list, _cmd_goal_tree_show, _cmd_relation_add, _cmd_relation_remove
 from .milestone_commands import _cmd_milestone_arch_review, _cmd_milestone_assess, _cmd_milestone_cancel, _cmd_milestone_close, _cmd_milestone_confirm, _cmd_milestone_create, _cmd_milestone_help, _cmd_milestone_integration_test, _cmd_milestone_link_plan, _cmd_milestone_link_task, _cmd_milestone_list, _cmd_milestone_show, _cmd_milestone_unlink_plan, _cmd_milestone_unlink_task
@@ -80,12 +80,16 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
     p_fl_open.add_argument("--source", default="reviewer")
     p_fl_open.add_argument("--invalidated-file", action="append", dest="invalidated_files", default=[])
     p_fl_open.add_argument("--invalidated-obligation", action="append", dest="invalidated_obligations", default=[])
+    p_fl_open.add_argument("--task-id", default="", help="Task ID (defaults to current worktree)")
     p_fl_open.set_defaults(func=_cmd_fix_loop_open)
-    p_fl_sub.add_parser("status", help="show fix-loop status").set_defaults(func=_cmd_fix_loop_status)
+    p_fl_status = p_fl_sub.add_parser("status", help="show fix-loop status")
+    p_fl_status.add_argument("--task-id", default="", help="Task ID (defaults to current worktree)")
+    p_fl_status.set_defaults(func=_cmd_fix_loop_status)
     p_fl_resolve = p_fl_sub.add_parser("resolve", help="resolve a fix-loop")
     p_fl_resolve.add_argument("--resolution", required=True, help="how it was resolved")
     p_fl_resolve.add_argument("--source", default="reviewer")
     p_fl_resolve.add_argument("--force", action="store_true")
+    p_fl_resolve.add_argument("--task-id", default="", help="Task ID (defaults to current worktree)")
     p_fl_resolve.set_defaults(func=_cmd_fix_loop_resolve)
     p_fixloop.set_defaults(func=_cmd_fix_loop_help)
 
@@ -140,6 +144,10 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
     p_pls.add_argument("plan_id", help="plan ID")
     p_pls.set_defaults(func=_cmd_plan_show)
     p_plan_sub.add_parser("list", help="list all plans").set_defaults(func=_cmd_plan_list)
+    p_plw = p_plan_sub.add_parser("bind-worktree", help="bind a Plan to an existing Git worktree")
+    p_plw.add_argument("plan_id", help="Plan ID")
+    p_plw.add_argument("path", nargs="?", default="", help="worktree path (defaults to current)")
+    p_plw.set_defaults(func=_cmd_plan_bind_worktree)
     p_plcl = p_plan_sub.add_parser("close", help="close a plan")
     p_plcl.add_argument("plan_id", help="plan ID")
     p_plcl.add_argument("--summary", default="", help="closure summary")
@@ -205,13 +213,16 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
     p_tcal.add_argument("task_id", nargs="?", default="", help="task ID (defaults to active)")
     p_tcal.add_argument("--summary", required=True, help="freeform closure calibration from Planner")
     p_tcal.set_defaults(func=_cmd_task_calibrate)
-    p_tc = p_task_sub.add_parser("close", help="close the current active task")
+    p_tc = p_task_sub.add_parser("close", help="close an active task")
+    p_tc.add_argument("task_id", nargs="?", default="", help="Task ID (defaults to the current worktree)")
     p_tc.add_argument("--note", default="", help="closure note")
     p_tc.set_defaults(func=_cmd_task_close)
-    p_tfc = p_task_sub.add_parser("force-close", help="human-only emergency close of the active task")
+    p_tfc = p_task_sub.add_parser("force-close", help="human-only emergency close of an active task")
+    p_tfc.add_argument("task_id", nargs="?", default="", help="Task ID (defaults to the current worktree)")
     p_tfc.add_argument("--reason", default="", help="why force-close is necessary")
     p_tfc.set_defaults(func=_cmd_task_force_close)
-    p_ti = p_task_sub.add_parser("interrupt", help="human-only interrupt of the active task")
+    p_ti = p_task_sub.add_parser("interrupt", help="human-only interrupt of an active task")
+    p_ti.add_argument("task_id", nargs="?", default="", help="Task ID (defaults to the current worktree)")
     p_ti.add_argument("--reason", default="", help="why interruption is necessary")
     p_ti.set_defaults(func=_cmd_task_interrupt)
     p_task.set_defaults(func=_cmd_task_help)
@@ -231,6 +242,7 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
     p_re_te.add_argument("--verification-result", action="append", default=[], dest="verification_results",
                          help="structured command result: command:::expected:::observed:::matched|mismatched")
     p_re_te.add_argument("--summary", default="", help="testing summary")
+    p_re_te.add_argument("--task-id", default="", help="Task ID (defaults to the current worktree)")
     p_re_te.set_defaults(func=_cmd_record_testing)
     p_re_rv = p_rec_sub.add_parser("review", help="record review results")
     p_re_rv.add_argument("--result", required=True, choices=["accepted","needs_fix","rejected"])
@@ -239,11 +251,13 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
     p_re_rv.add_argument("--adversarial-observations", action="append", default=[], dest="adversarial_observations", help="adversarial observations: severity:::kind:::message")
     p_re_rv.add_argument("--cleanup-status", default="", help="cleanup status")
     p_re_rv.add_argument("--structure-status", default="", help="structure status")
+    p_re_rv.add_argument("--task-id", default="", help="Task ID (defaults to the current worktree)")
     p_re_rv.set_defaults(func=_cmd_record_review)
     p_re_disp = p_rec_sub.add_parser("disposition", help="record Planner decision on one reviewer observation")
     p_re_disp.add_argument("observation_id", help="observation ID, for example ADV-001")
     p_re_disp.add_argument("--decision", required=True, choices=["accepted", "deferred", "dismissed", "resolved"])
     p_re_disp.add_argument("--reason", required=True, help="short reason for the decision")
+    p_re_disp.add_argument("--task-id", default="", help="Task ID (defaults to the current worktree)")
     p_re_disp.set_defaults(func=_cmd_record_disposition)
     p_rec.set_defaults(func=_cmd_record_help)
 

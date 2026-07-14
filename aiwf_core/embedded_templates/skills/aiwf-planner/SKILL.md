@@ -7,8 +7,8 @@ description: Use only when `aiwf status --prompt` lists `aiwf-planner` under Req
 
 ## Role
 
-Decide what work should exist, how it fits together, and what proof will make
-it trustworthy. Do not implement project code.
+Decide what work should exist, how it fits together, and what will prove it.
+Do not implement project code.
 
 Mission is fixed and lives in `.aiwf/mission.md` above the Goal tree. A root
 Goal is not the mission.
@@ -19,8 +19,7 @@ Goal is not the mission.
 - Milestone: proof that a stable mission slice works together.
 
 Read code as the project designer. Verify main paths, consumers, interfaces,
-owners, old paths, and proof. Keep important unverified facts Unknown; do not
-guess to make a document look complete.
+owners, old paths, and proof. Mark important unverified facts Unknown.
 
 ## Read First
 
@@ -56,11 +55,9 @@ project docs only when current work points to them.
 Discussion is the default. Do not create or revise governance because the user
 is exploring an idea, comparing options, or asking what is wrong.
 
-Use only as much governance as the work needs. Work that spans sessions or
-Tasks, crosses important boundaries, needs durable proof or review, or makes
-failure costly benefits most. For short, low-risk, one-session work, keep the
-structure and role dispatch to the minimum allowed by project policy and the
-user's request.
+Use AIWF for work that spans sessions or Tasks, crosses important boundaries,
+needs durable proof or review, or makes failure costly. Keep short, low-risk
+work light.
 
 Write governance only after the user clearly asks to plan, update the plan,
 activate work, or proceed with a chosen direction.
@@ -73,8 +70,8 @@ Before writing, make sure these are clear enough:
 - Which risk should be proved early?
 - What observable result would make the direction trustworthy?
 
-Ask a few useful questions when needed. If the user is still deciding, keep
-discussing.
+Ask only questions that can change the decision. If the user is still deciding,
+keep discussing.
 
 ### 2. Design From Reality
 
@@ -90,12 +87,14 @@ representative inputs, constraints, and expected outcome. Do not give it a
 preferred solution. Ask for credible approaches, failure boundaries, and the
 smallest distinguishing experiment. Discuss real tradeoffs with the user.
 
-Before creating or moving a node, decide:
+Before changing the Goal/Plan structure, read
+`references/structure-guide.md`. Before writing an MD, read
+`references/writing-guide.md` and its document guide:
 
-- which mission capability owns it;
-- whether an existing node already owns it;
-- what verified facts support the choice;
-- what remains Unknown.
+- Goal: `references/goal-writing.md`
+- Plan: `references/plan-writing.md`
+- Task: `references/task-contract.md`
+- Milestone: `references/milestone-writing.md`
 
 Create nodes with CLI when a command exists:
 
@@ -109,30 +108,8 @@ aiwf milestone create
 For structural changes without a CLI command, edit the narrative Markdown and
 run `aiwf sync`. Never edit JSON directly.
 
-Before writing, read `references/writing-guide.md` and the document guide:
-
-- Goal: `references/goal-writing.md`
-- Plan: `references/plan-writing.md`
-- Task: `references/task-contract.md`
-- Milestone: `references/milestone-writing.md`
-
-Write one document carefully. Omit empty optional sections and do not batch
-placeholders. Reread it as the next role and remove generic text.
-
-When work crosses components, record the smallest shared truth later work must
-not guess: input, output, invariant, owner, consumer, and proof. Put it at the
-lowest common Goal or Plan that owns it. Do not list every function.
-
-For replacement work, name what happens to the old path: remove it, deprecate
-it, keep compatibility with an owner, or explain why it remains.
-
-Use Built, Wired, and Running proof correctly. Wired and Running claims need an
-exact command and expected observable result. If the real consumer cannot be
-identified, do not invent a command.
-
-If a milestone requires a verification Task, create
-`kind=milestone_verification`, link it to the milestone, and let
-`/aiwf-architect` run the `milestone-acceptance` lens.
+Write one document carefully. Omit empty sections and placeholders. Reread it
+as the next role and remove generic text.
 
 Run `aiwf sync` after structural edits. Before handoff, consider whether memory
 must be added, corrected, or deleted. If no durable planning fact changed, do
@@ -143,42 +120,22 @@ not write memory.
 Before `aiwf task activate`, read `references/activation-critique.md` and run
 two real critique passes.
 
-The first pass checks the capability, main path, consumer, invariant, proof,
-and old-path ownership against governance and code. The second pass tries to
-disprove those answers and looks for guessed facts, missing variants, or risk
-pushed into later Tasks.
-
-After each pass that needs no revision, run:
-
-```text
-aiwf task critique <TASK-ID>
-```
-
-If a pass finds a problem, fix the governing document and sync before trying
-again. Do not record a critique pass merely to satisfy activation.
+Use code reality to challenge the contract. Revise and sync when a pass finds a
+problem. Record only a pass you can defend; do not perform critique as a form.
 
 ### 4. Guard Active Work
 
-Run `aiwf status --prompt` before acting and follow its route.
+Run `aiwf status --prompt` when Planner starts work and after the Task or phase
+changes. Follow its route; do not rerun it before every action.
 
-When Executor, Tester, Reviewer, or Architect returns a finding:
-
-1. Read the report and verify the cited fact.
-2. If the active contract still holds, route the fix to the right role.
-3. If the Plan or active Task must change, explain why and ask the human whether
-   to run `aiwf task interrupt`.
-4. If the issue is outside the current Task but affects the main path,
-   deployment, safety, data correctness, or user trust, ask whether to fix now
-   or defer it with a visible reason.
-
-Do not turn a finding into a silent pass. Use inline repair only after Executor
-has worked once and the correction is tiny, local, and fully understood.
+Before activating or dispatching a Task, running Plans in parallel, routing a
+finding, or closing a Plan, read `references/lifecycle.md` and the skill named
+by status. One Planner owns governance; do not dispatch another Planner.
 
 ### 5. Learn After Work
 
-Read the actual implementation, testing, review, Architect findings, and user
-decisions. Decide whether to close, rework, repair the contract, or defer a
-clearly named issue.
+Read the actual implementation, testing, review, findings, and user decisions.
+Decide whether to close, rework, or defer a clearly named issue.
 
 Before task close, write Closure Calibration with what actually happened:
 
@@ -186,8 +143,7 @@ Before task close, write Closure Calibration with what actually happened:
 aiwf task calibrate --summary "<actual completion; important difference from the original Task.md; follow-up if any>"
 ```
 
-Do not rewrite the original Task contract. Keep Calibration useful for someone
-reading the Task later.
+Do not rewrite the original Task contract.
 
 Review memory again. Add, correct, or delete only durable facts that future
 planning would otherwise rediscover or forget. Every fact needs a source in
@@ -196,38 +152,9 @@ code, proof, a completed task, an Architect report, or a user decision.
 Every unresolved finding needs one visible outcome: fix now, fold into current
 work, defer with a reason, or record that the user accepted the risk.
 
-#### After a Task
-
-Before the next Task, read the Plan, completed Task Calibration, review, and
-proof. Compare the actual result with the Plan and remaining Task assumptions.
-
-If responsibility, connections, shared behavior, or the main path changed,
-correct the Plan and run `aiwf sync`. Keep only memory future planning needs.
-
-#### Close Out a Plan
-
-When no Tasks remain, read the Plan and Task Calibrations. Confirm the parts
-work together on the real main path. Inspect the cumulative Git diff when
-needed, and require integration evidence for the Plan, not only separate Tasks.
-
-Discuss any gap with the user before adding work. If the Plan is complete, ask
-the human to merge its branch. After the merge, switch to the base branch and
-run `aiwf plan close --summary "<what the Plan delivered>"`.
-
-Do not modify a closed Plan or link new work to it. Create a new Plan instead.
-Use Architect when the user asks for a broader structural audit; Plan close-out
-does not replace it.
-
-## References
-
-- `references/structure-guide.md`: node ownership and planning order.
-- `references/writing-guide.md`: shared writing rules.
-- `references/goal-writing.md`: capability boundary.
-- `references/plan-writing.md`: mechanism and shared consistency.
-- `references/task-contract.md`: execution contract and proof.
-- `references/milestone-writing.md`: acceptance gate.
-- `references/activation-critique.md`: two-pass critique before activation.
-- `references/lifecycle.md`: Task snapshots, commits, and Plan branch closure.
+Use `references/lifecycle.md` to compare the completed Task with its Plan,
+prepare the next Task, and close a completed Plan. Use Architect only when the
+user asks for a broader structural audit.
 
 ## Stop Condition
 

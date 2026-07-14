@@ -6,13 +6,14 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from ..state_schema import LEGACY_GOAL_ID, default_plans
+from ..worktree_context import resolve_control_root
 from ._common import _atomic_write, _read_json
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 def _plans_path(base_dir: str) -> Path:
-    return Path(base_dir) / ".aiwf" / "state" / "plans.json"
+    return resolve_control_root(base_dir) / ".aiwf" / "state" / "plans.json"
 
 def _read(path: Path, default: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     return _read_json(path, default)
@@ -41,6 +42,7 @@ def _empty_plan(plan_id: str, goal_id: str = "", task_ids: Optional[List[str]] =
         "report_policy": "ask",
         "goal_id": goal_id or LEGACY_GOAL_ID,
         "milestone_id": milestone_id or None,
+        "dependencies": [],
         "task_ids": ids,
         "task_status": {tid: "unknown" for tid in ids},
         "closed_task_ids": [],
@@ -185,7 +187,7 @@ def migrate_legacy_plans(base_dir: str, plans: Optional[Dict[str, Any]] = None) 
     Activation and normal load paths do not call this helper. It is additive,
     never renames retired task-named plan artifacts, and never parses markdown content.
     """
-    base = Path(base_dir)
+    base = resolve_control_root(base_dir)
     data = plans or _read(_plans_path(base_dir), default_plans())
     data.setdefault("schema_version", 1)
     data.setdefault("legacy_goal_id", LEGACY_GOAL_ID)
@@ -234,7 +236,7 @@ def load_plans(base_dir: str, migrate: bool = False) -> Dict[str, Any]:
     data = _read(path, default_plans())
     data.setdefault("schema_version", 1)
     data.setdefault("legacy_goal_id", LEGACY_GOAL_ID)
-    data.setdefault("active_plan_id", None)
+    data.pop("active_plan_id", None)
     data.setdefault("plans", [])
     if not path.exists():
         _write(path, data)
@@ -243,7 +245,6 @@ def load_plans(base_dir: str, migrate: bool = False) -> Dict[str, Any]:
 def save_plans(base_dir: str, plans: Dict[str, Any]) -> None:
     plans.setdefault("schema_version", 1)
     plans.setdefault("legacy_goal_id", LEGACY_GOAL_ID)
-    plans.setdefault("active_plan_id", None)
     plans.setdefault("plans", [])
     _write(_plans_path(base_dir), plans)
 
@@ -324,8 +325,6 @@ def upsert_plan(base_dir: str, plan_id: str, goal_id: str = "", task_ids: Option
         plan["updated_at"] = _now()
     if title:
         plan["title"] = title
-    if status == "active":
-        plans["active_plan_id"] = plan_id
     validate_plan_dependencies(plans)
     save_plans(base_dir, plans)
     if effective_goal or previous_goal:
@@ -355,7 +354,7 @@ def upsert_plan(base_dir: str, plan_id: str, goal_id: str = "", task_ids: Option
                 doc_path = str(goal.get("doc_path") or "")
                 if not doc_path:
                     continue
-                path = Path(base_dir) / doc_path
+                path = resolve_control_root(base_dir) / doc_path
                 if not path.exists():
                     continue
                 frontmatter, body = parse_md(path)

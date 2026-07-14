@@ -14,40 +14,63 @@ ROLE_SUBAGENTS = {
 }
 
 
-def _require_role_dispatch(base: Path, role: str) -> None:
+def _mark_role_recorded(base: Path, task_id: str, subagent_type: str) -> None:
+    """Close the dispatch window when the role records its Task result."""
+    from datetime import datetime, timezone
+    from ..core.state._common import _exclusive_operation_lock
+    from ..core.worktree_context import resolve_control_root
+
+    control = resolve_control_root(base)
+    path = control / ".aiwf/runtime/internal/agent-dispatch.jsonl"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    entry = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "subagent_type": subagent_type,
+        "task_id": task_id,
+        "status": "completed",
+        "completion_source": "record",
+    }
+    with _exclusive_operation_lock(str(control), "agent-dispatch", timeout=2):
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(entry) + "\n")
+
+
+def _require_role_dispatch(base: Path, role: str, task_id: str = "") -> str:
     """Fail early when a required role has not been dispatched for this task."""
     requirement = ROLE_SUBAGENTS.get(role)
     if not requirement:
-        return
+        return task_id
     requirement_key, subagent_type, skill_name = requirement
     try:
-        state = json.loads((base / ".aiwf/state/state.json").read_text(encoding="utf-8"))
-        tasks = json.loads((base / ".aiwf/state/tasks.json").read_text(encoding="utf-8"))
+        from ..core.task_ledger import load_ledger, resolve_active_task_id
+        from ..core.worktree_context import resolve_control_root
+        effective_task = resolve_active_task_id(str(base), task_id)
+        tasks = load_ledger(str(base))
+        control = resolve_control_root(base)
     except Exception:
-        return
+        return task_id
 
-    task_id = str(state.get("active_task_id") or "")
-    if not task_id:
-        return
+    if not effective_task:
+        raise ValueError("record requires an active Task ID or an assigned Task worktree")
     task = next(
         (
             item for item in tasks.get("tasks", []) or []
-            if isinstance(item, dict) and str(item.get("id") or "") == task_id
+            if isinstance(item, dict) and str(item.get("id") or "") == effective_task
         ),
         {},
     )
     if not bool((task.get("requirements", {}) or {}).get(requirement_key, True)):
-        return
+        return effective_task
 
-    dispatch_path = base / ".aiwf/runtime/internal/agent-dispatch.jsonl"
+    dispatch_path = control / ".aiwf/runtime/internal/agent-dispatch.jsonl"
     if dispatch_path.exists():
         for line in dispatch_path.read_text(encoding="utf-8").splitlines():
             try:
                 entry = json.loads(line)
             except Exception:
                 continue
-            if entry.get("task_id") == task_id and entry.get("subagent_type") == subagent_type:
-                return
+            if entry.get("task_id") == effective_task and entry.get("subagent_type") == subagent_type:
+                return effective_task
     raise ValueError(
         f"{role} record requires a task-scoped {subagent_type} dispatch. "
         f"Load /{skill_name} and dispatch {subagent_type} before recording."
@@ -79,7 +102,7 @@ def _cmd_record_testing(args: argparse.Namespace) -> None:
     from ..core.state_ops import record_testing
 
     try:
-        _require_role_dispatch(Path.cwd(), "tester")
+        task_id = _require_role_dispatch(Path.cwd(), "tester", args.task_id)
         verification_results = _parse_verification_results(args.verification_results or [])
         if args.status == "passed" and not args.commands:
             raise ValueError("passed testing requires at least one exact --command")
@@ -93,12 +116,14 @@ def _cmd_record_testing(args: argparse.Namespace) -> None:
             failure_summary=args.summary if args.status == "failed" else "",
             failed_commands=args.commands if args.status == "failed" else None,
             verification_results=verification_results or None,
+            task_id=task_id,
         )
     except ValueError as exc:
         print(f"Testing record blocked: {exc}", file=sys.stderr)
         raise SystemExit(1)
 
     print(f"Testing recorded: status={args.status}")
+    _mark_role_recorded(Path.cwd(), task_id, "aiwf-tester")
     if testing.get("tested_ref"):
         print(f"  Tested ref: {testing['tested_ref']}")
     if args.commands:
@@ -133,7 +158,7 @@ def _cmd_record_review(args: argparse.Namespace) -> None:
     from ..core.state_ops import record_review
 
     try:
-        _require_role_dispatch(Path.cwd(), "reviewer")
+        task_id = _require_role_dispatch(Path.cwd(), "reviewer", args.task_id)
         observations = _parse_observations(args.adversarial_observations or [])
         if args.result == "accepted" and any(
             item["severity"] in ("critical", "high") for item in observations
@@ -150,12 +175,14 @@ def _cmd_record_review(args: argparse.Namespace) -> None:
             cleanup_status=args.cleanup_status or "",
             structure_status=args.structure_status or "",
             summary=args.summary or "",
+            task_id=task_id,
         )
     except ValueError as exc:
         print(f"Review record blocked: {exc}", file=sys.stderr)
         raise SystemExit(1)
 
     print(f"Review recorded: result={review.get('result')}")
+    _mark_role_recorded(Path.cwd(), task_id, "aiwf-reviewer")
     print(f"  Closure allowed: {review.get('closure_allowed', False)}")
     if review.get("reviewed_ref"):
         print(f"  Reviewed ref: {review['reviewed_ref']}")
@@ -167,19 +194,20 @@ def _cmd_record_implementation(args: argparse.Namespace) -> None:
     from ..core.state_ops import record_implementation
 
     try:
-        _require_role_dispatch(Path.cwd(), "executor")
+        task_id = _require_role_dispatch(Path.cwd(), "executor", args.task_id)
         implementation = record_implementation(
             str(Path.cwd()),
             summary=args.summary,
             command=args.command,
             exit_code=args.exit_code,
-            task_id=args.task_id,
+            task_id=task_id,
         )
     except ValueError as exc:
         print(f"Implementation record blocked: {exc}", file=sys.stderr)
         raise SystemExit(1)
 
     print(f"Implementation recorded: {implementation['task_id']}")
+    _mark_role_recorded(Path.cwd(), task_id, "aiwf-executor")
     print(f"  Implementation ref: {implementation['implementation_ref']}")
     print(f"  Changed files: {len(implementation.get('changed_files', []) or [])}")
 
@@ -194,6 +222,7 @@ def _cmd_record_disposition(args: argparse.Namespace) -> None:
             disposition=args.decision,
             reason=args.reason,
             disposed_by="planner",
+            task_id=args.task_id,
         )
     except ValueError as exc:
         print(f"Disposition blocked: {exc}", file=sys.stderr)

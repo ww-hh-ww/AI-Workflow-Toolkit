@@ -73,8 +73,14 @@ class TestConfigurableWritePolicy(unittest.TestCase):
         reviewer = check_file_write(self._event("src/main.py", "aiwf-reviewer"))
         self.assertFalse(reviewer.allowed)
         self.assertIn("first implementation", reviewer.reason)
-        (self.tmp / ".aiwf/records/implementation.json").write_text(json.dumps({
-            "task_id": "TASK-001", "implementation_ref": "abc",
+        record_path = self.tmp / ".aiwf/records/tasks/TASK-001.json"
+        record_path.parent.mkdir(parents=True, exist_ok=True)
+        record_path.write_text(json.dumps({
+            "task_id": "TASK-001",
+            "implementation": {"task_id": "TASK-001", "implementation_ref": "abc"},
+            "testing": {"task_id": "TASK-001", "status": "missing"},
+            "review": {"task_id": "TASK-001", "result": "unknown"},
+            "fix_loop": {"status": "none"},
         }))
         self.assertTrue(check_file_write(self._event("src/main.py", "aiwf-reviewer")).allowed)
 
@@ -130,9 +136,16 @@ class TestConfigurableWritePolicy(unittest.TestCase):
             "---\n",
             encoding="utf-8",
         )
+        tasks_path = self.tmp / ".aiwf/state/tasks.json"
+        tasks = json.loads(tasks_path.read_text())
+        tasks["tasks"][0]["status"] = "ready"
+        tasks["tasks"][0].pop("phase", None)
+        tasks["tasks"][0].pop("worktree_path", None)
+        tasks_path.write_text(json.dumps(tasks))
         state_path = self.tmp / ".aiwf/state/state.json"
         state = json.loads(state_path.read_text())
-        state["active_task_id"] = None
+        state.pop("active_task_id", None)
+        state.pop("phase", None)
         state_path.write_text(json.dumps(state))
 
         result = sync_index(str(self.tmp))

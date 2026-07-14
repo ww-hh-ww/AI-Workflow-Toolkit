@@ -8,7 +8,7 @@ import tempfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from ..hooks.common.diff_snapshot import filter_internal
+from ..hooks.common.diff_snapshot import filter_internal, parse_nul_paths
 
 
 _INTERNAL_EXCLUDES = [
@@ -104,11 +104,49 @@ def worktree_matches_ref(base_dir: str, ref: str) -> bool:
     return bool(expected) and _worktree_tree(Path(base_dir), ref) == expected
 
 
+def tree_changes(base_dir: str, start_ref: str, end_ref: str) -> List[Dict[str, str]]:
+    """Return path-level changes from one commit/tree to another."""
+    result = _run(
+        Path(base_dir), "diff", "--name-status", "-z", "--no-renames",
+        start_ref, end_ref,
+    )
+    if result.returncode != 0:
+        return []
+    tokens = parse_nul_paths(result.stdout)
+    changes: List[Dict[str, str]] = []
+    for index in range(0, len(tokens) - 1, 2):
+        status, path = tokens[index], tokens[index + 1]
+        if path.startswith(".aiwf/") or path == ".aiwf":
+            continue
+        changes.append({"status": status[:1], "path": path})
+    return changes
+
+
+def worktree_changes_from_ref(base_dir: str, ref: str) -> List[Dict[str, str]]:
+    """Describe how the current project worktree differs from an immutable ref."""
+    worktree_tree = _worktree_tree(Path(base_dir), ref)
+    return tree_changes(base_dir, ref, worktree_tree)
+
+
+def format_tree_changes(changes: List[Dict[str, str]], limit: int = 8) -> str:
+    labels = {"A": "extra", "D": "missing", "M": "modified", "T": "modified"}
+    items = [
+        f"{labels.get(item.get('status', ''), 'changed')}: {item.get('path', '')}"
+        for item in changes[:limit]
+    ]
+    if len(changes) > limit:
+        items.append(f"and {len(changes) - limit} more")
+    return "; ".join(items)
+
+
 def diff_files(base_dir: str, start_ref: str, end_ref: str) -> List[str]:
-    result = _run(Path(base_dir), "diff", "--name-only", "--no-renames", start_ref, end_ref)
+    result = _run(
+        Path(base_dir), "diff", "--name-only", "-z", "--no-renames",
+        start_ref, end_ref,
+    )
     if result.returncode != 0:
         return []
     return sorted(filter_internal(
-        [line.strip() for line in result.stdout.splitlines() if line.strip()],
+        parse_nul_paths(result.stdout),
         cwd=Path(base_dir),
     ))

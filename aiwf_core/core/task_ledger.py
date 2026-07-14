@@ -1,8 +1,6 @@
-"""Flexible task ledger and execution-window checks.
+"""Task ledger and per-worktree execution-window checks.
 
-The ledger is advisory for planning shape, but mechanical for active execution:
-Planner may keep many candidate/ready tasks, while activation enforces dependency
-and active-window discipline.
+Many Plans may execute at once. Each worktree still owns only one active Task.
 """
 from __future__ import annotations
 
@@ -11,7 +9,9 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from .state.goal_ops import get_active_goal
-from .state._common import _atomic_write, _read_json
+from .state._common import _atomic_write, _exclusive_operation_lock, _read_json
+from .task_records import default_task_record, load_task_record, save_task_record
+from .worktree_context import resolve_control_root, resolve_worktree_root, same_path
 
 VALID_TASK_STATUSES = {"candidate", "ready", "active", "blocked", "suspended", "closed", "cancelled"}
 TERMINAL_TASK_STATUSES = {"closed", "cancelled"}
@@ -63,11 +63,12 @@ def _write(path: Path, data: Dict[str, Any]) -> None:
     _atomic_write(path, data)
 
 def ledger_path(base_dir: str) -> Path:
-    return Path(base_dir) / ".aiwf" / "state" / "tasks.json"
+    return resolve_control_root(base_dir) / ".aiwf" / "state" / "tasks.json"
 
 def _migrate_ledger_if_needed(base_dir: str) -> None:
     new_path = ledger_path(base_dir)
-    old_path = Path(base_dir) / ".aiwf" / "runtime" / "history" / "task-ledger.json"
+    control = resolve_control_root(base_dir)
+    old_path = control / ".aiwf" / "runtime" / "history" / "task-ledger.json"
     if old_path.exists() and not new_path.exists():
         new_path.parent.mkdir(parents=True, exist_ok=True)
         import shutil
@@ -76,17 +77,77 @@ def _migrate_ledger_if_needed(base_dir: str) -> None:
 def default_ledger() -> Dict[str, Any]:
     return {
         "schema_version": 1,
-        "default_max_active": 1,
         "tasks": [],
     }
 
 def load_ledger(base_dir: str) -> Dict[str, Any]:
     _migrate_ledger_if_needed(base_dir)
     ledger = _read(ledger_path(base_dir), default_ledger())
+    migrated = False
     if not isinstance(ledger.get("tasks"), list):
         ledger["tasks"] = []
-    ledger.setdefault("default_max_active", 1)
+    if "default_max_active" in ledger:
+        ledger.pop("default_max_active", None)
+        migrated = True
+    for task in ledger["tasks"]:
+        if isinstance(task, dict) and "parallel_safe" in task:
+            task.pop("parallel_safe", None)
+            migrated = True
+    state = _read(resolve_control_root(base_dir) / ".aiwf" / "state" / "state.json", {})
+    legacy_active = str(state.get("active_task_id") or "")
+    for task in ledger["tasks"]:
+        if not isinstance(task, dict):
+            continue
+        if task.get("status") == "active" and not task.get("phase"):
+            task["phase"] = str(state.get("phase") or "implementing")
+            migrated = True
+        if task.get("status") == "active" and not task.get("worktree_path"):
+            task["worktree_path"] = str(resolve_worktree_root(base_dir))
+            migrated = True
+        if (
+            task.get("id") == legacy_active
+            and task.get("status") not in ("active", *TERMINAL_TASK_STATUSES)
+        ):
+            task["status"] = "active"
+            task["phase"] = str(state.get("phase") or "implementing")
+            task["worktree_path"] = str(resolve_worktree_root(base_dir))
+            migrated = True
+    active_by_worktree: Dict[str, List[Dict[str, Any]]] = {}
+    for task in ledger["tasks"]:
+        if not isinstance(task, dict) or task.get("status") != "active":
+            continue
+        worktree = str(task.get("worktree_path") or resolve_worktree_root(base_dir))
+        task["worktree_path"] = worktree
+        key = str(Path(worktree).expanduser().resolve())
+        active_by_worktree.setdefault(key, []).append(task)
+    for worktree_tasks in active_by_worktree.values():
+        if len(worktree_tasks) < 2:
+            continue
+        keep = next(
+            (task for task in worktree_tasks if task.get("id") == legacy_active),
+            worktree_tasks[0],
+        )
+        for task in worktree_tasks:
+            if task is keep:
+                continue
+            task["status"] = "suspended"
+            task["suspended_phase"] = task.get("phase") or "implementing"
+            task["phase"] = "suspended"
+            task["interruption"] = {
+                "reason": "recovered conflicting active Tasks in one worktree",
+                "unsatisfied_checks": [],
+            }
+            migrated = True
     ledger.setdefault("schema_version", 1)
+    legacy_state_changed = any(
+        key in state for key in ("active_task_id", "active_plan_id", "phase", "git_origin_ref")
+    )
+    for key in ("active_task_id", "active_plan_id", "phase", "git_origin_ref"):
+        state.pop(key, None)
+    if migrated:
+        save_ledger(base_dir, ledger)
+    if legacy_state_changed:
+        _write(resolve_control_root(base_dir) / ".aiwf" / "state" / "state.json", state)
     return ledger
 
 def save_ledger(base_dir: str, ledger: Dict[str, Any]) -> None:
@@ -104,7 +165,7 @@ def _mark_task_doc_contract_status(
         doc_path = f".aiwf/tasks/{task_id}.md"
     if not doc_path:
         return None
-    doc = Path(base_dir) / doc_path
+    doc = resolve_control_root(base_dir) / doc_path
     if not doc.exists():
         return None
     try:
@@ -126,19 +187,20 @@ def _mark_task_doc_closed(base_dir: str, task: Dict[str, Any]) -> Optional[str]:
 def _task_unsatisfied_checks(base_dir: str, task: Dict[str, Any]) -> List[str]:
     """Collect gate failures for human override/interruption records."""
     unsatisfied: List[str] = []
-    if _read(Path(base_dir) / ".aiwf" / "state" / "fix-loop.json", {}).get("status") == "open":
+    record = load_task_record(base_dir, str(task.get("id") or ""))
+    if (record.get("fix_loop", {}) or {}).get("status") == "open":
         unsatisfied.append("fix-loop is open")
     reqs = task.get("requirements", {})
     if reqs.get("executor_required"):
-        implementation = _read(Path(base_dir) / ".aiwf/records/implementation.json", {})
+        implementation = record.get("implementation", {}) or {}
         if implementation.get("task_id") != task.get("id") or not implementation.get("implementation_ref"):
             unsatisfied.append("executor_required but no implementation recorded")
     if reqs.get("tester_required"):
-        testing = _read(Path(base_dir) / ".aiwf" / "records" / "testing.json", {"status": "missing"})
+        testing = record.get("testing", {}) or {"status": "missing"}
         if testing.get("status") not in ("adequate", "passed"):
             unsatisfied.append(f"tester_required but testing status={testing.get('status', 'missing')}")
     if reqs.get("reviewer_required"):
-        review = _read(Path(base_dir) / ".aiwf" / "records" / "review.json", {"result": "unknown"})
+        review = record.get("review", {}) or {"result": "unknown"}
         if review.get("result") != "accepted":
             unsatisfied.append(f"reviewer_required but review result={review.get('result', 'unknown')}")
         if review.get("blockers"):
@@ -154,6 +216,52 @@ def _find(tasks: List[Dict[str, Any]], task_id: str) -> Optional[Dict[str, Any]]
             return task
     return None
 
+
+def active_tasks(base_dir: str) -> List[Dict[str, Any]]:
+    return [
+        task for task in load_ledger(base_dir).get("tasks", [])
+        if isinstance(task, dict) and task.get("status") == "active"
+    ]
+
+
+def task_for_worktree(base_dir: str, task_id: str = "") -> Optional[Dict[str, Any]]:
+    """Resolve one active Task from an explicit ID or the current worktree."""
+    tasks = load_ledger(base_dir).get("tasks", [])
+    if task_id:
+        task = _find(tasks, task_id)
+        return task if task and task.get("status") == "active" else None
+    current = resolve_worktree_root(base_dir)
+    matches = [
+        task for task in tasks
+        if task.get("status") == "active"
+        and task.get("worktree_path")
+        and same_path(task["worktree_path"], current)
+    ]
+    return matches[0] if len(matches) == 1 else None
+
+
+def resolve_active_task_id(base_dir: str, task_id: str = "") -> str:
+    task = task_for_worktree(base_dir, task_id)
+    return str((task or {}).get("id") or "")
+
+
+def update_task_runtime(base_dir: str, task_id: str, **changes: Any) -> Dict[str, Any]:
+    """Atomically update runtime fields for one Task."""
+    control = resolve_control_root(base_dir)
+    with _exclusive_operation_lock(str(control), "task-ledger"):
+        ledger = load_ledger(base_dir)
+        task = _find(ledger.get("tasks", []), task_id)
+        if not task:
+            raise ValueError(f"Task not found: {task_id}")
+        for key, value in changes.items():
+            if value is None:
+                task.pop(key, None)
+            else:
+                task[key] = value
+        task["updated_at"] = _now()
+        save_ledger(base_dir, ledger)
+        return task
+
 def upsert_task(
     base_dir: str,
     task_id: str,
@@ -161,7 +269,6 @@ def upsert_task(
     status: str = "candidate",
     dependencies: Optional[List[str]] = None,
     allowed_write: Optional[List[str]] = None,   # DEPRECATED: ignored; scope lives on Plan
-    parallel_safe: bool = False,
     notes: Optional[List[str]] = None,
     parent_goal: str = "",
     parent_plan: str = "",
@@ -198,8 +305,6 @@ def upsert_task(
         if status != "active": contract_changes.append("status")
         if dependencies is not None and dependencies != (task.get("dependencies", []) or []):
             contract_changes.append("dependencies")
-        if bool(parallel_safe) != bool(task.get("parallel_safe", False)):
-            contract_changes.append("parallel_safe")
         if contract_changes:
             raise ValueError(
                 "active task contract is frozen; cannot change " + ", ".join(contract_changes)
@@ -224,7 +329,6 @@ def upsert_task(
             },
             "report_policy": "ask",
             "dependencies": [],
-            "parallel_safe": False,
             "notes": [],
             "created_at": _now(),
             "updated_at": _now(),
@@ -242,7 +346,6 @@ def upsert_task(
     task["status"] = status
     if dependencies is not None:
         task["dependencies"] = dependencies
-    task["parallel_safe"] = bool(parallel_safe)
     if notes:
         task.setdefault("notes", []).extend(notes)
     if effective_goal:
@@ -256,7 +359,6 @@ def upsert_task(
     if kind:
         task["kind"] = kind
     task["updated_at"] = _now()
-    _sync_active_ids(ledger)
     save_ledger(base_dir, ledger)
     if effective_plan:
         try:
@@ -267,28 +369,6 @@ def upsert_task(
             pass
     granularity = _detect_action_smell(task.get("title", ""))
     return {"task": task, "ledger": ledger, "granularity_warnings": granularity}
-
-def _sync_active_ids(ledger: Dict[str, Any]) -> None:
-    """No-op in V2. state.json.active_task_id is the single active pointer."""
-    pass
-
-def _overlap(a: List[str], b: List[str]) -> List[str]:
-    return sorted(set(a or []) & set(b or []))
-
-def _task_plan_scope(base_dir: str, task: Dict[str, Any]) -> List[str]:
-    """Read the task's scope boundary — Plan is authoritative, task is legacy fallback."""
-    plan_id = str(task.get("plan_id") or task.get("parent_plan") or "")
-    if plan_id:
-        try:
-            from .state.plan_ops import get_plan
-            plan = get_plan(base_dir, plan_id, migrate=False)
-            plan_scope = plan.get("allowed_write", []) or []
-            if plan_scope:
-                return list(plan_scope)
-        except Exception:
-            pass
-    # Legacy fallback: task-level allowed_write (deprecated, will be removed)
-    return list(task.get("allowed_write", []) or [])
 
 def task_activation_critique_count(task: Dict[str, Any]) -> int:
     try:
@@ -336,8 +416,8 @@ def activation_blockers(base_dir: str, task_id: str) -> List[str]:
     """Task activation minimal gates.
 
     Task.md is the execution contract. Plan is not a gate.
-    Only checks: task exists, status valid, deps closed, no other active,
-    no fix_loop, no scope_violation, and activation proof.
+    Only checks: task exists, status valid, dependencies, one Task in the target
+    worktree, Task-local findings, activation proof, and Git readiness.
     """
     ledger = load_ledger(base_dir)
     tasks = ledger.get("tasks", [])
@@ -353,27 +433,33 @@ def activation_blockers(base_dir: str, task_id: str) -> List[str]:
         if not dep_task or dep_task.get("status") != "closed":
             blockers.append(f"dependency not closed: {dep}")
 
-    active = [t for t in tasks if t.get("status") == "active" and t.get("id") != task_id]
-    max_active = int(ledger.get("default_max_active", 1) or 1)
-    if active and not task.get("parallel_safe"):
-        blockers.append("active execution window occupied")
-    if len(active) >= max_active and not task.get("parallel_safe"):
-        blockers.append(f"default active task limit reached: {max_active}")
-    if task.get("parallel_safe"):
-        for other in active:
-            overlap = _overlap(_task_plan_scope(base_dir, task), _task_plan_scope(base_dir, other))
-            if overlap:
-                blockers.append(f"parallel write boundary conflict with {other.get('id')}: {', '.join(overlap[:5])}")
-
-    state = _read(Path(base_dir) / ".aiwf" / "state" / "state.json", {})
-    if state.get("scope_violation"):
+    plan = {}
+    plan_id = str(task.get("plan_id") or task.get("parent_plan") or "")
+    if plan_id:
+        from .state.plan_ops import get_plan
+        plan = get_plan(base_dir, plan_id, migrate=False)
+    target_worktree = str(plan.get("git_worktree_path") or resolve_worktree_root(base_dir))
+    occupied = {
+        str(item.get("id"))
+        for item in tasks
+        if item.get("status") == "active"
+        and item.get("id") != task_id
+        and item.get("worktree_path")
+        and same_path(item["worktree_path"], target_worktree)
+    }
+    if occupied:
+        blockers.append(
+            "target worktree already has active Task " + ", ".join(sorted(occupied))
+        )
+    record = load_task_record(base_dir, task_id)
+    if task.get("scope_violation"):
         blockers.append(
             "scope violation remains recorded; revert the violating files, then run "
             "aiwf fix-loop resolve --resolution '<what was reverted>' before activating another task"
         )
-    if state.get("phase") == "closing":
-        blockers.append("the current task still needs to close")
-    fix_loop = _read(Path(base_dir) / ".aiwf" / "state" / "fix-loop.json", {})
+    if task.get("phase") == "closing":
+        blockers.append("this Task still needs to close")
+    fix_loop = record.get("fix_loop", {}) or {}
     if fix_loop.get("status") == "open":
         required = fix_loop.get("required_verification", []) or []
         suffix = f"; required verification: {', '.join(map(str, required[:3]))}" if required else ""
@@ -389,12 +475,8 @@ def activation_blockers(base_dir: str, task_id: str) -> List[str]:
     blockers.extend(_active_plan_blockers(base_dir, task))
     try:
         from .git_workflow import task_activation_git_blockers
-        from .state.plan_ops import get_plan
-
-        plan_id = str(task.get("plan_id") or task.get("parent_plan") or "")
-        plan = get_plan(base_dir, plan_id, migrate=False) if plan_id else {}
         blockers.extend(task_activation_git_blockers(
-            base_dir,
+            target_worktree,
             plan,
             allow_dirty=task.get("status") == "suspended",
             expected_head=str(task.get("git_origin_ref") or "") if task.get("status") == "suspended" else "",
@@ -428,7 +510,7 @@ def _active_plan_blockers(base_dir: str, task: Dict[str, Any]) -> List[str]:
         doc_path = plan.get("doc_path", "")
         if doc_path:
             from pathlib import Path as _Path
-            if not (_Path(base_dir) / doc_path).exists():
+            if not (resolve_control_root(base_dir) / doc_path).exists():
                 blockers.append(
                     f"[plan] Plan.md missing at {doc_path} — "
                     f"create it with: aiwf plan create {plan_id} --narrative"
@@ -445,6 +527,19 @@ def _active_plan_blockers(base_dir: str, task: Dict[str, Any]) -> List[str]:
 
 def activate_task(base_dir: str, task_id: str) -> Dict[str, Any]:
     """Activate a planned task if execution-window gates pass."""
+    try:
+        with _exclusive_operation_lock(str(resolve_control_root(base_dir)), "task-ledger"):
+            return _activate_task_locked(base_dir, task_id)
+    except TimeoutError as exc:
+        return {
+            "activated": False,
+            "task": None,
+            "ledger": load_ledger(base_dir),
+            "blockers": [str(exc)],
+        }
+
+
+def _activate_task_locked(base_dir: str, task_id: str) -> Dict[str, Any]:
     ledger = load_ledger(base_dir)
     task = _find(ledger["tasks"], task_id)
     blockers = activation_blockers(base_dir, task_id)
@@ -452,19 +547,23 @@ def activate_task(base_dir: str, task_id: str) -> Dict[str, Any]:
         return {"activated": False, "task": task, "ledger": ledger, "blockers": blockers}
     resuming = task.get("status") == "suspended"
     task["status"] = "active"
+    task["phase"] = str(task.pop("suspended_phase", "") or "implementing")
     task["activation_critique_count"] = 0
     task.pop("activation_critique_updated_at", None)
     task["activated_at"] = _now()
     task["updated_at"] = _now()
-    # Bind the Plan to the current feature branch on its first Task.
+    worktree = resolve_worktree_root(base_dir)
+    # Bind the Plan to its worktree on its first Task.
     if task.get("plan_id"):
-        from .git_workflow import bind_plan_branch
+        from .git_workflow import bind_plan_worktree
         from .state.plan_ops import load_plans, save_plans
 
         plans = load_plans(base_dir)
         for p in plans.get("plans", []) or []:
             if p.get("plan_id", p.get("id")) == task["plan_id"]:
-                bind_plan_branch(base_dir, p)
+                target = p.get("git_worktree_path") or worktree
+                bind_plan_worktree(base_dir, p, target)
+                worktree = resolve_worktree_root(target)
                 p.setdefault("task_status", {})[task_id] = "active"
                 save_plans(base_dir, plans)
                 break
@@ -480,43 +579,37 @@ def activate_task(base_dir: str, task_id: str) -> Dict[str, Any]:
                 task["milestone_id"] = plan["milestone_id"]
         except Exception:
             pass
-    _sync_active_ids(ledger)
-    state_path = Path(base_dir) / ".aiwf" / "state" / "state.json"
-    state = _read(state_path, {})
     from .git_workflow import repository_info
-    from .state_schema import default_implementation, default_review, default_testing
 
     if not resuming or not task.get("git_origin_ref"):
-        git_info = repository_info(base_dir)
+        git_info = repository_info(str(worktree))
         ref = git_info["head"]
         task["git_origin_ref"] = ref
         task["git_branch"] = git_info["branch"]
-        _write(Path(base_dir) / ".aiwf/records/implementation.json", default_implementation(task_id))
-        _write(Path(base_dir) / ".aiwf/records/testing.json", default_testing(task_id))
-        _write(Path(base_dir) / ".aiwf/records/review.json", default_review(task_id))
-    state["git_origin_ref"] = task["git_origin_ref"]
-    if task.get("suspended_context"):
-        for key, value in task["suspended_context"].items():
-            state[key] = value
-    state["active_task_id"] = task_id
-    if task.get("plan_id"):
-        state["active_plan_id"] = task["plan_id"]
-    if state.get("phase") not in ("testing", "reviewing", "closing", "closed"):
-        state["phase"] = "executing"
-    _write(state_path, state)
+        save_task_record(base_dir, default_task_record(task_id))
+    task["worktree_path"] = str(worktree)
     save_ledger(base_dir, ledger)
     return {"activated": True, "task": task, "ledger": ledger, "blockers": []}
 
-def interrupt_task(base_dir: str, reason: str = "") -> Dict[str, Any]:
-    """Human-only interruption of the current active task.
+def interrupt_task(base_dir: str, reason: str = "", task_id: str = "") -> Dict[str, Any]:
+    try:
+        with _exclusive_operation_lock(str(resolve_control_root(base_dir)), "task-ledger"):
+            return _interrupt_task_locked(base_dir, reason=reason, task_id=task_id)
+    except TimeoutError as exc:
+        return {
+            "interrupted": False, "task": None, "ledger": load_ledger(base_dir),
+            "blockers": [str(exc)],
+        }
+
+
+def _interrupt_task_locked(base_dir: str, reason: str = "", task_id: str = "") -> Dict[str, Any]:
+    """Human-only interruption of one active Task.
 
     This releases the execution window without marking the task complete.
     Use cancel for work that should be abandoned, and force-close only when a
     human explicitly accepts an incomplete gate state as finished.
     """
-    state_path = Path(base_dir) / ".aiwf" / "state" / "state.json"
-    state = _read(state_path, {})
-    task_id = state.get("active_task_id", "")
+    task_id = resolve_active_task_id(base_dir, task_id)
     if not task_id:
         return {"interrupted": False, "task": None, "ledger": load_ledger(base_dir),
                 "blockers": ["no active task to interrupt"]}
@@ -536,34 +629,35 @@ def interrupt_task(base_dir: str, reason: str = "") -> Dict[str, Any]:
         "reason": reason.strip() or None,
         "unsatisfied_checks": _task_unsatisfied_checks(base_dir, task),
     }
-    snapshot_keys = ["phase", "active_task_id", "active_plan_id"]
-    task["suspended_context"] = {k: state.get(k) for k in snapshot_keys if k in state}
+    task["suspended_phase"] = task.get("phase")
+    task["phase"] = "suspended"
     if reason.strip():
         task.setdefault("notes", []).append(f"INTERRUPTED by human: {reason.strip()}")
     warning = _mark_task_doc_contract_status(base_dir, task, "suspended")
     if warning:
         task.setdefault("close_warnings", []).append(warning)
 
-    if state.get("active_task_id") == task_id:
-        state["active_task_id"] = None
-    if state.get("phase") in ("executing", "testing", "reviewing", "closing"):
-        state["phase"] = "planning"
-    _write(state_path, state)
-
-    _sync_active_ids(ledger)
     save_ledger(base_dir, ledger)
     return {"interrupted": True, "task": task, "ledger": ledger, "blockers": []}
 
 def close_task(base_dir: str, task_id: str = "", note: str = "") -> Dict[str, Any]:
-    """Mark the active task closed. Defaults to state.json's active_task_id.
+    try:
+        with _exclusive_operation_lock(str(resolve_control_root(base_dir)), "task-ledger"):
+            return _close_task_locked(base_dir, task_id=task_id, note=note)
+    except TimeoutError as exc:
+        return {
+            "closed": False, "task": None, "ledger": load_ledger(base_dir),
+            "blockers": [str(exc)],
+        }
+
+
+def _close_task_locked(base_dir: str, task_id: str = "", note: str = "") -> Dict[str, Any]:
+    """Mark one active Task closed.
 
     Returns goal progress: task is an execution unit, not a goal unit.
     Close output must show: task closed, goal complete status, next task.
     """
-    if not task_id:
-        state_path = Path(base_dir) / ".aiwf" / "state" / "state.json"
-        state = _read(state_path, {})
-        task_id = state.get("active_task_id", "")
+    task_id = str(task_id or "") or resolve_active_task_id(base_dir)
     if not task_id:
         return {"closed": False, "task": None, "ledger": load_ledger(base_dir),
                 "blockers": ["no active task to close"]}
@@ -586,16 +680,16 @@ def close_task(base_dir: str, task_id: str = "", note: str = "") -> Dict[str, An
         }
     if task.get("status") == "active":
         blockers: List[str] = []
-        state = _read(Path(base_dir) / ".aiwf/state/state.json", {})
-        fix_loop = _read(Path(base_dir) / ".aiwf/state/fix-loop.json", {})
-        implementation = _read(Path(base_dir) / ".aiwf/records/implementation.json", {})
-        testing = _read(Path(base_dir) / ".aiwf/records/testing.json", {"status": "missing"})
-        review = _read(Path(base_dir) / ".aiwf/records/review.json", {"result": "unknown"})
+        record = load_task_record(base_dir, task_id)
+        fix_loop = record.get("fix_loop", {}) or {}
+        implementation = record.get("implementation", {}) or {}
+        testing = record.get("testing", {}) or {"status": "missing"}
+        review = record.get("review", {}) or {"result": "unknown"}
         reqs = task.get("requirements", {})
 
         if fix_loop.get("status") == "open":
             blockers.append("open fix-loop blocks task close")
-        if state.get("scope_violation"):
+        if task.get("scope_violation"):
             blockers.append("unresolved Forbidden Write violation blocks task close")
 
         if reqs.get("executor_required"):
@@ -639,13 +733,15 @@ def close_task(base_dir: str, task_id: str = "", note: str = "") -> Dict[str, An
 
         tested_ref = str(testing.get("tested_ref") or "")
         reviewed_ref = str(review.get("reviewed_ref") or "")
+        worktree = str(task.get("worktree_path") or resolve_worktree_root(base_dir))
         if tested_ref and reviewed_ref != tested_ref:
             blockers.append("Reviewer did not accept the current tested snapshot")
         if reviewed_ref:
             try:
                 from .git_snapshots import worktree_matches_ref
-                if not worktree_matches_ref(base_dir, reviewed_ref):
-                    blockers.append("project files changed after review; run Tester and Reviewer again")
+                if not worktree_matches_ref(worktree, reviewed_ref):
+                    from .git_workflow import reviewed_snapshot_mismatch_message
+                    blockers.append(reviewed_snapshot_mismatch_message(worktree, reviewed_ref))
             except Exception as e:
                 blockers.append(f"reviewed snapshot check failed: {e}")
 
@@ -658,7 +754,7 @@ def close_task(base_dir: str, task_id: str = "", note: str = "") -> Dict[str, An
                 from .git_workflow import create_task_commit
 
                 git_commit = create_task_commit(
-                    base_dir,
+                    worktree,
                     task,
                     str(task.get("git_origin_ref") or ""),
                     reviewed_ref,
@@ -667,12 +763,13 @@ def close_task(base_dir: str, task_id: str = "", note: str = "") -> Dict[str, An
                 return {"closed": False, "task": task, "ledger": ledger, "blockers": [f"Git close blocked: {e}"]}
         else:
             from .git_workflow import changed_project_files
-            if changed_project_files(base_dir):
+            if changed_project_files(worktree):
                 return {
                     "closed": False, "task": task, "ledger": ledger,
                     "blockers": ["Git close blocked: project changes exist without a reviewed snapshot"],
                 }
     task["status"] = "closed"
+    task["phase"] = "closed"
     task["closed_at"] = _now()
     task["updated_at"] = _now()
     task["closure"] = {
@@ -689,8 +786,6 @@ def close_task(base_dir: str, task_id: str = "", note: str = "") -> Dict[str, An
     warning = _mark_task_doc_closed(base_dir, task)
     if warning:
         task.setdefault("close_warnings", []).append(warning)
-    _sync_active_ids(ledger)
-
     # Goal progress: find sibling tasks under the same parent goal
     parent_goal = task.get("goal_id") or task.get("parent_goal", "") or ""
     parent_plan = task.get("plan_id") or task.get("parent_plan", "") or ""
@@ -711,13 +806,6 @@ def close_task(base_dir: str, task_id: str = "", note: str = "") -> Dict[str, An
     remaining = [t.get("id", "") for t in goal_tasks if t.get("status") not in TERMINAL_TASK_STATUSES]
     goal_complete = len(remaining) == 0
 
-    state_path = Path(base_dir) / ".aiwf" / "state" / "state.json"
-    state = _read(state_path, {})
-    if state.get("active_task_id") == task_id:
-        state["active_task_id"] = None
-    if state.get("phase") in ("executing", "testing", "reviewing", "closing"):
-        state["phase"] = "planning"
-    _write(state_path, state)
     save_ledger(base_dir, ledger)
     plan_progress = {}
     try:
@@ -757,16 +845,24 @@ def close_task(base_dir: str, task_id: str = "", note: str = "") -> Dict[str, An
         "granularity_warnings": granularity_warnings,
     }
 
-def force_close_task(base_dir: str, reason: str = "") -> Dict[str, Any]:
-    """Human-only emergency close of the current active task.
+def force_close_task(base_dir: str, reason: str = "", task_id: str = "") -> Dict[str, Any]:
+    try:
+        with _exclusive_operation_lock(str(resolve_control_root(base_dir)), "task-ledger"):
+            return _force_close_task_locked(base_dir, reason=reason, task_id=task_id)
+    except TimeoutError as exc:
+        return {
+            "closed": False, "task": None, "ledger": load_ledger(base_dir),
+            "blockers": [str(exc)],
+        }
+
+
+def _force_close_task_locked(base_dir: str, reason: str = "", task_id: str = "") -> Dict[str, Any]:
+    """Human-only emergency close of one active Task.
     Bypasses ALL gates — no hash check, no evidence, no testing, no review.
 
     AI is mechanically blocked from calling this by command-policy.json.
-    Operates on active_task_id from state.json — no TASK-ID parameter.
     """
-    state_path = Path(base_dir) / ".aiwf" / "state" / "state.json"
-    state = _read(state_path, {})
-    task_id = state.get("active_task_id", "")
+    task_id = str(task_id or "") or resolve_active_task_id(base_dir)
     if not task_id:
         return {"closed": False, "task": None, "ledger": load_ledger(base_dir),
                 "blockers": ["no active task to force-close"]}
@@ -782,10 +878,16 @@ def force_close_task(base_dir: str, reason: str = "") -> Dict[str, Any]:
             task.setdefault("close_warnings", []).append(warning)
             save_ledger(base_dir, ledger)
         return {"closed": True, "task": task, "ledger": ledger, "blockers": []}
+    if task.get("status") != "active":
+        return {
+            "closed": False, "task": task, "ledger": ledger,
+            "blockers": [f"task status is '{task.get('status')}', not active"],
+        }
 
     unsatisfied = _task_unsatisfied_checks(base_dir, task)
 
     task["status"] = "closed"
+    task["phase"] = "closed"
     task["closed_at"] = _now()
     task["updated_at"] = _now()
     task["closure"] = {
@@ -798,11 +900,6 @@ def force_close_task(base_dir: str, reason: str = "") -> Dict[str, Any]:
     warning = _mark_task_doc_closed(base_dir, task)
     if warning:
         task.setdefault("close_warnings", []).append(warning)
-
-    state["active_task_id"] = None
-    if state.get("phase") in ("executing", "testing", "reviewing", "closing"):
-        state["phase"] = "planning"
-    _write(state_path, state)
 
     save_ledger(base_dir, ledger)
 
@@ -826,4 +923,5 @@ def ledger_summary(base_dir: str) -> Dict[str, Any]:
         "tasks": tasks,
         "counts": counts,
         "active_task_ids": active_ids,
+        "active_tasks": [t for t in tasks if t.get("status") == "active"],
     }

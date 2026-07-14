@@ -1,12 +1,13 @@
-"""Fix-loop and architecture change operations."""
+"""Task-local fix-loop operations."""
 from __future__ import annotations
 
-import json
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from ._common import _read, _write
+from ..task_ledger import load_ledger, resolve_active_task_id, update_task_runtime
+from ..task_records import load_task_record, update_task_record
+from ..worktree_context import resolve_worktree_root
 
 def open_fix_loop(
     base_dir: str,
@@ -17,6 +18,7 @@ def open_fix_loop(
     source: str = "reviewer",
     invalidated_files: Optional[List[str]] = None,
     invalidated_obligations: Optional[List[str]] = None,
+    task_id: str = "",
 ) -> Dict[str, Any]:
     """Open a fix-loop with route, reason, required fixes, and verification.
 
@@ -26,59 +28,53 @@ def open_fix_loop(
     if checkpoint exists.
     Does NOT auto-execute fixes, modify goal/scope/context, or auto-close workflow.
     """
-    base = Path(base_dir)
-    fix_loop_path = base / ".aiwf" / "state" / "fix-loop.json"
-    state_path = base / ".aiwf" / "state" / "state.json"
+    effective_task = resolve_active_task_id(base_dir, task_id)
+    if not effective_task:
+        raise ValueError("fix-loop requires an active Task ID or an assigned Task worktree")
 
-    fix_loop = _read(fix_loop_path)
-    was_open = fix_loop.get("status") == "open"
+    result: Dict[str, Any] = {}
 
-    if was_open:
-        attempt = fix_loop.get("attempt_count", 0) + 1
-    else:
-        attempt = 1
-
-    fix_loop["status"] = "open"
-    fix_loop["route"] = route
-    fix_loop["reason"] = reason
-    fix_loop["required_fixes"] = required_fixes or (fix_loop.get("required_fixes") if was_open else [])
-    fix_loop["required_verification"] = required_verification or (fix_loop.get("required_verification") if was_open else [])
-
-    # Record the concrete files or obligations invalidated by this finding.
-    if invalidated_files or invalidated_obligations:
-        fix_loop["invalidated_scope"] = {
-            "files": list(invalidated_files or []),
-            "obligations": list(invalidated_obligations or []),
+    def mutate(record: Dict[str, Any]) -> None:
+        nonlocal result
+        fix_loop = record["fix_loop"]
+        was_open = fix_loop.get("status") == "open"
+        attempt = int(fix_loop.get("attempt_count", 0) or 0) + 1 if was_open else 1
+        fix_loop.update({
+            "status": "open",
+            "route": route,
             "reason": reason,
-        }
-    fix_loop["source"] = source
-    fix_loop["attempt_count"] = attempt
+            "source": source,
+            "attempt_count": attempt,
+            "max_attempts": int(fix_loop.get("max_attempts", 0) or 0) or 2,
+        })
+        if required_fixes is not None:
+            fix_loop["required_fixes"] = list(required_fixes)
+        elif not was_open:
+            fix_loop["required_fixes"] = []
+        if required_verification is not None:
+            fix_loop["required_verification"] = list(required_verification)
+        elif not was_open:
+            fix_loop["required_verification"] = []
+        if invalidated_files or invalidated_obligations:
+            fix_loop["invalidated_scope"] = {
+                "files": list(invalidated_files or []),
+                "obligations": list(invalidated_obligations or []),
+                "reason": reason,
+            }
+        history = list(fix_loop.get("route_history", []) or [])
+        history.append({"attempt": attempt, "route": route, "reason": reason, "source": source})
+        fix_loop["route_history"] = history
+        if attempt > fix_loop["max_attempts"]:
+            fix_loop["escalation_required"] = True
+            fix_loop["escalation_reason"] = (
+                f"fix-loop attempts ({attempt}) exceeded max_attempts ({fix_loop['max_attempts']})"
+            )
+            fix_loop["rollback_recommended"] = True
+        result = dict(fix_loop)
 
-    # Keep retry behavior independent from any retired routing scheme.
-    if not was_open or not fix_loop.get("max_attempts"):
-        fix_loop["max_attempts"] = 2
-
-    # Append route history
-    history = fix_loop.get("route_history", []) or []
-    history.append({"attempt": attempt, "route": route, "reason": reason, "source": source})
-    fix_loop["route_history"] = history
-
-    # Escalation check
-    max_att = fix_loop.get("max_attempts", 2)
-    if attempt > max_att:
-        fix_loop["escalation_required"] = True
-        fix_loop["escalation_reason"] = f"fix-loop attempts ({attempt}) exceeded max_attempts ({max_att})"
-        # rollback recommended if git is available for inspection
-        fix_loop["rollback_recommended"] = True
-
-    _write(fix_loop_path, fix_loop)
-
-    state = _read(state_path)
-    if state.get("phase") != "closed":
-        state["phase"] = "reviewing"
-    _write(state_path, state)
-
-    return fix_loop
+    update_task_record(base_dir, effective_task, mutate)
+    update_task_runtime(base_dir, effective_task, phase="reviewing")
+    return result
 
 def _extract_paths_from_fixes(required_fixes: List[str]) -> List[str]:
     """Extract likely file paths from human-readable required_fixes strings.
@@ -179,6 +175,7 @@ def resolve_fix_loop(
     resolution: str,
     source: str = "reviewer",
     force: bool = False,
+    task_id: str = "",
 ) -> Dict[str, Any]:
     """Resolve a fix-loop only after its mechanical verification gates pass.
 
@@ -189,21 +186,28 @@ def resolve_fix_loop(
     When force=True, Planner explicitly acknowledges that remaining changed files
     are legitimate (e.g. cross-task modifications), not scope violations.
     """
-    base = Path(base_dir)
-    fix_loop_path = base / ".aiwf" / "state" / "fix-loop.json"
+    effective_task = resolve_active_task_id(base_dir, task_id)
+    if not effective_task:
+        raise ValueError("fix-loop resolution requires an active Task ID or assigned Task worktree")
+    task = next(
+        (item for item in load_ledger(base_dir).get("tasks", []) if item.get("id") == effective_task),
+        None,
+    )
+    if not task:
+        raise ValueError(f"Task not found: {effective_task}")
+    base = Path(task.get("worktree_path") or resolve_worktree_root(base_dir))
 
-    fix_loop = _read(fix_loop_path)
+    record = load_task_record(base_dir, effective_task)
+    fix_loop = record["fix_loop"]
     if fix_loop.get("status") != "open":
         raise ValueError("fix-loop is not open")
     blockers: List[str] = []
     scope_resolution = None
-    state = _read(base / ".aiwf" / "state" / "state.json")
-    testing = _read(base / ".aiwf" / "records" / "testing.json")
+    testing = record["testing"]
 
     # ── Re-validate required_fixes against current state ──
     required_fixes = fix_loop.get("required_fixes", []) or []
-    review_path = base / ".aiwf" / "records" / "review.json"
-    review = _read(review_path)
+    review = record["review"]
     scope_events = review.get("scope_violation_events", []) or []
     reval = _revalidate_required_fixes(base, required_fixes, scope_events, force)
     if reval["blockers"]:
@@ -218,7 +222,7 @@ def resolve_fix_loop(
         "resolved_reverted": reval["resolved_reverted"],
     }
 
-    if state.get("scope_violation"):
+    if task.get("scope_violation"):
         unresolved = [
             event for event in scope_events
             if isinstance(event, dict) and event.get("status", "recorded") != "resolved_reverted"
@@ -236,12 +240,11 @@ def resolve_fix_loop(
         elif not unresolved:
             if force:
                 # All events already resolved_reverted — just clear the flag.
-                state["scope_violation"] = False
-                _write(base / ".aiwf" / "state" / "state.json", state)
+                task["scope_violation"] = False
             else:
                 blockers.append("scope violation has no structured event history to verify")
         else:
-            scope_resolution = (review_path, review, unresolved, state)
+            scope_resolution = unresolved
     if fix_loop.get("escalation_required") and not force:
         blockers.append(
             "escalation_required=true; Planner cannot self-resolve escalation. "
@@ -259,9 +262,9 @@ def resolve_fix_loop(
     if blockers:
         raise ValueError("fix-loop resolution blocked: " + "; ".join(blockers))
     # P1-3: delta review/cleanup invalidation when fixes involved real code changes
-    _invalidate_delta_review(base, fix_loop, state, review_path, review, force)
+    _invalidate_delta_review(fix_loop, task, review)
     if scope_resolution:
-        review_path, review, unresolved, state = scope_resolution
+        unresolved = scope_resolution
         ts = datetime.now(timezone.utc).isoformat()
         for event in unresolved:
             event["status"] = "resolved_reverted"
@@ -275,15 +278,22 @@ def resolve_fix_loop(
             # Normal resolution: reset review to force re-review after fix
             review["result"] = "unknown"
             review["closure_allowed"] = False
-        state["scope_violation"] = False
-        _write(review_path, review)
-        _write(base / ".aiwf" / "state" / "state.json", state)
+        task["scope_violation"] = False
     fix_loop["status"] = "resolved"
     fix_loop["resolution"] = resolution
     if source: fix_loop["source"] = source
-    _write(fix_loop_path, fix_loop)
+    def store(current: Dict[str, Any]) -> None:
+        current["fix_loop"] = fix_loop
+        current["review"] = review
 
-    return fix_loop
+    update_task_record(base_dir, effective_task, store)
+    update_task_runtime(
+        base_dir,
+        effective_task,
+        phase="reviewing" if review.get("result") != "accepted" else "closing",
+        scope_violation=bool(task.get("scope_violation")),
+    )
+    return dict(fix_loop)
 
 def _check_verification_coverage(
     required_verification: List[str],
@@ -318,12 +328,9 @@ def _check_verification_coverage(
     return uncovered
 
 def _invalidate_delta_review(
-    base: Path,
     fix_loop: Dict[str, Any],
-    state: Dict[str, Any],
-    review_path: Path,
+    task: Dict[str, Any],
     review: Dict[str, Any],
-    force: bool = False,
 ) -> None:
     """When a fix-loop involves real code changes, invalidate the old review/cleanup.
 
@@ -345,7 +352,7 @@ def _invalidate_delta_review(
         return
 
     # Check if scope_violation path already handled this
-    if state.get("scope_violation"):
+    if task.get("scope_violation"):
         return
 
     # Invalidate review
@@ -357,4 +364,3 @@ def _invalidate_delta_review(
                       f"fix-loop route={route} resolved; delta review required for "
                       f"{len(required_fixes)} fixes, "
                       f"{len(invalidated_scope.get('files', []) or [])} invalidated files")
-    _write(review_path, review)

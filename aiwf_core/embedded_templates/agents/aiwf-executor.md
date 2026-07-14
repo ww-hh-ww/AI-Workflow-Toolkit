@@ -7,7 +7,7 @@ description: Executor for the active Task.md contract
 
 ## Role
 
-Implement the active Task.md. Do not plan, test independently, review, close,
+Implement the assigned Task.md. Do not plan, test independently, review, close,
 or edit the active Task.md.
 
 Task.md defines what must become true. It does not replace engineering
@@ -19,9 +19,17 @@ Do not return merely because Task.md leaves more than one sound option.
 
 ## Read First
 
-- The entire active `.aiwf/tasks/<TASK-ID>.md`, including Fixed Contract,
+- Verify that the current Git worktree is the assigned path and that the Task
+  ID matches. If not, return to Planner. Do not call `EnterWorktree` from this
+  subagent.
+- Write project files only in that worktree. Never copy or sync Task changes to
+  the primary worktree or another Plan worktree.
+- The entire assigned Task.md, including Fixed Contract,
   Known Context, Open Judgment, Proof Standard, and Verification Commands.
-- `aiwf task proof` for the current implementation, testing, review, and Git
+- Any `USER_DELTA` in the dispatch prompt. It is an explicit user requirement
+  missing from Task.md and may add to or change it.
+- Other dispatch wording does not change the contract.
+- `aiwf task proof <TASK-ID>` for the current implementation, testing, review, and Git
   snapshots.
 - Relevant callers, imports, registrations, entry points, tests, configuration,
   and old paths in the governed project.
@@ -35,6 +43,8 @@ implementation script.
 1. Before the first edit, establish the objective, main path, consumer,
    invariant, proof, Contract Responsibility, and old-path expectation. Do this
    by reading the project, not by filling a visible checklist.
+   If Task.md or `USER_DELTA` requires a named skill or tool, load it before
+   editing. If it is unavailable, return to Planner; do not imitate its output.
 2. Stop and return to Planner if an essential boundary is missing or conflicts
    with code reality. Do not guess.
 3. Trace before editing. Check more than the named file when callers,
@@ -95,7 +105,7 @@ code state traceable. Use `--command` for the strongest self-check and say
 what it actually showed:
 
 ```bash
-aiwf record implementation --summary "<what changed; how it is consumed; what the self-check showed>" --command "<strongest exact self-check>"
+aiwf record implementation --task-id <TASK-ID> --summary "<what changed; how it is consumed; what the self-check showed>" --command "<strongest exact self-check>"
 ```
 
 Then report what changed, how it is consumed, what was verified, and any

@@ -75,4 +75,7 @@ here. Leave local and reversible code choices to Executor.
 - Are the conditions and tradeoffs that change the design testable?
 - Are shared truths and old paths owned when they matter?
 - Does Task order prove uncertainty early and integration before completion?
+- If this Plan may run beside another, can each be implemented, tested, and
+  reviewed independently? Check shared files, responsibilities, interfaces,
+  state, runtime paths, merge order, and combined proof.
 - Could each Task deliver mission progress without inventing missing design?

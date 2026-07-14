@@ -106,6 +106,50 @@ class TestScopePathNormalization(unittest.TestCase):
                              allowed_write=["src/calculator.js"])
         self.assertNotIn("permissionDecision", out)
 
+    def test_control_root_mission_write_allowed_from_plan_worktree(self):
+        """A Plan worktree may update the shared Planner governance surface."""
+        primary = Path(tempfile.mkdtemp(prefix="awsp_primary_"))
+        worktree = Path(tempfile.mkdtemp(prefix="awsp_worktree_"))
+        shutil.rmtree(worktree)
+        try:
+            subprocess.run(["git", "init", "-q", "-b", "main"], cwd=primary, check=True)
+            subprocess.run(["git", "config", "user.name", "AIWF Test"], cwd=primary, check=True)
+            subprocess.run(["git", "config", "user.email", "aiwf@example.com"], cwd=primary, check=True)
+            subprocess.run(["git", "commit", "-q", "--allow-empty", "-m", "init"], cwd=primary, check=True)
+            _install(primary)
+            subprocess.run(
+                ["git", "worktree", "add", "-q", "-b", "plan-test", str(worktree)],
+                cwd=primary,
+                check=True,
+            )
+
+            from aiwf_core.core.event_model import NormalizedEvent
+            from aiwf_core.hooks.common.scope_checker import check_file_write
+
+            mission = check_file_write(NormalizedEvent(
+                cwd=str(worktree),
+                tool_name="Write",
+                tool_input={"file_path": str(primary / ".aiwf" / "mission.md")},
+            ))
+            self.assertTrue(mission.allowed, mission.reason)
+
+            state = check_file_write(NormalizedEvent(
+                cwd=str(worktree),
+                tool_name="Write",
+                tool_input={"file_path": str(primary / ".aiwf" / "state" / "state.json")},
+            ))
+            self.assertFalse(state.allowed)
+            self.assertIn("must be changed through aiwf CLI", state.reason)
+        finally:
+            subprocess.run(
+                ["git", "worktree", "remove", "--force", str(worktree)],
+                cwd=primary,
+                capture_output=True,
+                text=True,
+            )
+            shutil.rmtree(primary, ignore_errors=True)
+            shutil.rmtree(worktree, ignore_errors=True)
+
     def test_direct_edits_to_machine_truth_denied(self):
         for rel in [
             ".aiwf/state/state.json",

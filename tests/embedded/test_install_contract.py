@@ -32,15 +32,11 @@ class TestInstall(unittest.TestCase):
     def test_v2_state_files_created_without_flat_runtime_state(self):
         expected = [
             ".aiwf/state/state.json",
-            ".aiwf/records/implementation.json",
-            ".aiwf/state/fix-loop.json",
             ".aiwf/state/goals.json",
             ".aiwf/state/milestones.json",
             ".aiwf/state/mission.json",
             ".aiwf/state/plans.json",
             ".aiwf/state/tasks.json",
-            ".aiwf/records/review.json",
-            ".aiwf/records/testing.json",
             ".aiwf/records/events.json",
         ]
         for rel in expected:
@@ -57,6 +53,14 @@ class TestInstall(unittest.TestCase):
         self.assertTrue((self.tmp / ".aiwf" / "config" / "write-policy.json").exists())
         self.assertTrue((self.tmp / ".aiwf" / "config" / "agent-models.json").exists())
         self.assertTrue((self.tmp / ".aiwf" / "records").is_dir())
+        self.assertTrue((self.tmp / ".aiwf" / "records" / "tasks").is_dir())
+        for retired in (
+            ".aiwf/state/fix-loop.json",
+            ".aiwf/records/implementation.json",
+            ".aiwf/records/testing.json",
+            ".aiwf/records/review.json",
+        ):
+            self.assertFalse((self.tmp / retired).exists())
         self.assertTrue((self.tmp / ".aiwf" / "runtime").is_dir())
         self.assertTrue((self.tmp / ".aiwf" / "config").is_dir())
         self.assertFalse((self.tmp / ".aiwf" / "artifacts").is_dir(), "artifacts/ directory retired in V1")
@@ -331,7 +335,10 @@ Ship the product safely.
         self.assertIn("Agent|Task", post_matchers)
         self.assertIn("Write|Edit|MultiEdit", post_matchers)
         stop_matchers = [e.get("matcher", "") for e in s["hooks"]["SubagentStop"]]
-        self.assertIn("aiwf-executor|aiwf-tester|aiwf-reviewer", stop_matchers)
+        self.assertIn(
+            "aiwf-executor|aiwf-tester|aiwf-reviewer|aiwf-architect",
+            stop_matchers,
+        )
 
     def test_skills_exist_with_frontmatter(self):
         """Expected top-level skills installed, with SKILL.md frontmatter."""
@@ -413,8 +420,8 @@ Ship the product safely.
 
     def test_status_shows_embedded_mode(self):
         r = _run([sys.executable, "-m", "aiwf_core.cli", "status"], self.tmp)
-        self.assertIn("AIWF V1.0 — Claude Code", r.stdout)
-        self.assertIn("Phase:", r.stdout)
+        self.assertIn("AIWF V1.0 - Claude Code", r.stdout)
+        self.assertIn("Active Tasks:", r.stdout)
 
     def test_claude_md_exists(self):
         self.assertTrue((self.tmp / "CLAUDE.md").exists())
@@ -721,7 +728,7 @@ class TestReasonixInstall(unittest.TestCase):
 
         status = _run([sys.executable, "-m", "aiwf_core.cli", "status"], self.tmp)
         self.assertEqual(status.returncode, 0, status.stderr)
-        self.assertIn("AIWF V1.0 — Reasonix", status.stdout)
+        self.assertIn("AIWF V1.0 - Reasonix", status.stdout)
 
     def test_claude_install_still_supported(self):
         other = Path(tempfile.mkdtemp(prefix="awin_claude_compat_"))

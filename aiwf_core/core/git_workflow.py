@@ -5,11 +5,28 @@ import subprocess
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from ..hooks.common.diff_snapshot import filter_internal
-from .git_snapshots import diff_files, ref_tree, worktree_matches_ref
+from ..hooks.common.diff_snapshot import filter_internal, parse_nul_paths
+from .git_snapshots import (
+    diff_files, format_tree_changes, ref_tree, tree_changes,
+    worktree_changes_from_ref, worktree_matches_ref,
+)
+from .worktree_context import resolve_worktree_root, same_path
 
 
 PROTECTED_BRANCHES = {"main", "master", "trunk"}
+SNAPSHOT_GUIDANCE = (
+    "AIWF snapshots are intentionally outside the branch; do not commit, "
+    "cherry-pick, merge, or reset them manually"
+)
+
+
+def reviewed_snapshot_mismatch_message(base_dir: str, reviewed_ref: str) -> str:
+    changes = worktree_changes_from_ref(base_dir, reviewed_ref)
+    detail = format_tree_changes(changes) or "tree content or file modes differ"
+    return (
+        f"project files changed after review ({detail}); {SNAPSHOT_GUIDANCE}. "
+        "Run Tester and Reviewer again"
+    )
 
 
 def _run(base: Path, *args: str, env: Optional[Dict[str, str]] = None) -> subprocess.CompletedProcess:
@@ -116,26 +133,61 @@ def detect_base_branch(base_dir: str, current_branch: str) -> str:
 
 
 def bind_plan_branch(base_dir: str, plan: Dict[str, Any]) -> Dict[str, str]:
-    info = repository_info(base_dir)
+    """Bind a Plan to the current worktree and branch."""
+    return bind_plan_worktree(base_dir, plan, resolve_worktree_root(base_dir))
+
+
+def bind_plan_worktree(
+    base_dir: str,
+    plan: Dict[str, Any],
+    worktree_path: str | Path,
+) -> Dict[str, str]:
+    worktree = resolve_worktree_root(worktree_path)
+    info = repository_info(str(worktree))
     branch = info["branch"]
     if not branch or not info["head"]:
-        raise ValueError("cannot bind Plan without a named branch and Git HEAD")
+        raise ValueError("cannot bind Plan without a named worktree branch and Git HEAD")
+    control_info = repository_info(base_dir)
+    if control_info.get("root"):
+        control_common = _run(Path(control_info["root"]), "rev-parse", "--git-common-dir")
+        worktree_common = _run(worktree, "rev-parse", "--git-common-dir")
+        control_common_path = Path(control_common.stdout.strip())
+        if not control_common_path.is_absolute():
+            control_common_path = Path(control_info["root"]) / control_common_path
+        worktree_common_path = Path(worktree_common.stdout.strip())
+        if not worktree_common_path.is_absolute():
+            worktree_common_path = worktree / worktree_common_path
+        if (
+            control_common.returncode != 0
+            or worktree_common.returncode != 0
+            or control_common_path.resolve() != worktree_common_path.resolve()
+        ):
+            raise ValueError("Plan worktree must belong to the governed Git repository")
     bound = str(plan.get("git_branch") or "")
     if bound and bound != branch:
         raise ValueError(f"Plan is bound to '{bound}', current branch is '{branch}'")
-    base_branch = str(plan.get("git_base_branch") or "") or detect_base_branch(base_dir, branch)
+    bound_path = str(plan.get("git_worktree_path") or "")
+    if bound_path and not same_path(bound_path, worktree):
+        raise ValueError(f"Plan is bound to worktree '{bound_path}'")
+    base_branch = str(plan.get("git_base_branch") or "") or detect_base_branch(str(worktree), branch)
     base_ref = str(plan.get("git_base_ref") or "")
     if not base_ref:
         if base_branch:
-            merge_base = _run(Path(base_dir), "merge-base", "HEAD", base_branch)
+            merge_base = _run(worktree, "merge-base", "HEAD", base_branch)
             base_ref = merge_base.stdout.strip() if merge_base.returncode == 0 else info["head"]
         else:
             base_ref = info["head"]
+    plan["git_worktree_path"] = str(worktree)
     plan["git_branch"] = branch
     plan["git_base_branch"] = base_branch
     plan["git_base_ref"] = base_ref
     plan["git_head_ref"] = info["head"]
-    return {"branch": branch, "base_branch": base_branch, "base_ref": base_ref}
+    return {
+        "worktree_path": str(worktree),
+        "branch": branch,
+        "base_branch": base_branch,
+        "base_ref": base_ref,
+    }
 
 
 def create_task_commit(
@@ -155,22 +207,35 @@ def create_task_commit(
         ):
             return info["head"]
         raise ValueError(
-            "Git HEAD changed since Task activation; re-plan or restart the Task on the current branch"
+            "Git HEAD changed since Task activation; " + SNAPSHOT_GUIDANCE +
+            ". Re-plan or restart the Task on the current branch"
         )
     if not worktree_matches_ref(base_dir, reviewed_ref):
-        raise ValueError("project files changed after review; run Tester and Reviewer again")
+        raise ValueError(reviewed_snapshot_mismatch_message(base_dir, reviewed_ref))
     files = diff_files(base_dir, origin_ref, reviewed_ref)
     if not files:
         raise ValueError("Task has no reviewed project changes to commit")
-    staged_before = _required(base, "diff", "--cached", "--name-only").splitlines()
+    staged_result = _run(base, "diff", "--cached", "--name-only", "-z")
+    if staged_result.returncode != 0:
+        raise ValueError(staged_result.stderr.strip() or "cannot inspect the Git index")
+    staged_before = parse_nul_paths(staged_result.stdout)
     if staged_before:
-        raise ValueError("Git index already contains staged files; unstage them before Task close")
+        staged = ", ".join(staged_before[:8])
+        raise ValueError(
+            f"Git index already contains staged files: {staged}; "
+            "unstage them before Task close"
+        )
     _required(base, "add", "-A", "--", *files)
     staged_tree = _required(base, "write-tree")
     expected_tree = ref_tree(base_dir, reviewed_ref)
     if staged_tree != expected_tree:
+        changes = tree_changes(base_dir, reviewed_ref, staged_tree)
+        detail = format_tree_changes(changes) or "tree content or file modes differ"
         _run(base, "reset", "-q", "HEAD", "--", ".")
-        raise ValueError("staged Task tree does not match the reviewed snapshot")
+        raise ValueError(
+            f"staged Task tree does not match the reviewed snapshot ({detail}); "
+            f"{SNAPSHOT_GUIDANCE}"
+        )
     task_id = str(task.get("id") or "TASK")
     title = str(task.get("title_cache") or task.get("title") or "completed task")
     plan_id = str(task.get("plan_id") or task.get("parent_plan") or "")

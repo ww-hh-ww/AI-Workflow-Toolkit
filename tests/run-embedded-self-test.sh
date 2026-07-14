@@ -20,6 +20,7 @@ TESTS=(
   "tests/embedded/test_project_root_resolution.py"
   "tests/embedded/test_scope_path_normalization.py"
   "tests/embedded/test_git_task_records.py"
+  "tests/embedded/test_task_parallel_contract.py"
   "tests/embedded/test_record_dispatch_contract.py"
   "tests/embedded/test_state_cli_ops.py"
   "tests/embedded/test_task_proof_contract.py"

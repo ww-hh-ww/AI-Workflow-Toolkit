@@ -10,6 +10,10 @@ import subprocess
 from ...core.event_model import NormalizedEvent, ScopeResult
 from ...core.scope_policy import check_scope, check_bash_command
 from ...core.state.goal_ops import get_active_goal
+from ...core.task_ledger import task_for_worktree
+from ...core.task_records import load_task_record
+from ...core.worktree_context import resolve_control_root
+from .worktree_guard import foreign_bash_write, foreign_worktree_target
 
 
 DEFAULT_WRITE_POLICY: Dict[str, Any] = {
@@ -114,18 +118,17 @@ def _is_gitignored(file_path: str, cwd: Path) -> bool:
         return False
 
 
-def _get_active_task_requirements(cwd: Path) -> Optional[Dict[str, Any]]:
+def _get_active_task_requirements(cwd: Path, task_id: str) -> Optional[Dict[str, Any]]:
     """Read the active task's requirements from Task.md frontmatter.
 
     Reads directly from the MD contract, not from synced JSON. This means
     editing Task.md and changing executor_required takes effect immediately
     without needing aiwf sync — same as forbidden_write already works.
     """
-    state = _read_json(cwd / ".aiwf" / "state" / "state.json", {})
-    task_id = state.get("active_task_id")
     if not task_id:
         return None
-    task_md = cwd / ".aiwf" / "tasks" / f"{task_id}.md"
+    control = resolve_control_root(cwd)
+    task_md = control / ".aiwf" / "tasks" / f"{task_id}.md"
     if not task_md.exists():
         return None
     try:
@@ -154,7 +157,7 @@ def _get_active_task_requirements(cwd: Path) -> Optional[Dict[str, Any]]:
 
 def _get_task_forbidden_write(cwd: Path, task_id: str) -> list:
     """Read forbidden_write from active Task.md frontmatter."""
-    task_md = cwd / ".aiwf" / "tasks" / f"{task_id}.md"
+    task_md = resolve_control_root(cwd) / ".aiwf" / "tasks" / f"{task_id}.md"
     if not task_md.exists():
         return []
     try:
@@ -253,7 +256,7 @@ def _is_planner_inline_role(role: str) -> bool:
 def _task_has_executor_evidence(cwd: Path, task_id: str) -> bool:
     if not task_id:
         return False
-    implementation = _read_json(cwd / ".aiwf/records/implementation.json", {})
+    implementation = load_task_record(cwd, task_id).get("implementation", {}) or {}
     return (
         str(implementation.get("task_id") or "") == str(task_id)
         and bool(implementation.get("implementation_ref"))
@@ -290,11 +293,17 @@ def check_file_write(event: NormalizedEvent) -> ScopeResult:
         return ScopeResult(file_path="", allowed=True, reason="no file_path in event")
 
     cwd = Path(event.cwd) if event.cwd else Path.cwd()
-
-    state = _read_json(cwd / ".aiwf" / "state" / "state.json", {})
-    write_policy = _read_write_policy(cwd)
+    control = resolve_control_root(cwd)
+    active_task = task_for_worktree(str(cwd))
+    active_task_id = str((active_task or {}).get("id") or "")
+    state = _read_json(control / ".aiwf" / "state" / "state.json", {})
+    write_policy = _read_write_policy(control)
     from ...core.scope_policy import _is_governance_file, _normalize_path
     normalized = _normalize_path(file_path, str(cwd))
+    if Path(normalized).is_absolute() and control != cwd:
+        control_relative = _normalize_path(file_path, str(control))
+        if control_relative == ".aiwf" or control_relative.startswith(".aiwf/"):
+            normalized = control_relative
 
     # ── Mechanical truth: JSON run state must use CLI, never direct Write/Edit ──
     _PROTECTED_JSON_PREFIXES = (".aiwf/state/", ".aiwf/records/")
@@ -308,6 +317,28 @@ def check_file_write(event: NormalizedEvent) -> ScopeResult:
                 "direct Write/Edit of .aiwf/state/*.json and .aiwf/records/*.json is denied."
             ),
         )
+
+    if active_task_id and not _is_governance_file(normalized):
+        assigned = Path(str(active_task.get("worktree_path") or cwd))
+        violation = foreign_worktree_target(
+            file_path,
+            cwd=cwd,
+            control_root=control,
+            assigned_worktree=assigned,
+        )
+        if violation:
+            target, owner = violation
+            return ScopeResult(
+                file_path=str(target),
+                allowed=False,
+                active_context_id=active_task_id,
+                reason=(
+                    f"Task {active_task_id} is assigned to worktree '{assigned.resolve()}'. "
+                    f"Write target '{target}' belongs to a different AIWF worktree '{owner}'. "
+                    "Write only inside the assigned worktree; do not copy or sync Task changes "
+                    "to the primary or another Plan worktree."
+                ),
+            )
 
     role = str(event.agent_type or "").lower()
     if (
@@ -323,7 +354,10 @@ def check_file_write(event: NormalizedEvent) -> ScopeResult:
         )
 
     # ── Fix-loop repair window: allow explicit repair targets ──
-    fix_loop = _read_json(cwd / ".aiwf" / "state" / "fix-loop.json", {})
+    fix_loop = (
+        load_task_record(control, active_task_id).get("fix_loop", {})
+        if active_task_id else {}
+    )
     if fix_loop.get("status") == "open":
         import re
         required_fixes = fix_loop.get("required_fixes", []) or []
@@ -335,12 +369,11 @@ def check_file_write(event: NormalizedEvent) -> ScopeResult:
                 p_clean = p.lstrip("./")
                 candidates = {p_clean, "." + p_clean}
                 if normalized in candidates or any(normalized.endswith("/" + c) for c in candidates):
-                    active_task_id = state.get("active_task_id")
                     if (
                         not _is_governance_file(normalized)
                         and active_task_id
                     ):
-                        reqs = _get_active_task_requirements(cwd) or {}
+                        reqs = _get_active_task_requirements(control, active_task_id) or {}
                         tester_test_write = (
                             "tester" in role
                             and reqs.get("tester_required")
@@ -434,7 +467,7 @@ def check_file_write(event: NormalizedEvent) -> ScopeResult:
                     f"'{normalized}'."
                 ),
             )
-        closed_plan_id = _closed_plan_for_path(cwd, normalized)
+        closed_plan_id = _closed_plan_for_path(control, normalized)
         if closed_plan_id:
             return ScopeResult(
                 file_path=normalized,
@@ -445,7 +478,6 @@ def check_file_write(event: NormalizedEvent) -> ScopeResult:
                     "Create a new Plan for new work; only the human may correct this document."
                 ),
             )
-        active_task_id = state.get("active_task_id")
         # Only the active Task.md is frozen during execution
         if active_task_id and write_policy.get("freeze_active_task_md"):
             task_md_path = f".aiwf/tasks/{active_task_id}.md"
@@ -465,7 +497,6 @@ def check_file_write(event: NormalizedEvent) -> ScopeResult:
                           reason="governance file — always allowed")
 
     # ── Project files: require active task ──
-    active_task_id = state.get("active_task_id")
     if not active_task_id and write_policy.get("project_writes_require_active_task"):
         return ScopeResult(
             file_path=normalized,
@@ -478,7 +509,7 @@ def check_file_write(event: NormalizedEvent) -> ScopeResult:
         )
 
     # ── Role write boundaries ──
-    reqs = _get_active_task_requirements(cwd) or {}
+    reqs = _get_active_task_requirements(control, active_task_id) or {}
     if _role_project_write_mode(role, write_policy) != "allow":
         role_name = _role_read_only_name(role)
         return ScopeResult(
@@ -589,13 +620,39 @@ def _path_matches(file_path: str, pattern: str) -> bool:
 def check_bash(event: NormalizedEvent) -> Dict:
     command = event.tool_input.get("command", "")
     cwd = Path(event.cwd) if event.cwd else Path.cwd()
+    control = resolve_control_root(cwd)
+    active_task = task_for_worktree(str(cwd))
+    active_task_id = str((active_task or {}).get("id") or "")
 
     # ── Command-policy: mechanically block AI-forbidden commands ──
-    policy_result = _check_command_policy(command, cwd)
+    policy_result = _check_command_policy(command, control)
     if policy_result:
         return policy_result
 
-    protected_config_result = _check_command_policy_bash_write(command, cwd)
+    if active_task_id:
+        assigned = Path(str(active_task.get("worktree_path") or cwd))
+        violation = foreign_bash_write(
+            command,
+            cwd=cwd,
+            control_root=control,
+            assigned_worktree=assigned,
+        )
+        if violation:
+            target, owner = violation
+            return {
+                "allowed": False,
+                "decision": "deny",
+                "command": command[:200],
+                "matched_pattern": str(target),
+                "reason": (
+                    f"Task {active_task_id} is assigned to worktree '{assigned.resolve()}'. "
+                    f"Shell write target '{target}' belongs to a different AIWF worktree "
+                    f"'{owner}'. Write only inside the assigned worktree; do not copy or sync "
+                    "Task changes to the primary or another Plan worktree."
+                ),
+            }
+
+    protected_config_result = _check_command_policy_bash_write(command, control)
     if protected_config_result:
         return protected_config_result
 
@@ -603,17 +660,16 @@ def check_bash(event: NormalizedEvent) -> Dict:
     if role_config_result:
         return role_config_result
 
-    closed_plan_result = _check_closed_plan_bash(command, cwd)
+    closed_plan_result = _check_closed_plan_bash(command, control)
     if closed_plan_result:
         return closed_plan_result
 
     # ── Active Task.md: block bash writes to frozen contract ──
-    active_lock_result = _check_active_task_md_bash(command, cwd)
+    active_lock_result = _check_active_task_md_bash(command, control, active_task_id)
     if active_lock_result:
         return active_lock_result
 
-    state = _read_json(cwd / ".aiwf/state/state.json", {})
-    if state.get("active_task_id"):
+    if active_task_id:
         import re
         if re.search(r"(^|[;&|]\s*)git\s+commit\b", command, re.IGNORECASE):
             return {
@@ -667,18 +723,10 @@ def _check_closed_plan_bash(command: str, cwd: Path) -> Optional[Dict]:
     return None
 
 
-def _check_active_task_md_bash(command: str, cwd: Path) -> Optional[Dict]:
+def _check_active_task_md_bash(command: str, cwd: Path, active_task_id: str) -> Optional[Dict]:
     """Block bash commands that write to or delete the active Task.md during execution."""
     if not _read_write_policy(cwd).get("freeze_active_task_md"):
         return None
-    state_path = cwd / ".aiwf" / "state" / "state.json"
-    if not state_path.exists():
-        return None
-    try:
-        state = json.loads(state_path.read_text(encoding="utf-8"))
-    except Exception:
-        return None
-    active_task_id = state.get("active_task_id", "")
     if not active_task_id:
         return None
 

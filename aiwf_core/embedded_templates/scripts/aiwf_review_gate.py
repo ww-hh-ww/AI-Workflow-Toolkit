@@ -4,12 +4,14 @@ from pathlib import Path
 from aiwf_core.adapters.claude.normalize_event import parse_claude_stdin
 from aiwf_core.hooks.common.gate_checker import eval_closure_gates
 from aiwf_core.adapters.claude.responses import allow, block_stop
+from aiwf_core.core.worktree_context import resolve_control_root
 
 def main():
     data = parse_claude_stdin()
-    cwd = Path(__file__).resolve().parent.parent
+    cwd = Path(data.get("cwd") or Path(__file__).resolve().parent.parent)
+    control = resolve_control_root(cwd)
 
-    if not (cwd / ".aiwf" / "state" / "state.json").exists():
+    if not (control / ".aiwf" / "state" / "state.json").exists():
         allow()
 
     gates = eval_closure_gates(cwd)

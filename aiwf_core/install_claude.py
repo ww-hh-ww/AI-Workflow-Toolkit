@@ -11,7 +11,7 @@ from typing import Any, Dict, List, NamedTuple
 
 from .constants import VERSION
 from .core.state_schema import MVP_STATE_FILES
-from .core.paths import ALL_DIRS, STATE_JSON, GOALS_JSON, PLANS_JSON, TASKS_JSON, MILESTONES_JSON, FIX_LOOP_JSON, RECORDS_IMPLEMENTATION, RECORDS_TESTING, RECORDS_REVIEW, RECORDS_EVENTS, WORKSPACE_DRIFT_JSON
+from .core.paths import ALL_DIRS
 from .io import read_json, rel, write_json, write_text
 from .utils import now
 
@@ -202,7 +202,7 @@ def _build_settings_json(target: EmbedTarget | None = None) -> Dict[str, Any]:
                 {"matcher": "Write|Edit|MultiEdit",                 **_h(q_auto_sync)},
             ],
             "SubagentStop": [
-                {"matcher": "aiwf-executor|aiwf-tester|aiwf-reviewer", **_h(q_agent_log)},
+                {"matcher": "aiwf-executor|aiwf-tester|aiwf-reviewer|aiwf-architect", **_h(q_agent_log)},
             ],
             "Stop": [_h(q_review_gate)],
         },
@@ -523,7 +523,7 @@ def _write_agents(target: EmbedTarget | None = None) -> List[Path]:
     return paths
 
 
-# ── .aiwf state files (MVP: 7 files only) ──────────────────────────────
+# ── .aiwf state files ─────────────────────────────────────────────────
 
 def _write_state_files() -> List[Path]:
     d = _aiwf_dir()
@@ -537,10 +537,6 @@ def _write_state_files() -> List[Path]:
         "state/plans.json": d / "state" / "plans.json",
         "state/tasks.json": d / "state" / "tasks.json",
         "state/milestones.json": d / "state" / "milestones.json",
-        "state/fix-loop.json": d / "state" / "fix-loop.json",
-        "records/implementation.json": d / "records" / "implementation.json",
-        "records/testing.json": d / "records" / "testing.json",
-        "records/review.json": d / "records" / "review.json",
         "records/events.json": d / "records" / "events.json",
     }
     # Write .aiwf/README.md
@@ -554,7 +550,8 @@ def _write_state_files() -> List[Path]:
                 "",
                 "Zones:",
                 "- `state/` — machine truth (JSON): registries, canonical state, gate inputs.",
-                "- `records/` — current implementation, testing, review, and event records.",
+                "- `records/tasks/` — implementation, testing, review, and fix-loop records by Task.",
+                "- `records/events.json` — concise workflow events.",
                 "- `goals/` — goal narrative docs (Markdown).",
                 "- `plans/` — plan narrative docs (Markdown).",
                 "- `tasks/` — task narrative docs (Markdown, execution contract).",
@@ -720,6 +717,7 @@ def _write_state_files() -> List[Path]:
             # The --force flag regenerates scripts/settings, not state data.
             write_json(target, default_fn())
             paths.append(target)
+    paths.extend(_migrate_singleton_task_records(d))
     try:
         from .core.index_ops import sync_index
         sync_index(str(Path.cwd()))
@@ -729,6 +727,53 @@ def _write_state_files() -> List[Path]:
     except Exception:
         pass
     return paths
+
+
+def _migrate_singleton_task_records(aiwf_dir: Path) -> List[Path]:
+    """Move retired singleton workflow records into Task-owned records."""
+    from .core.task_records import default_task_record, save_task_record
+
+    legacy = {
+        "implementation": aiwf_dir / "records/implementation.json",
+        "testing": aiwf_dir / "records/testing.json",
+        "review": aiwf_dir / "records/review.json",
+    }
+    values = {name: read_json(path, {}) for name, path in legacy.items()}
+    state = read_json(aiwf_dir / "state/state.json", {})
+    fix_path = aiwf_dir / "state/fix-loop.json"
+    fix_loop = read_json(fix_path, {})
+    task_ids = {
+        str(value.get("task_id") or "")
+        for value in values.values()
+        if isinstance(value, dict) and value.get("task_id")
+    }
+    legacy_active = str(state.get("active_task_id") or "")
+    if legacy_active:
+        task_ids.add(legacy_active)
+
+    migrated: List[Path] = []
+    for task_id in sorted(task_ids):
+        record = default_task_record(task_id)
+        changed = False
+        for section, value in values.items():
+            if isinstance(value, dict) and str(value.get("task_id") or "") == task_id:
+                record[section] = value
+                changed = True
+        if (
+            isinstance(fix_loop, dict)
+            and fix_loop.get("status") in ("open", "resolved")
+            and task_id == legacy_active
+        ):
+            record["fix_loop"] = fix_loop
+            changed = True
+        if changed:
+            save_task_record(aiwf_dir.parent, record)
+            migrated.append(aiwf_dir / "records/tasks" / f"{task_id}.json")
+
+    for path in [*legacy.values(), fix_path]:
+        if path.exists():
+            path.unlink()
+    return migrated
 
 
 # ── hook scripts ───────────────────────────────────────────────────────
@@ -820,6 +865,7 @@ def _migrate_legacy_paths():
         "fix-loop.json": "state/fix-loop.json",
         "task-ledger.json": "state/tasks.json",
         "evidence.json": "",
+        "implementation.json": "records/implementation.json",
         "testing.json": "records/testing.json",
         "review.json": "records/review.json",
     }

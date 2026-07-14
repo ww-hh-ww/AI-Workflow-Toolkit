@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from ._common import BLOCKING_REVIEW_RESULTS, _read, _write
+from ._common import BLOCKING_REVIEW_RESULTS
 
 
 def record_review(
@@ -17,28 +17,43 @@ def record_review(
     cleanup_status: str = "",
     structure_status: str = "",
     summary: str = "",
+    task_id: str = "",
 ) -> Dict[str, Any]:
-    """Validate and replace review.json with the current review judgment."""
+    """Validate and replace one Task's review judgment."""
     from ..state_schema import VALID_REVIEW_RESULTS
 
     if result not in VALID_REVIEW_RESULTS or result == "unknown":
         raise ValueError(f"invalid review result: {result}")
 
     base = Path(base_dir)
-    review_path = base / ".aiwf/records/review.json"
-    state_path = base / ".aiwf/state/state.json"
-    state = _read(state_path)
-    task_id = str(state.get("active_task_id") or "")
-    testing = _read(base / ".aiwf/records/testing.json")
+    from ..task_ledger import load_ledger, resolve_active_task_id, update_task_runtime
+    from ..task_records import load_task_record, update_task_record
+    from ..worktree_context import resolve_control_root, resolve_worktree_root, same_path
+
+    task_id = resolve_active_task_id(base_dir, task_id)
+    task_record = load_task_record(base_dir, task_id) if task_id else {}
+    testing = task_record.get("testing", {}) or {}
     tested_ref = str(testing.get("tested_ref") or "")
     if not task_id:
         raise ValueError("review requires an active Task")
     if testing.get("task_id") != task_id or not tested_ref:
         raise ValueError("review requires a current tested snapshot for the active Task")
+    task = next(
+        (
+            item for item in load_ledger(base_dir).get("tasks", []) or []
+            if isinstance(item, dict) and item.get("id") == task_id
+        ),
+        None,
+    )
+    if not task:
+        raise ValueError(f"active Task not found: {task_id}")
+    worktree = str(task.get("worktree_path") or "")
+    if not worktree or not same_path(resolve_worktree_root(base), worktree):
+        raise ValueError(f"run review in Task {task_id}'s assigned worktree")
 
     from ..git_snapshots import worktree_matches_ref
 
-    if not worktree_matches_ref(base_dir, tested_ref):
+    if not worktree_matches_ref(worktree, tested_ref):
         raise ValueError("project files changed after testing; record testing again before review")
 
     observations = list(adversarial_observations or [])
@@ -48,6 +63,11 @@ def record_review(
     ]
     if result == "accepted" and unresolved_high:
         raise ValueError("critical/high observations cannot be accepted")
+
+    from ..index_ops import remove_narrative_section
+
+    task_doc = resolve_control_root(base) / ".aiwf" / "tasks" / f"{task_id}.md"
+    remove_narrative_section(task_doc, "Closure Calibration")
 
     review: Dict[str, Any] = {
         "task_id": task_id,
@@ -68,14 +88,11 @@ def record_review(
             review["cleanup_status"] = cleanup_status
         if structure_status:
             review["structure_status"] = structure_status
-    _write(review_path, review)
-
-    if state.get("phase") not in ("closing", "closed"):
-        state["phase"] = "closing"
-        _write(state_path, state)
+    update_task_record(base_dir, task_id, lambda record: record.__setitem__("review", review))
+    update_task_runtime(base_dir, task_id, phase="closing")
 
     if result in BLOCKING_REVIEW_RESULTS:
-        current = _read(base / ".aiwf/state/fix-loop.json")
+        current = (load_task_record(base_dir, task_id).get("fix_loop", {}) or {})
         if not (current.get("status") == "open" and current.get("route") == "planner"):
             from .fixloop_ops import open_fix_loop
 
@@ -85,5 +102,6 @@ def record_review(
                 reason=review["summary"],
                 required_fixes=review["blockers"],
                 source="reviewer",
+                task_id=task_id,
             )
     return review

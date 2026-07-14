@@ -4,6 +4,8 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+import time
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Callable, Dict, Optional, TypeVar
 
@@ -17,6 +19,36 @@ T = TypeVar("T")
 
 class StateFileError(ValueError):
     """An AIWF state file exists but cannot be trusted."""
+
+
+@contextmanager
+def _exclusive_operation_lock(base_dir: str, name: str, timeout: float = 5.0):
+    """Cross-platform short lock for one multi-file state transition."""
+    lock_path = Path(base_dir) / ".aiwf" / "runtime" / "internal" / f"{name}.lock"
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    deadline = time.monotonic() + timeout
+    fd = None
+    while fd is None:
+        try:
+            fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            try:
+                if time.time() - lock_path.stat().st_mtime > 120.0:
+                    lock_path.unlink()
+                    continue
+            except FileNotFoundError:
+                continue
+            if time.monotonic() >= deadline:
+                raise TimeoutError(f"AIWF operation '{name}' is already running")
+            time.sleep(0.02)
+    try:
+        yield
+    finally:
+        os.close(fd)
+        try:
+            lock_path.unlink()
+        except FileNotFoundError:
+            pass
 
 
 def _read_json(path: Path, default: Optional[Dict] = None) -> Dict:

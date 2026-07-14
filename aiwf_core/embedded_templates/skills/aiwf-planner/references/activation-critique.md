@@ -25,20 +25,23 @@ try to break it.
    facts that may change those claims.
 3. Explore code reality with `rg` and file reads. Do not rely on memory or the
    governance files.
-4. Compare the governance claims against code reality. Check main path,
+4. If the contract explicitly requires a named Skill, MCP, or tool, confirm the
+   assigned role can use it. Do not try to predict every possible runtime
+   failure; Executor must return when new reality breaks the contract.
+5. Compare the governance claims against code reality. Check main path,
    consumer, invariant, proof, runtime entrypoints, and old
    path or bypass risk.
    For structural work, check whether module boundaries follow ownership and
    change rather than Goal or Task names. Trace dependency direction and who
    owns shared state and failures.
-5. If the governance files are wrong, incomplete, or too confident, revise the
+6. If the governance files are wrong, incomplete, or too confident, revise the
    relevant MD and run `aiwf sync`.
-6. If the main path, consumer, invariant, or proof is still guessed, do not
+7. If the main path, consumer, invariant, or proof is still guessed, do not
    activate. Create exploration/design work or ask the user.
-7. If a chosen technical method has no source-backed basis or was never
+8. If a chosen technical method has no source-backed basis or was never
    compared against the raw problem, return to Plan formation. Use independent
    option exploration before recording another critique pass.
-8. Confirm the project worktree is clean and the current branch is the feature
+9. Confirm the project worktree is clean and the current branch is the feature
    branch for this Plan. Do not start a Task on main, master, trunk, detached
    HEAD, or a branch already bound to another Plan.
 

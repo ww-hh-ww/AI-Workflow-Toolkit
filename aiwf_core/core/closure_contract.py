@@ -25,7 +25,9 @@ def closure_conditions_met(
         missing.append("fix-loop")
 
     if closing_task:
-        blockers.append("active task is ready to close; run aiwf task close before stopping")
+        blockers.append(
+            "active task is in closing; run aiwf status --prompt and follow its route before stopping"
+        )
         missing.append("task_close")
 
     if closing_task:

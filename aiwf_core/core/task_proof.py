@@ -7,7 +7,6 @@ the recorded testing surface covers it.
 from __future__ import annotations
 
 import re
-import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -99,7 +98,8 @@ def _task_doc_path(base: Path, task: Dict[str, Any]) -> Path:
 
 
 def read_task_proof_contract(base_dir: str, task: Dict[str, Any]) -> Optional[TaskProofContract]:
-    base = Path(base_dir)
+    from .worktree_context import resolve_control_root
+    base = resolve_control_root(base_dir)
     path = _task_doc_path(base, task)
     if not path.exists():
         return None
@@ -208,25 +208,13 @@ def validate_testing_against_task(
 
 def build_task_proof(base_dir: str, task: Dict[str, Any]) -> Dict[str, Any]:
     """Return the concise implementation/testing/review truth for one Task."""
-    base = Path(base_dir)
-
-    def read(name: str) -> Dict[str, Any]:
-        path = base / ".aiwf" / "records" / name
-        try:
-            return json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
-        except Exception:
-            return {}
+    from .task_records import load_task_record
 
     task_id = str(task.get("id") or "")
-    implementation = read("implementation.json")
-    testing = read("testing.json")
-    review = read("review.json")
-    if implementation.get("task_id") != task_id:
-        implementation = {}
-    if testing.get("task_id") != task_id:
-        testing = {}
-    if review.get("task_id") != task_id:
-        review = {}
+    record = load_task_record(base_dir, task_id)
+    implementation = record["implementation"]
+    testing = record["testing"]
+    review = record["review"]
 
     origin = str(task.get("git_origin_ref") or "")
     implementation_ref = str(implementation.get("implementation_ref") or "")

@@ -11,7 +11,7 @@ def _write_task(base: Path, task_id: str, body: str) -> dict:
     path.write_text(body, encoding="utf-8")
     task = {"id": task_id, "status": "ready", "doc_path": f".aiwf/tasks/{task_id}.md"}
     (base / ".aiwf/state/tasks.json").write_text(
-        json.dumps({"schema_version": 1, "default_max_active": 1, "tasks": [task]}),
+        json.dumps({"schema_version": 1, "tasks": [task]}),
         encoding="utf-8",
     )
     return task
@@ -208,7 +208,7 @@ Verification Commands:
         task["status"] = "active"
         task["requirements"] = {"tester_required": True, "reviewer_required": True}
         (base / ".aiwf/state/tasks.json").write_text(
-            json.dumps({"schema_version": 1, "default_max_active": 1, "tasks": [task]}),
+            json.dumps({"schema_version": 1, "tasks": [task]}),
             encoding="utf-8",
         )
         (base / ".aiwf/state/state.json").write_text(json.dumps({

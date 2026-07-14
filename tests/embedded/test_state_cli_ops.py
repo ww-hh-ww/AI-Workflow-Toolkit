@@ -34,6 +34,8 @@ class TestStateCliOps(unittest.TestCase):
             path = self.tmp / ".aiwf" / name
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(json.dumps(factory(), indent=2) + "\n")
+        shutil.rmtree(self.tmp / ".aiwf/records/tasks", ignore_errors=True)
+        (self.tmp / ".aiwf/records/tasks").mkdir(parents=True, exist_ok=True)
 
     def _run(self, *args):
         env = os.environ.copy()
@@ -43,24 +45,51 @@ class TestStateCliOps(unittest.TestCase):
             cwd=str(self.tmp), env=env, capture_output=True, text=True, timeout=15,
         )
 
+    def _set_active_task(self, task_id="TASK-ACTIVE", phase="implementing", record=None):
+        self._write_json("state/tasks.json", {"tasks": [{
+            "id": task_id,
+            "status": "active",
+            "phase": phase,
+            "worktree_path": str(self.tmp),
+            "requirements": {
+                "executor_required": True,
+                "tester_required": True,
+                "reviewer_required": True,
+            },
+        }]})
+        value = record or {
+            "task_id": task_id,
+            "implementation": {"task_id": task_id},
+            "testing": {"task_id": task_id, "status": "missing"},
+            "review": {"task_id": task_id, "result": "unknown"},
+            "fix_loop": {"status": "none"},
+        }
+        self._write_json(f"records/tasks/{task_id}.json", value)
+
+    def _write_json(self, relative, value):
+        path = self.tmp / ".aiwf" / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(value, indent=2) + "\n", encoding="utf-8")
+
     def test_fixloop_public_cli_opens_and_resolves(self):
+        self._set_active_task()
         opened = self._run(
             "fixloop", "open", "--route", "planner",
             "--reason", "Executor found a contract conflict",
             "--required-fix", "Clarify the active contract", "--source", "executor",
         )
         self.assertEqual(opened.returncode, 0, opened.stderr)
-        fix_path = self.tmp / ".aiwf" / "state" / "fix-loop.json"
+        fix_path = self.tmp / ".aiwf/records/tasks/TASK-ACTIVE.json"
         current = json.loads(fix_path.read_text())
-        self.assertEqual(current["route"], "planner")
-        self.assertEqual(current["required_fixes"], ["Clarify the active contract"])
+        self.assertEqual(current["fix_loop"]["route"], "planner")
+        self.assertEqual(current["fix_loop"]["required_fixes"], ["Clarify the active contract"])
 
         resolved = self._run(
             "fixloop", "resolve", "--resolution", "Planner confirmed the contract",
             "--source", "planner",
         )
         self.assertEqual(resolved.returncode, 0, resolved.stderr)
-        self.assertEqual(json.loads(fix_path.read_text())["status"], "resolved")
+        self.assertEqual(json.loads(fix_path.read_text())["fix_loop"]["status"], "resolved")
 
     def test_status_prompt_follows_fixloop_route(self):
         cases = {
@@ -69,16 +98,28 @@ class TestStateCliOps(unittest.TestCase):
             "tester": "/aiwf-test",
             "environment": "/aiwf-planner",
         }
-        path = self.tmp / ".aiwf" / "state" / "fix-loop.json"
         for route, skill in cases.items():
-            path.write_text(json.dumps({
-                "status": "open", "route": route, "reason": "route test",
-                "required_fixes": [], "required_verification": [],
-            }))
+            self._set_active_task(record={
+                "task_id": "TASK-ACTIVE",
+                "implementation": {"task_id": "TASK-ACTIVE"},
+                "testing": {"task_id": "TASK-ACTIVE", "status": "missing"},
+                "review": {"task_id": "TASK-ACTIVE", "result": "unknown"},
+                "fix_loop": {
+                    "status": "open", "route": route, "reason": "route test",
+                    "required_fixes": [], "required_verification": [],
+                },
+            })
             status = self._run("status", "--prompt")
             self.assertEqual(status.returncode, 0, status.stderr)
-            self.assertIn(f"[ATTN] {skill}", status.stdout)
-            self.assertIn(".aiwf/state/fix-loop.json", status.stdout)
+            self.assertIn(f"Required skills: {skill}", status.stdout)
+            self.assertIn("fix-loop=open", status.stdout)
+
+    def test_status_prompt_names_agent_worktree_dispatch(self):
+        self._set_active_task()
+        status = self._run("status", "--prompt")
+        self.assertEqual(status.returncode, 0, status.stderr)
+        self.assertIn("Dispatch: run the Agent in this worktree", status.stdout)
+        self.assertIn("must not call EnterWorktree", status.stdout)
 
     def test_task_calibration_is_replaced_not_duplicated(self):
         created = self._run(
@@ -86,6 +127,11 @@ class TestStateCliOps(unittest.TestCase):
             "--goal", "GOAL-001", "--plan", "PLAN-001",
         )
         self.assertEqual(created.returncode, 0, created.stderr)
+        tasks = json.loads((self.tmp / ".aiwf/state/tasks.json").read_text())
+        tasks["tasks"][0].update({
+            "status": "active", "phase": "closing", "worktree_path": str(self.tmp),
+        })
+        self._write_json("state/tasks.json", tasks)
         for summary in ["First actual result.", "Final actual result."]:
             result = self._run("task", "calibrate", "TASK-CAL", "--summary", summary)
             self.assertEqual(result.returncode, 0, result.stderr)
@@ -95,31 +141,30 @@ class TestStateCliOps(unittest.TestCase):
         self.assertNotIn("First actual result.", task_md)
 
     def test_status_routes_missing_calibration_before_close(self):
-        state_path = self.tmp / ".aiwf/state/state.json"
-        state = json.loads(state_path.read_text())
-        state.update({"phase": "reviewing", "active_task_id": "TASK-CAL"})
-        state_path.write_text(json.dumps(state))
+        self._set_active_task("TASK-CAL", "closing", {
+            "task_id": "TASK-CAL",
+            "implementation": {"task_id": "TASK-CAL", "implementation_ref": "abc"},
+            "testing": {"task_id": "TASK-CAL", "status": "adequate", "tested_ref": "def"},
+            "review": {
+                "task_id": "TASK-CAL", "result": "accepted", "closure_allowed": True,
+                "reviewed_ref": "def", "blockers": [],
+            },
+            "fix_loop": {"status": "none"},
+        })
         task_doc = self.tmp / ".aiwf/tasks/TASK-CAL.md"
         task_doc.parent.mkdir(parents=True, exist_ok=True)
         task_doc.write_text("---\nid: TASK-CAL\n---\n\n# TASK-CAL\n")
-        (self.tmp / ".aiwf/records/testing.json").write_text(json.dumps({
-            "status": "adequate", "commands": [],
-        }))
-        (self.tmp / ".aiwf/records/review.json").write_text(json.dumps({
-            "result": "accepted", "closure_allowed": True, "blockers": [],
-        }))
-
         missing = self._run("status", "--prompt")
-        self.assertIn("[ATTN] /aiwf-planner", missing.stdout)
-        self.assertIn("Next: calibrate before close", missing.stdout)
+        self.assertIn("Required skills: /aiwf-planner", missing.stdout)
+        self.assertIn("aiwf task calibrate TASK-CAL", missing.stdout)
 
         task_doc.write_text(
             "---\nid: TASK-CAL\n---\n\n# TASK-CAL\n\n"
             "## Closure Calibration\n\nActually done.\n"
         )
         ready = self._run("status", "--prompt")
-        self.assertIn("[ATTN] /aiwf-close", ready.stdout)
-        self.assertIn("Next: close task", ready.stdout)
+        self.assertIn("Required skills: /aiwf-close", ready.stdout)
+        self.assertIn("close TASK-CAL", ready.stdout)
 
     def test_status_routes_after_a_completed_plan_task(self):
         state_path = self.tmp / ".aiwf/state/state.json"
@@ -150,10 +195,9 @@ class TestStateCliOps(unittest.TestCase):
         result = self._run("status", "--prompt")
 
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("[ATTN] /aiwf-planner", result.stdout)
-        self.assertIn("Focus: After a Task", result.stdout)
-        self.assertIn("compare the actual result with the Plan", result.stdout)
-        self.assertIn(".aiwf/plans/PLAN-AFTER-TASK.md", result.stdout)
+        self.assertIn("Required skills: /aiwf-planner", result.stdout)
+        self.assertIn("Before the next Task", result.stdout)
+        self.assertIn("completed Task Calibration", result.stdout)
 
     def test_status_routes_plan_close_out_when_no_tasks_remain(self):
         state_path = self.tmp / ".aiwf/state/state.json"
@@ -178,8 +222,8 @@ class TestStateCliOps(unittest.TestCase):
         result = self._run("status", "--prompt")
 
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("Focus: Close Out a Plan", result.stdout)
-        self.assertIn("confirm the delivered parts work together", result.stdout)
+        self.assertIn("cumulative diff and integration behavior", result.stdout)
+        self.assertIn("Required skills: /aiwf-planner", result.stdout)
 
     def test_closed_plan_rejects_new_task_links(self):
         plans_path = self.tmp / ".aiwf/state/plans.json"

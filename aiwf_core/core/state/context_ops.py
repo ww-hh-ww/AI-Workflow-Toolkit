@@ -5,7 +5,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List
 
-from ._common import _read, _write
 
 
 def _check_forbidden_write_violations(
@@ -21,30 +20,9 @@ def _check_forbidden_write_violations(
     if not violations:
         return []
 
-    state_path = base / ".aiwf/state/state.json"
-    state = _read(state_path)
-    state["scope_violation"] = True
-    _write(state_path, state)
+    from ..task_ledger import update_task_runtime
 
-    from ..review_contract import add_scope_violation_blocker
-    from ..state_schema import default_fix_loop, default_review
-
-    fix_path = base / ".aiwf/state/fix-loop.json"
-    fix_loop = _read(fix_path) or default_fix_loop()
-    if fix_loop.get("status") != "open":
-        fix_loop["status"] = "open"
-        fix_loop["required_fixes"] = [
-            f"Revert: {path} - matched Forbidden Write from {task_id}.md"
-            for path in violations
-        ]
-        fix_loop["route"] = "planner"
-        _write(fix_path, fix_loop)
-
-    review_path = base / ".aiwf/records/review.json"
-    review = _read(review_path) or default_review()
-    for path in violations:
-        add_scope_violation_blocker(review, path, task_id)
-    _write(review_path, review)
+    update_task_runtime(str(base), task_id, scope_violation=True)
     return violations
 
 
@@ -57,12 +35,12 @@ def record_implementation(
 ) -> Dict[str, Any]:
     """Replace implementation.json and preserve the implementation snapshot."""
     from ..git_snapshots import create_task_snapshot
-    from ..task_ledger import load_ledger
+    from ..task_ledger import load_ledger, resolve_active_task_id, update_task_runtime
+    from ..task_records import load_task_record, update_task_record
+    from ..worktree_context import resolve_worktree_root, same_path
 
     base = Path(base_dir)
-    state_path = base / ".aiwf/state/state.json"
-    state = _read(state_path)
-    active_task_id = str(task_id or state.get("active_task_id") or "")
+    active_task_id = resolve_active_task_id(base_dir, task_id)
     if not active_task_id:
         raise ValueError("implementation record requires an active Task")
     task = next(
@@ -74,26 +52,31 @@ def record_implementation(
     )
     if not task:
         raise ValueError(f"active Task not found: {active_task_id}")
+    worktree = str(task.get("worktree_path") or "")
+    if not worktree or not same_path(resolve_worktree_root(base), worktree):
+        raise ValueError(f"run the implementation record in Task {active_task_id}'s assigned worktree")
 
-    prior_testing = _read(base / ".aiwf/records/testing.json")
-    prior_implementation = _read(base / ".aiwf/records/implementation.json")
-    origin_ref = str(task.get("git_origin_ref") or state.get("git_origin_ref") or "")
+    task_record = load_task_record(base_dir, active_task_id)
+    prior_testing = task_record.get("testing", {}) or {}
+    prior_implementation = task_record.get("implementation", {}) or {}
+    origin_ref = str(task.get("git_origin_ref") or "")
     parent_ref = str(
         prior_testing.get("tested_ref")
         or prior_implementation.get("implementation_ref")
         or origin_ref
     )
     snapshot = create_task_snapshot(
-        base_dir, active_task_id, "implementation", parent_ref, summary=summary,
+        worktree, active_task_id, "implementation", parent_ref, summary=summary,
     )
 
+    violations: List[str] = []
     try:
         from ...hooks.common.scope_checker import _get_task_forbidden_write
 
         forbidden = _get_task_forbidden_write(base, active_task_id)
         if forbidden:
-            _check_forbidden_write_violations(
-                snapshot["files"], forbidden, base, active_task_id,
+            violations = _check_forbidden_write_violations(
+                snapshot["files"], forbidden, Path(worktree), active_task_id,
             )
     except Exception:
         pass
@@ -111,12 +94,28 @@ def record_implementation(
     if command:
         record["command"] = command[:1000]
         record["exit_code"] = exit_code
-    _write(base / ".aiwf/records/implementation.json", record)
-
+    from ..review_contract import add_scope_violation_blocker
     from ..state_schema import default_review, default_testing
 
-    _write(base / ".aiwf/records/testing.json", default_testing(active_task_id))
-    _write(base / ".aiwf/records/review.json", default_review(active_task_id))
-    state["phase"] = "testing"
-    _write(state_path, state)
+    def store(task_record):
+        task_record["implementation"] = record
+        task_record["testing"] = default_testing(active_task_id)
+        task_record["review"] = default_review(active_task_id)
+        if violations:
+            fix_loop = task_record.get("fix_loop", {}) or {}
+            fix_loop.update({
+                "status": "open",
+                "route": "planner",
+                "reason": "Forbidden Write violation",
+                "required_fixes": [
+                    f"Revert: {path} - matched Forbidden Write from {active_task_id}.md"
+                    for path in violations
+                ],
+            })
+            task_record["fix_loop"] = fix_loop
+            for path in violations:
+                add_scope_violation_blocker(task_record["review"], path, active_task_id)
+
+    update_task_record(base_dir, active_task_id, store)
+    update_task_runtime(base_dir, active_task_id, phase="testing")
     return record

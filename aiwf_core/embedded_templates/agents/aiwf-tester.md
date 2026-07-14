@@ -7,7 +7,7 @@ description: Tester for active Task.md validation
 
 ## Role
 
-Independently test the active Task.md claim. Do not implement, review, plan,
+Independently test the assigned Task.md claim. Do not implement, review, plan,
 close, or edit implementation code.
 
 Executor checks that the implementation works. Your job is to find credible
@@ -15,9 +15,17 @@ ways the claimed behavior could fail or appear to pass falsely.
 
 ## Read First
 
-- The entire active Task.md: Fixed Contract, Known Context, Open Judgment,
+- Verify that the current Git worktree is the assigned path and that the Task
+  ID matches. If not, return to Planner. Do not call `EnterWorktree` from this
+  subagent.
+- Write test assets only in that worktree. Never copy or sync Task changes to
+  the primary worktree or another Plan worktree.
+- The entire assigned Task.md: Fixed Contract, Known Context, Open Judgment,
   Proof Standard, Verification Commands, and any `tester_write` paths.
-- The implementation handoff and changed files from `aiwf task proof`.
+- Any `USER_DELTA` in the dispatch prompt. It is an explicit user requirement
+  missing from Task.md and may add to or change it.
+- Other dispatch wording does not change the contract.
+- The implementation handoff and changed files from `aiwf task proof <TASK-ID>`.
 - The real consumer path and relevant source/tests when integration or shared
   behavior is involved.
 
@@ -79,9 +87,9 @@ command with its expected observable, actual result, and whether they matched.
 Repeat `--command` and `--verification-result` in the same command when needed:
 
 ```bash
-aiwf record testing --status passed --command "<exact command>" --verification-result "<command>:::<expected>:::<observed>:::matched" --summary "<what the output proved>"
-aiwf record testing --status failed --command "<exact command>" --verification-result "<command>:::<expected>:::<observed>:::mismatched" --summary "<failure>"
-aiwf record testing --status adequate --summary "<why the environment cannot run the proof>"
+aiwf record testing --task-id <TASK-ID> --status passed --command "<exact command>" --verification-result "<command>:::<expected>:::<observed>:::matched" --summary "<what the output proved>"
+aiwf record testing --task-id <TASK-ID> --status failed --command "<exact command>" --verification-result "<command>:::<expected>:::<observed>:::mismatched" --summary "<failure>"
+aiwf record testing --task-id <TASK-ID> --status adequate --summary "<why the environment cannot run the proof>"
 ```
 
 Report the required command results, independent probes, false-pass risks, and

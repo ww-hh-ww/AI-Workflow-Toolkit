@@ -1,18 +1,17 @@
 #!/usr/bin/env python3
-"""AIWF UserPromptSubmit — quiet workflow nudge."""
+"""Quiet UserPromptSubmit nudge; full routing lives in aiwf status --prompt."""
 
 import json
 import os
+import subprocess
 import sys
 from pathlib import Path
 
 
 def _read_json(path, default):
-    if not path.exists():
-        return default
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-        return data if isinstance(data, dict) else default
+        value = json.loads(path.read_text(encoding="utf-8"))
+        return value if isinstance(value, dict) else default
     except Exception:
         return default
 
@@ -27,108 +26,117 @@ def _emit(text):
     }}))
 
 
-def _close_ready(testing, review):
-    return (
-        testing.get("status") in ("adequate", "passed")
-        and review.get("result") == "accepted"
-        and bool(review.get("closure_allowed", False))
+def _record(base, task_id):
+    return _read_json(
+        base / ".aiwf" / "records" / "tasks" / f"{task_id}.json",
+        {},
     )
 
 
-def _closure_calibration_missing(cwd, task_id, testing, review):
-    if not task_id or not _close_ready(testing, review):
-        return False
-    task_doc = cwd / ".aiwf" / "tasks" / f"{task_id}.md"
-    if not task_doc.exists():
-        return False
+def _control_root(project_root):
     try:
-        return "## Closure Calibration" not in task_doc.read_text(
-            encoding="utf-8",
-            errors="ignore",
+        result = subprocess.run(
+            ["git", "rev-parse", "--git-common-dir"],
+            cwd=str(project_root), capture_output=True, text=True, timeout=5,
         )
+        if result.returncode == 0 and result.stdout.strip():
+            common = Path(result.stdout.strip())
+            if not common.is_absolute():
+                common = (project_root / common).resolve()
+            primary = common.parent
+            if (primary / ".aiwf/state/tasks.json").exists():
+                return primary
     except Exception:
-        return False
+        pass
+    return project_root
 
 
-def _stage(state, testing, review):
-    phase = state.get("phase", "planning")
-    task_id = state.get("active_task_id", "")
-    if not task_id or phase in ("planning", "planned", "discussing"):
-        return "before"
-    if _close_ready(testing, review):
-        return "close"
-    return "during"
-
-
-def _top_problem(cwd, state, testing, review, fix_loop):
+def _problem(task, record):
+    fix_loop = record.get("fix_loop", {}) or {}
     if fix_loop.get("status") == "open":
-        return "fix-loop open"
-    if state.get("scope_violation"):
-        return "scope violation"
-    if review.get("result") in ("rejected", "needs_fix", "scope_violation"):
-        return f"review {review.get('result')}"
-    task_id = state.get("active_task_id", "")
-    if _closure_calibration_missing(cwd, task_id, testing, review):
-        return "closure calibration missing"
+        return f"{task['id']} fix-loop routes to {fix_loop.get('route') or 'planner'}"
+    review = record.get("review", {}) or {}
+    if review.get("result") in ("rejected", "needs_fix", "needs_more_testing", "scope_violation"):
+        return f"{task['id']} review={review.get('result')}"
+    if task.get("scope_violation"):
+        return f"{task['id']} has a scope violation"
     return ""
 
 
-def _message(stage, problem):
-    if stage == "before":
-        line = (
-            "[AIWF] Plan Before Work: do not start from memory. "
-            "Read reality, write a trustworthy contract, critique before activation."
-        )
-    elif stage == "close":
-        line = (
-            "[AIWF] Learn After Work: do not just close status. "
-            "Calibrate actual outcome, handle follow-ups, and maintain memory."
-        )
-    else:
-        line = (
-            "[AIWF] Guard The Work: do not let the flow drift. "
-            "Use status, route findings, and keep contracts honest."
-        )
-    suffix = " Run `aiwf status --prompt` before acting."
-    if problem:
-        suffix = f" Attention: {problem}. Run `aiwf status --prompt` before acting."
-    return line + suffix
+def _changed_task_ids(previous, current):
+    def indexed(fingerprint):
+        return {
+            str(task.get("id") or ""): task
+            for task in fingerprint.get("tasks", []) or []
+            if isinstance(task, dict) and task.get("id")
+        }
+
+    before = indexed(previous)
+    after = indexed(current)
+    return sorted(
+        task_id for task_id in set(before) | set(after)
+        if before.get(task_id) != after.get(task_id)
+    )
 
 
 def main():
-    cwd = Path(__file__).resolve().parent.parent
-
-    state_path = cwd / ".aiwf" / "state" / "state.json"
-    if not state_path.exists():
+    base = _control_root(Path(__file__).resolve().parent.parent)
+    ledger_path = base / ".aiwf" / "state" / "tasks.json"
+    if not ledger_path.exists():
         _emit("[AIWF] Not initialized. Run: aiwf install claude")
         return
 
-    state = _read_json(state_path, {})
-    testing = _read_json(cwd / ".aiwf" / "records" / "testing.json", {"status": "missing"})
-    review = _read_json(cwd / ".aiwf" / "records" / "review.json", {"result": "unknown"})
-    fix_loop = _read_json(cwd / ".aiwf" / "state" / "fix-loop.json", {"status": "none"})
-
-    stage = _stage(state, testing, review)
-    problem = _top_problem(cwd, state, testing, review, fix_loop)
-    fingerprint = {
-        "stage": stage,
-        "active_task_id": state.get("active_task_id", "") or "",
-        "active_plan_id": state.get("active_plan_id", "") or "",
-        "problem": problem,
-    }
-
-    fp_path = cwd / ".aiwf" / "runtime" / "internal" / "status-hook-last.json"
-    old = _read_json(fp_path, {})
-    if old == fingerprint:
+    ledger = _read_json(ledger_path, {"tasks": []})
+    active = [
+        task for task in ledger.get("tasks", []) or []
+        if isinstance(task, dict) and task.get("status") == "active"
+    ]
+    problems = []
+    fingerprint_tasks = []
+    for task in active:
+        record = _record(base, str(task.get("id") or ""))
+        problem = _problem(task, record)
+        if problem:
+            problems.append(problem)
+        fingerprint_tasks.append({
+            "id": task.get("id", ""),
+            "phase": task.get("phase", ""),
+            "worktree": task.get("worktree_path", ""),
+            "testing": (record.get("testing", {}) or {}).get("status", "missing"),
+            "review": (record.get("review", {}) or {}).get("result", "unknown"),
+            "fix": (record.get("fix_loop", {}) or {}).get("status", "none"),
+        })
+    fingerprint_tasks.sort(key=lambda task: str(task.get("id") or ""))
+    fingerprint = {"tasks": fingerprint_tasks, "problems": sorted(problems)}
+    fp_path = base / ".aiwf/runtime/internal/status-hook-last.json"
+    previous = _read_json(fp_path, {})
+    if previous == fingerprint:
         return
-
+    changed_task_ids = _changed_task_ids(previous, fingerprint)
     try:
         fp_path.parent.mkdir(parents=True, exist_ok=True)
         fp_path.write_text(json.dumps(fingerprint, indent=2) + "\n", encoding="utf-8")
     except Exception:
         pass
 
-    _emit(_message(stage, problem))
+    route = "Run `aiwf status --prompt` and follow its route."
+    if previous and len(changed_task_ids) == 1:
+        message = f"[AIWF] {changed_task_ids[0]} changed state. {route}"
+    elif previous and changed_task_ids:
+        message = f"[AIWF] Task state changed: {', '.join(changed_task_ids)}. {route}"
+    elif previous and previous.get("problems", []) != fingerprint["problems"]:
+        message = f"[AIWF] AIWF problem state changed. {route}"
+    elif previous:
+        message = f"[AIWF] AIWF routing state changed. {route}"
+    elif len(active) == 1:
+        message = f"[AIWF] {active[0]['id']} is active. {route}"
+    elif active:
+        message = f"[AIWF] {len(active)} Tasks are active across Plan worktrees. {route}"
+    else:
+        message = f"[AIWF] Plan Before Work. {route}"
+    if problems:
+        message += " Attention: " + "; ".join(problems[:2]) + "."
+    _emit(message)
 
 
 if __name__ == "__main__":

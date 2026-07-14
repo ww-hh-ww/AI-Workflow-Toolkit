@@ -40,7 +40,6 @@ class TestTaskCloseSyncContract(unittest.TestCase):
         )
         (base / ".aiwf/state/tasks.json").write_text(json.dumps({
             "schema_version": 1,
-            "default_max_active": 1,
             "tasks": [{
                 "id": "TASK-001",
                 "title": "Close sync contract",
@@ -85,7 +84,6 @@ class TestTaskCloseSyncContract(unittest.TestCase):
         }, "# TASK-002\n")
         (base / ".aiwf/state/tasks.json").write_text(json.dumps({
             "schema_version": 1,
-            "default_max_active": 1,
             "tasks": [{
                 "id": "TASK-002",
                 "status": "closed",
@@ -125,7 +123,6 @@ class TestTaskCloseSyncContract(unittest.TestCase):
         )
         (base / ".aiwf/state/tasks.json").write_text(json.dumps({
             "schema_version": 1,
-            "default_max_active": 1,
             "tasks": [{
                 "id": "TASK-003",
                 "status": "active",
@@ -173,7 +170,6 @@ class TestTaskCloseSyncContract(unittest.TestCase):
         )
         (base / ".aiwf/state/tasks.json").write_text(json.dumps({
             "schema_version": 1,
-            "default_max_active": 1,
             "tasks": [{
                 "id": "TASK-004",
                 "status": "active",
@@ -213,7 +209,6 @@ class TestTaskCloseSyncContract(unittest.TestCase):
         }, "# TASK-005\n")
         (base / ".aiwf/state/tasks.json").write_text(json.dumps({
             "schema_version": 1,
-            "default_max_active": 1,
             "tasks": [{
                 "id": "TASK-005",
                 "status": "ready",

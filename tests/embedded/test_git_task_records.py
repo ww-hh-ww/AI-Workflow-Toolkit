@@ -37,7 +37,7 @@ class TestGitTaskRecords(unittest.TestCase):
             },
         }
         (self.tmp / ".aiwf/state/tasks.json").write_text(
-            json.dumps({"schema_version": 1, "default_max_active": 1, "tasks": [task]}, indent=2) + "\n",
+            json.dumps({"schema_version": 1, "tasks": [task]}, indent=2) + "\n",
             encoding="utf-8",
         )
         state = json.loads((self.tmp / ".aiwf/state/state.json").read_text())
@@ -88,7 +88,10 @@ class TestGitTaskRecords(unittest.TestCase):
         (self.tmp / "src/feature.py").write_text("VALUE = 2\n", encoding="utf-8")
         result = close_task(str(self.tmp))
         self.assertFalse(result["closed"])
-        self.assertIn("changed after review", " ".join(result["blockers"]))
+        blockers = " ".join(result["blockers"])
+        self.assertIn("changed after review", blockers)
+        self.assertIn("modified: src/feature.py", blockers)
+        self.assertIn("intentionally outside the branch", blockers)
 
     def test_close_commits_the_reviewed_implementation_and_tests(self):
         from aiwf_core.core.task_ledger import close_task
@@ -104,6 +107,55 @@ class TestGitTaskRecords(unittest.TestCase):
         self.assertIn("src/feature.py", committed)
         self.assertIn("tests/test_feature.py", committed)
         self.assertEqual(result["task"]["closure"]["reviewed_ref"], testing["tested_ref"])
+
+    def test_close_commits_unicode_and_space_in_filename(self):
+        from aiwf_core.core.state.context_ops import record_implementation
+        from aiwf_core.core.state.review_ops import record_review
+        from aiwf_core.core.state.testing_ops import record_testing
+        from aiwf_core.core.task_ledger import close_task
+
+        relative = ".claude/skills/teach/lessons/0001-电路变量 与基本定律.html"
+        lesson = self.tmp / relative
+        lesson.parent.mkdir(parents=True, exist_ok=True)
+        lesson.write_text("<h1>电路变量与基本定律</h1>\n", encoding="utf-8")
+
+        implementation = record_implementation(str(self.tmp), "created the lesson")
+        self.assertEqual(implementation["changed_files"], [relative])
+        record_testing(
+            str(self.tmp), status="passed", commands=[f"test -f '{relative}'"],
+            coverage_summary="lesson exists",
+        )
+        record_review(
+            str(self.tmp), result="accepted", closure_allowed=True,
+            summary="the reviewed lesson path is exact",
+        )
+        before_close = subprocess.run(
+            ["git", "cat-file", "-e", f"HEAD:{relative}"], cwd=self.tmp,
+            capture_output=True, text=True,
+        )
+        self.assertNotEqual(before_close.returncode, 0)
+
+        result = close_task(str(self.tmp))
+        self.assertTrue(result["closed"], result["blockers"])
+        commit = result["task"]["closure"]["git_commit"]
+        tree = subprocess.run(
+            ["git", "ls-tree", "-r", "--name-only", "-z", commit],
+            cwd=self.tmp, check=True, capture_output=True, text=True,
+        ).stdout.split("\0")
+        self.assertIn(relative, tree)
+
+    def test_new_review_removes_old_closure_calibration(self):
+        task_doc = self.tmp / ".aiwf/tasks/TASK-001.md"
+        task_doc.parent.mkdir(parents=True, exist_ok=True)
+        task_doc.write_text(
+            "---\nid: TASK-001\n---\n\n# TASK-001\n\n"
+            "## Closure Calibration\n\nStale result from an earlier review.\n",
+            encoding="utf-8",
+        )
+
+        self._record_full_chain()
+
+        self.assertNotIn("## Closure Calibration", task_doc.read_text(encoding="utf-8"))
 
     def test_activation_rejects_protected_branch_and_dirty_start(self):
         from aiwf_core.core.git_workflow import task_activation_git_blockers

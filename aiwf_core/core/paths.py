@@ -33,15 +33,12 @@ PLANS_JSON = ".aiwf/state/plans.json"
 TASKS_JSON = ".aiwf/state/tasks.json"
 TASK_LEDGER_JSON = ".aiwf/state/tasks.json"
 MILESTONES_JSON = ".aiwf/state/milestones.json"
-FIX_LOOP_JSON = ".aiwf/state/fix-loop.json"
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Records zone — implementation, testing, review, events
 # ═══════════════════════════════════════════════════════════════════════════
 
-RECORDS_IMPLEMENTATION = ".aiwf/records/implementation.json"
-RECORDS_TESTING = ".aiwf/records/testing.json"
-RECORDS_REVIEW = ".aiwf/records/review.json"
+TASK_RECORDS_DIR = ".aiwf/records/tasks"
 RECORDS_EVENTS = ".aiwf/records/events.json"
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -72,7 +69,7 @@ WORKSPACE_DRIFT_JSON = ".aiwf/runtime/internal/workspace-drift.json"
 
 ALL_DIRS = [
     "state",
-    "records",
+    "records", "records/tasks",
     "goals", "plans", "tasks", "milestones",
     "memory", "memory/notes",
     "config",
@@ -86,7 +83,6 @@ ALL_DIRS = [
 LEGACY_MAP = {
     # Flat → state/
     "state.json": STATE_JSON,
-    "fix-loop.json": FIX_LOOP_JSON,
     "goals.json": GOALS_JSON,
     "plans.json": PLANS_JSON,
     "tasks.json": TASKS_JSON,
@@ -94,13 +90,13 @@ LEGACY_MAP = {
     "milestones.json": MILESTONES_JSON,
     # artifacts/ → records/
     "evidence.json": None,
-    "testing.json": RECORDS_TESTING,
-    "review.json": RECORDS_REVIEW,
+    "testing.json": None,
+    "review.json": None,
     "architecture-review.json": None,
     # Old full paths → records/
     ".aiwf/artifacts/evidence/records.json": None,
-    ".aiwf/artifacts/quality/testing.json": RECORDS_TESTING,
-    ".aiwf/artifacts/quality/review.json": RECORDS_REVIEW,
+    ".aiwf/artifacts/quality/testing.json": None,
+    ".aiwf/artifacts/quality/review.json": None,
     ".aiwf/artifacts/quality/architecture-review.json": None,
     # Old runtime paths
     ".aiwf/runtime/history/task-history.json": None,  # deleted, not migrated

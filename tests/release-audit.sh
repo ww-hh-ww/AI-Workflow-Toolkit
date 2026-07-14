@@ -84,10 +84,11 @@ TMP="$(mktemp -d "${TMPDIR:-/tmp}/aiwf-embedded-release-audit-XXXXXX")"
   test -f .aiwf/state/plans.json
   test -f .aiwf/state/tasks.json
   test -f .aiwf/state/milestones.json
-  test -f .aiwf/state/fix-loop.json
-  test -f .aiwf/records/implementation.json
-  test -f .aiwf/records/testing.json
-  test -f .aiwf/records/review.json
+  test ! -f .aiwf/state/fix-loop.json
+  test ! -f .aiwf/records/implementation.json
+  test ! -f .aiwf/records/testing.json
+  test ! -f .aiwf/records/review.json
+  test -d .aiwf/records/tasks
   test -f .aiwf/records/events.json
   test ! -f .aiwf/state.json
   test ! -f .aiwf/review.json

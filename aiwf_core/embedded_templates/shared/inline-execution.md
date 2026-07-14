@@ -1,7 +1,7 @@
 # Inline Execution
 
 When `*_required` is false, the task doesn't need a subagent for that role.
-Execute directly, then record the implementation yourself.
+Execute that role directly, then record its result yourself.
 
 Inline does not mean casual. Before doing anything, read the active
 `.aiwf/tasks/<TASK-ID>.md` and understand:
@@ -24,7 +24,7 @@ stop and return to Planner instead of guessing.
 - Record the implementation. Git refs carry the full change;
   keep the summary short and use the strongest exact self-check:
   ```bash
-  aiwf record implementation --summary "<what changed; how consumed; observed result>" --command "<strongest exact self-check>"
+  aiwf record implementation --task-id <TASK-ID> --summary "<what changed; how consumed; observed result>" --command "<strongest exact self-check>"
   ```
 
 ## Test
@@ -37,8 +37,8 @@ stop and return to Planner instead of guessing.
 - Record one testing result for the validation pass. Repeat `--command` and
   `--verification-result` inside that record for every required command:
   ```bash
-  aiwf record testing --status passed --command "<exact command>" --verification-result "<command>:::<expected>:::<observed>:::matched" --summary "<what the output proved>"
-  aiwf record testing --status failed --command "<exact command>" --verification-result "<command>:::<expected>:::<observed>:::mismatched" --summary "<failure>"
+  aiwf record testing --task-id <TASK-ID> --status passed --command "<exact command>" --verification-result "<command>:::<expected>:::<observed>:::matched" --summary "<what the output proved>"
+  aiwf record testing --task-id <TASK-ID> --status failed --command "<exact command>" --verification-result "<command>:::<expected>:::<observed>:::mismatched" --summary "<failure>"
   ```
 
 ## Review
@@ -50,8 +50,8 @@ stop and return to Planner instead of guessing.
   just because it is convenient.
 - After reviewing, record:
   ```bash
-  aiwf record review --result accepted --summary "<why accepted>"
-  aiwf record review --result needs_fix|rejected --summary "<why>" --blocker "<specific blocker>"
+  aiwf record review --task-id <TASK-ID> --result accepted --summary "<why accepted>"
+  aiwf record review --task-id <TASK-ID> --result needs_fix|rejected --summary "<why>" --blocker "<specific blocker>"
   ```
 
 Before each record, make sure the actual output supports the claim. Do not add

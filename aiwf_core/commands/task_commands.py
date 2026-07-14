@@ -6,15 +6,9 @@ from pathlib import Path
 import sys
 import re
 
-def _replace_markdown_section(body: str, heading: str, content: str) -> str:
-    section = f"## {heading}\n\n{content.strip()}\n"
-    pattern = rf"^## {re.escape(heading)}\n.*?(?=^## |\Z)"
-    if re.search(pattern, body, flags=re.MULTILINE | re.DOTALL):
-        return re.sub(pattern, section.rstrip(), body, count=1, flags=re.MULTILINE | re.DOTALL).rstrip() + "\n"
-    return body.rstrip() + "\n\n" + section
-
 def _task_doc_has_section(cwd: Path, task_id: str, heading: str) -> bool:
-    doc = cwd / ".aiwf" / "tasks" / f"{task_id}.md"
+    from ..core.worktree_context import resolve_control_root
+    doc = resolve_control_root(cwd) / ".aiwf" / "tasks" / f"{task_id}.md"
     if not doc.exists():
         return False
     try:
@@ -55,7 +49,6 @@ def _cmd_task_plan(args: argparse.Namespace) -> None:
         status=_g("status", "candidate"),
         dependencies=_split_csv(_gl("dependencies")),
         allowed_write=_split_csv(_gl("allowed_write")),
-        parallel_safe=bool(_g("parallel_safe")),
         notes=_gl("notes"),
         parent_goal=_g("parent_goal") or _g("goal_id"),
         parent_plan=_g("parent_plan") or _g("plan_id"),
@@ -77,7 +70,6 @@ def _cmd_task_plan(args: argparse.Namespace) -> None:
         print("  Plan: none linked")
     if _gl("allowed_write"):
         print("  Note: task --allowed-write is deprecated and ignored; use Task.md Contract Responsibility and Forbidden Write.")
-    print(f"  Parallel safe: {task.get('parallel_safe', False)}")
     # V1: Task.md is the execution contract — always created on task create
     _write_task_narrative(Path.cwd(), task)
     sync_result = sync_index(str(Path.cwd()))
@@ -133,15 +125,14 @@ def _cmd_task_critique(args: argparse.Namespace) -> None:
         print("  Run Planner activation critique again before activation.")
 
 def _cmd_task_calibrate(args: argparse.Namespace) -> None:
-    from ..core.index_ops import parse_md, write_narrative_doc, sync_index
-    import json as _json
+    from ..core.index_ops import (
+        parse_md, replace_markdown_section, sync_index, write_narrative_doc,
+    )
+    from ..core.task_ledger import resolve_active_task_id
+    from ..core.worktree_context import resolve_control_root
 
     cwd = Path.cwd()
-    task_id = getattr(args, "task_id", "") or ""
-    if not task_id:
-        state_path = cwd / ".aiwf" / "state" / "state.json"
-        state = _json.loads(state_path.read_text(encoding="utf-8")) if state_path.exists() else {}
-        task_id = state.get("active_task_id", "")
+    task_id = resolve_active_task_id(str(cwd), getattr(args, "task_id", "") or "")
     if not task_id:
         print("Task calibration blocked: task id required or active task missing", file=sys.stderr)
         raise SystemExit(1)
@@ -150,7 +141,8 @@ def _cmd_task_calibrate(args: argparse.Namespace) -> None:
         print("Task calibration blocked: --summary is required", file=sys.stderr)
         raise SystemExit(1)
 
-    task_doc = cwd / ".aiwf" / "tasks" / f"{task_id}.md"
+    control = resolve_control_root(cwd)
+    task_doc = control / ".aiwf" / "tasks" / f"{task_id}.md"
     if not task_doc.exists():
         print(f"Task calibration blocked: Task.md not found: {task_doc}", file=sys.stderr)
         raise SystemExit(1)
@@ -158,9 +150,9 @@ def _cmd_task_calibrate(args: argparse.Namespace) -> None:
     if fm is None:
         print("Task calibration blocked: Task.md must have frontmatter", file=sys.stderr)
         raise SystemExit(1)
-    body = _replace_markdown_section(body, "Closure Calibration", summary)
+    body = replace_markdown_section(body, "Closure Calibration", summary)
     write_narrative_doc(task_doc, fm, body)
-    sync = sync_index(str(cwd))
+    sync = sync_index(str(control))
     if sync.get("errors"):
         print("Task calibration sync failed:", file=sys.stderr)
         for err in sync["errors"][:5]:
@@ -170,87 +162,11 @@ def _cmd_task_calibrate(args: argparse.Namespace) -> None:
     print("  Section: Closure Calibration")
 
 def _cmd_task_close(args: argparse.Namespace) -> None:
-    from ..core.task_ledger import close_task
-    task_id = getattr(args, "task_id", "") or getattr(args, "task_id_pos", "") or ""
+    from ..core.task_ledger import close_task, resolve_active_task_id
+    from ..core.worktree_context import resolve_control_root
 
-    # Dispatch gate: check that required subagents were actually dispatched.
-    # This catches the model running tests/review inline and recording evidence
-    # without ever calling Agent() to spawn the independent role.
-    import json as _json
-    cwd = Path.cwd()
-    try:
-        state = _json.loads((cwd / ".aiwf" / "state" / "state.json").read_text())
-        active_id = task_id or state.get("active_task_id", "")
-        if active_id:
-            task_md = cwd / ".aiwf" / "tasks" / f"{active_id}.md"
-            if task_md.exists():
-                text = task_md.read_text(encoding="utf-8")
-                if text.startswith("---\n"):
-                    end = text.find("\n---\n", 4)
-                    if end != -1:
-                        import yaml
-                        fm = yaml.safe_load(text[4:end]) or {}
-                        er = fm.get("executor_required", False)
-                        tr = fm.get("tester_required", False)
-                        rr = fm.get("reviewer_required", False)
-
-                        dispatch_log = cwd / ".aiwf" / "runtime" / "internal" / "agent-dispatch.jsonl"
-                        completed = set()
-                        if dispatch_log.exists():
-                            for line in dispatch_log.read_text().strip().split("\n"):
-                                try:
-                                    d = _json.loads(line)
-                                    if d.get("task_id") == active_id:
-                                        agent_type = d.get("subagent_type", "")
-                                        if d.get("status") in (None, "", "completed"):
-                                            completed.add(agent_type)
-                                except Exception:
-                                    pass
-
-                        print("Dispatch check (did the required Agent complete?):")
-                        if fm.get("kind") == "milestone_verification":
-                            ok = "aiwf-architect" in completed
-                            print(f"  milestone verification → dispatched: {'✓' if ok else '✗'} (aiwf-architect)")
-                            if not ok:
-                                raise SystemExit(
-                                    "milestone verification requires aiwf-architect dispatch.\n"
-                                    "  → load /aiwf-architect and run the milestone-acceptance lens."
-                                )
-                        if er:
-                            ok = "aiwf-executor" in completed
-                            print(f"  executor_required: true → dispatched: {'✓' if ok else '✗'} (aiwf-executor)")
-                            if not ok:
-                                raise SystemExit(
-                                    "executor_required but aiwf-executor never dispatched.\n"
-                                    "  → load /aiwf-implement, dispatch aiwf-executor, record implementation."
-                                )
-                        if tr:
-                            ok = "aiwf-tester" in completed
-                            print(f"  tester_required:   true → dispatched: {'✓' if ok else '✗'} (aiwf-tester)")
-                            if not ok:
-                                raise SystemExit(
-                                    "tester_required but aiwf-tester never dispatched.\n"
-                                    "  → load /aiwf-test, dispatch aiwf-tester, record testing."
-                                )
-                        if rr:
-                            ok = "aiwf-reviewer" in completed
-                            print(f"  reviewer_required: true → dispatched: {'✓' if ok else '✗'} (aiwf-reviewer)")
-                            if not ok:
-                                raise SystemExit(
-                                    "reviewer_required but aiwf-reviewer never dispatched.\n"
-                                    "  → load /aiwf-review, dispatch aiwf-reviewer, record review."
-                                )
-    except SystemExit:
-        raise
-    except Exception:
-        pass
-
-    effective_task_id = task_id
-    if not effective_task_id:
-        try:
-            effective_task_id = _json.loads((Path.cwd() / ".aiwf" / "state" / "state.json").read_text()).get("active_task_id", "")
-        except Exception:
-            effective_task_id = ""
+    task_id = getattr(args, "task_id", "") or ""
+    effective_task_id = resolve_active_task_id(str(Path.cwd()), task_id)
     if effective_task_id and not _task_doc_has_section(Path.cwd(), effective_task_id, "Closure Calibration"):
         print(
             "  Warning: Task.md has no Closure Calibration. "
@@ -271,7 +187,7 @@ def _cmd_task_close(args: argparse.Namespace) -> None:
     # Write close banner to Task.md (safe: lock released, task is closed)
     doc_path = task.get("doc_path", "")
     if doc_path:
-        doc = Path.cwd() / doc_path
+        doc = resolve_control_root(Path.cwd()) / doc_path
         if doc.exists():
             text = doc.read_text(encoding="utf-8")
             first = text.find("---\n", 4)
@@ -319,12 +235,6 @@ def _cmd_task_close(args: argparse.Namespace) -> None:
         print(f"  Summary: {closure['summary']}")
     # Current phase
     phase = task_snapshot.get("phase", "")
-    if not phase:
-        from pathlib import Path as _P
-        import json as _j
-        sp = _P.cwd() / ".aiwf" / "state" / "state.json"
-        if sp.exists():
-            phase = _j.loads(sp.read_text()).get("phase", "")
     print(f"  Phase: {phase}")
     # Goal progress
     if gp.get("parent_goal"):
@@ -356,7 +266,9 @@ def _cmd_task_close(args: argparse.Namespace) -> None:
 def _cmd_task_interrupt(args: argparse.Namespace) -> None:
     from ..core.task_ledger import interrupt_task
     reason = getattr(args, "reason", "") or ""
-    result = interrupt_task(str(Path.cwd()), reason=reason)
+    result = interrupt_task(
+        str(Path.cwd()), reason=reason, task_id=getattr(args, "task_id", "") or ""
+    )
     task = result.get("task") or {}
     task_id = task.get("id", "unknown")
     print(f"Task interrupt: {task_id} interrupted={result['interrupted']}")
@@ -378,7 +290,9 @@ def _cmd_task_interrupt(args: argparse.Namespace) -> None:
 def _cmd_task_force_close(args: argparse.Namespace) -> None:
     from ..core.task_ledger import force_close_task
     reason = getattr(args, "reason", "") or ""
-    result = force_close_task(str(Path.cwd()), reason=reason)
+    result = force_close_task(
+        str(Path.cwd()), reason=reason, task_id=getattr(args, "task_id", "") or ""
+    )
     task = result.get("task") or {}
     task_id = task.get("id", "unknown")
     print(f"Task force-close: {task_id} closed={result['closed']}")
@@ -463,19 +377,11 @@ def _cmd_task_cancel(args: argparse.Namespace) -> None:
     raise SystemExit(1)
 
 def _cmd_task_show(args: argparse.Namespace) -> None:
-    from ..core.task_ledger import load_ledger
+    from ..core.task_ledger import load_ledger, resolve_active_task_id
     task_id = getattr(args, "task_id", "") or ""
     ledger = load_ledger(str(Path.cwd()))
     if not task_id:
-        # Default to active task
-        state_path = Path.cwd() / ".aiwf" / "state" / "state.json"
-        import json
-        if state_path.exists():
-            try:
-                state = json.loads(state_path.read_text(encoding="utf-8"))
-                task_id = state.get("active_task_id", "")
-            except Exception:
-                pass
+        task_id = resolve_active_task_id(str(Path.cwd()))
     if not task_id:
         print("No task ID provided and no active task.", file=sys.stderr)
         raise SystemExit(1)
@@ -490,12 +396,13 @@ def _cmd_task_show(args: argparse.Namespace) -> None:
     print(f"Task: {task.get('id')}")
     print(f"  Title: {task.get('title', '')}")
     print(f"  Status: {task.get('status', '')}")
+    print(f"  Phase: {task.get('phase', '') or '(none)'}")
+    print(f"  Worktree: {task.get('worktree_path', '') or '(none)'}")
     print(f"  Kind: {task.get('kind', '') or '(none)'}")
     print(f"  Goal: {task.get('goal_id', '') or task.get('parent_goal', '') or '(none)'}")
     print(f"  Plan: {task.get('plan_id', '') or task.get('parent_plan', '') or '(none)'}")
     print(f"  Milestone: {task.get('milestone_id', '') or task.get('milestone', '') or '(none)'}")
     print(f"  Dependencies: {', '.join(task.get('dependencies', []) or []) or '(none)'}")
-    print(f"  Parallel safe: {task.get('parallel_safe', False)}")
     reqs = task.get("requirements", {}) or {}
     print(f"  Requirements: executor={reqs.get('executor_required', True)}, tester={reqs.get('tester_required', True)}, reviewer={reqs.get('reviewer_required', True)}")
     if task.get("close_mode"):
@@ -513,15 +420,13 @@ def _cmd_task_show(args: argparse.Namespace) -> None:
 
 def _cmd_task_proof(args: argparse.Namespace) -> None:
     import json
-    from ..core.task_ledger import load_ledger
+    from ..core.task_ledger import load_ledger, resolve_active_task_id
     from ..core.task_proof import build_task_proof
 
     cwd = Path.cwd()
     task_id = getattr(args, "task_id", "") or ""
     if not task_id:
-        state_path = cwd / ".aiwf/state/state.json"
-        state = json.loads(state_path.read_text(encoding="utf-8")) if state_path.exists() else {}
-        task_id = str(state.get("active_task_id") or "")
+        task_id = resolve_active_task_id(str(cwd))
     task = next(
         (item for item in load_ledger(str(cwd)).get("tasks", []) or [] if item.get("id") == task_id),
         None,
@@ -536,7 +441,13 @@ def _cmd_task_status(args: argparse.Namespace) -> None:
     summary = ledger_summary(str(Path.cwd()))
     counts = summary["counts"]
     print("Task ledger:")
-    print(f"  Active: {len(summary['active_task_ids'])} ({', '.join(summary['active_task_ids']) or 'none'})")
+    active_ids = summary.get("active_task_ids", []) or []
+    print(f"  Active: {len(active_ids)}")
+    for task in summary.get("active_tasks", []) or []:
+        print(
+            f"    {task.get('id')}  plan={task.get('plan_id') or task.get('parent_plan') or '-'} "
+            f"phase={task.get('phase') or '-'}  worktree={task.get('worktree_path') or '-'}"
+        )
     for status in ["candidate", "ready", "active", "blocked", "suspended", "closed", "cancelled"]:
         if counts.get(status):
             print(f"  {status}: {counts[status]}")

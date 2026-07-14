@@ -13,10 +13,7 @@ def default_state() -> Dict[str, Any]:
     """Minimal state machine core."""
     return {
         "schema_version": 1,
-        "phase": "planning",
         "active_goal_id": None,
-        "active_plan_id": None,
-        "active_task_id": None,
         "active_milestone_id": None,
         "blocked": False,
         "blockers": [],
@@ -39,7 +36,6 @@ LEGACY_GOAL_ID = "GOAL-001"
 def default_plans() -> Dict[str, Any]:
     return {
         "schema_version": 1,
-        "active_plan_id": None,
         "plans": [],
     }
 
@@ -127,7 +123,7 @@ VALID_REVIEW_RESULTS = {"unknown", "accepted", "needs_fix", "needs_more_testing"
 def default_events() -> Dict[str, Any]:
     return {"events": []}
 
-# ── fix-loop.json ─────────────────────────────────────────────────────
+# ── Per-Task fix-loop record ──────────────────────────────────────────
 
 def default_fix_loop() -> Dict[str, Any]:
     return {
@@ -170,7 +166,6 @@ VALID_MISSION_STATUSES = {"draft", "active", "complete", "archived"}
 def default_tasks() -> Dict[str, Any]:
     return {
         "schema_version": 1,
-        "default_max_active": 1,
         "tasks": [],
     }
 
@@ -182,9 +177,5 @@ MVP_STATE_FILES = {
     "state/plans.json": default_plans,
     "state/tasks.json": default_tasks,
     "state/milestones.json": default_milestones,
-    "state/fix-loop.json": default_fix_loop,
-    "records/implementation.json": default_implementation,
-    "records/testing.json": default_testing,
-    "records/review.json": default_review,
     "records/events.json": default_events,
 }

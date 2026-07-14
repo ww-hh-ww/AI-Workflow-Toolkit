@@ -62,9 +62,37 @@ def _cmd_plan_show(args: argparse.Namespace) -> None:
             print(f"  Blocked: {blocker}")
         if plan.get("git_branch"):
             print("Plan Git:")
+            print(f"  Worktree: {plan.get('git_worktree_path') or '(current)'}")
             print(f"  Branch: {plan['git_branch']}")
             print(f"  Base: {plan.get('git_base_branch') or '(unknown)'}")
             print(f"  Head: {plan.get('git_head_ref') or '(no closed Task commit)'}")
+
+
+def _cmd_plan_bind_worktree(args: argparse.Namespace) -> None:
+    from ..core.git_workflow import bind_plan_worktree
+    from ..core.state.plan_ops import get_plan, load_plans, save_plans
+
+    base = str(Path.cwd())
+    plans = load_plans(base)
+    plan = get_plan(base, args.plan_id)
+    if not plan:
+        print(f"Plan worktree bind blocked: Plan not found: {args.plan_id}", file=sys.stderr)
+        raise SystemExit(1)
+    target = args.path or base
+    try:
+        binding = bind_plan_worktree(base, plan, target)
+    except ValueError as exc:
+        print(f"Plan worktree bind blocked: {exc}", file=sys.stderr)
+        raise SystemExit(1)
+    for index, item in enumerate(plans.get("plans", []) or []):
+        if item.get("plan_id", item.get("id")) == args.plan_id:
+            plans["plans"][index] = plan
+            break
+    save_plans(base, plans)
+    print(f"Plan worktree bound: {args.plan_id}")
+    print(f"  Worktree: {binding['worktree_path']}")
+    print(f"  Branch: {binding['branch']}")
+    print(f"  Base: {binding['base_branch'] or '(unknown)'}")
 
 def _cmd_plan_list(args: argparse.Namespace) -> None:
     from ..core.task_plan import list_task_plans

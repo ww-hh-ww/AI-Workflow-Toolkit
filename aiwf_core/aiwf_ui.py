@@ -17,6 +17,8 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+from .core.worktree_context import resolve_control_root
+
 # ── data layer ────────────────────────────────────────────────────────
 
 def rj(path):
@@ -32,13 +34,16 @@ def load_all(root: Path) -> dict:
     plans = rj(root / ".aiwf" / "state" / "plans.json")
     tasks = rj(root / ".aiwf" / "state" / "tasks.json")
     milestones = rj(root / ".aiwf" / "state" / "milestones.json")
-    implementation = rj(root / ".aiwf" / "records" / "implementation.json")
-    testing = rj(root / ".aiwf" / "records" / "testing.json")
-    review = rj(root / ".aiwf" / "records" / "review.json")
+    task_records = {}
+    records_dir = root / ".aiwf" / "records" / "tasks"
+    if records_dir.exists():
+        for path in records_dir.glob("*.json"):
+            record = rj(path)
+            task_id = str(record.get("task_id") or path.stem)
+            task_records[task_id] = record
     return {
         "state": state, "goals": goals, "plans": plans, "tasks": tasks,
-        "milestones": milestones, "implementation": implementation, "testing": testing,
-        "review": review,
+        "milestones": milestones, "task_records": task_records,
     }
 
 
@@ -54,7 +59,10 @@ def build_tree(data: dict) -> list:
     """Build a flat list of tree nodes with correct nesting indent levels."""
     nodes = []
     state = data["state"]
-    active_task_id = state.get("active_task_id", "")
+    active_task_ids = {
+        str(task.get("id")) for task in data["tasks"].get("tasks", []) or []
+        if isinstance(task, dict) and task.get("status") == "active"
+    }
     active_milestone_id = state.get("active_milestone_id", "")
 
     # Mission (root)
@@ -135,7 +143,7 @@ def build_tree(data: dict) -> list:
                 nodes.append({"kind": "task", "id": tid,
                               "title": f"{tid}  {ttitle}",
                               "indent": base_indent + 2, "status": tstatus,
-                              "active": tid == active_task_id})
+                              "active": tid in active_task_ids})
 
         # Child goals
         children = [g for g in goal_list if g.get("parent_goal_id") == gid]
@@ -178,7 +186,7 @@ def build_tree(data: dict) -> list:
         nodes.append({"kind": "task", "id": tid,
                       "title": f"{tid}  {ttitle}",
                       "indent": 2, "status": tstatus,
-                      "active": tid == active_task_id})
+                      "active": tid in active_task_ids})
 
     # Milestones (appended after tree, skip cancelled/closed)
     ms_list = data["milestones"].get("milestones", []) or []
@@ -671,6 +679,8 @@ def _node_summary(node, data):
         task = next((t for t in task_list if t.get("id") == nid), {})
         lines.append(f"Title: {task.get('title','')}")
         lines.append(f"Status: {task.get('status','?')}")
+        lines.append(f"Phase: {task.get('phase') or '-'}")
+        lines.append(f"Worktree: {task.get('worktree_path') or '-'}")
         deps = task.get("dependencies", []) or []
         if deps:
             satisfied = all(_find_task(data, d).get("status") == "closed" for d in deps)
@@ -683,6 +693,8 @@ def _node_summary(node, data):
         plan = next((p for p in plan_list if (p.get("plan_id") or p.get("id")) == nid), {})
         lines.append(f"Title: {plan.get('title','')}")
         lines.append(f"Status: {plan.get('status','?')}")
+        lines.append(f"Worktree: {plan.get('git_worktree_path') or '-'}")
+        lines.append(f"Branch: {plan.get('git_branch') or '-'}")
         task_ids = [t.get("id") for t in (data.get("tasks", {}).get("tasks", []) or [])
                      if (t.get("plan_id") or "") == nid]
         closed = _count_closed(data, task_ids)
@@ -835,10 +847,13 @@ def _count_closed(data, task_ids):
 
 def _build_status_bar(data):
     state = data["state"]
-    phase = state.get("phase", "?")
-    active = state.get("active_task_id", "") or "-"
+    active_tasks = [
+        task for task in data["tasks"].get("tasks", []) or []
+        if isinstance(task, dict) and task.get("status") == "active"
+    ]
+    phases = sorted({str(task.get("phase") or "-") for task in active_tasks})
     blocked = "阻塞" if state.get("blocked") else "正常"
-    return f" AIWF | 阶段={phase} | 活跃任务={active} | 状态={blocked}"
+    return f" AIWF | 活跃任务={len(active_tasks)} | 阶段={','.join(phases) or '-'} | 状态={blocked}"
 
 
 # ── interactivity ─────────────────────────────────────────────────────
@@ -849,7 +864,7 @@ def main(stdscr):
     _init_colors()
     has_color = curses.has_colors()
 
-    root = Path.cwd()
+    root = resolve_control_root(Path.cwd())
     selected = 0
     scroll = 0
     detail_scroll = 0       # independent scroll for right panel
@@ -864,11 +879,9 @@ def main(stdscr):
     while True:
         # Reload when any state JSON changes
         try:
-            current_mtime = max(
-                (root / ".aiwf" / "state" / f).stat().st_mtime
-                for f in ["state.json", "tasks.json", "plans.json", "goals.json", "milestones.json"]
-                if (root / ".aiwf" / "state" / f).exists()
-            )
+            watched = list((root / ".aiwf/state").glob("*.json"))
+            watched.extend((root / ".aiwf/records/tasks").glob("*.json"))
+            current_mtime = max(path.stat().st_mtime for path in watched)
         except Exception:
             current_mtime = 0
         if current_mtime != last_data_mtime:
@@ -1005,9 +1018,10 @@ def _run_sync_inline(root):
 def _show_records_inline(stdscr, data, task_id):
     """Show records overlay in the TUI right panel area."""
     h, w = stdscr.getmaxyx()
-    implementation = data["implementation"]
-    testing = data["testing"]
-    review = data["review"]
+    record = data.get("task_records", {}).get(task_id, {})
+    implementation = record.get("implementation", {}) or {}
+    testing = record.get("testing", {}) or {}
+    review = record.get("review", {}) or {}
 
     lines = [f"── {task_id} 记录 ──", ""]
     lines.append("实现:")
@@ -1044,7 +1058,7 @@ def _show_records_inline(stdscr, data, task_id):
 # ── entry ──────────────────────────────────────────────────────────────
 
 def run_ui():
-    root = Path.cwd()
+    root = resolve_control_root(Path.cwd())
     if not (root / ".aiwf" / "state" / "state.json").exists():
         print("No AIWF installation found. Run: aiwf install claude")
         sys.exit(1)
@@ -1064,7 +1078,10 @@ def _build_ms_tree(data: dict) -> list:
     nodes = []
     state = data["state"]
     active_milestone_id = state.get("active_milestone_id", "")
-    active_task_id = state.get("active_task_id", "")
+    active_task_ids = {
+        str(task.get("id")) for task in data["tasks"].get("tasks", []) or []
+        if isinstance(task, dict) and task.get("status") == "active"
+    }
 
     ms_list = data["milestones"].get("milestones", []) or []
     goal_by_id = {g.get("id", ""): g for g in (data["goals"].get("goals", []) or [])}
@@ -1170,7 +1187,7 @@ def _build_ms_tree(data: dict) -> list:
                     nodes.append({"kind": "task", "id": tid,
                                   "title": f"{tid}  {ttitle}",
                                   "indent": 4, "status": t.get("status", "ready"),
-                                  "active": tid == active_task_id})
+                                  "active": tid in active_task_ids})
 
             for t in goal_direct_tasks.get(gid, []):
                 tid = t.get("id", "")
@@ -1178,7 +1195,7 @@ def _build_ms_tree(data: dict) -> list:
                 nodes.append({"kind": "task", "id": tid,
                               "title": f"{tid}  {ttitle}",
                               "indent": 3, "status": t.get("status", "ready"),
-                              "active": tid == active_task_id})
+                              "active": tid in active_task_ids})
 
     return nodes
 def _build_tasks_tree(data: dict) -> list:
@@ -1186,7 +1203,10 @@ def _build_tasks_tree(data: dict) -> list:
     nodes = []
     task_list = data["tasks"].get("tasks", []) or []
     plan_list = data["plans"].get("plans", []) or []
-    active_task_id = data["state"].get("active_task_id", "")
+    active_task_ids = {
+        str(task.get("id")) for task in task_list
+        if isinstance(task, dict) and task.get("status") == "active"
+    }
     plan_task_map = {}
     for t in task_list:
         pid = t.get("plan_id") or ""
@@ -1218,7 +1238,7 @@ def _build_tasks_tree(data: dict) -> list:
             dep_str = f"  ← {', '.join(dep_labels)}" if dep_labels else ""
             nodes.append({"kind": "task", "id": tid, "title": f"{tid}  {ttitle}{dep_str}",
                           "indent": 2, "status": t.get("status", "ready"),
-                          "active": tid == active_task_id})
+                          "active": tid in active_task_ids})
     return nodes
 
 

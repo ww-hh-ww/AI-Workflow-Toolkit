@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -92,6 +93,30 @@ def parse_md(path: Path) -> Tuple[Optional[Dict[str, Any]], str]:
         return None, text
 
     return fm, body
+
+def replace_markdown_section(body: str, heading: str, content: str) -> str:
+    section = f"## {heading}\n\n{content.strip()}\n"
+    pattern = rf"^## {re.escape(heading)}\n.*?(?=^## |\Z)"
+    if re.search(pattern, body, flags=re.MULTILINE | re.DOTALL):
+        return re.sub(
+            pattern, section.rstrip(), body, count=1,
+            flags=re.MULTILINE | re.DOTALL,
+        ).rstrip() + "\n"
+    return body.rstrip() + "\n\n" + section
+
+def remove_narrative_section(path: Path, heading: str) -> bool:
+    """Remove one generated narrative section without changing frontmatter."""
+    fm, body = parse_md(path)
+    if fm is None:
+        return False
+    pattern = rf"^## {re.escape(heading)}\n.*?(?=^## |\Z)"
+    updated = re.sub(
+        pattern, "", body, count=1, flags=re.MULTILINE | re.DOTALL,
+    ).rstrip()
+    if updated == body.rstrip():
+        return False
+    write_narrative_doc(path, fm, updated + "\n")
+    return True
 
 def write_narrative_doc(path: Path, frontmatter: Dict[str, Any], body: str) -> None:
     """Write a narrative .md file with YAML frontmatter + body."""
@@ -239,10 +264,14 @@ def sync_index(base_dir: str, dry_run: bool = False) -> Dict[str, Any]:
     dry_run=True: validate only (sync --check).
     dry_run=False: validate then write JSON.
     """
-    root = Path(base_dir)
-    state_path = root / ".aiwf" / "state" / "state.json"
-    state = _read_json(state_path, {})
-    active_task_id = state.get("active_task_id") or ""
+    from .task_ledger import load_ledger
+    from .worktree_context import resolve_control_root
+
+    root = resolve_control_root(base_dir)
+    active_task_ids = {
+        str(task.get("id")) for task in load_ledger(str(root)).get("tasks", []) or []
+        if isinstance(task, dict) and task.get("status") == "active"
+    }
 
     errors: List[str] = []
     changes: List[str] = []
@@ -307,7 +336,7 @@ def sync_index(base_dir: str, dry_run: bool = False) -> Dict[str, Any]:
                     errors.append(f"{etype}:{eid}: goal_id is empty — every plan must have a goal")
 
             # Active task: locked JSON fields are not overwritten by sync.
-            if active_task_id and etype == "task" and eid == active_task_id:
+            if etype == "task" and eid in active_task_ids:
                 synced.append(f"{etype}:{eid}")
                 continue
 
@@ -407,9 +436,9 @@ def sync_index(base_dir: str, dry_run: bool = False) -> Dict[str, Any]:
     _sync_milestone_plan_relations(root, dry_run, changes)
     _sync_goal_children_order(root, dry_run, changes)
 
-    # Always report active task in output
-    if active_task_id and f"task:{active_task_id}" not in synced:
-        synced.append(f"task:{active_task_id}")
+    for task_id in sorted(active_task_ids):
+        if f"task:{task_id}" not in synced:
+            synced.append(f"task:{task_id}")
 
     return {
         "synced": len(synced),

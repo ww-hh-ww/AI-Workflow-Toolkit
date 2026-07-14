@@ -20,6 +20,7 @@ def _cmd_fix_loop_open(args: argparse.Namespace) -> None:
         source=args.source or "reviewer",
         invalidated_files=args.invalidated_files or None,
         invalidated_obligations=args.invalidated_obligations or None,
+        task_id=args.task_id,
     )
     print(f"Fix-loop opened: status={result['status']}")
     print(f"  Route: {args.route}")
@@ -39,6 +40,7 @@ def _cmd_fix_loop_resolve(args: argparse.Namespace) -> None:
             resolution=args.resolution,
             source=args.source or "reviewer",
             force=bool(args.force),
+            task_id=args.task_id,
         )
     except ValueError as exc:
         print(f"Fix-loop resolution blocked: {exc}", file=sys.stderr)
@@ -48,10 +50,16 @@ def _cmd_fix_loop_resolve(args: argparse.Namespace) -> None:
 
 
 def _cmd_fix_loop_status(args: argparse.Namespace) -> None:
-    from ..core.state_ops import _read
+    from ..core.task_ledger import resolve_active_task_id
+    from ..core.task_records import load_task_record
 
-    fix_loop = _read(Path.cwd() / ".aiwf/state/fix-loop.json")
+    task_id = resolve_active_task_id(str(Path.cwd()), args.task_id)
+    if not task_id:
+        print("Fix-loop status blocked: Task ID required or no Task is assigned to this worktree", file=sys.stderr)
+        raise SystemExit(1)
+    fix_loop = load_task_record(Path.cwd(), task_id).get("fix_loop", {}) or {}
     print("Fix-loop:")
+    print(f"  Task: {task_id}")
     print(f"  Status: {fix_loop.get('status', 'none')}")
     print(f"  Route: {fix_loop.get('route') or 'none'}")
     print(f"  Attempt: {fix_loop.get('attempt_count', 0)} / {fix_loop.get('max_attempts', 2)}")

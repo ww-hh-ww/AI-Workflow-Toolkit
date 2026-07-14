@@ -33,24 +33,6 @@ Think in this order:
 5. Task contracts: next smallest deliverable that proves progress. Do not invent it.
 6. Milestone proof: running-system acceptance point.
 
-## Task Activation Readiness
-
-Before `aiwf task activate`, reread the relevant Goal.md, Plan.md, Task.md, and Milestone.md as a critic, not as their author.
-
-Answer:
-
-- Capability: what Goal capability does this Task advance?
-- Main path: what entry -> transform -> consume -> observe path matters?
-- Consumer: who consumes this Task output?
-- Invariant: what shared truth must not be guessed?
-- Proof: what observable result proves it works?
-- Old path: who owns removal, deprecation, compatibility, or migration?
-- Unknowns: are unresolved boundaries converted into exploration/design work or
-  deferred with a reason?
-
-If any answer is missing, do not activate implementation.
-Fix the Plan/Task contract first.
-
 ## Structure Discipline
 
 - Change direction by revising Plan.md, not by creating a new parallel Plan.
@@ -71,7 +53,7 @@ Fix the Plan/Task contract first.
 - Leaf Goals that describe implementation details.
 - Goal tree deeper than 2-3 useful levels.
 - New Plan instead of revising the old direction.
-- Task used as design discovery.
+- Implementation Task used to postpone an unresolved Plan mechanism.
 - Milestone used as a date checkpoint.
 - Plan with Tasks but no mechanism, data/control flow, risk order, or proof.
 - Cross-boundary work with no verified Shared truth, Owner, Proof, or Basis.

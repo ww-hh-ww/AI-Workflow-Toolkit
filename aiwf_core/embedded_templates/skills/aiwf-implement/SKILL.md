@@ -7,28 +7,47 @@ description: Use only when `aiwf status --prompt` lists `aiwf-implement` under R
 
 ## Role
 
-Dispatch implementation for the active Task.md. Do not plan, test
-independently, review, close, or edit the active Task.md.
+Route implementation for the selected Task.md. Do not plan, test independently,
+review, close, or edit the active Task.md. Implement in the current session only
+when `executor_required` is false or a follow-up repair qualifies below.
 
-The Task.md already contains the Fixed Contract, Known Context, and Open
-Judgment. Give Executor the document and fresh facts; do not recopy the whole
-contract or turn it into step-by-step coding instructions.
+The Task.md is the baseline. Give Executor its path; do not recopy the whole
+contract or turn the dispatch prompt into separate coding instructions.
 
 ## Dispatch
 
-1. Read the active Task.md and current status. For a fix loop, also read
-   `aiwf task proof` and the current finding.
+Dispatch one project-writing Executor at a time for this Task. Other Plans may
+run in their own worktrees. Wait for this Executor before starting this Task's
+Tester.
+
+1. Read the Task.md and run `aiwf task proof <TASK-ID>`. Note its assigned
+   worktree. For a fix loop, also read the current finding.
 2. If this is the first implementation and `executor_required` is true,
    dispatch `aiwf-executor` with:
-   - the active Task.md path;
-   - the current objective or fix-loop finding;
-   - any verified fact not yet present in Task.md or the implementation record;
+   - the Task ID and absolute Task.md path;
+   - the assigned worktree path, with the Agent's `cwd` set to that path;
+   - a requirement to write only there and never copy changes to another
+     worktree;
+   - for a fix loop, a request to read the current recorded finding;
+   - `USER_DELTA: <requirement>` only for an explicit user requirement that
+     Task.md does not contain;
    - a request to read the contract, inspect code reality, implement, verify,
      record implementation, and return `RETURN_TO_PLANNER` rather than guess.
-3. Do not paste Fixed Contract or Known Context into the prompt unless the
+3. State `USER_DELTA` faithfully. Do not add Planner-created fallbacks,
+   substitute methods, acceptance changes, or interpretations. If there is no
+   missing user requirement, omit it.
+4. Do not paste Fixed Contract or Known Context into the prompt unless the
    agent cannot access Task.md. Duplicated packets become stale and crowd out
    code exploration.
-4. Let the subagent record its own implementation. Do not record it again.
+5. Let the subagent record its own implementation. Do not record it again.
+
+If `executor_required` is false, do not dispatch Executor. Read
+`inline-execution.md`, follow its Implement section in this session, and record
+the result for this Task.
+
+The Agent prompt must name exactly one active Task ID and its assigned
+worktree. The dispatch hook rejects ambiguous prompts and a wrong Agent `cwd`.
+The Agent verifies its location; do not ask it to call `EnterWorktree`.
 
 If Executor returns `RETURN_TO_PLANNER`, stop normal progress and surface the
 verified conflict. The hook opens a Planner fix-loop. Run `aiwf status --prompt`

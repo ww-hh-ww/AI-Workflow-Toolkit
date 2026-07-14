@@ -5,9 +5,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from ._common import _read, _write
-
-
 def record_testing(
     base_dir: str,
     status: str,
@@ -16,21 +13,23 @@ def record_testing(
     failure_summary: str = "",
     failed_commands: Optional[List[str]] = None,
     verification_results: Optional[List[Dict[str, Any]]] = None,
+    task_id: str = "",
 ) -> Dict[str, Any]:
-    """Validate and replace testing.json with the current validation pass."""
+    """Validate and replace one Task's testing record."""
     from ..state_schema import VALID_TESTING_STATUSES
 
     if status not in VALID_TESTING_STATUSES:
         raise ValueError(f"invalid testing status: {status}")
 
     base = Path(base_dir)
-    testing_path = base / ".aiwf/records/testing.json"
     summary = coverage_summary or failure_summary or f"testing status={status}"
-    state = _read(base / ".aiwf/state/state.json")
-    task_id = str(state.get("active_task_id") or "")
+    from ..task_ledger import load_ledger, resolve_active_task_id, update_task_runtime
+    from ..task_records import load_task_record, update_task_record
+    from ..worktree_context import resolve_worktree_root, same_path
+
+    task_id = resolve_active_task_id(base_dir, task_id)
     if not task_id:
         raise ValueError("testing record requires an active Task")
-    from ..task_ledger import load_ledger
 
     task = next(
         (
@@ -41,7 +40,11 @@ def record_testing(
     )
     if not task:
         raise ValueError(f"active Task not found: {task_id}")
-    implementation = _read(base / ".aiwf/records/implementation.json")
+    worktree = str(task.get("worktree_path") or "")
+    if not worktree or not same_path(resolve_worktree_root(base), worktree):
+        raise ValueError(f"run testing in Task {task_id}'s assigned worktree")
+    task_record = load_task_record(base_dir, task_id)
+    implementation = task_record.get("implementation", {}) or {}
     implementation_ref = str(implementation.get("implementation_ref") or "")
     if implementation.get("task_id") != task_id:
         implementation_ref = ""
@@ -53,7 +56,7 @@ def record_testing(
     from ..git_snapshots import create_task_snapshot
 
     snapshot = create_task_snapshot(
-        base_dir, task_id, "testing", parent_ref, summary=summary,
+        worktree, task_id, "testing", parent_ref, summary=summary,
     )
     testing: Dict[str, Any] = {
         "task_id": task_id,
@@ -83,17 +86,17 @@ def record_testing(
         except Exception as exc:
             testing["proof_validation"] = {"error": str(exc)}
 
-    _write(testing_path, testing)
-
     from ..state_schema import default_review
-    _write(base / ".aiwf/records/review.json", default_review(task_id))
 
-    if state.get("phase") not in ("closing", "closed"):
-        state["phase"] = "reviewing"
-        _write(base / ".aiwf/state/state.json", state)
+    def store(record):
+        record["testing"] = testing
+        record["review"] = default_review(task_id)
+
+    update_task_record(base_dir, task_id, store)
+    update_task_runtime(base_dir, task_id, phase="reviewing")
 
     if status == "failed":
-        current = _read(base / ".aiwf/state/fix-loop.json")
+        current = (load_task_record(base_dir, task_id).get("fix_loop", {}) or {})
         if not (current.get("status") == "open" and current.get("route") == "planner"):
             from .fixloop_ops import open_fix_loop
 
@@ -103,5 +106,6 @@ def record_testing(
                 reason=testing["failure_summary"],
                 required_verification=testing["failed_commands"],
                 source="tester",
+                task_id=task_id,
             )
     return testing

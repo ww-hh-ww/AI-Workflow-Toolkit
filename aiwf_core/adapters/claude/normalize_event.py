@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 from ...core.event_model import NormalizedEvent
-from ...core.project_root import resolve_aiwf_project_root
+from ...core.worktree_context import resolve_worktree_root
 
 
 def parse_claude_stdin() -> Dict[str, Any]:
@@ -58,7 +58,7 @@ def normalize(data: Dict[str, Any]) -> NormalizedEvent:
         engine="claude",
         event_type=normalized_type,
         session_id=data.get("session_id", ""),
-        cwd=str(resolve_aiwf_project_root(data.get("cwd", str(Path.cwd())))),
+        cwd=str(resolve_worktree_root(data.get("cwd", str(Path.cwd())))),
         tool_name=data.get("tool_name", ""),
         tool_input=data.get("tool_input", {}) or {},
         tool_response=data.get("tool_response"),
@@ -83,7 +83,7 @@ def _normalize_reasonix(data: Dict[str, Any]) -> NormalizedEvent:
         engine="reasonix",
         event_type=type_map.get(event_type, event_type.lower()),
         session_id=str(data.get("sessionId", data.get("session_id", ""))),
-        cwd=str(resolve_aiwf_project_root(data.get("cwd", str(Path.cwd())))),
+        cwd=str(resolve_worktree_root(data.get("cwd", str(Path.cwd())))),
         tool_name=tool_name,
         tool_input=tool_input,
         tool_response=data.get("toolResult") or data.get("toolResponse"),

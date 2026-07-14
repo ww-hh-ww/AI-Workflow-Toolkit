@@ -25,6 +25,11 @@ AIWF_INTERNAL_DIRS = [
 BASELINE_FILE = ".aiwf/runtime/internal/baseline.json"
 
 
+def parse_nul_paths(output: str) -> List[str]:
+    """Parse Git's NUL-delimited path output without changing path bytes."""
+    return [path for path in output.split("\0") if path]
+
+
 def is_internal_path(file_path: str) -> bool:
     """Check if a file path is an AIWF internal/generated file."""
     fp = file_path
@@ -80,16 +85,15 @@ def filter_internal(files: List[str], cwd: Optional[Path] = None) -> List[str]:
 
 
 def git_changed_files(cwd: Path) -> Optional[List[str]]:
-    """Get changed files from git diff --name-only. Returns None if no git repo."""
+    """Get tracked changes against HEAD. Returns None if no Git commit exists."""
     try:
         r = subprocess.run(
-            ["git", "diff", "--name-only"],
+            ["git", "diff", "--name-only", "-z", "HEAD"],
             capture_output=True, text=True, cwd=str(cwd), timeout=10,
         )
         if r.returncode != 0:
             return None
-        files = [f.strip() for f in r.stdout.split("\n") if f.strip()]
-        return filter_internal(files, cwd=cwd)
+        return filter_internal(parse_nul_paths(r.stdout), cwd=cwd)
     except Exception:
         return None
 
@@ -98,34 +102,12 @@ def git_untracked_files(cwd: Path) -> Optional[List[str]]:
     """Get untracked files from git status. AIWF internal paths filtered."""
     try:
         r = subprocess.run(
-            ["git", "status", "--porcelain"],
+            ["git", "ls-files", "--others", "--exclude-standard", "-z"],
             capture_output=True, text=True, cwd=str(cwd), timeout=10,
         )
         if r.returncode != 0:
             return None
-        files = []
-        for line in r.stdout.split("\n"):
-            if not line.strip():
-                continue
-            status = line[:2]
-            rest = line[3:].strip()
-            if not rest:
-                continue
-            if "?" not in status and "A" not in status and "M" not in status:
-                continue
-            if " -> " in rest:
-                rest = rest.split(" -> ")[-1]
-            # If this is a directory entry (ends with /), expand it
-            if rest.endswith("/"):
-                dir_path = cwd / rest
-                if dir_path.is_dir():
-                    for f in dir_path.rglob("*"):
-                        if f.is_file():
-                            rel = str(f.relative_to(cwd))
-                            files.append(rel)
-                continue
-            files.append(rest)
-        return filter_internal(files, cwd=cwd)
+        return filter_internal(parse_nul_paths(r.stdout), cwd=cwd)
     except Exception:
         return None
 
@@ -218,12 +200,12 @@ def baseline_diff_files(cwd: Path) -> Optional[List[str]]:
 
     try:
         r = subprocess.run(
-            ["git", "diff", "--name-only", baseline_ref],
+            ["git", "diff", "--name-only", "-z", baseline_ref],
             capture_output=True, text=True, cwd=str(cwd), timeout=10,
         )
         tracked = []
         if r.returncode == 0:
-            tracked = [f.strip() for f in r.stdout.split("\n") if f.strip()]
+            tracked = parse_nul_paths(r.stdout)
 
         # Also get untracked files (not in baseline)
         untracked = git_untracked_files(cwd) or []
