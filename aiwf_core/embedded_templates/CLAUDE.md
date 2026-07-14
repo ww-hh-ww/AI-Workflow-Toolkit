@@ -10,9 +10,10 @@ Goal/Plan/Task/Milestone docs, and memory. Read JSON/status/records for machine
 state, gates, evidence, testing, and review results. Do not treat JSON as the
 semantic contract.
 
-Planner uses `.aiwf/memory/` as a tiny long-term planning notebook. Before
-handing off work, and when finished work returns to Planner, decide whether any
-memory should stay as-is, change, be deleted, or be added.
+Planner uses the `Planner memory root` printed by status as a tiny long-term
+planning notebook. Before handing off work, and when finished work returns to
+Planner, decide whether any memory should stay as-is, change, be deleted, or be
+added.
 
 Use Claude Code engineering judgment to verify those assets against code,
 runtime, commands, and evidence. If AIWF assets and code reality disagree, do

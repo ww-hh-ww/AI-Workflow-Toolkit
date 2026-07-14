@@ -1009,7 +1009,8 @@ def install_reasonix(force: bool = False) -> Dict[str, Any]:
 
 
 def doctor(mode: str | None = None) -> Dict[str, Any]:
-    root = _project_root()
+    from .core.worktree_context import resolve_control_root
+    root = resolve_control_root(_project_root())
     target = _target(mode) if mode else (_detect_installed_target(root) or _target("claude"))
     checks: Dict[str, Any] = {
         "mode": target.mode,
@@ -1124,8 +1125,18 @@ def doctor(mode: str | None = None) -> Dict[str, Any]:
         checks["sync"] = {"healthy": False, "error_count": 1, "errors": [str(e)],
                          "warning_count": 0, "warnings": []}
 
+    from .core.memory_health import memory_structure_warnings
+    memory_warnings = memory_structure_warnings(root)
+    checks["memory"] = {
+        "healthy": not memory_warnings,
+        "root": str(root / ".aiwf" / "memory"),
+        "warning_count": len(memory_warnings),
+        "warnings": memory_warnings[:10],
+    }
+
     sync_ok = checks.get("sync", {}).get("healthy", True)
     sync_warnings = checks.get("sync", {}).get("warning_count", 0) > 0
+    has_warnings = sync_warnings or bool(memory_warnings)
 
     all_ok = (
         checks["instruction_md"]
@@ -1138,7 +1149,7 @@ def doctor(mode: str | None = None) -> Dict[str, Any]:
         and checks.get("index", {}).get("healthy", True)
         and sync_ok
     )
-    if all_ok and sync_warnings:
+    if all_ok and has_warnings:
         checks["overall"] = "healthy_with_warnings"
     elif all_ok:
         checks["overall"] = "healthy"

@@ -70,7 +70,9 @@ def _cmd_plan_show(args: argparse.Namespace) -> None:
 
 def _cmd_plan_bind_worktree(args: argparse.Namespace) -> None:
     from ..core.git_workflow import bind_plan_worktree
+    from ..core.plan_worktrees import create_plan_worktree
     from ..core.state.plan_ops import get_plan, load_plans, save_plans
+    from ..core.worktree_context import resolve_control_root, resolve_worktree_root, same_path
 
     base = str(Path.cwd())
     plans = load_plans(base)
@@ -78,9 +80,22 @@ def _cmd_plan_bind_worktree(args: argparse.Namespace) -> None:
     if not plan:
         print(f"Plan worktree bind blocked: Plan not found: {args.plan_id}", file=sys.stderr)
         raise SystemExit(1)
-    target = args.path or base
     try:
-        binding = bind_plan_worktree(base, plan, target)
+        if getattr(args, "create", False):
+            binding = create_plan_worktree(base, plan, args.path or None)
+        else:
+            target = args.path or base
+            target_path = Path(target).expanduser()
+            if not target_path.exists():
+                raise ValueError(
+                    f"worktree does not exist: {target_path}; use --create to create it"
+                )
+            if same_path(resolve_worktree_root(target_path), resolve_control_root(base)):
+                raise ValueError(
+                    "the control root is for Planner and shared AIWF state. "
+                    f"Run: aiwf plan bind-worktree {args.plan_id} --create"
+                )
+            binding = bind_plan_worktree(base, plan, target_path)
     except ValueError as exc:
         print(f"Plan worktree bind blocked: {exc}", file=sys.stderr)
         raise SystemExit(1)
@@ -90,6 +105,8 @@ def _cmd_plan_bind_worktree(args: argparse.Namespace) -> None:
             break
     save_plans(base, plans)
     print(f"Plan worktree bound: {args.plan_id}")
+    if getattr(args, "create", False):
+        print(f"  Action: {'created' if binding.get('created') else 'reused'}")
     print(f"  Worktree: {binding['worktree_path']}")
     print(f"  Branch: {binding['branch']}")
     print(f"  Base: {binding['base_branch'] or '(unknown)'}")

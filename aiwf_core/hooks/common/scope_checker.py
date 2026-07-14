@@ -13,7 +13,7 @@ from ...core.state.goal_ops import get_active_goal
 from ...core.task_ledger import task_for_worktree
 from ...core.task_records import load_task_record
 from ...core.worktree_context import resolve_control_root
-from .worktree_guard import foreign_bash_write, foreign_worktree_target
+from .worktree_guard import foreign_bash_write, foreign_worktree_target, shell_write_targets
 
 
 DEFAULT_WRITE_POLICY: Dict[str, Any] = {
@@ -457,6 +457,16 @@ def check_file_write(event: NormalizedEvent) -> ScopeResult:
                     "by AI tools. A human may edit it outside the Claude Code session."
                 ),
             )
+        if normalized.startswith(".aiwf/memory/") and not _is_planner_inline_role(role):
+            return ScopeResult(
+                file_path=normalized,
+                allowed=False,
+                active_context_id=state.get("active_context_id") or "(none)",
+                reason=(
+                    f"AIWF memory is owned by Planner; {role} may read but not edit "
+                    f"'{normalized}'."
+                ),
+            )
         if normalized.startswith(".aiwf/config/") and role and not _is_planner_inline_role(role):
             return ScopeResult(
                 file_path=normalized,
@@ -660,6 +670,10 @@ def check_bash(event: NormalizedEvent) -> Dict:
     if role_config_result:
         return role_config_result
 
+    role_memory_result = _check_role_memory_bash_write(event, command, control)
+    if role_memory_result:
+        return role_memory_result
+
     closed_plan_result = _check_closed_plan_bash(command, control)
     if closed_plan_result:
         return closed_plan_result
@@ -856,6 +870,49 @@ def _check_role_config_bash_write(event: NormalizedEvent, command: str) -> Optio
         "command": command[:200],
         "matched_pattern": ".aiwf/config/",
         "reason": f"AIWF configuration is owned by Planner; {role} may read but not edit it.",
+    }
+
+
+def _check_role_memory_bash_write(
+    event: NormalizedEvent,
+    command: str,
+    control: Path,
+) -> Optional[Dict]:
+    role = str(event.agent_type or "").lower()
+    if _is_planner_inline_role(role):
+        return None
+
+    targets = shell_write_targets(command)
+    import re
+    targets.extend(re.findall(
+        r"\bopen\s*\(\s*['\"]([^'\"]+)['\"]\s*,\s*['\"][^'\"]*[wax+]",
+        command,
+    ))
+    memory_root = (control / ".aiwf" / "memory").resolve()
+    writes_memory = False
+    for raw_target in targets:
+        relative = str(raw_target).lstrip("./")
+        if relative == "aiwf/memory" or relative.startswith("aiwf/memory/"):
+            writes_memory = True
+            break
+        try:
+            target = Path(raw_target).expanduser()
+            if not target.is_absolute():
+                target = Path(event.cwd or Path.cwd()) / target
+            target = target.resolve()
+            if target == memory_root or memory_root in target.parents:
+                writes_memory = True
+                break
+        except (OSError, RuntimeError, ValueError):
+            continue
+    if not writes_memory:
+        return None
+    return {
+        "allowed": False,
+        "decision": "deny",
+        "command": command[:200],
+        "matched_pattern": ".aiwf/memory/",
+        "reason": f"AIWF memory is owned by Planner; {role} may read but not edit it.",
     }
 
 

@@ -473,16 +473,18 @@ def activation_blockers(base_dir: str, task_id: str) -> List[str]:
     except Exception as e:
         blockers.append(f"Task proof contract check failed: {e}")
     blockers.extend(_active_plan_blockers(base_dir, task))
-    try:
-        from .git_workflow import task_activation_git_blockers
-        blockers.extend(task_activation_git_blockers(
-            target_worktree,
-            plan,
-            allow_dirty=task.get("status") == "suspended",
-            expected_head=str(task.get("git_origin_ref") or "") if task.get("status") == "suspended" else "",
-        ))
-    except Exception as e:
-        blockers.append(f"Git activation check failed: {e}")
+    plan_needs_worktree = bool(plan_id and plan and not plan.get("git_worktree_path"))
+    if not plan_needs_worktree:
+        try:
+            from .git_workflow import task_activation_git_blockers
+            blockers.extend(task_activation_git_blockers(
+                target_worktree,
+                plan,
+                allow_dirty=task.get("status") == "suspended",
+                expected_head=str(task.get("git_origin_ref") or "") if task.get("status") == "suspended" else "",
+            ))
+        except Exception as e:
+            blockers.append(f"Git activation check failed: {e}")
     return blockers
 
 def _active_plan_blockers(base_dir: str, task: Dict[str, Any]) -> List[str]:
@@ -506,6 +508,11 @@ def _active_plan_blockers(base_dir: str, task: Dict[str, Any]) -> List[str]:
         if not plan:
             blockers.append(f"[plan] Plan '{plan_id}' entry is empty")
             return blockers
+        if not plan.get("git_worktree_path"):
+            blockers.append(
+                f"[plan] Plan '{plan_id}' has no worktree. Run from the control root: "
+                f"aiwf plan bind-worktree {plan_id} --create"
+            )
         # Check Plan.md exists if doc_path is set
         doc_path = plan.get("doc_path", "")
         if doc_path:

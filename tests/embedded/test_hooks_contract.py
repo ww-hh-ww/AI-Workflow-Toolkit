@@ -698,6 +698,25 @@ class TestHooks(unittest.TestCase):
         self.assertEqual(allowed.returncode, 0, allowed.stderr)
         self.assertEqual(allowed.stdout.strip(), "")
 
+    def test_only_planner_may_edit_aiwf_memory(self):
+        for role in ("aiwf-executor", "aiwf-tester", "aiwf-reviewer", "aiwf-architect"):
+            with self.subTest(role=role):
+                denied = self._scope(
+                    "Edit", ".aiwf/memory/project-facts.md", agent_type=role,
+                )
+                output = json.loads(denied.stdout.strip())
+                self.assertEqual(output["hookSpecificOutput"]["permissionDecision"], "deny")
+                self.assertIn(
+                    "owned by Planner",
+                    output["hookSpecificOutput"]["permissionDecisionReason"],
+                )
+
+        allowed = self._scope(
+            "Edit", ".aiwf/memory/project-facts.md", agent_type="planner-main",
+        )
+        self.assertEqual(allowed.returncode, 0, allowed.stderr)
+        self.assertEqual(allowed.stdout.strip(), "")
+
     # ── Bash guard ──
 
     def test_rm_rf_blocked(self):
@@ -758,6 +777,26 @@ class TestHooks(unittest.TestCase):
         )
         self.assertIn("deny", result.stdout)
         self.assertIn("owned by Planner", result.stdout)
+
+    def test_non_planner_bash_cannot_rewrite_aiwf_memory(self):
+        denied = self._bash(
+            "printf 'fact' >> .aiwf/memory/project-facts.md",
+            agent_type="aiwf-executor",
+        )
+        self.assertIn("deny", denied.stdout)
+        self.assertIn("owned by Planner", denied.stdout)
+
+        allowed = self._bash(
+            "printf 'fact' >> .aiwf/memory/project-facts.md",
+            agent_type="planner-main",
+        )
+        self.assertNotIn("deny", allowed.stdout)
+
+        read_only = self._bash(
+            "cat .aiwf/memory/project-facts.md > /tmp/project-facts-copy.md",
+            agent_type="aiwf-executor",
+        )
+        self.assertNotIn("deny", read_only.stdout)
 
     def test_human_only_commands_remain_blocked_if_policy_is_empty(self):
         path = self.tmp / ".aiwf/config/command-policy.json"

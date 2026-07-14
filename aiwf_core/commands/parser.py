@@ -144,9 +144,13 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
     p_pls.add_argument("plan_id", help="plan ID")
     p_pls.set_defaults(func=_cmd_plan_show)
     p_plan_sub.add_parser("list", help="list all plans").set_defaults(func=_cmd_plan_list)
-    p_plw = p_plan_sub.add_parser("bind-worktree", help="bind a Plan to an existing Git worktree")
+    p_plw = p_plan_sub.add_parser("bind-worktree", help="create or bind a Plan worktree")
     p_plw.add_argument("plan_id", help="Plan ID")
-    p_plw.add_argument("path", nargs="?", default="", help="worktree path (defaults to current)")
+    p_plw.add_argument("path", nargs="?", default="", help="existing or custom worktree path")
+    p_plw.add_argument(
+        "--create", action="store_true",
+        help="create or reuse the Plan's persistent worktree and branch",
+    )
     p_plw.set_defaults(func=_cmd_plan_bind_worktree)
     p_plcl = p_plan_sub.add_parser("close", help="close a plan")
     p_plcl.add_argument("plan_id", help="plan ID")

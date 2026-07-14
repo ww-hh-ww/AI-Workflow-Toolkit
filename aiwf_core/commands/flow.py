@@ -204,6 +204,7 @@ def _print_prompt(
     plans_ready: List[Dict[str, Any]],
     plans_between: List[Dict[str, Any]],
 ) -> None:
+    memory_root = control / ".aiwf" / "memory"
     if current and len(rows) == 1 and not plans_ready:
         row = next(item for item in rows if item["id"] == current.get("id"))
         print(f"Do now: {row['action']}.")
@@ -217,6 +218,8 @@ def _print_prompt(
             f"State: phase={row['phase'] or '-'}, testing={row['testing_status']}, "
             f"review={row['review_result']}, fix-loop={row['fix_loop']}"
         )
+        if _skill_for(row["next_role"]) == "/aiwf-planner":
+            print(f"Planner memory root: {memory_root}")
         return
 
     if plans_ready:
@@ -242,6 +245,7 @@ def _print_prompt(
             "and maintain memory."
         )
         print("Required skills: /aiwf-planner")
+        print(f"Planner memory root: {memory_root}")
         return
     else:
         print(
@@ -249,6 +253,7 @@ def _print_prompt(
             "Mission, Goal, Plan, or Task documents."
         )
         print("Required skills: /aiwf-planner")
+        print(f"Planner memory root: {memory_root}")
         return
 
     required = sorted({_skill_for(row["next_role"]) for row in rows})
@@ -270,6 +275,8 @@ def _print_prompt(
         "code. Do not overlap the same file, responsibility, or shared mechanism. Check "
         "interfaces, state, runtime paths, dependencies, merge order, and combined proof."
     )
+    if "/aiwf-planner" in required:
+        print(f"Planner memory root: {memory_root}")
 
 
 def _print_debug(

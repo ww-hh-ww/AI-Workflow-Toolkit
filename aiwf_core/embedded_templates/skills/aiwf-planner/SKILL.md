@@ -26,8 +26,8 @@ owners, old paths, and proof. Mark important unverified facts Unknown.
 1. Run `aiwf status --prompt`.
 2. Read `.aiwf/mission.md`.
 3. Read the relevant Goal, Plan, Task, Milestone, and their matching JSON state.
-4. Read `.aiwf/memory/project-facts.md` and scan `.aiwf/memory/MEMORY.md`.
-   Open a note only when it matches the work.
+4. Use the `Planner memory root` printed by status. Read `project-facts.md` and
+   scan `MEMORY.md` there. Open a note only when it matches the work.
 5. Read relevant user-requested `docs/architect/ARCH-*` reports.
 6. Inspect the code and runtime surfaces needed for the current decision.
 
@@ -122,6 +122,13 @@ two real critique passes.
 
 Use code reality to challenge the contract. Revise and sync when a pass finds a
 problem. Record only a pass you can defend; do not perform critique as a form.
+
+Before activation, run this from the control root. It creates or reuses the
+Plan's persistent worktree and branch:
+
+```text
+aiwf plan bind-worktree <PLAN-ID> --create
+```
 
 ### 4. Guard Active Work
 

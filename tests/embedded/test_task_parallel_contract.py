@@ -100,6 +100,103 @@ class TestTaskParallelContract(unittest.TestCase):
         self.assertTrue((self.tmp / ".aiwf/records/tasks/TASK-A1.json").exists())
         self.assertTrue((self.tmp / ".aiwf/records/tasks/TASK-B1.json").exists())
 
+    def test_plan_worktree_create_is_idempotent_and_keeps_control_root_clean(self):
+        upsert_plan(str(self.tmp), "PLAN-C")
+        env = os.environ.copy()
+        env["PYTHONPATH"] = str(PROJECT_ROOT)
+        command = [
+            sys.executable, "-m", "aiwf_core.cli",
+            "plan", "bind-worktree", "PLAN-C", "--create",
+        ]
+
+        created = subprocess.run(
+            command, cwd=self.tmp, env=env, capture_output=True, text=True,
+        )
+        reused = subprocess.run(
+            command, cwd=self.tmp, env=env, capture_output=True, text=True,
+        )
+
+        self.assertEqual(created.returncode, 0, created.stderr)
+        self.assertIn("Action: created", created.stdout)
+        self.assertEqual(reused.returncode, 0, reused.stderr)
+        self.assertIn("Action: reused", reused.stdout)
+        plan = next(
+            item for item in load_plans(str(self.tmp))["plans"]
+            if item.get("plan_id") == "PLAN-C"
+        )
+        expected = self.tmp / ".claude/worktrees/plan-c"
+        self.assertEqual(Path(plan["git_worktree_path"]), expected.resolve())
+        self.assertEqual(plan["git_branch"], "aiwf/plan-c")
+        self.assertTrue(expected.is_dir())
+        status = subprocess.run(
+            ["git", "status", "--porcelain", "--untracked-files=all"],
+            cwd=self.tmp, check=True, capture_output=True, text=True,
+        ).stdout
+        self.assertNotIn(".claude/worktrees", status)
+
+    def test_public_bind_does_not_turn_control_root_into_plan_worktree(self):
+        upsert_plan(str(self.tmp), "PLAN-CONTROL")
+        env = os.environ.copy()
+        env["PYTHONPATH"] = str(PROJECT_ROOT)
+
+        result = subprocess.run(
+            [
+                sys.executable, "-m", "aiwf_core.cli", "plan", "bind-worktree",
+                "PLAN-CONTROL", ".",
+            ],
+            cwd=self.tmp, env=env, capture_output=True, text=True,
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("control root is for Planner", result.stderr)
+        self.assertIn(
+            "aiwf plan bind-worktree PLAN-CONTROL --create",
+            result.stderr,
+        )
+
+    def test_unbound_plan_activation_routes_to_one_create_command(self):
+        upsert_plan(str(self.tmp), "PLAN-UNBOUND")
+        upsert_task(str(self.tmp), "TASK-UNBOUND", status="ready", plan_id="PLAN-UNBOUND")
+
+        result = activate_task(str(self.tmp), "TASK-UNBOUND")
+
+        self.assertFalse(result["activated"])
+        blockers = " ".join(result["blockers"])
+        self.assertIn(
+            "aiwf plan bind-worktree PLAN-UNBOUND --create",
+            blockers,
+        )
+        self.assertNotIn("protected branch", blockers)
+
+    def test_linked_worktree_uses_control_root_memory_for_status_and_doctor(self):
+        env = os.environ.copy()
+        env["PYTHONPATH"] = str(PROJECT_ROOT)
+        status = subprocess.run(
+            [sys.executable, "-m", "aiwf_core.cli", "status", "--prompt"],
+            cwd=self.worktree_a, env=env, capture_output=True, text=True,
+        )
+        self.assertEqual(status.returncode, 0, status.stderr)
+        self.assertIn(
+            f"Planner memory root: {self.tmp.resolve() / '.aiwf/memory'}",
+            status.stdout,
+        )
+
+        index_path = self.tmp / ".aiwf/memory/MEMORY.md"
+        original = index_path.read_text(encoding="utf-8")
+        try:
+            index_path.write_text(
+                original + "\n- [Missing](notes/control-root-only.md) - missing\n",
+                encoding="utf-8",
+            )
+            doctor = subprocess.run(
+                [sys.executable, "-m", "aiwf_core.cli", "doctor"],
+                cwd=self.worktree_a, env=env, capture_output=True, text=True,
+            )
+            self.assertIn("WARN memory:", doctor.stdout)
+            self.assertIn("control-root-only.md", doctor.stdout)
+        finally:
+            index_path.write_text(original, encoding="utf-8")
+
     def test_status_and_ui_show_all_active_plan_worktrees(self):
         self.assertTrue(activate_task(str(self.tmp), "TASK-A1")["activated"])
         self.assertTrue(activate_task(str(self.tmp), "TASK-B1")["activated"])

@@ -604,31 +604,26 @@ AIWF 的并行单位是 Plan，不是同一 Task 内的多个角色。
 - 不同 Plan 可以在不同 worktree 并行。
 - 每个 Agent prompt 必须包含一个 Task ID 和它的 worktree 路径。
 
-Planner 为每个 Plan 创建一个持久 worktree，然后绑定：
+Planner 在 control root 为每个 Plan 创建或复用一个持久 worktree：
 
 ```bash
-git worktree add -b plan/PLAN-001 ../project-plan-001
-aiwf plan bind-worktree PLAN-001 ../project-plan-001
+aiwf plan bind-worktree PLAN-001 --create
 ```
 
-如果当前 Claude Code 会话已经位于要使用的 Plan worktree，也可以直接绑定：
+该命令可重复执行，默认使用 `.claude/worktrees/plan-001` 和
+`aiwf/plan-001`。Control root 只保存共享治理状态和负责集成，不作为新的
+Plan worktree。
+
+如果人已经创建了 worktree，可以显式绑定：
 
 ```bash
-aiwf plan bind-worktree PLAN-001 .
+aiwf plan bind-worktree PLAN-001 ../project-plan-001
 ```
 
 派发 Executor、Tester、Reviewer 时，把 Agent 的 `cwd` 设置为这个已绑定的
 worktree。Agent 只核对当前位置，不再调用 `EnterWorktree`。不要给这三个角色使用
 `isolation: worktree`，否则 Claude Code 会为每个角色创建不同的临时 worktree，三者
 无法顺序审查同一份结果。
-
-也可以由人手工创建并进入：
-
-```bash
-git worktree add -b plan/PLAN-001 ../project-plan-001
-cd ../project-plan-001
-aiwf plan bind-worktree PLAN-001 .
-```
 
 所有 worktree 通过 Git common directory 找到主工作区中的同一个 `.aiwf` control root。`aiwf status` 会展示全部 active Tasks，并标记当前 worktree 对应的 Task。
 Planner 不需要在这些 worktree 之间切换。它使用明确的 Task ID 管理状态，并把每个
@@ -1070,7 +1065,8 @@ aiwf goal cancel GOAL-001 --reason "..."
 aiwf plan create PLAN-001 --goal GOAL-001 --title "..."
 aiwf plan show PLAN-001
 aiwf plan list
-aiwf plan bind-worktree PLAN-001 [PATH]
+aiwf plan bind-worktree PLAN-001 --create
+aiwf plan bind-worktree PLAN-001 [EXISTING-PATH]
 aiwf plan link-task PLAN-001 TASK-001
 aiwf plan unlink-task PLAN-001 TASK-001
 aiwf plan dep add PLAN-002 PLAN-001
@@ -1334,15 +1330,16 @@ git add -A
 git commit -m "Initial project"
 ```
 
-然后为 Plan 创建 feature branch/worktree。Task 不允许在 protected branch 上执行。
+然后运行 `aiwf plan bind-worktree PLAN-001 --create`。Task 不允许在
+protected branch 上执行。
 
 ### Task 激活提示 protected branch
 
-不要在 `main`、`master` 或 `trunk` 上开始 Task。让 Planner 创建 Plan worktree，或手工创建：
+不要在 `main`、`master` 或 `trunk` 上开始 Task。让 Planner 从 control root
+创建 Plan worktree：
 
 ```bash
-git worktree add -b plan/PLAN-001 ../project-plan-001
-aiwf plan bind-worktree PLAN-001 ../project-plan-001
+aiwf plan bind-worktree PLAN-001 --create
 ```
 
 ### Task 激活提示 worktree 不干净

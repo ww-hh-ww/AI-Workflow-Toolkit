@@ -135,6 +135,11 @@ def _cmd_doctor(args: argparse.Namespace) -> None:
     sync = results.get("sync", {})
     if sync and not sync.get("healthy", True):
         print(f"FAIL sync: {sync.get('error_count', 0)} error(s)")
+    memory = results.get("memory", {})
+    if memory and memory.get("warning_count", 0):
+        print(f"WARN memory: {memory.get('warning_count', 0)} structural warning(s)")
+        for warning in memory.get("warnings", []):
+            print(f"  WARN {warning}")
 
     if overall not in ("healthy", "healthy_with_warnings"):
         raise SystemExit(1)

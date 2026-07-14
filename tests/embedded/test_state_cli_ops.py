@@ -121,6 +121,15 @@ class TestStateCliOps(unittest.TestCase):
         self.assertIn("Dispatch: run the Agent in this worktree", status.stdout)
         self.assertIn("must not call EnterWorktree", status.stdout)
 
+    def test_planner_prompt_prints_control_root_memory_path(self):
+        status = self._run("status", "--prompt")
+        self.assertEqual(status.returncode, 0, status.stderr)
+        self.assertIn("Required skills: /aiwf-planner", status.stdout)
+        self.assertIn(
+            f"Planner memory root: {self.tmp.resolve() / '.aiwf' / 'memory'}",
+            status.stdout,
+        )
+
     def test_task_calibration_is_replaced_not_duplicated(self):
         created = self._run(
             "task", "create", "TASK-CAL", "--title", "Calibrate me",

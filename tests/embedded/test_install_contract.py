@@ -66,6 +66,31 @@ class TestInstall(unittest.TestCase):
         self.assertFalse((self.tmp / ".aiwf" / "artifacts").is_dir(), "artifacts/ directory retired in V1")
         self.assertFalse((self.tmp / ".aiwf" / "archive").is_dir(), "archive/ directory retired in V1")
 
+    def test_doctor_memory_structure_warnings_are_non_blocking(self):
+        index_path = self.tmp / ".aiwf/memory/MEMORY.md"
+        note_path = self.tmp / ".aiwf/memory/notes/unindexed.md"
+        original_index = index_path.read_text(encoding="utf-8")
+        try:
+            index_path.write_text(
+                original_index + "\n- [Missing](notes/missing.md) - broken link\n",
+                encoding="utf-8",
+            )
+            note_path.write_text("# Unindexed\n", encoding="utf-8")
+
+            result = _run(
+                [sys.executable, "-m", "aiwf_core.cli", "doctor"],
+                self.tmp,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("healthy_with_warnings", result.stdout)
+            self.assertIn("WARN memory:", result.stdout)
+            self.assertIn("links to missing note", result.stdout)
+            self.assertIn("not indexed", result.stdout)
+        finally:
+            index_path.write_text(original_index, encoding="utf-8")
+            note_path.unlink(missing_ok=True)
+
     def test_mission_md_is_write_surface_and_sync_derives_json(self):
         tmp = Path(tempfile.mkdtemp(prefix="awmission_"))
         try:

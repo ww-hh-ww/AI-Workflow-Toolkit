@@ -9,7 +9,9 @@ routing a finding, preparing the next Task, or closing a Plan. Run
 1. `aiwf task create` creates the Task; Planner writes its contract.
 2. Planner runs two real passes and records each defensible pass with
    `aiwf task critique`.
-3. Bind the Plan to one clean Claude Code worktree.
+3. From the control root, run
+   `aiwf plan bind-worktree <PLAN-ID> --create`. It creates or reuses the
+   Plan's persistent worktree.
 4. `aiwf task activate` activates one Task for that Plan.
 5. Executor implements and records the implementation snapshot.
 6. Tester may add test assets, tests the result, and records the tested snapshot.
@@ -38,10 +40,11 @@ Critic use their own prompts.
 
 ## Parallel Plans
 
-One Planner owns governance. Tasks inside one Plan remain sequential. Plans may
-run together only when separate worktrees and the design make them independent.
-Each Plan must be implementable, testable, and reviewable on its own, with a
-clear merge order and combined proof.
+One Planner owns governance from the control root. Every Plan worktree is a peer;
+the control root is not a Plan worktree. Tasks inside one Plan remain sequential.
+Plans may run together only when separate worktrees and the design make them
+independent. Each Plan must be implementable, testable, and reviewable on its
+own, with a clear merge order and combined proof.
 
 Planner does not switch worktrees to manage Task roles. Use the exact Task ID
 and assigned worktree for every dispatch or Task command. When several Tasks
@@ -65,13 +68,15 @@ aiwf plan dep add <PLAN-ID> <DEPENDENCY-PLAN-ID>
 Merge the prerequisite first. If Plans change the same responsibility or
 shared mechanism, change their boundary or run them in sequence.
 
-Create each worktree from the intended shared commit. A new worktree omits
-uncommitted main-worktree changes; resolve those with the user first. Bind each
-Plan with:
+Create or reuse each Plan worktree from the control root:
 
 ```text
-aiwf plan bind-worktree <PLAN-ID> <path>
+aiwf plan bind-worktree <PLAN-ID> --create
 ```
+
+The command is idempotent and uses a stable path and branch. To bind a worktree
+the user already created, pass its path without `--create`. A new worktree
+omits uncommitted project changes; resolve those with the user first.
 
 Keep parallel Plan records separate. After they return, choose merge order,
 inspect the merged change, and run integration proof.

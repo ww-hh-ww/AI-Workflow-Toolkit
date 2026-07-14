@@ -240,6 +240,10 @@ class TestPromptClarityContract(unittest.TestCase):
 
     def test_workflow_agents_reuse_the_bound_plan_worktree(self):
         lifecycle = read("skills/aiwf-planner/references/lifecycle.md")
+        planner = read("skills/aiwf-planner/SKILL.md")
+        self.assertIn("aiwf plan bind-worktree <PLAN-ID> --create", planner)
+        self.assertIn("Every Plan worktree is a peer", lifecycle)
+        self.assertIn("The command is idempotent", lifecycle)
         self.assertIn("Set its `cwd` to that worktree", lifecycle)
         self.assertIn("Task roles share the Plan worktree", lifecycle)
         for path in (

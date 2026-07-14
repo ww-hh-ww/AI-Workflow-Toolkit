@@ -21,8 +21,9 @@ try to break it.
 ## Required Actions
 
 1. Extract what the relevant Goal.md, Plan.md, Task.md, and Milestone.md claim.
-2. Read `.aiwf/memory/project-facts.md` and scan `.aiwf/memory/MEMORY.md` for
-   facts that may change those claims.
+2. Use the `Planner memory root` printed by `aiwf status --prompt`. Read
+   `project-facts.md` and scan `MEMORY.md` there for facts that may change those
+   claims.
 3. Explore code reality with `rg` and file reads. Do not rely on memory or the
    governance files.
 4. If the contract explicitly requires a named Skill, MCP, or tool, confirm the
