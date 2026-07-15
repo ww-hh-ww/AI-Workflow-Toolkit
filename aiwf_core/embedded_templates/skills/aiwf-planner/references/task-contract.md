@@ -3,6 +3,11 @@
 Task.md is the execution contract. Once activated, it is frozen and the model
 must not edit it.
 
+Before writing Task.md, read its owning Goal, parent Plan, and any completed
+Task Calibration it depends on. Carry forward the capability boundary,
+technical direction, shared constraints, Task order, and proof. If they conflict
+with each other or project reality, correct the planning first.
+
 ## Frontmatter
 
 An implementation Task needs a real `goal_id` and `plan_id`. A milestone

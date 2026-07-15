@@ -66,6 +66,19 @@ class TestPromptClarityContract(unittest.TestCase):
         ]:
             self.assertIn(required, combined)
 
+    def test_task_planning_reads_parent_direction_before_writing(self):
+        task = " ".join(
+            read("skills/aiwf-planner/references/task-contract.md").split()
+        )
+        for required in [
+            "read its owning Goal, parent Plan",
+            "completed Task Calibration",
+            "capability boundary",
+            "technical direction",
+            "correct the planning first",
+        ]:
+            self.assertIn(required, task)
+
     def test_planning_separates_capabilities_from_code_architecture(self):
         planner = read("skills/aiwf-planner/SKILL.md")
         goal = read("skills/aiwf-planner/references/goal-writing.md")
