@@ -1,6 +1,7 @@
 import json, re, sys
 from pathlib import Path
 from aiwf_core.adapters.claude.normalize_event import parse_claude_stdin, normalize
+from aiwf_core.core.agent_worktree import AgentWorktreeError, resolve_agent_assignment
 from aiwf_core.core.state._common import _exclusive_operation_lock
 from aiwf_core.core.worktree_context import resolve_control_root
 
@@ -142,15 +143,27 @@ def main():
     base = resolve_control_root(Path(__file__).resolve().parent.parent)
 
     if data.get("hook_event_name") == "SubagentStop":
-        agent_type = str(data.get("agent_type") or "")
+        event = normalize(data)
+        agent_type = str(event.agent_type or "")
         if agent_type not in {
             "aiwf-executor", "aiwf-tester", "aiwf-reviewer", "aiwf-architect",
         }:
             sys.exit(0)
-        task_id = _task_from_text(
-            base,
-            "\n".join(str(data.get(key) or "") for key in ("last_assistant_message", "cwd")),
-        )
+        task_id = ""
+        if agent_type != "aiwf-architect":
+            try:
+                assignment = resolve_agent_assignment(event, base)
+                task_id = assignment.task_id if assignment else ""
+            except AgentWorktreeError:
+                pass
+        if not task_id:
+            task_id = _task_from_text(
+                base,
+                "\n".join(
+                    str(data.get(key) or "")
+                    for key in ("last_assistant_message", "cwd")
+                ),
+            )
         if agent_type != "aiwf-architect":
             reason = _return_reason(data.get("last_assistant_message"))
             if reason:

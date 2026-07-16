@@ -46,6 +46,7 @@ def _cmd_plan_create(args: argparse.Namespace) -> None:
 def _cmd_plan_show(args: argparse.Namespace) -> None:
     from ..core.task_plan import load_task_plan
     from ..core.state.plan_ops import get_plan, plan_readiness
+    from ..core.git_workflow import plan_integration_state
     plan_id = getattr(args, "plan_id_pos", "") or getattr(args, "plan_id", "") or getattr(args, "task_id", "")
     text = load_task_plan(str(Path.cwd()), plan_id)
     if not text:
@@ -66,6 +67,11 @@ def _cmd_plan_show(args: argparse.Namespace) -> None:
             print(f"  Branch: {plan['git_branch']}")
             print(f"  Base: {plan.get('git_base_branch') or '(unknown)'}")
             print(f"  Head: {plan.get('git_head_ref') or '(no closed Task commit)'}")
+        integration_state = plan_integration_state(str(Path.cwd()), plan)
+        if integration_state not in ("working", "open", "closed", "cancelled"):
+            print(f"Plan closeout: {integration_state}")
+            if integration_state == "held":
+                print(f"  Held at: {str(plan.get('integration_hold_ref') or '')[:12]}")
 
 
 def _cmd_plan_bind_worktree(args: argparse.Namespace) -> None:
@@ -250,11 +256,26 @@ def _cmd_plan_help(args: argparse.Namespace) -> None:
     print("  aiwf plan create PLAN-001 --goal GOAL-001 --title '...'")
     print("  aiwf plan show PLAN-001")
     print("  aiwf plan list")
+    print("  aiwf plan hold PLAN-001")
     print("  aiwf plan close PLAN-001 --summary '...'")
     print("  aiwf plan cancel PLAN-001 --reason '...'")
     print("  aiwf plan link-task PLAN-001 TASK-001")
     print("  aiwf plan unlink-task PLAN-001 TASK-001")
     print("  aiwf plan dep add/remove/show")
+
+
+def _cmd_plan_hold(args: argparse.Namespace) -> None:
+    from ..core.state.plan_ops import hold_plan_integration
+
+    try:
+        result = hold_plan_integration(str(Path.cwd()), args.plan_id)
+    except ValueError as exc:
+        print(f"Plan hold blocked: {exc}", file=sys.stderr)
+        raise SystemExit(1)
+    action = "held" if result["changed"] else "already held"
+    print(f"Plan integration {action}: {args.plan_id}")
+    print(f"  Head: {str(result['hold_ref'])[:12]}")
+    print("  The Plan remains open and will not prompt for merge until its result changes.")
 
 def _update_md_status(entity_type: str, entity_id: str, status: str,
                       summary: str = "") -> None:
@@ -295,6 +316,7 @@ def _cmd_plan_close(args: argparse.Namespace) -> None:
                     print(f"  - {blocker}", file=sys.stderr)
                 raise SystemExit(1)
             p["status"] = "closed"
+            p.pop("integration_hold_ref", None)
             p["closure"] = {
                 "mode": "normal",
                 "accepted": True,
@@ -325,6 +347,7 @@ def _cmd_plan_cancel(args: argparse.Namespace) -> None:
                 )
                 raise SystemExit(1)
             p["status"] = "cancelled"
+            p.pop("integration_hold_ref", None)
             p["cancel_reason"] = reason
             if replaced_by:
                 p["replaced_by"] = replaced_by

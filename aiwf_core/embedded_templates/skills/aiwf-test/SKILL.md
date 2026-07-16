@@ -22,7 +22,7 @@ by Tester and recorded with `aiwf record testing`.
 1. Read the Task.md and run `aiwf task proof <TASK-ID>`.
 2. When `tester_required` is true, dispatch `aiwf-tester` with:
    - the Task ID and absolute Task.md path;
-   - the assigned worktree path, with the Agent's `cwd` set to that path;
+   - the assigned worktree path;
    - a request to read the implementation and findings in
      `aiwf task proof <TASK-ID>`;
    - the current `USER_DELTA`, if one exists;
@@ -38,9 +38,10 @@ by Tester and recorded with `aiwf record testing`.
 5. Let Tester record testing. Do not record it again.
 
 The Agent prompt must name exactly one active Task ID and its assigned
-worktree. The Agent verifies its location; do not ask it to call
-`EnterWorktree`. Other Plans may test in other worktrees; roles for this Task
-remain sequential.
+worktree. AIWF routes the Agent's relative file, search, and Bash tools there
+on every call. Do not use `EnterWorktree` or copy Task changes between
+worktrees. Other Plans may test in parallel; roles for this Task remain
+sequential.
 
 Failed testing opens an Executor fix-loop. `EXTERNAL_FINDING` and
 `RETURN_TO_PLANNER` open a Planner fix-loop. In either case, run

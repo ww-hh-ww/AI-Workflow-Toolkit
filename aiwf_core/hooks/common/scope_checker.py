@@ -12,8 +12,15 @@ from ...core.scope_policy import check_scope, check_bash_command
 from ...core.state.goal_ops import get_active_goal
 from ...core.task_ledger import task_for_worktree
 from ...core.task_records import load_task_record
+from ...core.temporary_access import MARKER as TEMPORARY_AI_WRITES_MARKER
+from ...core.temporary_access import temporary_ai_writes_enabled
 from ...core.worktree_context import resolve_control_root
-from .worktree_guard import foreign_bash_write, foreign_worktree_target, shell_write_targets
+from .worktree_guard import (
+    foreign_bash_write,
+    foreign_worktree_target,
+    managed_worktrees,
+    shell_write_targets,
+)
 
 
 DEFAULT_WRITE_POLICY: Dict[str, Any] = {
@@ -253,6 +260,72 @@ def _is_planner_inline_role(role: str) -> bool:
     return "planner" in role or "main" in role
 
 
+def _is_planner_owned_governance_path(path: str) -> bool:
+    return (
+        path == ".aiwf/mission.md"
+        or any(
+            path.startswith(prefix)
+            for prefix in (
+                ".aiwf/goals/",
+                ".aiwf/plans/",
+                ".aiwf/tasks/",
+                ".aiwf/milestones/",
+                ".aiwf/memory/",
+                ".aiwf/config/",
+            )
+        )
+    )
+
+
+def _has_any_active_task(control: Path) -> bool:
+    ledger = _read_json(control / ".aiwf" / "state" / "tasks.json", {"tasks": []})
+    return any(
+        isinstance(task, dict) and task.get("status") == "active"
+        for task in ledger.get("tasks", []) or []
+    )
+
+
+def _temporary_project_writes_allowed(
+    control: Path,
+    role: str,
+    write_policy: Dict[str, Any],
+) -> bool:
+    return (
+        temporary_ai_writes_enabled(control)
+        and not _has_any_active_task(control)
+        and _role_project_write_mode(role, write_policy) == "allow"
+    )
+
+
+def _project_shell_write_targets(command: str, cwd: Path, control: Path) -> list[str]:
+    """Return explicit shell write targets inside any managed project worktree."""
+    owners = managed_worktrees(control)
+    targets = []
+    for raw in shell_write_targets(command):
+        value = str(raw or "").strip()
+        if not value or any(marker in value for marker in ("$", "`")):
+            continue
+        try:
+            path = Path(value).expanduser()
+            if not path.is_absolute():
+                path = cwd / path
+            path = path.resolve()
+        except (OSError, RuntimeError, ValueError):
+            continue
+        for owner in owners:
+            try:
+                relative = path.relative_to(owner.resolve()).as_posix()
+            except ValueError:
+                continue
+            if owner == control and (
+                relative == ".aiwf" or relative.startswith(".aiwf/")
+            ):
+                break
+            targets.append(relative)
+            break
+    return targets
+
+
 def _task_has_executor_evidence(cwd: Path, task_id: str) -> bool:
     if not task_id:
         return False
@@ -316,6 +389,14 @@ def check_file_write(event: NormalizedEvent) -> ScopeResult:
                 f"mechanical truth '{normalized}' must be changed through aiwf CLI commands; "
                 "direct Write/Edit of .aiwf/state/*.json and .aiwf/records/*.json is denied."
             ),
+        )
+
+    if normalized == TEMPORARY_AI_WRITES_MARKER:
+        return ScopeResult(
+            file_path=normalized,
+            allowed=False,
+            active_context_id=state.get("active_context_id") or "(none)",
+            reason="temporary AI project writes can be changed only by a human in `aiwf ui`.",
         )
 
     if active_task_id and not _is_governance_file(normalized):
@@ -477,6 +558,16 @@ def check_file_write(event: NormalizedEvent) -> ScopeResult:
                     f"'{normalized}'."
                 ),
             )
+        if _is_planner_owned_governance_path(normalized) and not _is_planner_inline_role(role):
+            return ScopeResult(
+                file_path=normalized,
+                allowed=False,
+                active_context_id=state.get("active_context_id") or "(none)",
+                reason=(
+                    f"AIWF governance documents are owned by Planner; {role or 'this role'} "
+                    f"may read but not edit '{normalized}'. Return the proposed change to Planner."
+                ),
+            )
         closed_plan_id = _closed_plan_for_path(control, normalized)
         if closed_plan_id:
             return ScopeResult(
@@ -508,6 +599,13 @@ def check_file_write(event: NormalizedEvent) -> ScopeResult:
 
     # ── Project files: require active task ──
     if not active_task_id and write_policy.get("project_writes_require_active_task"):
+        if _temporary_project_writes_allowed(control, role, write_policy):
+            return ScopeResult(
+                file_path=normalized,
+                allowed=True,
+                active_context_id="(temporary)",
+                reason="human enabled temporary AI project writes in `aiwf ui`",
+            )
         return ScopeResult(
             file_path=normalized,
             allowed=False,
@@ -633,11 +731,23 @@ def check_bash(event: NormalizedEvent) -> Dict:
     control = resolve_control_root(cwd)
     active_task = task_for_worktree(str(cwd))
     active_task_id = str((active_task or {}).get("id") or "")
+    write_policy = _read_write_policy(control)
+    role = str(event.agent_type or "").lower()
 
     # ── Command-policy: mechanically block AI-forbidden commands ──
     policy_result = _check_command_policy(command, control)
     if policy_result:
         return policy_result
+
+    base_result = check_bash_command(command)
+    if TEMPORARY_AI_WRITES_MARKER in command:
+        return {
+            "allowed": False,
+            "decision": "deny",
+            "command": command[:200],
+            "matched_pattern": TEMPORARY_AI_WRITES_MARKER,
+            "reason": "temporary AI project writes can be changed only by a human in `aiwf ui`.",
+        }
 
     if active_task_id:
         assigned = Path(str(active_task.get("worktree_path") or cwd))
@@ -674,6 +784,10 @@ def check_bash(event: NormalizedEvent) -> Dict:
     if role_memory_result:
         return role_memory_result
 
+    role_governance_result = _check_role_governance_bash_write(event, command, control)
+    if role_governance_result:
+        return role_governance_result
+
     closed_plan_result = _check_closed_plan_bash(command, control)
     if closed_plan_result:
         return closed_plan_result
@@ -682,6 +796,31 @@ def check_bash(event: NormalizedEvent) -> Dict:
     active_lock_result = _check_active_task_md_bash(command, control, active_task_id)
     if active_lock_result:
         return active_lock_result
+
+    if base_result.get("decision") != "allow":
+        return base_result
+
+    project_targets = _project_shell_write_targets(command, cwd, control)
+    if (
+        project_targets
+        and not active_task_id
+        and write_policy.get("project_writes_require_active_task")
+    ):
+        temporary_allowed = _temporary_project_writes_allowed(
+            control, role, write_policy,
+        )
+        if not temporary_allowed:
+            return {
+                "allowed": False,
+                "decision": "deny",
+                "command": command[:200],
+                "matched_pattern": project_targets[0],
+                "reason": (
+                    f"no active task — project shell writes require an active Task. "
+                    f"A human may temporarily allow AI project writes in `aiwf ui`; "
+                    f"first target: '{project_targets[0]}'."
+                ),
+            }
 
     if active_task_id:
         import re
@@ -697,7 +836,7 @@ def check_bash(event: NormalizedEvent) -> Dict:
                 ),
             }
 
-    return check_bash_command(command)
+    return base_result
 
 
 def _check_closed_plan_bash(command: str, cwd: Path) -> Optional[Dict]:
@@ -914,6 +1053,43 @@ def _check_role_memory_bash_write(
         "matched_pattern": ".aiwf/memory/",
         "reason": f"AIWF memory is owned by Planner; {role} may read but not edit it.",
     }
+
+
+def _check_role_governance_bash_write(
+    event: NormalizedEvent,
+    command: str,
+    control: Path,
+) -> Optional[Dict]:
+    role = str(event.agent_type or "").lower()
+    if _is_planner_inline_role(role) or not _looks_like_shell_write(command):
+        return None
+
+    targets = shell_write_targets(command)
+    import re
+    targets.extend(re.findall(
+        r"\bopen\s*\(\s*['\"]([^'\"]+)['\"]\s*,\s*['\"][^'\"]*[wax+]",
+        command,
+    ))
+    for raw_target in targets:
+        try:
+            target = Path(raw_target).expanduser()
+            if not target.is_absolute():
+                target = Path(event.cwd or Path.cwd()) / target
+            normalized = target.resolve().relative_to(control.resolve()).as_posix()
+        except (OSError, RuntimeError, ValueError):
+            continue
+        if _is_planner_owned_governance_path(normalized):
+            return {
+                "allowed": False,
+                "decision": "deny",
+                "command": command[:200],
+                "matched_pattern": normalized,
+                "reason": (
+                    f"AIWF governance documents are owned by Planner; {role or 'this role'} "
+                    f"may read but not edit '{normalized}'. Return the proposed change to Planner."
+                ),
+            }
+    return None
 
 
 def _looks_like_shell_write(command: str) -> bool:

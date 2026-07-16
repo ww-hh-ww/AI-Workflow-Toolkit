@@ -10,9 +10,11 @@ class TestEventRoleProvenance(unittest.TestCase):
             "session_id": "session-1",
             "agent_id": "agent-1",
             "agent_type": "tester",
+            "transcript_path": "/tmp/session.jsonl",
         })
         self.assertEqual(event.engine, "claude")
         self.assertEqual(event.agent_type, "tester")
+        self.assertEqual(event.transcript_path, "/tmp/session.jsonl")
 
     def test_reasonix_agent_type_is_preserved(self):
         from aiwf_core.adapters.claude.normalize_event import normalize

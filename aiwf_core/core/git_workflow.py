@@ -177,11 +177,14 @@ def bind_plan_worktree(
             base_ref = merge_base.stdout.strip() if merge_base.returncode == 0 else info["head"]
         else:
             base_ref = info["head"]
+    previous_head = str(plan.get("git_head_ref") or "")
     plan["git_worktree_path"] = str(worktree)
     plan["git_branch"] = branch
     plan["git_base_branch"] = base_branch
     plan["git_base_ref"] = base_ref
     plan["git_head_ref"] = info["head"]
+    if previous_head != info["head"]:
+        plan.pop("integration_hold_ref", None)
     return {
         "worktree_path": str(worktree),
         "branch": branch,
@@ -259,6 +262,48 @@ def create_task_commit(
     return commit
 
 
+def plan_merge_state(base_dir: str, plan: Dict[str, Any]) -> str:
+    head_ref = str(plan.get("git_head_ref") or "")
+    base_branch = str(plan.get("git_base_branch") or "")
+    if not head_ref or not base_branch:
+        return "unknown"
+    result = _run(
+        Path(base_dir), "merge-base", "--is-ancestor", head_ref, base_branch,
+    )
+    if result.returncode == 0:
+        return "merged"
+    if result.returncode == 1:
+        return "unmerged"
+    return "unknown"
+
+
+def plan_merged_into_base(base_dir: str, plan: Dict[str, Any]) -> bool:
+    return plan_merge_state(base_dir, plan) == "merged"
+
+
+def plan_integration_state(base_dir: str, plan: Dict[str, Any]) -> str:
+    """Derive the open Plan's post-Task state without adding lifecycle statuses."""
+    persisted = str(plan.get("status") or "open")
+    if persisted != "open":
+        return persisted
+    statuses = plan.get("task_status", {}) or {}
+    if not statuses or any(
+        status not in ("closed", "cancelled") for status in statuses.values()
+    ):
+        return "working"
+    if not any(status == "closed" for status in statuses.values()):
+        return "no_completed_work"
+    merge_state = plan_merge_state(base_dir, plan)
+    if merge_state == "merged":
+        return "merged_pending_close"
+    if merge_state == "unknown":
+        return "git_incomplete"
+    head_ref = str(plan.get("git_head_ref") or "")
+    if head_ref and str(plan.get("integration_hold_ref") or "") == head_ref:
+        return "held"
+    return "awaiting_decision"
+
+
 def plan_close_blockers(base_dir: str, plan: Dict[str, Any]) -> List[str]:
     blockers: List[str] = []
     statuses = plan.get("task_status", {}) or {}
@@ -279,6 +324,6 @@ def plan_close_blockers(base_dir: str, plan: Dict[str, Any]) -> List[str]:
         blockers.append(
             f"merge '{branch}' into '{base_branch}', switch to '{base_branch}', then close the Plan"
         )
-    elif _run(Path(base_dir), "merge-base", "--is-ancestor", head_ref, "HEAD").returncode != 0:
+    elif not plan_merged_into_base(base_dir, plan):
         blockers.append(f"Plan branch '{branch}' is not merged into '{base_branch}'")
     return blockers

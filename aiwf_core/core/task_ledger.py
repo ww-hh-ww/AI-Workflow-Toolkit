@@ -552,6 +552,9 @@ def _activate_task_locked(base_dir: str, task_id: str) -> Dict[str, Any]:
     blockers = activation_blockers(base_dir, task_id)
     if blockers:
         return {"activated": False, "task": task, "ledger": ledger, "blockers": blockers}
+    from .temporary_access import disable_temporary_ai_writes
+
+    disable_temporary_ai_writes(base_dir)
     resuming = task.get("status") == "suspended"
     task["status"] = "active"
     task["phase"] = str(task.pop("suspended_phase", "") or "implementing")

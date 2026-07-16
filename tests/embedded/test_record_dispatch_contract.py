@@ -94,8 +94,6 @@ class TestRecordDispatchContract(unittest.TestCase):
         session_id="test",
         skill_session_id="",
         event_cwd="",
-        agent_cwd="",
-        include_agent_cwd=True,
     ):
         log = self.tmp / ".aiwf" / "runtime" / "internal" / "skill-loads.jsonl"
         log.parent.mkdir(parents=True, exist_ok=True)
@@ -106,10 +104,8 @@ class TestRecordDispatchContract(unittest.TestCase):
         }) + "\n")
         tool_input = {
             "subagent_type": subagent_type,
-            "prompt": f"Work on TASK-001 in assigned worktree {self.tmp}. Verify cwd first.",
+            "prompt": f"Work on TASK-001 in assigned worktree {self.tmp}.",
         }
-        if include_agent_cwd:
-            tool_input["cwd"] = str(agent_cwd or self.tmp)
         payload = json.dumps({
             "hook_event_name": "PreToolUse",
             "tool_name": "Agent",
@@ -126,7 +122,7 @@ class TestRecordDispatchContract(unittest.TestCase):
             text=True,
         )
 
-    def test_dispatch_uses_assigned_worktree_as_agent_cwd(self):
+    def test_dispatch_from_control_session_uses_prompt_assignment(self):
         outside = self.tmp.parent
         allowed = self._dispatch(
             "aiwf-reviewer", "aiwf-review", event_cwd=outside,
@@ -134,20 +130,25 @@ class TestRecordDispatchContract(unittest.TestCase):
         self.assertEqual(allowed.returncode, 0, allowed.stderr)
         self.assertEqual(allowed.stdout.strip(), "")
 
-    def test_dispatch_rejects_wrong_effective_agent_cwd(self):
+    def test_dispatch_does_not_require_an_unsupported_agent_cwd_field(self):
         result = self._dispatch(
             "aiwf-reviewer", "aiwf-review", event_cwd=self.tmp.parent,
-            include_agent_cwd=False,
         )
-        output = json.loads(result.stdout)
-        reason = output["hookSpecificOutput"]["permissionDecisionReason"]
-        self.assertIn("Agent cwd must be the assigned worktree", reason)
-        self.assertIn("do not call EnterWorktree", reason)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "")
 
-    def _complete(self, subagent_type, message="TASK-001 completed."):
+    def _complete(
+        self,
+        subagent_type,
+        message="TASK-001 completed.",
+        agent_id="",
+        transcript_path="",
+    ):
         payload = json.dumps({
             "hook_event_name": "SubagentStop",
             "agent_type": subagent_type,
+            "agent_id": agent_id,
+            "transcript_path": transcript_path,
             "last_assistant_message": message,
             "cwd": str(self.tmp),
             "session_id": "test",
@@ -296,6 +297,49 @@ class TestRecordDispatchContract(unittest.TestCase):
             .read_text(encoding="utf-8").splitlines()
         ]
         self.assertEqual(entries[-1]["task_id"], "TASK-001")
+        self.assertEqual(entries[-1]["status"], "completed")
+
+    def test_parallel_subagent_stop_uses_its_transcript_assignment(self):
+        tasks_path = self.tmp / ".aiwf" / "state" / "tasks.json"
+        tasks = json.loads(tasks_path.read_text(encoding="utf-8"))
+        second_worktree = self.tmp / "another-worktree"
+        tasks["tasks"].append({
+            "id": "TASK-002",
+            "status": "active",
+            "phase": "implementing",
+            "worktree_path": str(second_worktree),
+            "requirements": {},
+        })
+        tasks_path.write_text(json.dumps(tasks, indent=2) + "\n", encoding="utf-8")
+        dispatch_path = self.tmp / ".aiwf/runtime/internal/agent-dispatch.jsonl"
+        dispatch_path.parent.mkdir(parents=True, exist_ok=True)
+        dispatch_path.write_text("\n".join([
+            json.dumps({
+                "subagent_type": "aiwf-executor", "task_id": task_id,
+                "session_id": "test", "status": "started",
+            })
+            for task_id in ("TASK-001", "TASK-002")
+        ]) + "\n", encoding="utf-8")
+
+        main = self.tmp / "session.jsonl"
+        agent = main.with_suffix("") / "subagents" / "agent-b.jsonl"
+        agent.parent.mkdir(parents=True)
+        agent.write_text(json.dumps({
+            "prompt": f"Work on TASK-002 in assigned worktree {second_worktree}",
+        }) + "\n", encoding="utf-8")
+
+        completed = self._complete(
+            "aiwf-executor",
+            "Implementation completed.",
+            agent_id="b",
+            transcript_path=str(main),
+        )
+
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        entries = [
+            json.loads(line) for line in dispatch_path.read_text(encoding="utf-8").splitlines()
+        ]
+        self.assertEqual(entries[-1]["task_id"], "TASK-002")
         self.assertEqual(entries[-1]["status"], "completed")
 
 

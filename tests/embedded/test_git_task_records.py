@@ -1,9 +1,14 @@
 import json
+import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
+
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
 
 class TestGitTaskRecords(unittest.TestCase):
@@ -168,7 +173,13 @@ class TestGitTaskRecords(unittest.TestCase):
         self.assertIn("protected branch", " ".join(task_activation_git_blockers(str(self.tmp))))
 
     def test_plan_closes_only_after_feature_branch_is_merged(self):
-        from aiwf_core.core.git_workflow import bind_plan_branch, plan_close_blockers
+        from aiwf_core.core.git_workflow import (
+            bind_plan_branch,
+            plan_close_blockers,
+            plan_integration_state,
+            plan_merged_into_base,
+        )
+        from aiwf_core.core.state.plan_ops import load_plans, save_plans
 
         plan = {"task_status": {"TASK-001": "closed"}}
         bind_plan_branch(str(self.tmp), plan)
@@ -179,13 +190,67 @@ class TestGitTaskRecords(unittest.TestCase):
             ["git", "rev-parse", "HEAD"], cwd=self.tmp, check=True,
             capture_output=True, text=True,
         ).stdout.strip()
+        plan.update({"id": "PLAN-001", "plan_id": "PLAN-001", "status": "open"})
+        self.assertFalse(plan_merged_into_base(str(self.tmp), plan))
+        self.assertEqual(plan_integration_state(str(self.tmp), plan), "awaiting_decision")
+
+        save_plans(str(self.tmp), {"schema_version": 1, "plans": [plan]})
+        env = os.environ.copy()
+        env["PYTHONPATH"] = str(PROJECT_ROOT)
+        held = subprocess.run(
+            [sys.executable, "-m", "aiwf_core.cli", "plan", "hold", "PLAN-001"],
+            cwd=self.tmp, env=env, capture_output=True, text=True,
+        )
+        self.assertEqual(held.returncode, 0, held.stderr)
+        self.assertIn("Plan integration held", held.stdout)
+        plan = load_plans(str(self.tmp))["plans"][0]
+        self.assertEqual(plan["integration_hold_ref"], plan["git_head_ref"])
+        self.assertEqual(plan_integration_state(str(self.tmp), plan), "held")
+
+        from aiwf_core.aiwf_ui import _build_detail, _build_status_bar, load_all
+
+        ui_data = load_all(self.tmp)
+        detail = _build_detail(
+            {"kind": "plan", "id": "PLAN-001", "title": "Plan 1"}, ui_data,
+        )
+        self.assertIn(" Next: Intentionally left open", detail)
+        self.assertIn("保留Plan=1", _build_status_bar(ui_data))
+
         self.assertIn("switch to 'main'", " ".join(plan_close_blockers(str(self.tmp), plan)))
         subprocess.run(["git", "switch", "main"], cwd=self.tmp, check=True, capture_output=True)
         subprocess.run(
             ["git", "merge", "--no-ff", "feature/test", "-m", "merge plan"],
             cwd=self.tmp, check=True, capture_output=True,
         )
+        self.assertTrue(plan_merged_into_base(str(self.tmp), plan))
+        self.assertEqual(plan_integration_state(str(self.tmp), plan), "merged_pending_close")
         self.assertEqual(plan_close_blockers(str(self.tmp), plan), [])
+
+    def test_new_task_clears_a_held_plan_decision(self):
+        from aiwf_core.core.state.plan_ops import (
+            attach_task_to_plan,
+            load_plans,
+            save_plans,
+        )
+
+        save_plans(str(self.tmp), {
+            "schema_version": 1,
+            "plans": [{
+                "id": "PLAN-HELD",
+                "plan_id": "PLAN-HELD",
+                "status": "open",
+                "task_ids": ["TASK-DONE"],
+                "task_status": {"TASK-DONE": "closed"},
+                "integration_hold_ref": "abc123",
+            }],
+        })
+
+        result = attach_task_to_plan(str(self.tmp), "PLAN-HELD", "TASK-NEXT")
+
+        self.assertTrue(result["attached"])
+        plan = load_plans(str(self.tmp))["plans"][0]
+        self.assertNotIn("integration_hold_ref", plan)
+        self.assertEqual(plan["task_status"]["TASK-NEXT"], "unknown")
 
     def test_reviewed_rename_is_committed_as_the_exact_snapshot(self):
         from aiwf_core.core.state.context_ops import record_implementation

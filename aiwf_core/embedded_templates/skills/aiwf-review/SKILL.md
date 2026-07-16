@@ -19,7 +19,7 @@ Do not run it in parallel with Executor or Tester.
 1. Read the Task.md and run `aiwf task proof <TASK-ID>`.
 2. When `reviewer_required` is true, dispatch `aiwf-reviewer` with:
    - the Task ID and absolute Task.md path;
-   - the assigned worktree path, with the Agent's `cwd` set to that path;
+   - the assigned worktree path;
    - a request to read implementation, testing, findings, and diff refs in
      `aiwf task proof <TASK-ID>`;
    - the current `USER_DELTA`, if one exists;
@@ -33,9 +33,10 @@ Do not run it in parallel with Executor or Tester.
 5. Let Reviewer record review. Do not record it again.
 
 The Agent prompt must name exactly one active Task ID and its assigned
-worktree. The Agent verifies its location; do not ask it to call
-`EnterWorktree`. Other Plans may be reviewed in other worktrees; roles for this
-Task remain sequential.
+worktree. AIWF routes the Agent's relative file, search, and Bash tools there
+on every call. Do not use `EnterWorktree` or copy Task changes between
+worktrees. Other Plans may be reviewed in parallel; roles for this Task remain
+sequential.
 
 `needs_fix` and `rejected` open an Executor fix-loop. `RETURN_TO_PLANNER` opens
 a Planner fix-loop. Run `aiwf status --prompt` and follow its route; do not

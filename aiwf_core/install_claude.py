@@ -159,6 +159,7 @@ def _build_settings_json(target: EmbedTarget | None = None) -> Dict[str, Any]:
     q_status       = qs + '/aiwf_status.py" --short'
     q_scope_check  = qs + '/aiwf_scope_check.py"'
     q_bash_guard   = qs + '/aiwf_bash_guard.py"'
+    q_worktree_route = qs + '/aiwf_worktree_route.py"'
     q_skill_log    = qs + '/aiwf_skill_log.py"'
     q_agent_log    = qs + '/aiwf_agent_log.py"'
     q_agent_gate   = qs + '/aiwf_agent_gate.py"'
@@ -192,6 +193,7 @@ def _build_settings_json(target: EmbedTarget | None = None) -> Dict[str, Any]:
         "hooks": {
             "UserPromptSubmit": [_h(q_status)],
             "PreToolUse": [
+                {"matcher": "Read|Glob|Grep",                        **_h(q_worktree_route)},
                 {"matcher": "Write|Edit|MultiEdit",                 **_h(q_scope_check)},
                 {"matcher": "Bash",                                 **_h(q_bash_guard)},
                 {"matcher": "Agent|Task",                           **_h(q_agent_gate)},
@@ -213,6 +215,7 @@ def _build_settings_json(target: EmbedTarget | None = None) -> Dict[str, Any]:
 
                 "Bash(scripts/aiwf_scope_check.py:*)",
                 "Bash(scripts/aiwf_bash_guard.py:*)",
+                "Bash(scripts/aiwf_worktree_route.py:*)",
 
                 "Bash(scripts/aiwf_review_gate.py:*)",
                 "Bash(scripts/aiwf_agent_log.py:*)",
@@ -358,6 +361,7 @@ SCRIPT_TEMPLATES = {
 
     "aiwf_scope_check.py": "scripts/aiwf_scope_check.py",
     "aiwf_bash_guard.py": "scripts/aiwf_bash_guard.py",
+    "aiwf_worktree_route.py": "scripts/aiwf_worktree_route.py",
 
     "aiwf_review_gate.py": "scripts/aiwf_review_gate.py",
     "aiwf_skill_log.py": "scripts/aiwf_skill_log.py",
@@ -1086,7 +1090,7 @@ def doctor(mode: str | None = None) -> Dict[str, Any]:
         checks["state_files"][sf] = path.exists()
 
     for script in ["aiwf_status.py", "aiwf_scope_check.py",
-                    "aiwf_bash_guard.py", "aiwf_skill_log.py",
+                    "aiwf_bash_guard.py", "aiwf_worktree_route.py", "aiwf_skill_log.py",
                     "aiwf_agent_log.py", "aiwf_agent_gate.py",
                     "aiwf_auto_sync.py", "aiwf_review_gate.py"]:
         path = root / "scripts" / script

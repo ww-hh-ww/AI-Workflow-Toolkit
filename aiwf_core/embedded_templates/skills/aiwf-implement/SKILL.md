@@ -25,7 +25,7 @@ Tester.
 2. If this is the first implementation and `executor_required` is true,
    dispatch `aiwf-executor` with:
    - the Task ID and absolute Task.md path;
-   - the assigned worktree path, with the Agent's `cwd` set to that path;
+   - the assigned worktree path;
    - a requirement to write only there and never copy changes to another
      worktree;
    - for a fix loop, a request to read the current recorded finding;
@@ -46,8 +46,9 @@ If `executor_required` is false, do not dispatch Executor. Read
 the result for this Task.
 
 The Agent prompt must name exactly one active Task ID and its assigned
-worktree. The dispatch hook rejects ambiguous prompts and a wrong Agent `cwd`.
-The Agent verifies its location; do not ask it to call `EnterWorktree`.
+worktree. AIWF routes the Agent's relative file, search, and Bash tools there
+on every call. Do not use `EnterWorktree`, `isolation: worktree`, or copy Task
+changes between worktrees.
 
 If Executor returns `RETURN_TO_PLANNER`, stop normal progress and surface the
 verified conflict. The hook opens a Planner fix-loop. Run `aiwf status --prompt`

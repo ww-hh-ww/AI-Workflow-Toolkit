@@ -6,7 +6,21 @@ from pathlib import Path
 
 from .flow import cmd_status
 from .ops_commands import _cmd_doctor, _cmd_fix_loop_help, _cmd_fix_loop_open, _cmd_fix_loop_resolve, _cmd_fix_loop_status, _cmd_install
-from .plan_commands import _cmd_plan_attach, _cmd_plan_bind_worktree, _cmd_plan_cancel, _cmd_plan_close, _cmd_plan_create, _cmd_plan_dep_add, _cmd_plan_dep_remove, _cmd_plan_dep_show, _cmd_plan_detach, _cmd_plan_help, _cmd_plan_list, _cmd_plan_show
+from .plan_commands import (
+    _cmd_plan_attach,
+    _cmd_plan_bind_worktree,
+    _cmd_plan_cancel,
+    _cmd_plan_close,
+    _cmd_plan_create,
+    _cmd_plan_dep_add,
+    _cmd_plan_dep_remove,
+    _cmd_plan_dep_show,
+    _cmd_plan_detach,
+    _cmd_plan_help,
+    _cmd_plan_hold,
+    _cmd_plan_list,
+    _cmd_plan_show,
+)
 from .state_commands import _cmd_record_disposition, _cmd_record_help, _cmd_record_implementation, _cmd_record_review, _cmd_record_testing
 from .goal_tree_commands import _cmd_goal_cancel, _cmd_goal_close, _cmd_goal_create, _cmd_goal_help, _cmd_goal_tree_list, _cmd_goal_tree_show, _cmd_relation_add, _cmd_relation_remove
 from .milestone_commands import _cmd_milestone_arch_review, _cmd_milestone_assess, _cmd_milestone_cancel, _cmd_milestone_close, _cmd_milestone_confirm, _cmd_milestone_create, _cmd_milestone_help, _cmd_milestone_integration_test, _cmd_milestone_link_plan, _cmd_milestone_link_task, _cmd_milestone_list, _cmd_milestone_show, _cmd_milestone_unlink_plan, _cmd_milestone_unlink_task
@@ -152,6 +166,9 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
         help="create or reuse the Plan's persistent worktree and branch",
     )
     p_plw.set_defaults(func=_cmd_plan_bind_worktree)
+    p_plh = p_plan_sub.add_parser("hold", help="leave a completed Plan open without repeated merge prompts")
+    p_plh.add_argument("plan_id", help="Plan ID")
+    p_plh.set_defaults(func=_cmd_plan_hold)
     p_plcl = p_plan_sub.add_parser("close", help="close a plan")
     p_plcl.add_argument("plan_id", help="plan ID")
     p_plcl.add_argument("--summary", default="", help="closure summary")

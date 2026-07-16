@@ -317,6 +317,7 @@ def upsert_plan(base_dir: str, plan_id: str, goal_id: str = "", task_ids: Option
             if tid not in plan.setdefault("task_ids", []):
                 plan["task_ids"].append(tid)
                 plan.setdefault("task_status", {})[tid] = "unknown"
+                plan.pop("integration_hold_ref", None)
         plan["remaining_task_ids"] = [
             tid for tid in plan.get("task_ids", []) or []
             if tid not in set(plan.get("closed_task_ids", []) or [])
@@ -401,6 +402,7 @@ def attach_task_to_plan(base_dir: str, plan_id: str, task_id: str) -> Dict[str, 
     task_ids = plan.setdefault("task_ids", [])
     if task_id not in task_ids:
         task_ids.append(task_id)
+        plan.pop("integration_hold_ref", None)
     status = plan.setdefault("task_status", {}).get(task_id, "unknown")
     try:
         from ..task_ledger import load_ledger
@@ -446,6 +448,34 @@ def get_plan(base_dir: str, plan_id: str, migrate: bool = False) -> Dict[str, An
 def plan_exists(base_dir: str, plan_id: str) -> bool:
     return bool(get_plan(base_dir, plan_id, migrate=False))
 
+
+def hold_plan_integration(base_dir: str, plan_id: str) -> Dict[str, Any]:
+    from ..git_workflow import plan_integration_state
+
+    plans = load_plans(base_dir)
+    plan = _find_plan(plans, plan_id)
+    if not plan:
+        raise ValueError(f"plan not found: {plan_id}")
+    _require_open_plan(plan, "hold integration")
+    state = plan_integration_state(base_dir, plan)
+    if state == "held":
+        return {"plan": plan, "hold_ref": plan.get("integration_hold_ref"), "changed": False}
+    if state == "working":
+        raise ValueError("Plan still has unfinished Tasks")
+    if state == "no_completed_work":
+        raise ValueError("Plan has no completed Task result to hold; add work or cancel the Plan")
+    if state == "merged_pending_close":
+        raise ValueError("Plan is already merged; verify the integrated result and close it")
+    if state == "git_incomplete":
+        raise ValueError("Plan Git history is incomplete; repair its branch, base, and head first")
+    head_ref = str(plan.get("git_head_ref") or "")
+    if not head_ref:
+        raise ValueError("Plan has no completed Task commit to hold")
+    plan["integration_hold_ref"] = head_ref
+    plan["updated_at"] = _now()
+    save_plans(base_dir, plans)
+    return {"plan": plan, "hold_ref": head_ref, "changed": True}
+
 def reconcile_task_to_plan(base_dir: str, task: Dict[str, Any]) -> Dict[str, Any]:
     """Roll closed task progress into its parent plan registry entry."""
     task_id = str(task.get("id", "") or "")
@@ -484,6 +514,8 @@ def reconcile_task_to_plan(base_dir: str, task: Dict[str, Any]) -> Dict[str, Any
     }
     commit = str((task.get("closure", {}) or {}).get("git_commit") or "")
     if commit:
+        if str(plan.get("integration_hold_ref") or "") != commit:
+            plan.pop("integration_hold_ref", None)
         plan["git_head_ref"] = commit
     # V1: task close updates rollup only; plan close must be explicit
     plan["updated_at"] = _now()

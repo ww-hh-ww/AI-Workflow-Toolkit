@@ -16,9 +16,9 @@ path, implementation, testing, old paths, and downstream semantics.
 
 ## Read First
 
-- Verify that the current Git worktree is the assigned path and that the Task
-  ID matches. If not, return to Planner. Do not call `EnterWorktree` from this
-  subagent.
+- Treat the assigned worktree as the project root. AIWF keeps relative file,
+  search, and Bash tools there. Run `pwd` once; if it is not the assigned path,
+  return to Planner. Never call `EnterWorktree`.
 - The entire assigned Task.md.
 - Any `USER_DELTA` in the dispatch prompt. It is an explicit user requirement
   missing from Task.md and may add to or change it.

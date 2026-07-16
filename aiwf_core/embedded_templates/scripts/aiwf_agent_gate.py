@@ -5,7 +5,7 @@ from aiwf_core.adapters.claude.normalize_event import parse_claude_stdin, normal
 from aiwf_core.adapters.claude.responses import allow, deny_pre_tool_use
 from aiwf_core.core.state._common import _exclusive_operation_lock
 from aiwf_core.core.task_records import load_task_record
-from aiwf_core.core.worktree_context import resolve_control_root, resolve_worktree_root, same_path
+from aiwf_core.core.worktree_context import resolve_control_root
 
 AGENT_SKILL_MAP = {
     "aiwf-executor": "aiwf-implement",
@@ -144,18 +144,6 @@ def main():
             f"Cannot dispatch {subagent_type} for {active_task_id}: prompt must include its assigned "
             f"worktree path '{worktree_path or '(not bound)'}'."
         )
-    dispatch_cwd = str(event.tool_input.get("cwd") or event.cwd or "")
-    try:
-        dispatch_worktree = str(resolve_worktree_root(dispatch_cwd))
-    except Exception:
-        dispatch_worktree = dispatch_cwd
-    if not dispatch_worktree or not same_path(dispatch_worktree, worktree_path):
-        deny_pre_tool_use(
-            f"Cannot dispatch {subagent_type} for {active_task_id}: Agent cwd must be the "
-            f"assigned worktree '{worktree_path}', got '{dispatch_cwd or '(none)'}'. "
-            "Set the Agent cwd when dispatching; do not call EnterWorktree inside the subagent."
-        )
-
     # Check if required skill was loaded for this task
     log_path = base / ".aiwf" / "runtime" / "internal" / "skill-loads.jsonl"
     loaded = False

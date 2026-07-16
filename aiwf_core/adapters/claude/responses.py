@@ -26,6 +26,23 @@ def allow() -> None:
     sys.exit(0)
 
 
+def allow_with_updated_input(
+    tool_input: Dict[str, Any],
+    additional_context: str = "",
+) -> None:
+    """Allow a Claude tool call after replacing its input."""
+    if _is_reasonix():
+        allow()
+    output = {
+        "hookEventName": "PreToolUse",
+        "permissionDecision": "allow",
+        "updatedInput": tool_input,
+    }
+    if additional_context:
+        output["additionalContext"] = additional_context
+    output_json({"hookSpecificOutput": output})
+
+
 def deny_pre_tool_use(reason: str) -> None:
     """Block a PreToolUse action with permission decision deny."""
     if _is_reasonix():

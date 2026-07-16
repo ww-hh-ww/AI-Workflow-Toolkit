@@ -47,6 +47,7 @@ class TestHooks(unittest.TestCase):
             p.write_text(json.dumps(dfn(), indent=2) + "\n")
         status_fp = self.tmp / ".aiwf" / "runtime" / "internal" / "status-hook-last.json"
         status_fp.unlink(missing_ok=True)
+        (self.tmp / ".aiwf/runtime/internal/temporary-ai-writes.json").unlink(missing_ok=True)
         records_dir = self.tmp / ".aiwf/records/tasks"
         shutil.rmtree(records_dir, ignore_errors=True)
         records_dir.mkdir(parents=True, exist_ok=True)
@@ -184,6 +185,16 @@ class TestHooks(unittest.TestCase):
         second = self._status()
         self.assertEqual(second.returncode, 0, second.stderr)
         self.assertEqual(second.stdout.strip(), "")
+
+    def test_status_hook_announces_temporary_ai_writes_once(self):
+        from aiwf_core.core.temporary_access import enable_temporary_ai_writes
+
+        enable_temporary_ai_writes(self.tmp)
+        first = self._status()
+        context = json.loads(first.stdout)["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("Human enabled temporary AI project writes", context)
+        self.assertIn("do not create a Task", context)
+        self.assertEqual(self._status().stdout.strip(), "")
 
     def test_status_hook_reports_close_task_stage(self):
         self._set_active_task("implementing")
@@ -672,6 +683,26 @@ class TestHooks(unittest.TestCase):
         out = json.loads(r.stdout.strip())
         self.assertEqual(out["hookSpecificOutput"]["permissionDecision"], "deny")
 
+    def test_temporary_write_permission_reaches_delegated_agents(self):
+        from aiwf_core.core.temporary_access import enable_temporary_ai_writes
+
+        enable_temporary_ai_writes(self.tmp)
+        for role in ("general-purpose", "aiwf-executor"):
+            with self.subTest(role=role):
+                result = self._scope("Write", "lesson.html", agent_type=role)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stdout.strip(), "")
+
+        denied = self._scope(
+            "Write", ".aiwf/tasks/TASK-999.md", agent_type="general-purpose",
+        )
+        output = json.loads(denied.stdout.strip())
+        self.assertEqual(output["hookSpecificOutput"]["permissionDecision"], "deny")
+        self.assertIn(
+            "owned by Planner",
+            output["hookSpecificOutput"]["permissionDecisionReason"],
+        )
+
     def test_ai_cannot_edit_human_command_policy(self):
         result = self._scope(
             "Write", ".aiwf/config/command-policy.json",
@@ -760,6 +791,24 @@ class TestHooks(unittest.TestCase):
     def test_bash_without_mechanical_truth_path_allowed(self):
         r = self._bash("python3 -c 'print(1+1)'")
         self.assertNotIn("deny", r.stdout)
+
+    def test_project_shell_write_requires_task_or_human_temporary_permission(self):
+        from aiwf_core.core.temporary_access import enable_temporary_ai_writes
+
+        denied = self._bash("mv old.txt new.txt", agent_type="main")
+        self.assertIn("deny", denied.stdout)
+        self.assertIn("active Task", denied.stdout)
+
+        enable_temporary_ai_writes(self.tmp)
+        allowed = self._bash("mv old.txt new.txt", agent_type="main")
+        self.assertNotIn("deny", allowed.stdout)
+
+        self_enabled = self._bash(
+            "rm .aiwf/runtime/internal/temporary-ai-writes.json",
+            agent_type="main",
+        )
+        self.assertIn("deny", self_enabled.stdout)
+        self.assertIn("human", self_enabled.stdout)
 
     def test_bash_modify_quality_review_blocked(self):
         r = self._bash("jq '.verdict=\"PASS\"' .aiwf/records/review.jsonl")

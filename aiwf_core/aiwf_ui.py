@@ -11,13 +11,27 @@ Usage:
 
 import curses
 import json
-import os
 import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+from .core.git_workflow import plan_integration_state
+from .core.temporary_access import (
+    disable_temporary_ai_writes,
+    enable_temporary_ai_writes,
+    temporary_ai_writes_enabled,
+)
 from .core.worktree_context import resolve_control_root
+from .tui_actions import (
+    choose_git_graph_view,
+    confirm_temporary_ai_writes,
+    edit_file,
+    memory_browser,
+    open_git_graph,
+    show_message,
+    wrap_display_lines,
+)
 
 # ── data layer ────────────────────────────────────────────────────────
 
@@ -34,6 +48,9 @@ def load_all(root: Path) -> dict:
     plans = rj(root / ".aiwf" / "state" / "plans.json")
     tasks = rj(root / ".aiwf" / "state" / "tasks.json")
     milestones = rj(root / ".aiwf" / "state" / "milestones.json")
+    for plan in plans.get("plans", []) or []:
+        if isinstance(plan, dict):
+            plan["_integration_state"] = plan_integration_state(str(root), plan)
     task_records = {}
     records_dir = root / ".aiwf" / "records" / "tasks"
     if records_dir.exists():
@@ -44,10 +61,28 @@ def load_all(root: Path) -> dict:
     return {
         "state": state, "goals": goals, "plans": plans, "tasks": tasks,
         "milestones": milestones, "task_records": task_records,
+        "temporary_ai_writes": temporary_ai_writes_enabled(root),
     }
 
 
 _SHOW_CANCELLED = False
+
+_PLAN_CLOSEOUT_LABELS = {
+    "awaiting_decision": "Awaiting user decision: add a Task, leave open, or merge",
+    "held": "Intentionally left open",
+    "merged_pending_close": "Merged; verify the integrated result and close",
+    "git_incomplete": "Git history incomplete",
+    "no_completed_work": "No completed result; add a Task or cancel the Plan",
+}
+
+
+def _plan_display_status(plan):
+    return plan.get("_integration_state") or plan.get("status", "open")
+
+
+def _plan_closeout_label(plan):
+    return _PLAN_CLOSEOUT_LABELS.get(_plan_display_status(plan), "")
+
 
 def set_show_cancelled(v):
     global _SHOW_CANCELLED
@@ -126,7 +161,7 @@ def build_tree(data: dict) -> list:
 
         # Plans under this goal
         for pid, p in plan_by_goal.get(gid, []):
-            pstatus = p.get("status", "open")
+            pstatus = _plan_display_status(p)
             if not _SHOW_CANCELLED and pstatus in ("cancelled",):
                 continue
             ptitle = (p.get("title") or p.get("title_cache") or pid)[:40]
@@ -287,7 +322,23 @@ def _kind_color(kind):
 
 def status_icon(status):
     return {"closed": "✓", "cancelled": "✗", "active": "◉",
-            "ready": "○", "open": "○", "pending": "○"}.get(status, "○")
+            "ready": "○", "open": "○", "pending": "○",
+            "awaiting_decision": "?", "held": "‖",
+            "merged_pending_close": "◆", "git_incomplete": "!",
+            "no_completed_work": "?"}.get(status, "○")
+
+
+def _render_wrapped_lines(stdscr, lines, x, w, max_rows, scroll=0):
+    width = max(1, w - x - 1)
+    wrapped = wrap_display_lines(lines, width)
+    for index, line in enumerate(wrapped):
+        row = index - scroll
+        if row < 0 or row >= max_rows:
+            continue
+        try:
+            stdscr.addstr(row, x, line)
+        except curses.error:
+            pass
 
 
 def render_tree(stdscr, nodes, selected_idx, scroll_offset, max_rows, detail_scroll=0, tree_mode=0, detail_visible=True, show_cancelled=False):
@@ -349,7 +400,10 @@ def render_tree(stdscr, nodes, selected_idx, scroll_offset, max_rows, detail_scr
     mode_labels = {0:"Main",1:"Milestones",2:"Tasks",3:"PlanChain",4:"GoalDeps"}
     canc_hint = "[+cancelled]" if show_cancelled else ""
     detail_hint = "[detail]" if detail_visible else "[full]"
-    help_text = f"Tab:{mode_labels.get(tree_mode,'?')}{canc_hint}  j/k:nav  e:edit  r:rec  s:sync  d:toggle  x:cancelled  q:quit  {detail_hint}"
+    help_text = (
+        f"Tab:{mode_labels.get(tree_mode,'?')}{canc_hint}  j/k  e:edit  r:rec  "
+        f"m:memory  v:git  a:AI-write  d:detail  x:cancelled  q  {detail_hint}"
+    )
     try:
         stdscr.addstr(max_rows - 1, 0, help_text[:w - 1], curses.A_DIM)
     except curses.error:
@@ -385,14 +439,7 @@ def _render_node_detail(stdscr, x, w, max_rows, node, data, detail_scroll=0):
                 lines = text.split("\n")
     if not lines:
         lines = _node_summary(node, data)
-    for i, line in enumerate(lines):
-        di = i - detail_scroll
-        if di < 0 or di >= max_rows - 2:
-            continue
-        try:
-            stdscr.addstr(di, x, line[:w - x - 1])
-        except curses.error:
-            pass
+    _render_wrapped_lines(stdscr, lines, x, w, max_rows - 2, detail_scroll)
 
 
 def _render_deps_view(stdscr, x, w, max_rows, node, data, detail_scroll=0, deps_sub=0):
@@ -535,14 +582,7 @@ def _render_deps_view(stdscr, x, w, max_rows, node, data, detail_scroll=0, deps_
         else:
             lines.append("  No goal relations. Use: aiwf goal link <A> <B> --type depends_on")
 
-    for i, line in enumerate(lines):
-        di = i - detail_scroll
-        if di < 0 or di >= max_rows - 2:
-            continue
-        try:
-            stdscr.addstr(di, x, line[:w - x - 1])
-        except curses.error:
-            pass
+    _render_wrapped_lines(stdscr, lines, x, w, max_rows - 2, detail_scroll)
 
 
 def _render_milestone_detail(stdscr, x, w, max_rows, node, data, detail_scroll=0):
@@ -566,7 +606,7 @@ def _render_milestone_detail(stdscr, x, w, max_rows, node, data, detail_scroll=0
         for pid in plan_ids:
             p = _find_plan(data, pid)
             ptitle = (p.get("title") or p.get("title_cache") or "")[:30] if p else ""
-            pst = p.get("status", "?") if p else "?"
+            pst = _plan_display_status(p) if p else "?"
             lines.append(f"  {status_icon(pst)} {pid}  {ptitle}")
         lines.append("")
 
@@ -589,14 +629,7 @@ def _render_milestone_detail(stdscr, x, w, max_rows, node, data, detail_scroll=0
     lines.append(f"  集成测试: {it_label}")
     lines.append(f"  架构审查: {ar_label}")
 
-    for i, line in enumerate(lines):
-        di = i - detail_scroll
-        if di < 0 or di >= max_rows - 2:
-            continue
-        try:
-            stdscr.addstr(di, x, line[:w - x - 1])
-        except curses.error:
-            pass
+    _render_wrapped_lines(stdscr, lines, x, w, max_rows - 2, detail_scroll)
 
 
 def _render_relations_view(stdscr, x, w, max_rows, data, detail_scroll=0):
@@ -646,14 +679,7 @@ def _render_relations_view(stdscr, x, w, max_rows, data, detail_scroll=0):
         ar_label = {"intact": "✓ 完整", "issues_found": "✗ 有问题"}.get(ar_st, ar_st)
         lines.append(f"   门禁: 集成测试={it_label}  架构审查={ar_label}")
         lines.append("")
-    for i, line in enumerate(lines):
-        di = i - detail_scroll
-        if di < 0 or di >= max_rows - 2:
-            continue
-        try:
-            stdscr.addstr(di, x, line[:w - x - 1])
-        except curses.error:
-            pass
+    _render_wrapped_lines(stdscr, lines, x, w, max_rows - 2, detail_scroll)
 
 
 def _node_summary(node, data):
@@ -693,6 +719,9 @@ def _node_summary(node, data):
         plan = next((p for p in plan_list if (p.get("plan_id") or p.get("id")) == nid), {})
         lines.append(f"Title: {plan.get('title','')}")
         lines.append(f"Status: {plan.get('status','?')}")
+        closeout = _plan_closeout_label(plan)
+        if closeout:
+            lines.append(f"Next: {closeout}")
         lines.append(f"Worktree: {plan.get('git_worktree_path') or '-'}")
         lines.append(f"Branch: {plan.get('git_branch') or '-'}")
         task_ids = [t.get("id") for t in (data.get("tasks", {}).get("tasks", []) or [])
@@ -704,7 +733,8 @@ def _node_summary(node, data):
             dep_list = []
             for d in deps:
                 dp = _find_plan(data, d)
-                dep_list.append(f"{d}[{stlabel.get(dp.get('status',''), dp.get('status','?'))}]")
+                dep_status = _plan_display_status(dp)
+                dep_list.append(f"{d}[{stlabel.get(dep_status, dep_status)}]")
             lines.append(f"依赖: {', '.join(dep_list)}")
 
     elif kind == "goal":
@@ -778,6 +808,9 @@ def _build_detail(node, data):
         plan_list = data["plans"].get("plans", []) or []
         plan = next((p for p in plan_list if (p.get("plan_id") or p.get("id")) == nid), {})
         lines.append(f" Status: {plan.get('status', '?')}")
+        closeout = _plan_closeout_label(plan)
+        if closeout:
+            lines.append(f" Next: {closeout}")
         lines.append(f" Goal: {plan.get('goal_id', '-')}")
         lines.append(f" MS:   {plan.get('milestone_id', '-')}")
         task_ids = [t.get("id") for t in (data.get("tasks", {}).get("tasks", []) or [])
@@ -800,7 +833,7 @@ def _build_detail(node, data):
         lines.append(f" Plans: {len(plans)}")
         for pid in plans[:10]:
             p = _find_plan(data, pid)
-            icon = status_icon(p.get("status", "")) if p else "?"
+            icon = status_icon(_plan_display_status(p)) if p else "?"
             lines.append(f"   {icon} {pid}")
 
     elif kind == "milestone":
@@ -852,8 +885,26 @@ def _build_status_bar(data):
         if isinstance(task, dict) and task.get("status") == "active"
     ]
     phases = sorted({str(task.get("phase") or "-") for task in active_tasks})
+    plans = data["plans"].get("plans", []) or []
+    awaiting = sum(
+        1 for plan in plans
+        if isinstance(plan, dict) and _plan_display_status(plan) == "awaiting_decision"
+    )
+    held = sum(
+        1 for plan in plans
+        if isinstance(plan, dict) and _plan_display_status(plan) == "held"
+    )
     blocked = "阻塞" if state.get("blocked") else "正常"
-    return f" AIWF | 活跃任务={len(active_tasks)} | 阶段={','.join(phases) or '-'} | 状态={blocked}"
+    plan_state = ""
+    if awaiting:
+        plan_state += f" | 待决定Plan={awaiting}"
+    if held:
+        plan_state += f" | 保留Plan={held}"
+    temporary = " | 临时AI写入=开" if data.get("temporary_ai_writes") else ""
+    return (
+        f" AIWF | 活跃任务={len(active_tasks)} | 阶段={','.join(phases) or '-'}"
+        f" | 状态={blocked}{plan_state}{temporary}"
+    )
 
 
 # ── interactivity ─────────────────────────────────────────────────────
@@ -951,6 +1002,32 @@ def main(stdscr):
                 node = nodes[selected]
                 if node["kind"] == "task":
                     _show_records_inline(stdscr, data, node["id"])
+        elif key == ord("m"):
+            memory_browser(stdscr, root)
+        elif key == ord("v"):
+            git_view = choose_git_graph_view(stdscr)
+            if git_view:
+                error = open_git_graph(root, git_view)
+                if error:
+                    show_message(stdscr, "Git", [error])
+        elif key == ord("a"):
+            if temporary_ai_writes_enabled(root):
+                disable_temporary_ai_writes(root)
+                last_data_mtime = 0
+            else:
+                active = [
+                    task for task in data["tasks"].get("tasks", []) or []
+                    if isinstance(task, dict) and task.get("status") == "active"
+                ]
+                if active:
+                    show_message(
+                        stdscr,
+                        "临时 AI 写入",
+                        ["已有活动 Task。先完成或中断 Task，再开启临时写入。"],
+                    )
+                elif confirm_temporary_ai_writes(stdscr):
+                    enable_temporary_ai_writes(root)
+                    last_data_mtime = 0
         elif key == ord("d"): detail_visible = not detail_visible; last_data_mtime = 0
         elif key == ord("x"): show_cancelled = not show_cancelled; set_show_cancelled(show_cancelled); last_data_mtime = 0
             # Force full refresh (reread all JSON)
@@ -989,19 +1066,12 @@ def _md_path_for(node):
 
 def _edit_and_sync(root, md_path):
     """Open MD in $EDITOR, auto-sync on exit, return to TUI."""
-    editor = os.environ.get("EDITOR", "nano")
     full = root / md_path
-    curses.endwin()
-    try:
-        subprocess.run([editor, str(full)])
-    except Exception:
-        pass
+    edit_file(root, full)
     try:
         _run_sync_inline(root)
     except Exception:
         pass
-    curses.doupdate()
-    curses.doupdate()
 
 
 def _run_sync_inline(root):
@@ -1042,11 +1112,7 @@ def _show_records_inline(stdscr, data, task_id):
         for b in review["blockers"]:
             lines.append(f"  阻塞: {b}")
 
-    for i, line in enumerate(lines[:h - 2]):
-        try:
-            stdscr.addstr(i, 1, line[:w - 2])
-        except curses.error:
-            pass
+    _render_wrapped_lines(stdscr, lines, 1, w, h - 2)
     try:
         stdscr.addstr(h - 1, 1, "Press any key", curses.A_REVERSE)
     except curses.error:
@@ -1064,9 +1130,6 @@ def run_ui():
         sys.exit(1)
     curses.wrapper(main)
 
-
-if __name__ == "__main__":
-    run_ui()
 
 def _build_ms_tree(data: dict) -> list:
     """Build a milestone-rooted tree: Milestone → Goal → Plan → Task.
@@ -1179,7 +1242,7 @@ def _build_ms_tree(data: dict) -> list:
                 ptitle = (p.get("title") or p.get("title_cache") or pid)[:40]
                 nodes.append({"kind": "plan", "id": pid,
                               "title": f"{pid}  {ptitle}",
-                              "indent": 3, "status": p.get("status", "open"),
+                              "indent": 3, "status": _plan_display_status(p),
                               "active": False})
                 for t in plan_tasks.get(pid, []):
                     tid = t.get("id", "")
@@ -1220,7 +1283,7 @@ def _build_tasks_tree(data: dict) -> list:
             continue
         ptitle = (p.get("title") or p.get("title_cache") or pid)[:40]
         nodes.append({"kind": "plan", "id": pid, "title": f"{pid}  {ptitle}",
-                      "indent": 1, "status": p.get("status", "open"), "active": False})
+                      "indent": 1, "status": _plan_display_status(p), "active": False})
         def _twave(tid):
             return _task_wave(data, tid) or 0
         for t in sorted(plan_task_map[pid], key=lambda t: _twave(t.get("id"))):
@@ -1279,7 +1342,7 @@ def _build_plan_chain(data: dict) -> list:
             return
         title = (p.get("title") or p.get("title_cache") or pid)[:45]
         nodes.append({"kind": "plan", "id": pid, "title": f"{pid}  {title}",
-                      "indent": depth + 1, "status": p.get("status", "open"), "active": False})
+                      "indent": depth + 1, "status": _plan_display_status(p), "active": False})
         kids = children_of.get(pid, [])
         kids.sort(key=lambda k: -depths.get(k, 0))
         for k in kids:
@@ -1311,3 +1374,7 @@ def _build_goal_deps(data: dict) -> list:
         nodes.append({"kind": "goal", "id": "norel", "title": "No goal relations yet",
                       "indent": 1, "status": "", "active": False})
     return nodes
+
+
+if __name__ == "__main__":
+    run_ui()

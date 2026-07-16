@@ -245,6 +245,31 @@ MACHINE_OWNED_FIELDS = {
     },
 }
 
+
+def _frontmatter_errors(etype: str, eid: str, fm: Dict[str, Any]) -> List[str]:
+    errors: List[str] = []
+    if fm.get("id") != eid:
+        errors.append(f"{etype}:{eid}: frontmatter id '{fm.get('id')}' != JSON id")
+    if fm.get("type") != etype:
+        errors.append(f"{etype}:{eid}: frontmatter type '{fm.get('type')}' != {etype}")
+    if not str(fm.get("title") or "").strip():
+        errors.append(f"{etype}:{eid}: title is empty")
+    if etype == "task":
+        if fm.get("kind") == "milestone_verification":
+            if not str(fm.get("milestone_id") or "").strip():
+                errors.append(
+                    f"{etype}:{eid}: milestone verification task requires milestone_id"
+                )
+        else:
+            if not str(fm.get("goal_id") or "").strip():
+                errors.append(f"{etype}:{eid}: goal_id is empty - every task must have a goal")
+            if not str(fm.get("plan_id") or "").strip():
+                errors.append(f"{etype}:{eid}: plan_id is empty - every task must belong to a plan")
+    elif etype == "plan" and not str(fm.get("goal_id") or "").strip():
+        errors.append(f"{etype}:{eid}: goal_id is empty - every plan must have a goal")
+    return errors
+
+
 def _parse_list_field(value: str) -> list:
     """Parse a frontmatter list field into a Python list."""
     if not value or not str(value).strip():
@@ -312,28 +337,11 @@ def sync_index(base_dir: str, dry_run: bool = False) -> Dict[str, Any]:
                 errors.append(f"{etype}:{eid}: frontmatter missing or unparseable")
                 continue
 
-            if fm.get("id") != eid:
-                errors.append(f"{etype}:{eid}: frontmatter id '{fm.get('id')}' != JSON id")
+            validation_errors = _frontmatter_errors(etype, eid, fm)
+            errors.extend(validation_errors)
+            if any("frontmatter id" in item or "frontmatter type" in item
+                   for item in validation_errors):
                 continue
-            if fm.get("type") != etype:
-                errors.append(f"{etype}:{eid}: frontmatter type '{fm.get('type')}' != {etype}")
-                continue
-
-            if not fm.get("title", "").strip():
-                errors.append(f"{etype}:{eid}: title is empty")
-
-            if etype == "task":
-                if fm.get("kind") == "milestone_verification":
-                    if not fm.get("milestone_id", "").strip():
-                        errors.append(f"{etype}:{eid}: milestone verification task requires milestone_id")
-                else:
-                    if not fm.get("goal_id", "").strip():
-                        errors.append(f"{etype}:{eid}: goal_id is empty — every task must have a goal")
-                    if not fm.get("plan_id", "").strip():
-                        errors.append(f"{etype}:{eid}: plan_id is empty — every task must belong to a plan")
-            elif etype == "plan":
-                if not fm.get("goal_id", "").strip():
-                    errors.append(f"{etype}:{eid}: goal_id is empty — every plan must have a goal")
 
             # Active task: locked JSON fields are not overwritten by sync.
             if etype == "task" and eid in active_task_ids:
@@ -419,6 +427,10 @@ def sync_index(base_dir: str, dry_run: bool = False) -> Dict[str, Any]:
             if not fm:
                 continue
             if fm.get("id") != eid or fm.get("type") != etype:
+                continue
+            validation_errors = _frontmatter_errors(etype, eid, fm)
+            if validation_errors:
+                errors.extend(validation_errors)
                 continue
             doc_path_str = f".aiwf/{etype}s/{eid}.md"
             entry = _empty_json_entry(etype, eid, fm)
@@ -573,9 +585,17 @@ def _sync_plan_task_relations(root: Path, dry_run: bool, changes: List[str]) -> 
                 task_status[tid] = t.get("status", "ready")
         remaining = [tid for tid, st in task_status.items()
                     if st not in ("closed", "cancelled")]
-        closed_count = sum(1 for st in task_status.values() if st == "closed")
+        closed_task_ids = [tid for tid, st in task_status.items() if st == "closed"]
+        closed_count = len(closed_task_ids)
 
         plan_changed = False
+        task_relation_changed = (
+            plan.get("task_ids") != task_ids
+            or plan.get("task_status") != task_status
+        )
+        if task_relation_changed and "integration_hold_ref" in plan:
+            plan.pop("integration_hold_ref", None)
+            plan_changed = True
         if plan.get("task_ids") != task_ids:
             plan["task_ids"] = task_ids
             plan_changed = True
@@ -585,13 +605,22 @@ def _sync_plan_task_relations(root: Path, dry_run: bool, changes: List[str]) -> 
         if plan.get("remaining_task_ids") != remaining:
             plan["remaining_task_ids"] = remaining
             plan_changed = True
+        if plan.get("closed_task_ids") != closed_task_ids:
+            plan["closed_task_ids"] = closed_task_ids
+            plan_changed = True
         rollup = plan.get("task_rollup", {}) or {}
         expected_rollup = f"{closed_count}/{len(task_ids)} tasks closed under this plan."
-        if rollup.get("summary") != expected_rollup or rollup.get("closed_count") != closed_count:
+        if (
+            rollup.get("summary") != expected_rollup
+            or rollup.get("closed_count") != closed_count
+            or rollup.get("total_count") != len(task_ids)
+            or rollup.get("remaining_task_ids") != remaining
+        ):
             rollup.update({
                 "summary": expected_rollup,
                 "closed_count": closed_count,
                 "total_count": len(task_ids),
+                "remaining_task_ids": remaining,
             })
             plan["task_rollup"] = rollup
             plan_changed = True

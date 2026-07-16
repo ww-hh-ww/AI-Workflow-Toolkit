@@ -107,7 +107,15 @@ def main():
             "fix": (record.get("fix_loop", {}) or {}).get("status", "none"),
         })
     fingerprint_tasks.sort(key=lambda task: str(task.get("id") or ""))
-    fingerprint = {"tasks": fingerprint_tasks, "problems": sorted(problems)}
+    temporary_marker = _read_json(
+        base / ".aiwf/runtime/internal/temporary-ai-writes.json", {}
+    )
+    temporary_ai_writes = temporary_marker.get("enabled") is True and not active
+    fingerprint = {
+        "tasks": fingerprint_tasks,
+        "problems": sorted(problems),
+        "temporary_ai_writes": temporary_ai_writes,
+    }
     fp_path = base / ".aiwf/runtime/internal/status-hook-last.json"
     previous = _read_json(fp_path, {})
     if previous == fingerprint:
@@ -120,7 +128,14 @@ def main():
         pass
 
     route = "Run `aiwf status --prompt` and follow its route."
-    if previous and len(changed_task_ids) == 1:
+    if temporary_ai_writes:
+        message = (
+            "[AIWF] Human enabled temporary AI project writes. "
+            "Complete the requested small operation directly; do not create a Task for it."
+        )
+    elif previous.get("temporary_ai_writes"):
+        message = f"[AIWF] Temporary AI project writes are off. {route}"
+    elif previous and len(changed_task_ids) == 1:
         message = f"[AIWF] {changed_task_ids[0]} changed state. {route}"
     elif previous and changed_task_ids:
         message = f"[AIWF] Task state changed: {', '.join(changed_task_ids)}. {route}"

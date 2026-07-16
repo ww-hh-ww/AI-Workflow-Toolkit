@@ -6,10 +6,12 @@ from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
 from ..constants import VERSION
+from ..core.git_workflow import plan_integration_state
 from ..core.state.goal_ops import get_active_goal
 from ..core.state.plan_ops import load_plans
 from ..core.task_ledger import load_ledger, task_for_worktree
 from ..core.task_records import load_task_record
+from ..core.temporary_access import temporary_ai_writes_enabled
 from ..core.worktree_context import resolve_control_root, resolve_worktree_root
 
 
@@ -112,15 +114,17 @@ def _active_rows(control: Path) -> List[Dict[str, Any]]:
     return rows
 
 
-def _plans_ready_to_integrate(control: Path) -> List[Dict[str, Any]]:
-    ready = []
+def _plans_at_closeout(control: Path) -> List[Dict[str, Any]]:
+    closeout = []
     for plan in load_plans(str(control), migrate=False).get("plans", []) or []:
         if not isinstance(plan, dict) or plan.get("status") != "open":
             continue
         statuses = plan.get("task_status", {}) or {}
         if statuses and all(value in ("closed", "cancelled") for value in statuses.values()):
-            ready.append(plan)
-    return ready
+            item = dict(plan)
+            item["_integration_state"] = plan_integration_state(str(control), plan)
+            closeout.append(item)
+    return closeout
 
 
 def _plans_between_tasks(control: Path) -> List[Dict[str, Any]]:
@@ -157,14 +161,14 @@ def cmd_status(args) -> None:
 
     rows = _active_rows(control)
     current = task_for_worktree(str(worktree))
-    plans_ready = _plans_ready_to_integrate(control)
+    plans_closeout = _plans_at_closeout(control)
     plans_between = _plans_between_tasks(control)
     if getattr(args, "debug", False):
-        _print_debug(control, worktree, rows, current, plans_ready, plans_between)
+        _print_debug(control, worktree, rows, current, plans_closeout, plans_between)
     elif getattr(args, "prompt", False):
-        _print_prompt(control, worktree, rows, current, plans_ready, plans_between)
+        _print_prompt(control, worktree, rows, current, plans_closeout, plans_between)
     else:
-        _print_human(control, worktree, rows, current, plans_ready, plans_between)
+        _print_human(control, worktree, rows, current, plans_closeout, plans_between)
 
 
 def _print_human(
@@ -172,7 +176,7 @@ def _print_human(
     worktree: Path,
     rows: List[Dict[str, Any]],
     current: Dict[str, Any] | None,
-    plans_ready: List[Dict[str, Any]],
+    plans_closeout: List[Dict[str, Any]],
     plans_between: List[Dict[str, Any]],
 ) -> None:
     product = "Reasonix" if (control / ".reasonix/settings.json").exists() else "Claude Code"
@@ -180,6 +184,8 @@ def _print_human(
     print(f"Control root: {control}")
     print(f"Current worktree: {worktree}")
     print(f"Active Tasks: {len(rows)}")
+    if not rows and temporary_ai_writes_enabled(control):
+        print("Temporary AI project writes: enabled by human")
     for row in rows:
         marker = "*" if current and current.get("id") == row["id"] else " "
         print(
@@ -187,11 +193,22 @@ def _print_human(
             f"next={row['next_role']}"
         )
         print(f"    worktree={row['worktree_path']}")
-    for plan in plans_ready:
-        print(f"Plan ready to integrate: {plan.get('plan_id') or plan.get('id')}")
+    for plan in plans_closeout:
+        plan_id = plan.get("plan_id") or plan.get("id")
+        state = plan.get("_integration_state")
+        if state == "merged_pending_close":
+            print(f"Plan merged; ready to verify and close: {plan_id}")
+        elif state == "git_incomplete":
+            print(f"Plan Git history needs attention before close: {plan_id}")
+        elif state == "held":
+            print(f"Plan intentionally left open: {plan_id}")
+        elif state == "no_completed_work":
+            print(f"Plan has no completed result: {plan_id}")
+        else:
+            print(f"Plan awaiting user decision: {plan_id}")
     for plan in plans_between:
         print(f"Plan ready for next Task review: {plan.get('plan_id') or plan.get('id')}")
-    if not rows and not plans_ready and not plans_between:
+    if not rows and not plans_closeout and not plans_between:
         goal = get_active_goal(str(control))
         print(f"Planning: {goal.get('current_goal') or goal.get('active_goal') or 'no active Goal'}")
 
@@ -201,18 +218,26 @@ def _print_prompt(
     worktree: Path,
     rows: List[Dict[str, Any]],
     current: Dict[str, Any] | None,
-    plans_ready: List[Dict[str, Any]],
+    plans_closeout: List[Dict[str, Any]],
     plans_between: List[Dict[str, Any]],
 ) -> None:
     memory_root = control / ".aiwf" / "memory"
-    if current and len(rows) == 1 and not plans_ready:
+    if not rows and temporary_ai_writes_enabled(control):
+        print("Do now: complete the user's current small project-file operation directly.")
+        print("Temporary AI project writes were enabled by a human in `aiwf ui`.")
+        print("Do not create a Task for this operation. AIWF state and records remain protected.")
+        return
+    if current and len(rows) == 1 and not plans_closeout:
         row = next(item for item in rows if item["id"] == current.get("id"))
         print(f"Do now: {row['action']}.")
         print(f"Required skills: {_skill_for(row['next_role'])}")
         print(f"Task: {row['id']}")
         print(f"Plan: {row['plan_id'] or '(none)'}")
         print(f"Worktree: {row['worktree_path']}")
-        print("Dispatch: run the Agent in this worktree; the Agent must not call EnterWorktree.")
+        print(
+            "Dispatch: name this Task ID and assigned worktree. AIWF keeps the "
+            "Agent's project tools in this worktree."
+        )
         print(f"Next role: {row['next_role']}")
         print(
             f"State: phase={row['phase'] or '-'}, testing={row['testing_status']}, "
@@ -222,18 +247,47 @@ def _print_prompt(
             print(f"Planner memory root: {memory_root}")
         return
 
-    if plans_ready:
-        plan_ids = ", ".join(str(plan.get("plan_id") or plan.get("id")) for plan in plans_ready)
-        print(
-            f"Do now: inspect the cumulative diff and integration behavior for {plan_ids}; "
-            "merge in the planned order, verify the combined result, then close each Plan."
-        )
+    if plans_closeout:
+        print("Do now: handle each open Plan at its current closeout point:")
+        for plan in plans_closeout:
+            plan_id = str(plan.get("plan_id") or plan.get("id"))
+            branch = str(plan.get("git_branch") or "(unknown branch)")
+            base = str(plan.get("git_base_branch") or "(unknown base)")
+            integration_state = plan.get("_integration_state")
+            if integration_state == "merged_pending_close":
+                print(
+                    f"- {plan_id} | merged into {base} | on {base}, inspect this Plan's "
+                    "merged result and integration behavior, run its integration proof, then close it."
+                )
+            elif integration_state == "awaiting_decision":
+                print(
+                    f"- {plan_id} | awaiting user decision | ask whether to add another Task, "
+                    f"leave {branch} open, or merge it into {base}. Do not merge before the user chooses. "
+                    f"If they choose to leave it open, run aiwf plan hold {plan_id}."
+                )
+            elif integration_state == "held":
+                print(
+                    f"- {plan_id} | intentionally left open at "
+                    f"{str(plan.get('integration_hold_ref') or '')[:12]} | do not ask again or merge. "
+                    "Revisit only when the user asks or the Plan result changes."
+                )
+            elif integration_state == "no_completed_work":
+                print(
+                    f"- {plan_id} | all Tasks cancelled | ask whether to add a Task or cancel the Plan. "
+                    "There is no completed result to merge."
+                )
+            else:
+                print(
+                    f"- {plan_id} | Git history incomplete | run aiwf plan show {plan_id} "
+                    "and repair its branch/base/head record before close."
+                )
         if rows:
             print("Other active Tasks:")
     elif rows:
         print(
             "Do now: manage the active Plan worktrees below. Dispatch each Task's next role with "
-            "its Task ID and Agent cwd set to its worktree path."
+            "its Task ID and assigned worktree. Independent Plans may run in parallel; "
+            "AIWF routes each Agent's project tools to its worktree."
         )
     elif plans_between:
         plan_ids = ", ".join(
@@ -257,7 +311,7 @@ def _print_prompt(
         return
 
     required = sorted({_skill_for(row["next_role"]) for row in rows})
-    if plans_ready:
+    if plans_closeout:
         required = sorted(set(required) | {"/aiwf-planner"})
     print("Required skills: " + ", ".join(required))
 
@@ -270,11 +324,12 @@ def _print_prompt(
             f"do={row['action']} | next={row['next_role']} | "
             f"skill={_skill_for(row['next_role'])} | worktree={row['worktree_path']}"
         )
-    print(
-        "Before starting another Plan in parallel, load /aiwf-planner and inspect the relevant "
-        "code. Do not overlap the same file, responsibility, or shared mechanism. Check "
-        "interfaces, state, runtime paths, dependencies, merge order, and combined proof."
-    )
+    if rows:
+        print(
+            "Before starting another Plan in parallel, load /aiwf-planner and inspect the relevant "
+            "code. Do not overlap the same file, responsibility, or shared mechanism. Check "
+            "interfaces, state, runtime paths, dependencies, merge order, and combined proof."
+        )
     if "/aiwf-planner" in required:
         print(f"Planner memory root: {memory_root}")
 
@@ -284,7 +339,7 @@ def _print_debug(
     worktree: Path,
     rows: List[Dict[str, Any]],
     current: Dict[str, Any] | None,
-    plans_ready: List[Dict[str, Any]],
+    plans_closeout: List[Dict[str, Any]],
     plans_between: List[Dict[str, Any]],
 ) -> None:
     state = _read_json(control / ".aiwf/state/state.json", {})
@@ -301,8 +356,22 @@ def _print_debug(
         "current_worktree": str(worktree),
         "current_task_id": (current or {}).get("id", ""),
         "active_tasks": rows,
-        "plans_ready_to_integrate": [
-            plan.get("plan_id") or plan.get("id") for plan in plans_ready
+        "plans_at_closeout": [
+            plan.get("plan_id") or plan.get("id") for plan in plans_closeout
+        ],
+        "plans_merged_ready_to_close": [
+            plan.get("plan_id") or plan.get("id")
+            for plan in plans_closeout
+            if plan.get("_integration_state") == "merged_pending_close"
+        ],
+        "plans_awaiting_integration_decision": [
+            plan.get("plan_id") or plan.get("id")
+            for plan in plans_closeout
+            if plan.get("_integration_state") == "awaiting_decision"
+        ],
+        "plans_intentionally_held": [
+            plan.get("plan_id") or plan.get("id")
+            for plan in plans_closeout if plan.get("_integration_state") == "held"
         ],
         "plans_between_tasks": [
             plan.get("plan_id") or plan.get("id") for plan in plans_between

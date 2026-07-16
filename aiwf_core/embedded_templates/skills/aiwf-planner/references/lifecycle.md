@@ -29,9 +29,10 @@ Critic use their own prompts.
 
 - Read the complete Task.md and `aiwf task proof <TASK-ID>` before dispatch.
 - Give the Agent exactly one Task ID, the Task.md path, and the assigned
-  worktree. Set its `cwd` to that worktree.
-- Do not use `isolation: worktree` or ask a subagent to call `EnterWorktree`.
-  The Task roles share the Plan worktree.
+  worktree. Dispatch it from this Planner session. AIWF routes its relative
+  file, search, and Bash tools to that worktree on every call.
+- Do not use `isolation: worktree`, call `EnterWorktree`, or copy changes
+  between worktrees. The Task roles share the Plan worktree.
 - Task.md is the baseline. Add `USER_DELTA` only for an explicit user
   requirement Task.md does not contain. Pass it faithfully to every affected
   Task role.
@@ -111,8 +112,19 @@ When no Tasks remain, read the Plan and Task Calibrations. Confirm the parts
 work together on the real main path. Inspect the cumulative Git diff when
 needed, and require integration evidence for the Plan, not only separate Tasks.
 
-Discuss gaps with the user before adding work. If the Plan is complete, ask the
-human to merge its branch. After the merge, switch to the base branch and run:
+Tell the user what the Plan now delivers and any remaining gap. Ask whether to
+add another Task, leave the Plan open, or merge it. Do not merge before the user
+chooses.
+
+If the user leaves it open, run:
+
+```text
+aiwf plan hold <PLAN-ID>
+```
+
+Do not ask again while the Plan result is unchanged. If the user chooses to
+merge, follow the dependency order, verify the integrated result on the base
+branch, then run:
 
 ```text
 aiwf plan close --summary "<what the Plan delivered>"

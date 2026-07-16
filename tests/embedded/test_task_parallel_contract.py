@@ -79,6 +79,13 @@ class TestTaskParallelContract(unittest.TestCase):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def test_different_plan_worktrees_can_activate_together(self):
+        from aiwf_core.core.temporary_access import (
+            enable_temporary_ai_writes,
+            temporary_ai_writes_enabled,
+        )
+
+        enable_temporary_ai_writes(self.tmp)
+        self.assertTrue(temporary_ai_writes_enabled(self.tmp))
         with ThreadPoolExecutor(max_workers=2) as pool:
             results = list(pool.map(
                 lambda task_id: activate_task(str(self.tmp), task_id),
@@ -86,6 +93,7 @@ class TestTaskParallelContract(unittest.TestCase):
             ))
 
         self.assertTrue(all(result["activated"] for result in results), results)
+        self.assertFalse(temporary_ai_writes_enabled(self.tmp))
         active = {
             task["id"]: task["worktree_path"]
             for task in load_ledger(str(self.tmp))["tasks"]
@@ -219,6 +227,7 @@ class TestTaskParallelContract(unittest.TestCase):
         self.assertIn(str(self.worktree_b.resolve()), status)
         self.assertIn("next=Executor", status)
         self.assertIn("next=Tester", status)
+        self.assertIn("Independent Plans may run in parallel", status)
         self.assertIn("Required skills: /aiwf-implement, /aiwf-test", status)
 
         status_from_plan_a = subprocess.run(

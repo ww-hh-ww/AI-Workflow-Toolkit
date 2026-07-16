@@ -335,6 +335,7 @@ Ship the product safely.
             self.assertIn("./custom-session-hook.sh", commands)
             self.assertFalse(any("aiwf_old.py" in command for command in commands))
             self.assertEqual(sum("aiwf_scope_check.py" in command for command in commands), 1)
+            self.assertEqual(sum("aiwf_worktree_route.py" in command for command in commands), 1)
             self.assertEqual(sum("aiwf_status.py" in command for command in commands), 1)
             self.assertEqual(installed["permissions"]["deny"], ["Bash(rm:*)"])
             self.assertEqual(installed["customSetting"], "keep-me")
@@ -352,6 +353,7 @@ Ship the product safely.
     def test_pre_tool_use_has_scope_bash_and_agent_gates(self):
         s = self._j(".claude/settings.json")
         matchers = [e.get("matcher", "") for e in s["hooks"]["PreToolUse"]]
+        self.assertIn("Read|Glob|Grep", matchers)
         self.assertIn("Write|Edit|MultiEdit", matchers)
         self.assertIn("Bash", matchers)
         self.assertIn("Agent|Task", matchers)
@@ -453,6 +455,7 @@ Ship the product safely.
 
     def test_scripts_are_executable(self):
         for s in ["aiwf_status.py", "aiwf_scope_check.py", "aiwf_bash_guard.py",
+                  "aiwf_worktree_route.py",
                   "aiwf_review_gate.py", "aiwf_skill_log.py", "aiwf_agent_log.py",
                   "aiwf_agent_gate.py", "aiwf_auto_sync.py"]:
             p = self.tmp / "scripts" / s

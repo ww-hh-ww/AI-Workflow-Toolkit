@@ -257,7 +257,8 @@ class TestPromptClarityContract(unittest.TestCase):
         self.assertIn("aiwf plan bind-worktree <PLAN-ID> --create", planner)
         self.assertIn("Every Plan worktree is a peer", lifecycle)
         self.assertIn("The command is idempotent", lifecycle)
-        self.assertIn("Set its `cwd` to that worktree", lifecycle)
+        self.assertIn("AIWF routes its relative", lifecycle)
+        self.assertIn("on every call", lifecycle)
         self.assertIn("Task roles share the Plan worktree", lifecycle)
         for path in (
             "agents/aiwf-executor.md",
@@ -265,12 +266,12 @@ class TestPromptClarityContract(unittest.TestCase):
             "agents/aiwf-reviewer.md",
         ):
             agent = read(path)
-            self.assertIn("Verify that the current Git worktree is the assigned path", agent)
-            self.assertIn("Do not call `EnterWorktree` from this", agent)
+            self.assertIn("Treat the assigned worktree as the project root", agent)
+            self.assertIn("Run `pwd` once", agent)
             self.assertNotIn("Call `EnterWorktree", agent)
         for path in ("agents/aiwf-executor.md", "agents/aiwf-tester.md"):
             agent = read(path)
-            self.assertIn("Never copy or sync Task changes", agent)
+            self.assertIn("changes to another worktree", agent)
 
     def test_activation_checks_only_explicit_capability_dependencies(self):
         critique = read("skills/aiwf-planner/references/activation-critique.md")

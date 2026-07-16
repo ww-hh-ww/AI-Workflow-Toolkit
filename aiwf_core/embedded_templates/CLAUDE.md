@@ -44,8 +44,9 @@ acceptance when `aiwf status --prompt` routes there.
   checks real dependencies. Executor, Tester, and Reviewer remain sequential
   inside each Task.
 - Every workflow Agent prompt names one Task ID and its assigned worktree.
-  Dispatch the Agent with its `cwd` set to that worktree. The Agent verifies
-  its location before project work; it does not call `EnterWorktree` itself.
+  Dispatch it from the Planner session. AIWF keeps its relative file, search,
+  and Bash tools in that worktree. Do not call `EnterWorktree` or copy changes
+  between worktrees.
 - Do not skip required skills, roles, proof level, or gates unless the user
   explicitly accepts that risk.
 - Do not hand-edit `.aiwf/state/` or `.aiwf/records/`; use `aiwf` commands.

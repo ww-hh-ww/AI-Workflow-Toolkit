@@ -150,6 +150,15 @@ def shell_write_targets(command: str) -> List[str]:
             targets.extend(
                 arg[3:] for arg in args if arg.startswith("of=") and len(arg) > 3
             )
+        elif command_name == "git" and args:
+            git_command = args[0].lower()
+            git_args = args[1:]
+            if git_command == "mv":
+                destination = _copy_destination(git_args)
+                if destination:
+                    targets.append(destination)
+            elif git_command == "rm":
+                targets.extend(_positional(git_args))
         elif command_name in {"sed", "perl"} and any(
             arg == "--in-place" or arg.startswith("-i") for arg in args
         ):

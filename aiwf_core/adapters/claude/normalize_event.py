@@ -65,6 +65,7 @@ def normalize(data: Dict[str, Any]) -> NormalizedEvent:
         exit_code=_extract_exit_code(data),
         agent_id=data.get("agent_id", ""),
         agent_type=data.get("agent_type", ""),
+        transcript_path=str(data.get("transcript_path", "")),
     )
 
 
@@ -90,6 +91,7 @@ def _normalize_reasonix(data: Dict[str, Any]) -> NormalizedEvent:
         exit_code=_extract_exit_code(data),
         agent_id=str(data.get("agentId", "")),
         agent_type=str(data.get("agentType", "")),
+        transcript_path=str(data.get("transcriptPath", data.get("transcript_path", ""))),
     )
 
 

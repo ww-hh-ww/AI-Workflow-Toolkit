@@ -118,8 +118,8 @@ class TestStateCliOps(unittest.TestCase):
         self._set_active_task()
         status = self._run("status", "--prompt")
         self.assertEqual(status.returncode, 0, status.stderr)
-        self.assertIn("Dispatch: run the Agent in this worktree", status.stdout)
-        self.assertIn("must not call EnterWorktree", status.stdout)
+        self.assertIn("name this Task ID and assigned worktree", status.stdout)
+        self.assertIn("AIWF keeps the Agent's project tools", status.stdout)
 
     def test_planner_prompt_prints_control_root_memory_path(self):
         status = self._run("status", "--prompt")
@@ -208,7 +208,7 @@ class TestStateCliOps(unittest.TestCase):
         self.assertIn("Before the next Task", result.stdout)
         self.assertIn("completed Task Calibration", result.stdout)
 
-    def test_status_routes_plan_close_out_when_no_tasks_remain(self):
+    def test_status_reports_missing_plan_git_history_when_tasks_are_done(self):
         state_path = self.tmp / ".aiwf/state/state.json"
         state = json.loads(state_path.read_text())
         state.update({
@@ -231,8 +231,39 @@ class TestStateCliOps(unittest.TestCase):
         result = self._run("status", "--prompt")
 
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("cumulative diff and integration behavior", result.stdout)
+        self.assertIn("PLAN-CLOSE-OUT | Git history incomplete", result.stdout)
+        self.assertIn("aiwf plan show PLAN-CLOSE-OUT", result.stdout)
         self.assertIn("Required skills: /aiwf-planner", result.stdout)
+
+    def test_sync_clears_plan_hold_when_task_set_changes(self):
+        self._write_json("state/plans.json", {
+            "plans": [{
+                "id": "PLAN-HELD",
+                "plan_id": "PLAN-HELD",
+                "status": "open",
+                "task_ids": ["TASK-DONE"],
+                "task_status": {"TASK-DONE": "closed"},
+                "integration_hold_ref": "abc123",
+            }],
+        })
+        self._write_json("state/tasks.json", {
+            "tasks": [
+                {"id": "TASK-DONE", "plan_id": "PLAN-HELD", "status": "closed"},
+                {"id": "TASK-NEXT", "plan_id": "PLAN-HELD", "status": "ready"},
+            ],
+        })
+
+        from aiwf_core.core.index_ops import _sync_plan_task_relations
+
+        changes = []
+        _sync_plan_task_relations(self.tmp, False, changes)
+
+        self.assertTrue(changes)
+        plan = json.loads(
+            (self.tmp / ".aiwf/state/plans.json").read_text(encoding="utf-8")
+        )["plans"][0]
+        self.assertNotIn("integration_hold_ref", plan)
+        self.assertEqual(plan["task_status"]["TASK-NEXT"], "ready")
 
     def test_closed_plan_rejects_new_task_links(self):
         plans_path = self.tmp / ".aiwf/state/plans.json"

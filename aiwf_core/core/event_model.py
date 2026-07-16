@@ -23,6 +23,7 @@ class NormalizedEvent:
     exit_code: Optional[int] = None
     agent_id: str = ""
     agent_type: str = ""
+    transcript_path: str = ""
 
 
 @dataclass
