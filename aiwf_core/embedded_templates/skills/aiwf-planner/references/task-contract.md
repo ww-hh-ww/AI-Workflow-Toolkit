@@ -18,6 +18,19 @@ work's real need. When true, the role must be dispatched. When false, the role
 may be performed inline. First implementation requires Executor only when
 `executor_required=true`; later repair may be inline when it is tiny and clear.
 
+Before activation, inspect where the project keeps tests, fixtures, snapshots,
+expected outputs, and validation harnesses.
+
+- Leave `tester_write` empty when all likely writes use common test directories
+  or recognizable test file names.
+- If any required test asset belongs elsewhere, list narrow, verified path
+  patterns in `tester_write`. A non-empty list is the complete whitelist for
+  this Task, so include every test location the Tester may need.
+- Do not add broad implementation directories or implementation files merely to
+  avoid a write rejection. Precise co-located test patterns are valid. Inspect
+  the project instead of guessing. If an unexpected location becomes necessary
+  after activation, the Tester must return to Planner.
+
 ## Fixed Contract
 
 Every Task must say:
@@ -33,8 +46,6 @@ Every Task must say:
 Add these only when real:
 
 - Forbidden Write for explicit user or project no-go paths.
-- Tester Write when tests may be written outside obvious `tests/` or `test/`
-  locations.
 - Rollback Strategy for schema, directory layout, install, parser, broad
   removal, or batch rename.
 - Unsupported Cases when the chosen support boundary is intentional and known
@@ -123,4 +134,5 @@ Before close, Planner writes Closure Calibration with what actually happened.
 - Can Executor find the main path without being told how to code?
 - Do commands prove consumption or behavior rather than artifact existence?
 - Are shared interfaces and old paths visible where they matter?
+- Can Tester write the needed test assets without broadly opening implementation code?
 - Do independent roles still have a real question to answer?

@@ -79,6 +79,20 @@ class TestPromptClarityContract(unittest.TestCase):
         ]:
             self.assertIn(required, task)
 
+    def test_task_planning_sets_tester_write_from_real_test_layout(self):
+        task = " ".join(
+            read("skills/aiwf-planner/references/task-contract.md").split()
+        )
+        for required in [
+            "inspect where the project keeps tests",
+            "Leave `tester_write` empty",
+            "complete whitelist for this Task",
+            "Do not add broad implementation directories",
+            "Precise co-located test patterns are valid",
+            "Tester must return to Planner",
+        ]:
+            self.assertIn(required, task)
+
     def test_planning_separates_capabilities_from_code_architecture(self):
         planner = read("skills/aiwf-planner/SKILL.md")
         goal = read("skills/aiwf-planner/references/goal-writing.md")
