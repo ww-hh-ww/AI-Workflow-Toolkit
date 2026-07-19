@@ -344,7 +344,10 @@ Ship the product safely.
 
     def test_settings_json_has_nested_hooks(self):
         s = self._j(".claude/settings.json")
-        for ev in ["UserPromptSubmit", "PreToolUse", "PostToolUse", "SubagentStop", "Stop"]:
+        for ev in [
+            "UserPromptSubmit", "PreToolUse", "PostToolUse",
+            "PostToolUseFailure", "SubagentStop", "Stop",
+        ]:
             for entry in s["hooks"][ev]:
                 for h in entry["hooks"]:
                     self.assertEqual(h["type"], "command")
@@ -361,6 +364,11 @@ Ship the product safely.
         self.assertIn("Skill", post_matchers)
         self.assertIn("Agent|Task", post_matchers)
         self.assertIn("Write|Edit|MultiEdit", post_matchers)
+        self.assertNotIn("Read|Glob|Grep|Write|Edit|MultiEdit|Bash", post_matchers)
+        failure_matchers = [
+            e.get("matcher", "") for e in s["hooks"]["PostToolUseFailure"]
+        ]
+        self.assertEqual(failure_matchers, ["Agent|Task"])
         stop_matchers = [e.get("matcher", "") for e in s["hooks"]["SubagentStop"]]
         self.assertIn(
             "aiwf-executor|aiwf-tester|aiwf-reviewer|aiwf-architect",

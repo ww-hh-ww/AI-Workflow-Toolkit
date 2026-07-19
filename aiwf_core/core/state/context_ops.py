@@ -115,6 +115,11 @@ def record_implementation(
             task_record["fix_loop"] = fix_loop
             for path in violations:
                 add_scope_violation_blocker(task_record["review"], path, active_task_id)
+        else:
+            fix_loop = task_record.get("fix_loop", {}) or {}
+            if fix_loop.get("status") == "open" and fix_loop.get("route") == "executor":
+                fix_loop["route"] = "tester"
+                task_record["fix_loop"] = fix_loop
 
     update_task_record(base_dir, active_task_id, store)
     update_task_runtime(base_dir, active_task_id, phase="testing")

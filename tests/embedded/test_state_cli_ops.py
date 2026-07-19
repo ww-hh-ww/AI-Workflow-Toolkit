@@ -36,6 +36,9 @@ class TestStateCliOps(unittest.TestCase):
             path.write_text(json.dumps(factory(), indent=2) + "\n")
         shutil.rmtree(self.tmp / ".aiwf/records/tasks", ignore_errors=True)
         (self.tmp / ".aiwf/records/tasks").mkdir(parents=True, exist_ok=True)
+        (self.tmp / ".aiwf/runtime/internal/agent-dispatch.jsonl").unlink(
+            missing_ok=True
+        )
 
     def _run(self, *args):
         env = os.environ.copy()
@@ -113,13 +116,54 @@ class TestStateCliOps(unittest.TestCase):
             self.assertEqual(status.returncode, 0, status.stderr)
             self.assertIn(f"Required skills: {skill}", status.stdout)
             self.assertIn("fix-loop=open", status.stdout)
+            if route == "planner":
+                self.assertIn("aiwf fixloop status --task-id TASK-ACTIVE", status.stdout)
 
-    def test_status_prompt_names_agent_worktree_dispatch(self):
+    def test_escalated_fixloop_routes_to_planner_and_user_decision(self):
+        self._set_active_task(record={
+            "task_id": "TASK-ACTIVE",
+            "implementation": {"task_id": "TASK-ACTIVE", "implementation_ref": "abc"},
+            "testing": {"task_id": "TASK-ACTIVE", "status": "failed"},
+            "review": {"task_id": "TASK-ACTIVE", "result": "unknown"},
+            "fix_loop": {
+                "status": "open", "route": "executor", "reason": "repeated failure",
+                "escalation_required": True, "required_fixes": [],
+                "required_verification": [],
+            },
+        })
+
+        status = self._run("status", "--prompt")
+
+        self.assertEqual(status.returncode, 0, status.stderr)
+        self.assertIn("Required skills: /aiwf-planner", status.stdout)
+        self.assertIn("ask the user whether to retry", status.stdout)
+
+    def test_status_prompt_names_task_and_supplies_agent_assignment(self):
         self._set_active_task()
         status = self._run("status", "--prompt")
         self.assertEqual(status.returncode, 0, status.stderr)
-        self.assertIn("name this Task ID and assigned worktree", status.stdout)
-        self.assertIn("AIWF keeps the Agent's project tools", status.stdout)
+        self.assertIn("give the Agent this Task ID", status.stdout)
+        self.assertIn("AIWF supplies the current Task contract", status.stdout)
+
+    def test_status_reports_running_agent_without_guessing_that_it_is_stuck(self):
+        self._set_active_task()
+        dispatch = self.tmp / ".aiwf/runtime/internal/agent-dispatch.jsonl"
+        dispatch.parent.mkdir(parents=True, exist_ok=True)
+        dispatch.write_text(json.dumps({
+            "timestamp": "2026-07-19T10:00:00+00:00",
+            "subagent_type": "aiwf-executor",
+            "task_id": "TASK-ACTIVE",
+            "session_id": "test",
+            "status": "started",
+        }) + "\n", encoding="utf-8")
+
+        status = self._run("status", "--prompt")
+
+        self.assertEqual(status.returncode, 0, status.stderr)
+        self.assertIn("Required skills: none", status.stdout)
+        self.assertIn("no return has been observed", status.stdout)
+        self.assertIn("not proof that the Agent is stuck", status.stdout)
+        self.assertIn("Do not stop, retry, or substitute", status.stdout)
 
     def test_planner_prompt_prints_control_root_memory_path(self):
         status = self._run("status", "--prompt")

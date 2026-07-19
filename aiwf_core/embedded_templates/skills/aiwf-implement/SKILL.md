@@ -20,22 +20,18 @@ Dispatch one project-writing Executor at a time for this Task. Other Plans may
 run in their own worktrees. Wait for this Executor before starting this Task's
 Tester.
 
-1. Read the Task.md and run `aiwf task proof <TASK-ID>`. Note its assigned
-   worktree. For a fix loop, also read the current finding.
+1. Run `aiwf task proof <TASK-ID>` and note its assigned worktree. For first
+   implementation, read the entire Task.md. For a fix loop, read the current
+   finding, latest records and diff, and only the affected Task clauses.
 2. If this is the first implementation and `executor_required` is true,
-   dispatch `aiwf-executor` with:
-   - the Task ID and absolute Task.md path;
-   - the assigned worktree path;
-   - a requirement to write only there and never copy changes to another
-     worktree;
-   - for a fix loop, a request to read the current recorded finding;
-   - `USER_DELTA: <requirement>` only for an explicit user requirement that
-     Task.md does not contain;
-   - a request to read the contract, inspect code reality, implement, verify,
-     record implementation, and return `RETURN_TO_PLANNER` rather than guess.
-3. State `USER_DELTA` faithfully. Do not add Planner-created fallbacks,
-   substitute methods, acceptance changes, or interpretations. If there is no
-   missing user requirement, omit it.
+   dispatch `aiwf-executor` with the Task ID. Add `USER_DELTA: <requirement>`
+   only for an explicit user clarification that Task.md does not contain. AIWF
+   adds the current control-root Task.md path and assigned worktree without
+   removing your prompt.
+3. `USER_DELTA` must not change execution, boundaries, or acceptance. A
+   material change requires human interrupt, write-back to the relevant MD,
+   sync, critique, and reactivation. Otherwise state it faithfully; do not add
+   Planner-created fallbacks or interpretations.
 4. Do not paste Fixed Contract or Known Context into the prompt unless the
    agent cannot access Task.md. Duplicated packets become stale and crowd out
    code exploration.
@@ -43,12 +39,19 @@ Tester.
 
 If `executor_required` is false, do not dispatch Executor. Read
 `inline-execution.md`, follow its Implement section in this session, and record
-the result for this Task.
+the result for this Task. With one active Task, AIWF routes this session's
+relative project tools to its assigned worktree. Do not change
+`executor_required`, enter a worktree, or request temporary writes to make an
+inline write pass.
+With several active Tasks, use the exact assigned worktree path shown by
+`aiwf status --prompt`; AIWF will not guess between Tasks.
 
-The Agent prompt must name exactly one active Task ID and its assigned
-worktree. AIWF routes the Agent's relative file, search, and Bash tools there
-on every call. Do not use `EnterWorktree`, `isolation: worktree`, or copy Task
-changes between worktrees.
+The Agent prompt must name exactly one active Task ID. AIWF adds the current
+contract path and worktree, then routes project tools there. Do not use `EnterWorktree`,
+`isolation: worktree`, or copy Task changes between worktrees.
+
+Read `.aiwf` governance from the control root. The Plan worktree owns project
+code, not a separate copy of the Task contract.
 
 If Executor returns `RETURN_TO_PLANNER`, stop normal progress and surface the
 verified conflict. The hook opens a Planner fix-loop. Run `aiwf status --prompt`
@@ -60,11 +63,17 @@ After the Task has an Executor implementation record, choose the cheapest honest
 
 - Dispatch Executor again for changes to main paths, interfaces, state, data
   conversion, concurrency, permissions, safety, deployment, or unclear design.
-- Use inline repair only for a tiny, well-understood correction.
+- Use inline repair only for a tiny, well-understood correction. Follow the
+  Implement section of `inline-execution.md` and record the repaired
+  implementation. That record hands the fix-loop to Tester.
 - If `executor_required` is false, follow `inline-execution.md`.
 
 The hook enforces the first Executor. Planner remains responsible for deciding
 whether later inline repair is actually simpler and safe.
+
+When dispatching a repair Executor, still send only the Task ID and any valid
+`USER_DELTA`. The Agent gets the current finding and records from `task proof`;
+do not paste the original Task or rewrite the finding in the prompt.
 
 ## Boundaries
 

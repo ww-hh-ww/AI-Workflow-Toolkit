@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
 from ..constants import VERSION
+from ..core.agent_runtime import WORKFLOW_ROLES, running_dispatches
 from ..core.git_workflow import plan_integration_state
 from ..core.state.goal_ops import get_active_goal
 from ..core.state.plan_ops import load_plans
@@ -25,16 +26,34 @@ def _read_json(path: Path, default: Dict[str, Any]) -> Dict[str, Any]:
 
 def _task_next(task: Dict[str, Any], record: Dict[str, Any]) -> Tuple[str, str]:
     task_id = str(task.get("id") or "")
+    requirements = task.get("requirements", {}) or {}
     fix_loop = record.get("fix_loop", {}) or {}
     if fix_loop.get("status") == "open":
+        if fix_loop.get("escalation_required"):
+            return (
+                "Planner decision",
+                f"load /aiwf-planner and run aiwf fixloop status --task-id {task_id}; "
+                "show the repeated failures and ask the user whether to retry, roll back, interrupt, or override",
+            )
         route = str(fix_loop.get("route") or "planner")
         if route == "executor":
-            return "Executor fix", f"load /aiwf-implement and dispatch aiwf-executor for {task_id}"
+            return (
+                "Implementation repair",
+                f"load /aiwf-implement for {task_id}; repair inline if tiny and clear, "
+                "otherwise dispatch aiwf-executor, then record implementation",
+            )
         if route == "tester":
-            return "Tester follow-up", f"load /aiwf-test and dispatch aiwf-tester for {task_id}"
-        return "Planner decision", f"load /aiwf-planner and disposition the fix-loop for {task_id}"
+            return (
+                "Verification follow-up",
+                f"load /aiwf-test for {task_id}; retest inline if narrow and exact, "
+                "otherwise dispatch aiwf-tester, then record testing",
+            )
+        return (
+            "Planner decision",
+            f"load /aiwf-planner, run aiwf fixloop status --task-id {task_id}, "
+            "then resolve the decided issue or reroute remaining work",
+        )
 
-    requirements = task.get("requirements", {}) or {}
     implementation = record.get("implementation", {}) or {}
     testing = record.get("testing", {}) or {}
     review = record.get("review", {}) or {}
@@ -65,16 +84,17 @@ def _task_next(task: Dict[str, Any], record: Dict[str, Any]) -> Tuple[str, str]:
 def _skill_for(next_role: str) -> str:
     return {
         "Executor": "/aiwf-implement",
-        "Executor fix": "/aiwf-implement",
+        "Implementation repair": "/aiwf-implement",
         "Inline implementation": "/aiwf-implement",
         "Tester": "/aiwf-test",
-        "Tester follow-up": "/aiwf-test",
+        "Verification follow-up": "/aiwf-test",
         "Inline testing": "/aiwf-test",
         "Reviewer": "/aiwf-review",
         "Inline review": "/aiwf-review",
         "Close": "/aiwf-close",
         "Planner calibration": "/aiwf-planner",
         "Planner decision": "/aiwf-planner",
+        "Agent running": "",
     }.get(next_role, "/aiwf-planner")
 
 
@@ -86,6 +106,19 @@ def _active_rows(control: Path) -> List[Dict[str, Any]]:
         record = load_task_record(control, str(task.get("id") or ""))
         next_role, action = _task_next(task, record)
         task_id = str(task.get("id") or "")
+        running = [
+            item for item in running_dispatches(control, task_id=task_id)
+            if item["subagent_type"] in WORKFLOW_ROLES
+        ]
+        if len(running) == 1:
+            role = running[0]["subagent_type"]
+            started_at = str(running[0].get("started_at") or "unknown")
+            next_role = "Agent running"
+            action = (
+                f"wait for {role} on {task_id}; dispatch started at {started_at} and no return has been observed. "
+                "Elapsed time or missing output alone is not proof that the Agent is stuck. "
+                "Do not stop, retry, or substitute another Agent without an explicit failure or user request"
+            )
         calibration_missing = False
         if next_role == "Close":
             task_doc = control / ".aiwf/tasks" / f"{task_id}.md"
@@ -110,6 +143,8 @@ def _active_rows(control: Path) -> List[Dict[str, Any]]:
             "review_result": (record.get("review", {}) or {}).get("result", "unknown"),
             "fix_loop": (record.get("fix_loop", {}) or {}).get("status", "none"),
             "calibration_missing": calibration_missing,
+            "running_agent": running[0]["subagent_type"] if len(running) == 1 else "",
+            "agent_started_at": running[0].get("started_at", "") if len(running) == 1 else "",
         })
     return rows
 
@@ -193,6 +228,12 @@ def _print_human(
             f"next={row['next_role']}"
         )
         print(f"    worktree={row['worktree_path']}")
+        if row.get("running_agent"):
+            print(
+                f"    agent={row['running_agent']}  "
+                f"started={row.get('agent_started_at') or 'unknown'}  "
+                "return=not observed"
+            )
     for plan in plans_closeout:
         plan_id = plan.get("plan_id") or plan.get("id")
         state = plan.get("_integration_state")
@@ -227,17 +268,29 @@ def _print_prompt(
         print("Temporary AI project writes were enabled by a human in `aiwf ui`.")
         print("Do not create a Task for this operation. AIWF state and records remain protected.")
         return
-    if current and len(rows) == 1 and not plans_closeout:
-        row = next(item for item in rows if item["id"] == current.get("id"))
+    if len(rows) == 1 and not plans_closeout:
+        row = rows[0]
         print(f"Do now: {row['action']}.")
-        print(f"Required skills: {_skill_for(row['next_role'])}")
+        print(f"Required skills: {_skill_for(row['next_role']) or 'none'}")
         print(f"Task: {row['id']}")
+        print(f"Task contract: {control / '.aiwf/tasks' / (row['id'] + '.md')}")
         print(f"Plan: {row['plan_id'] or '(none)'}")
         print(f"Worktree: {row['worktree_path']}")
-        print(
-            "Dispatch: name this Task ID and assigned worktree. AIWF keeps the "
-            "Agent's project tools in this worktree."
-        )
+        if row["next_role"].startswith("Inline"):
+            print(
+                "Inline work: use relative project paths normally. AIWF routes this "
+                "session's project tools to the assigned worktree."
+            )
+        elif row["next_role"] in ("Implementation repair", "Verification follow-up"):
+            print(
+                "Follow-up: work inline or dispatch the named role as directed above. "
+                "AIWF routes either choice to the assigned worktree."
+            )
+        elif row["next_role"] != "Agent running":
+            print(
+                "Dispatch: give the Agent this Task ID. AIWF supplies the current "
+                "Task contract and assigned worktree."
+            )
         print(f"Next role: {row['next_role']}")
         print(
             f"State: phase={row['phase'] or '-'}, testing={row['testing_status']}, "
@@ -310,10 +363,13 @@ def _print_prompt(
         print(f"Planner memory root: {memory_root}")
         return
 
-    required = sorted({_skill_for(row["next_role"]) for row in rows})
+    required = sorted({
+        skill for row in rows
+        if (skill := _skill_for(row["next_role"]))
+    })
     if plans_closeout:
         required = sorted(set(required) | {"/aiwf-planner"})
-    print("Required skills: " + ", ".join(required))
+    print("Required skills: " + (", ".join(required) if required else "none"))
 
     current_id = str((current or {}).get("id") or "")
     display_rows = sorted(rows, key=lambda row: (row["id"] != current_id, row["id"]))

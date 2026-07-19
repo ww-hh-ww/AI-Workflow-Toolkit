@@ -43,6 +43,11 @@ Every Task must say:
   Wired and Running claims.
 - Dispatch Decisions: which independent roles are worth using.
 
+State each requirement once. Carry into Task.md the chosen direction and
+constraints Executor needs, but keep the design history and detailed rationale
+in the Plan. Do not repeat a hard requirement in Known Context, Open Judgment,
+or a second delivery list.
+
 Add these only when real:
 
 - Forbidden Write for explicit user or project no-go paths.
@@ -55,28 +60,42 @@ Omit empty optional sections.
 
 ## Known Context
 
-Use free bullets. Record only verified facts that help the next role start in
-the right place or avoid a likely wrong edit.
+Known Context is the cold-start handoff. It should let the next role reach the
+real code quickly without repeating Planner's exploration.
+
+Use free bullets. There is no required bullet format. Record only verified
+facts that help the next role start in the right place, reuse an established
+conclusion, or avoid a likely wrong edit. Give each non-obvious fact a usable
+source such as a file and symbol, command result, completed Task Calibration,
+proof record, or user decision.
 
 Useful facts may include:
 
-- real files, symbols, commands, schemas, fixtures, and runtime entry points;
-- expected consumer and main path;
-- interfaces, invariants, data shape, state, permissions, IDs, timestamps, and
-  error semantics;
-- integration, registration, config, install, deployment, CLI, help, or
-  generated surfaces needed to prove wiring;
-- representative inputs, difficult cases, platform or environment traps;
-- old paths, bypasses, duplicate mechanisms, and compatibility paths;
-- nearby patterns, dependencies, or helpers worth reusing;
-- important Unknowns and what would resolve them.
+- where to start: real paths, symbols, runtime entry points, tests, or commands;
+- what is already established and where it was proved;
+- what must remain true: consumer, interface, invariant, owner, main path,
+  old-path expectation, and proof;
+- what may mislead the next role: representative cases, environment traps,
+  rejected dead ends worth remembering, and important Unknowns.
 
-These are anchors, not instructions. Do not list every function. Do not invent
-facts to complete the section. If consumer, invariant, owner, main path, or
-proof is important and Unknown, the implementation Task is not ready.
+Do not include exploration history, directory inventories, pasted logs or
+diffs, whole-file descriptions, repeated Goal or Plan text, or facts that do
+not affect this Task. Do not repeat a completed Task's report; cite the useful
+conclusion and its source. Omit facts the next role can get from one obvious
+lookup unless the exact anchor prevents meaningful rediscovery. Keep rejected
+approaches only when they prevent a likely repeated mistake.
+
+These are anchors, not instructions. Do not list every function or choose local
+implementation details for Executor. Do not invent facts to complete the
+section. If consumer, invariant, owner, main path, or proof is important and
+Unknown, the implementation Task is not ready.
 
 When a Task crosses a boundary, include the smallest shared slice later roles
 must not guess: Input, Output, Consumer, Invariant, Owner, Proof, and Basis.
+
+Before activation, reread Known Context as the next role. Every bullet should
+help it locate the work, reuse a trustworthy conclusion, avoid a real trap, or
+recognize an unresolved question. Remove the rest.
 
 ## Open Judgment
 
@@ -100,6 +119,22 @@ script the answer.
 
 One easy case does not prove a broad support claim. Verification must cover the
 representative cases named by the Plan and the Task.
+
+Verification Commands are final proof, not a log of the development loop.
+Before activation, check them against the project's real test runner and
+scripts:
+
+- each command proves a distinct observable claim;
+- a selector really targets the named test instead of rerunning the full suite;
+- targeted checks come first and each necessary full regression runs once at
+  the end;
+- several labels do not invoke the same underlying suite;
+- runtime claims use the production path in the claimed runtime, not a copied
+  implementation or a simulated environment.
+
+When the Task must create a new script or harness, name the exact test file,
+production entry, and runtime it must execute. Do not pretend an unbuilt command
+already exists.
 
 Executor leaves one concise implementation evidence record with git refs and a
 strong self-check. Tester records one validation result containing every exact

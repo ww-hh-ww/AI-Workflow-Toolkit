@@ -1,4 +1,4 @@
-"""Bind Claude task-role tool calls to the Task's Plan worktree."""
+"""Bind Claude task work to the Task's Plan worktree."""
 from __future__ import annotations
 
 import json
@@ -24,6 +24,7 @@ class AgentWorktreeError(RuntimeError):
 class AgentAssignment:
     task_id: str
     worktree: Path
+    declared_worktree: Path
     control_root: Path
 
 
@@ -36,6 +37,24 @@ class RoutedToolInput:
 
 def is_task_role(agent_type: str) -> bool:
     return str(agent_type or "").lower() in TASK_ROLE_TYPES
+
+
+def _is_planner_session(event: NormalizedEvent) -> bool:
+    """Return whether this is the main Planner session, not a subagent."""
+    if event.engine != "claude" or event.agent_id:
+        return False
+    role = str(event.agent_type or "").lower()
+    return not role or "planner" in role or role == "main"
+
+
+def _assignment(task: Dict[str, Any], control: Path) -> AgentAssignment:
+    declared = Path(str(task["worktree_path"])).expanduser()
+    return AgentAssignment(
+        task_id=str(task["id"]),
+        worktree=declared.resolve(),
+        declared_worktree=declared,
+        control_root=control,
+    )
 
 
 def _task_id_in_text(task_id: str, text: str) -> bool:
@@ -95,29 +114,14 @@ def _unfinished_dispatch_tasks(
     control: Path,
     event: NormalizedEvent,
 ) -> List[str]:
-    path = control / ".aiwf/runtime/internal/agent-dispatch.jsonl"
-    counts: Dict[str, int] = {}
-    try:
-        lines = path.read_text(encoding="utf-8").splitlines()
-    except OSError:
-        return []
-    for line in lines:
-        try:
-            entry = json.loads(line)
-        except Exception:
-            continue
-        if str(entry.get("subagent_type") or "").lower() != str(event.agent_type).lower():
-            continue
-        if event.session_id and str(entry.get("session_id") or "") != event.session_id:
-            continue
-        task_id = str(entry.get("task_id") or "")
-        if not task_id:
-            continue
-        if entry.get("status") == "started":
-            counts[task_id] = counts.get(task_id, 0) + 1
-        elif entry.get("status") == "completed":
-            counts[task_id] = max(0, counts.get(task_id, 0) - 1)
-    return [task_id for task_id, count in counts.items() if count > 0]
+    from .agent_runtime import running_dispatches
+
+    return [
+        item["task_id"] for item in running_dispatches(
+            control, session_id=event.session_id,
+        )
+        if item["subagent_type"].lower() == str(event.agent_type).lower()
+    ]
 
 
 def resolve_agent_assignment(
@@ -151,29 +155,15 @@ def resolve_agent_assignment(
             matches = _matching_tasks(tasks, text)
         if len(matches) == 1:
             task = matches[0]
-            return AgentAssignment(
-                task_id=str(task["id"]),
-                worktree=Path(str(task["worktree_path"])).expanduser().resolve(),
-                control_root=control,
-            )
+            return _assignment(task, control)
 
     pending = set(_unfinished_dispatch_tasks(control, event))
     matches = [task for task in tasks if str(task.get("id") or "") in pending]
     if len(matches) == 1:
-        task = matches[0]
-        return AgentAssignment(
-            task_id=str(task["id"]),
-            worktree=Path(str(task["worktree_path"])).expanduser().resolve(),
-            control_root=control,
-        )
+        return _assignment(matches[0], control)
 
     if len(tasks) == 1:
-        task = tasks[0]
-        return AgentAssignment(
-            task_id=str(task["id"]),
-            worktree=Path(str(task["worktree_path"])).expanduser().resolve(),
-            control_root=control,
-        )
+        return _assignment(tasks[0], control)
 
     raise AgentWorktreeError(
         f"Cannot tell which active Task belongs to {event.agent_type}. "
@@ -182,16 +172,99 @@ def resolve_agent_assignment(
     )
 
 
+def resolve_planner_assignment(
+    event: NormalizedEvent,
+    control_root: Optional[Path] = None,
+) -> Optional[AgentAssignment]:
+    """Resolve inline Planner work without adding a focus command or state field."""
+    if not _is_planner_session(event):
+        return None
+
+    control = (control_root or resolve_control_root(event.cwd or Path.cwd())).resolve()
+    tasks = [
+        task for task in active_tasks(str(control))
+        if str(task.get("worktree_path") or "").strip()
+    ]
+    if not tasks:
+        return None
+
+    try:
+        current = Path(event.cwd).expanduser().resolve()
+    except (OSError, RuntimeError, ValueError):
+        current = control
+    current_matches = [
+        task for task in tasks
+        if Path(str(task["worktree_path"])).expanduser().resolve() == current
+    ]
+    if len(current_matches) == 1:
+        return _assignment(current_matches[0], control)
+
+    # In a parallel cycle, absolute paths and Bash commands may name one worktree.
+    # Route only when that input identifies exactly one Task; never guess.
+    tool_text = json.dumps(event.tool_input or {}, ensure_ascii=False)
+    named = []
+    for task in tasks:
+        raw_worktree = str(Path(str(task["worktree_path"])).expanduser())
+        resolved_worktree = str(Path(raw_worktree).resolve())
+        if raw_worktree in tool_text or resolved_worktree in tool_text:
+            named.append(task)
+    if len(named) == 1:
+        return _assignment(named[0], control)
+
+    if len(tasks) == 1:
+        return _assignment(tasks[0], control)
+    return None
+
+
 def _routed_path(raw_path: str, assignment: AgentAssignment) -> str:
     raw = str(raw_path or "").strip()
     if not raw:
         return str(assignment.worktree)
     path = Path(raw).expanduser()
     if path.is_absolute():
+        try:
+            relative = path.resolve().relative_to(assignment.worktree)
+        except ValueError:
+            relative = None
+        if relative and relative.parts and relative.parts[0] == ".aiwf":
+            return str((assignment.control_root / relative).resolve())
         return str(path)
-    if raw == ".aiwf" or raw.startswith(".aiwf/"):
-        return str((assignment.control_root / raw).resolve())
+    normalized = raw[2:] if raw.startswith("./") else raw
+    if normalized == ".aiwf" or normalized.startswith(".aiwf/"):
+        return str((assignment.control_root / normalized).resolve())
     return str((assignment.worktree / raw).resolve())
+
+
+def _is_governance_path(raw_path: str, assignment: AgentAssignment) -> bool:
+    raw = str(raw_path or "").strip()
+    normalized = raw[2:] if raw.startswith("./") else raw
+    if normalized == ".aiwf" or normalized.startswith(".aiwf/"):
+        return True
+    path = Path(raw).expanduser()
+    if not path.is_absolute():
+        return False
+    try:
+        relative = path.resolve().relative_to(assignment.worktree)
+    except ValueError:
+        return False
+    return bool(relative.parts and relative.parts[0] == ".aiwf")
+
+
+def _route_bash_governance(command: str, assignment: AgentAssignment) -> str:
+    """Keep shell reads of shared governance out of stale Plan worktree copies."""
+    control_aiwf = str((assignment.control_root / ".aiwf").resolve())
+    routed = command
+    worktree_paths = {
+        str(assignment.declared_worktree / ".aiwf"),
+        str((assignment.worktree / ".aiwf").resolve()),
+    }
+    for worktree_aiwf in sorted(worktree_paths, key=len, reverse=True):
+        routed = routed.replace(worktree_aiwf, control_aiwf)
+    return re.sub(
+        r"(?<![A-Za-z0-9_./-])(?:\./)?\.aiwf(?=/|\b)",
+        shlex.quote(control_aiwf),
+        routed,
+    )
 
 
 def route_agent_tool(
@@ -199,6 +272,8 @@ def route_agent_tool(
     control_root: Optional[Path] = None,
 ) -> Optional[RoutedToolInput]:
     assignment = resolve_agent_assignment(event, control_root)
+    if assignment is None:
+        assignment = resolve_planner_assignment(event, control_root)
     if assignment is None:
         return None
 
@@ -218,12 +293,21 @@ def route_agent_tool(
     }.get(event.tool_name)
     if path_key:
         current = str(updated.get(path_key) or "")
-        routed = current if already_in_worktree else _routed_path(current, assignment)
+        routed = (
+            _routed_path(current, assignment)
+            if _is_governance_path(current, assignment) or not already_in_worktree
+            else current
+        )
         if routed != current:
             updated[path_key] = routed
             changed = True
     elif event.tool_name == "Bash":
         command = str(updated.get("command") or "")
+        governed = _route_bash_governance(command, assignment)
+        if governed != command:
+            command = governed
+            updated["command"] = command
+            changed = True
         prefix = f"cd {shlex.quote(str(assignment.worktree))} &&"
         if (
             command.strip()

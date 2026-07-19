@@ -10,7 +10,7 @@ import subprocess
 from ...core.event_model import NormalizedEvent, ScopeResult
 from ...core.scope_policy import check_scope, check_bash_command
 from ...core.state.goal_ops import get_active_goal
-from ...core.task_ledger import task_for_worktree
+from ...core.task_ledger import active_tasks, task_for_worktree
 from ...core.task_records import load_task_record
 from ...core.temporary_access import MARKER as TEMPORARY_AI_WRITES_MARKER
 from ...core.temporary_access import temporary_ai_writes_enabled
@@ -589,8 +589,10 @@ def check_file_write(event: NormalizedEvent) -> ScopeResult:
                     active_context_id=state.get("active_context_id") or "(none)",
                     reason=(
                         f"active Task.md '{normalized}' is frozen during execution. "
-                        f"Do NOT modify the active Task.md. "
-                        f"Other governance MDs (mission, goals, plans, milestones, other tasks) may be edited."
+                        "If this was a real contract correction, stop the Task workflow, explain the "
+                        "exact conflict, and ask the human to run 'aiwf task interrupt'. After interruption, "
+                        "Planner may revise and sync the contract, critique it again, and reactivate. "
+                        "Do not leave the choice to Executor or continue with a known-bad contract."
                     ),
                 )
 
@@ -605,6 +607,22 @@ def check_file_write(event: NormalizedEvent) -> ScopeResult:
                 allowed=True,
                 active_context_id="(temporary)",
                 reason="human enabled temporary AI project writes in `aiwf ui`",
+            )
+        active_elsewhere = active_tasks(str(control))
+        if active_elsewhere:
+            assignments = ", ".join(
+                f"{task.get('id')} -> {task.get('worktree_path')}"
+                for task in active_elsewhere
+            )
+            return ScopeResult(
+                file_path=normalized,
+                allowed=False,
+                active_context_id=state.get("active_context_id") or "(none)",
+                reason=(
+                    "active Task exists, but this write is not bound to its Plan worktree. "
+                    f"Use the assigned worktree shown by 'aiwf status --prompt': {assignments}. "
+                    "Do not change executor_required or enable temporary writes to bypass routing."
+                ),
             )
         return ScopeResult(
             file_path=normalized,
@@ -810,6 +828,22 @@ def check_bash(event: NormalizedEvent) -> Dict:
             control, role, write_policy,
         )
         if not temporary_allowed:
+            active_elsewhere = active_tasks(str(control))
+            if active_elsewhere:
+                assignments = ", ".join(
+                    f"{task.get('id')} -> {task.get('worktree_path')}"
+                    for task in active_elsewhere
+                )
+                return {
+                    "allowed": False,
+                    "decision": "deny",
+                    "command": command[:200],
+                    "matched_pattern": project_targets[0],
+                    "reason": (
+                        "active Task exists, but this shell write is not bound to its Plan worktree. "
+                        f"Use the assigned worktree shown by 'aiwf status --prompt': {assignments}."
+                    ),
+                }
             return {
                 "allowed": False,
                 "decision": "deny",
@@ -919,8 +953,9 @@ def _check_active_task_md_bash(command: str, cwd: Path, active_task_id: str) -> 
                 "matched_pattern": pattern,
                 "reason": (
                     f"Active Task.md '{md_path}' is frozen during execution. "
-                    f"Bash writes to the active Task.md are blocked. "
-                    f"Other governance files may be edited."
+                    "If the contract really needs correction, stop normal work, explain the conflict, "
+                    "and ask the human to run 'aiwf task interrupt'. Then Planner may revise, sync, "
+                    "critique, and reactivate. Do not continue with a known-bad contract."
                 ),
             }
     return None

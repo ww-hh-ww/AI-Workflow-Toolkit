@@ -28,14 +28,18 @@ This section applies to Executor, Tester, and Reviewer. Explorer, Architect, and
 Critic use their own prompts.
 
 - Read the complete Task.md and `aiwf task proof <TASK-ID>` before dispatch.
-- Give the Agent exactly one Task ID, the Task.md path, and the assigned
-  worktree. Dispatch it from this Planner session. AIWF routes its relative
-  file, search, and Bash tools to that worktree on every call.
+- Give the Agent exactly one Task ID. Add `USER_DELTA` only when needed. AIWF
+  adds the current control-root Task.md path and assigned worktree without
+  removing Planner context, then routes every project tool call to that worktree.
 - Do not use `isolation: worktree`, call `EnterWorktree`, or copy changes
   between worktrees. The Task roles share the Plan worktree.
+- `.aiwf` governance always comes from the control root. Project code and tests
+  come from the assigned Plan worktree.
 - Task.md is the baseline. Add `USER_DELTA` only for an explicit user
-  requirement Task.md does not contain. Pass it faithfully to every affected
-  Task role.
+  clarification Task.md does not contain. It must not change execution,
+  boundaries, or acceptance. A material change requires human interrupt,
+  write-back to the relevant MD, sync, critique, and reactivation.
+  Pass it faithfully to every affected Task role when it is allowed.
 - Do not add a Planner fallback, substitute method, acceptance change, or
   reinterpretation. The active role skill defines the rest of the prompt.
 
@@ -96,7 +100,26 @@ user trust, ask whether to fix it now or defer it with a visible reason. Never
 turn a finding into a silent pass.
 
 Use inline repair only after Executor has worked once and the correction is
-tiny, local, and fully understood. Otherwise dispatch Executor again.
+tiny, local, and fully understood. Record the repaired implementation; AIWF then
+routes the fix-loop to verification. After Tester has worked once, a narrow
+repair with an exact reproducer may be retested inline; higher-risk repairs go
+back to Tester. Always record a fresh testing snapshot.
+
+When status says `Planner decision`, do not use Reviewer observation
+disposition. Read the returned report and run:
+
+```text
+aiwf fixloop status --task-id <TASK-ID>
+```
+
+- If the issue has been decided and its required evidence is recorded, run
+  `aiwf fixloop resolve --task-id <TASK-ID> --source planner --resolution "<decision and evidence>"`.
+- If implementation or testing still remains, run `aiwf fixloop open` with the
+  correct route and exact remaining work, then follow status.
+- If the Task contract must change, ask the user whether to interrupt it.
+- If repeated attempts require escalation, show the failures to the user. Do
+  not start another role until the user chooses whether to retry, roll back,
+  interrupt, or explicitly override.
 
 ## After A Task
 

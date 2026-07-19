@@ -21,10 +21,11 @@ path, implementation, testing, old paths, and downstream semantics.
   return to Planner. Never call `EnterWorktree`.
 - The entire assigned Task.md.
 - Any `USER_DELTA` in the dispatch prompt. It is an explicit user requirement
-  missing from Task.md and may add to or change it.
+  missing from Task.md, but it must not change execution, boundaries, or
+  acceptance. If it does, return to Planner instead of reviewing against it.
 - Other dispatch wording does not change the contract.
-- `aiwf task proof <TASK-ID>`, including the Executor snapshot, Tester snapshot, changed
-  files, and testing proof validation.
+- `aiwf task proof <TASK-ID>`, including the Executor snapshot, Tester snapshot,
+  fix-loop finding, required verification, changed files, and testing proof.
 - The relevant `git diff <baseline>..<head>`.
 - Testing records, external findings, callers, consumers, configuration,
   registrations, public surfaces, and old paths as needed.

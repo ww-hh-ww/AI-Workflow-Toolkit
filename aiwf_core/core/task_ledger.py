@@ -641,6 +641,9 @@ def _interrupt_task_locked(base_dir: str, reason: str = "", task_id: str = "") -
     }
     task["suspended_phase"] = task.get("phase")
     task["phase"] = "suspended"
+    from .agent_runtime import cancel_task_dispatches
+
+    cancel_task_dispatches(base_dir, task_id, source="task_interrupt")
     if reason.strip():
         task.setdefault("notes", []).append(f"INTERRUPTED by human: {reason.strip()}")
     warning = _mark_task_doc_contract_status(base_dir, task, "suspended")

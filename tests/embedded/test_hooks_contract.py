@@ -604,6 +604,21 @@ class TestHooks(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(r.stdout.strip(), "")
 
+    def test_active_task_contract_conflict_routes_to_human_interrupt(self):
+        result = self._scope(
+            "Edit",
+            ".aiwf/tasks/TASK-001.md",
+            allowed_write=["src/"],
+            task_requirements={"executor_required": True},
+            agent_type="planner-main",
+        )
+
+        output = json.loads(result.stdout)
+        reason = output["hookSpecificOutput"]["permissionDecisionReason"]
+        self.assertIn("aiwf task interrupt", reason)
+        self.assertIn("revise and sync the contract", reason)
+        self.assertIn("Do not leave the choice to Executor", reason)
+
     def test_reviewing_stage_without_active_close_allows_stop(self):
         state = json.loads((self.tmp / ".aiwf" / "state" / "state.json").read_text())
         state["phase"] = "reviewing"
@@ -671,7 +686,10 @@ class TestHooks(unittest.TestCase):
         self.assertEqual(r.stdout.strip(), "")
 
     def test_forbidden_write_always_denied(self):
-        r = self._scope("Write", ".env", allowed_write=["src/"], forbidden_write=[".env"])
+        r = self._scope(
+            "Write", ".env", allowed_write=["src/"], forbidden_write=[".env"],
+            task_requirements={"executor_required": False},
+        )
         # V2: pre-tool scope check no longer blocks on forbidden_write;
         # forbidden_write check moved to post-tool check_and_record_scope_violations.
         self.assertEqual(r.returncode, 0, r.stderr)

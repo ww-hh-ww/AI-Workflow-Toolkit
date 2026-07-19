@@ -177,6 +177,15 @@ class TestTaskCloseSyncContract(unittest.TestCase):
                 "requirements": {"executor_required": True},
             }],
         }), encoding="utf-8")
+        dispatch = base / ".aiwf/runtime/internal/agent-dispatch.jsonl"
+        dispatch.parent.mkdir(parents=True, exist_ok=True)
+        dispatch.write_text(json.dumps({
+            "timestamp": "2026-07-19T10:00:00+00:00",
+            "subagent_type": "aiwf-executor",
+            "task_id": "TASK-004",
+            "session_id": "test",
+            "status": "started",
+        }) + "\n", encoding="utf-8")
 
         result = interrupt_task(str(base), reason="stop and replan")
 
@@ -191,6 +200,11 @@ class TestTaskCloseSyncContract(unittest.TestCase):
         sync_index(str(base))
         tasks = json.loads((base / ".aiwf/state/tasks.json").read_text(encoding="utf-8"))
         self.assertEqual(tasks["tasks"][0]["status"], "suspended")
+        dispatch_entries = [
+            json.loads(line) for line in dispatch.read_text(encoding="utf-8").splitlines()
+        ]
+        self.assertEqual(dispatch_entries[-1]["status"], "cancelled")
+        self.assertEqual(dispatch_entries[-1]["completion_source"], "task_interrupt")
 
     def test_cancel_updates_task_md_contract_status_and_survives_sync(self):
         from aiwf_core.core.index_ops import parse_md, sync_index, write_narrative_doc

@@ -18,6 +18,33 @@ def _write_task(base: Path, task_id: str, body: str) -> dict:
 
 
 class TestTaskProofContract(unittest.TestCase):
+    def test_task_proof_exposes_current_fix_loop_to_follow_up_roles(self):
+        from aiwf_core.core.task_proof import build_task_proof
+
+        base = Path(tempfile.mkdtemp(prefix="awproof_"))
+        record_path = base / ".aiwf/records/tasks/TASK-FIX.json"
+        record_path.parent.mkdir(parents=True)
+        record_path.write_text(json.dumps({
+            "task_id": "TASK-FIX",
+            "implementation": {"task_id": "TASK-FIX", "implementation_ref": "abc"},
+            "testing": {"task_id": "TASK-FIX", "status": "missing"},
+            "review": {"task_id": "TASK-FIX", "result": "unknown"},
+            "fix_loop": {
+                "status": "open",
+                "route": "tester",
+                "reason": "old path still bypasses the fix",
+                "required_verification": ["prove the old path is closed"],
+            },
+        }), encoding="utf-8")
+
+        proof = build_task_proof(str(base), {"id": "TASK-FIX", "status": "active"})
+
+        self.assertEqual(proof["fix_loop"]["route"], "tester")
+        self.assertEqual(
+            proof["fix_loop"]["required_verification"],
+            ["prove the old path is closed"],
+        )
+
     def test_forbidden_write_is_optional(self):
         from aiwf_core.core.task_proof import activation_proof_blockers
 

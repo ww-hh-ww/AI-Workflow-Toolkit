@@ -16,23 +16,15 @@ ROLE_SUBAGENTS = {
 
 def _mark_role_recorded(base: Path, task_id: str, subagent_type: str) -> None:
     """Close the dispatch window when the role records its Task result."""
-    from datetime import datetime, timezone
-    from ..core.state._common import _exclusive_operation_lock
-    from ..core.worktree_context import resolve_control_root
+    from ..core.agent_runtime import finish_dispatch
 
-    control = resolve_control_root(base)
-    path = control / ".aiwf/runtime/internal/agent-dispatch.jsonl"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    entry = {
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "subagent_type": subagent_type,
-        "task_id": task_id,
-        "status": "completed",
-        "completion_source": "record",
-    }
-    with _exclusive_operation_lock(str(control), "agent-dispatch", timeout=2):
-        with path.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(entry) + "\n")
+    finish_dispatch(
+        base,
+        subagent_type,
+        task_id=task_id,
+        status="completed",
+        source="record",
+    )
 
 
 def _require_role_dispatch(base: Path, role: str, task_id: str = "") -> str:
@@ -130,6 +122,10 @@ def _cmd_record_testing(args: argparse.Namespace) -> None:
         print(f"  Commands: {len(args.commands)}")
     if verification_results:
         print(f"  Verification results: {len(verification_results)}")
+    if testing.get("fix_loop_resolved"):
+        print("  Fix-loop: resolved by this verification")
+    elif testing.get("fix_loop_pending_reason"):
+        print(f"  Fix-loop remains open: {testing['fix_loop_pending_reason'][:240]}")
 
 
 def _parse_observations(raw_observations: list[str]) -> list[dict]:

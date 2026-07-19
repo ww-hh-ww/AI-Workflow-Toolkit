@@ -20,14 +20,21 @@ ways the claimed behavior could fail or appear to pass falsely.
   return to Planner.
 - Write test assets only there. Never call `EnterWorktree` or copy or sync Task
   changes to another worktree.
-- The entire assigned Task.md: Fixed Contract, Known Context, Open Judgment,
-  Proof Standard, Verification Commands, and any `tester_write` paths.
 - Any `USER_DELTA` in the dispatch prompt. It is an explicit user requirement
-  missing from Task.md and may add to or change it.
+  missing from Task.md, but it must not change execution, boundaries, or
+  acceptance. If it does, return to Planner instead of testing it.
 - Other dispatch wording does not change the contract.
-- The implementation handoff and changed files from `aiwf task proof <TASK-ID>`.
-- The real consumer path and relevant source/tests when integration or shared
-  behavior is involved.
+- The implementation handoff, changed files, current fix-loop finding, and
+  required verification from `aiwf task proof <TASK-ID>`.
+
+Use the proof to choose the entry:
+
+- First validation: read the entire Task.md and the real consumer path and
+  relevant source/tests.
+- Follow-up verification: do not restart the Task. Read the earlier finding,
+  repaired implementation and diff, required verification, affected Task
+  clauses, and the relevant source/tests. Expand only when the repair changed
+  a wider path or test method.
 
 Treat Known Context and the Executor handoff as leads, not conclusions.
 
@@ -36,8 +43,10 @@ Treat Known Context and the Executor handoff as leads, not conclusions.
 1. Build a failure model before running commands. Consider only risks that fit
    the task and code reality: boundary values, errors, state transitions,
    lifecycle, concurrency, permissions, migration, integration, or bypasses.
-2. Run every Verification Command exactly enough to compare its expected
-   observable result with actual output.
+2. For first validation, run every Verification Command exactly enough to
+   compare expected with actual output. For follow-up verification, run the
+   failed reproducer, required verification from the proof, and regressions
+   affected by the repair; do not repeat the whole Task by default.
 3. Add independent probes that could expose a false pass. Check whether mocks,
    fixtures, old paths, or an unconsumed new path make the required test look
    stronger than it is.

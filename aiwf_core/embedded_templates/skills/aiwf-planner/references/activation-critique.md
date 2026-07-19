@@ -35,14 +35,23 @@ try to break it.
    For structural work, check whether module boundaries follow ownership and
    change rather than Goal or Task names. Trace dependency direction and who
    owns shared state and failures.
-6. If the governance files are wrong, incomplete, or too confident, revise the
-   relevant MD and run `aiwf sync`.
-7. If the main path, consumer, invariant, or proof is still guessed, do not
+6. Reread Known Context as Executor's cold start. Keep concise, source-backed
+   conclusions and useful code anchors. Remove exploration history, pasted
+   output, broad code maps, and local choices that Executor should make.
+7. Check Verification Commands against the real scripts and test runner.
+   Confirm that selectors narrow the run, commands prove different claims, a
+   full regression is not repeated, and runtime tests exercise production code
+   in the claimed runtime. If the Task will create a command, verify the runner
+   syntax and name the exact target it must execute.
+8. If a conclusion changes execution, boundaries, or acceptance, write it into
+   the relevant MD and run `aiwf sync` before recording the critique. If it is
+   not written back, do not record the critique or activate the Task.
+9. If the main path, consumer, invariant, or proof is still guessed, do not
    activate. Create exploration/design work or ask the user.
-8. If a chosen technical method has no source-backed basis or was never
+10. If a chosen technical method has no source-backed basis or was never
    compared against the raw problem, return to Plan formation. Use independent
    option exploration before recording another critique pass.
-9. Confirm the project worktree is clean and the current branch is the feature
+11. Confirm the project worktree is clean and the current branch is the feature
    branch for this Plan. Do not start a Task on main, master, trunk, detached
    HEAD, or a branch already bound to another Plan.
 

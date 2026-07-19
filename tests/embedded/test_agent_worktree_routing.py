@@ -128,6 +128,55 @@ class TestAgentWorktreeRouting(unittest.TestCase):
             str((self.root / ".aiwf/tasks/TASK-A.md").resolve()),
         )
 
+    def test_governance_read_from_worktree_still_uses_control_root(self):
+        main = self._agent_transcript("a", "TASK-A")
+        relative = route_agent_tool(
+            self._event(
+                "Read", {"file_path": ".aiwf/tasks/TASK-A.md"},
+                transcript_path=main,
+            ),
+            self.root,
+        )
+        relative_event = self._event(
+            "Read", {"file_path": ".aiwf/tasks/TASK-A.md"},
+            transcript_path=main,
+        )
+        relative_event.cwd = str(self.worktree_a)
+        from_worktree = route_agent_tool(relative_event, self.root)
+        absolute_event = self._event(
+            "Read",
+            {"file_path": str(self.worktree_a / ".aiwf/tasks/TASK-A.md")},
+            transcript_path=main,
+        )
+        absolute = route_agent_tool(absolute_event, self.root)
+
+        expected = str((self.root / ".aiwf/tasks/TASK-A.md").resolve())
+        self.assertEqual(relative.tool_input["file_path"], expected)
+        self.assertEqual(from_worktree.tool_input["file_path"], expected)
+        self.assertEqual(absolute.tool_input["file_path"], expected)
+
+    def test_bash_governance_paths_use_control_root(self):
+        main = self._agent_transcript("a", "TASK-A")
+        routed = route_agent_tool(
+            self._event(
+                "Bash",
+                {
+                    "command": (
+                        "sed -n '1,80p' .aiwf/tasks/TASK-A.md && "
+                        f"rg Contract {self.worktree_a}/.aiwf/tasks/TASK-A.md"
+                    )
+                },
+                transcript_path=main,
+            ),
+            self.root,
+        )
+
+        command = routed.tool_input["command"]
+        control_aiwf = str((self.root / ".aiwf").resolve())
+        self.assertIn(control_aiwf, command)
+        self.assertNotIn(str(self.worktree_a / ".aiwf"), command)
+        self.assertTrue(command.startswith(f"cd {self.worktree_a.resolve()} && "))
+
     def test_one_unfinished_dispatch_is_a_safe_fallback(self):
         runtime = self.root / ".aiwf/runtime/internal"
         runtime.mkdir(parents=True)
@@ -157,6 +206,54 @@ class TestAgentWorktreeRouting(unittest.TestCase):
 
         with self.assertRaises(AgentWorktreeError):
             route_agent_tool(self._event("Read", {"file_path": "README.md"}), self.root)
+
+    def test_planner_routes_to_the_only_active_task(self):
+        tasks_path = self.root / ".aiwf/state/tasks.json"
+        state = json.loads(tasks_path.read_text(encoding="utf-8"))
+        state["tasks"] = state["tasks"][:1]
+        tasks_path.write_text(json.dumps(state), encoding="utf-8")
+        event = NormalizedEvent(
+            engine="claude",
+            event_type="pre_tool_use",
+            session_id="session-1",
+            cwd=str(self.root),
+            tool_name="Write",
+            tool_input={"file_path": "src/inline.ts", "content": "ok\n"},
+        )
+
+        routed = route_agent_tool(event, self.root)
+
+        self.assertEqual(routed.assignment.task_id, "TASK-A")
+        self.assertEqual(
+            routed.tool_input["file_path"],
+            str((self.worktree_a / "src/inline.ts").resolve()),
+        )
+
+    def test_parallel_planner_routes_only_when_worktree_is_explicit(self):
+        explicit = NormalizedEvent(
+            engine="claude",
+            event_type="pre_tool_use",
+            session_id="session-1",
+            cwd=str(self.root),
+            tool_name="Write",
+            tool_input={
+                "file_path": str(self.worktree_b / "src/inline.ts"),
+                "content": "ok\n",
+            },
+        )
+        ambiguous = NormalizedEvent(
+            engine="claude",
+            event_type="pre_tool_use",
+            session_id="session-1",
+            cwd=str(self.root),
+            tool_name="Write",
+            tool_input={"file_path": "src/inline.ts", "content": "ok\n"},
+        )
+
+        routed = route_agent_tool(explicit, self.root)
+
+        self.assertEqual(routed.assignment.task_id, "TASK-B")
+        self.assertIsNone(route_agent_tool(ambiguous, self.root))
 
 
 class TestAgentWorktreeHookIntegration(unittest.TestCase):
@@ -254,6 +351,47 @@ class TestAgentWorktreeHookIntegration(unittest.TestCase):
             run(["/bin/sh", "-c", routed_command])
             self.assertTrue((worktree / "routed-marker.txt").exists())
             self.assertFalse((control / "routed-marker.txt").exists())
+
+            inline_event = {
+                "hook_event_name": "PreToolUse",
+                "session_id": "session-1",
+                "cwd": str(control),
+                "tool_name": "Write",
+                "tool_input": {
+                    "file_path": "src/inline.txt",
+                    "content": "inline\n",
+                },
+            }
+            blocked_inline = subprocess.run(
+                [sys.executable, str(control / "scripts/aiwf_scope_check.py")],
+                cwd=control,
+                env=env,
+                capture_output=True,
+                text=True,
+                input=json.dumps(inline_event),
+            )
+            blocked_output = json.loads(blocked_inline.stdout)["hookSpecificOutput"]
+            self.assertEqual(blocked_output["permissionDecision"], "deny")
+            self.assertIn(
+                "executor_required=true",
+                blocked_output["permissionDecisionReason"],
+            )
+
+            task_doc.write_text(
+                "---\nid: TASK-A\ntype: task\nexecutor_required: false\n"
+                "tester_required: false\nreviewer_required: false\n---\n\n# TASK-A\n",
+                encoding="utf-8",
+            )
+            inline_hook = run(
+                [sys.executable, str(control / "scripts/aiwf_scope_check.py")],
+                input=json.dumps(inline_event),
+            )
+            inline_output = json.loads(inline_hook.stdout)["hookSpecificOutput"]
+            self.assertEqual(inline_output["permissionDecision"], "allow")
+            self.assertEqual(
+                inline_output["updatedInput"]["file_path"],
+                str(worktree / "src/inline.txt"),
+            )
 
 
 if __name__ == "__main__":

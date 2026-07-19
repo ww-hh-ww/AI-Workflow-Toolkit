@@ -824,6 +824,10 @@ Unknown — blocks: each item tagged Built/Wired/Running
 
 Verification Commands:
 
+Use distinct final proof commands. Target specific tests first and run each
+necessary full regression once at the end. Do not list several commands that
+rerun the same suite under different labels.
+
 | Command | Expected Observable Output |
 |---------|----------------------------|
 | Unknown — blocks: | Unknown — blocks: |
@@ -835,9 +839,10 @@ briefly explain any non-obvious choice
 
 ## Known Context
 
-Write free bullets with only verified facts that prevent wrong edits or wasted
-rediscovery: main path, consumer, invariants, integration anchors, old paths,
-tests, representative cases, and real Unknowns.
+Write concise, source-backed bullets that let the next role reach the real code
+without repeating Planner's exploration. Keep only useful anchors, established
+conclusions, old-path traps, representative cases, and real Unknowns. Do not
+paste logs, directory maps, whole-file summaries, or implementation recipes.
 
 - Unknown — blocks: verified facts and anchors needed before implementation
 

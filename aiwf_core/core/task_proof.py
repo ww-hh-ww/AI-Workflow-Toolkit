@@ -215,6 +215,7 @@ def build_task_proof(base_dir: str, task: Dict[str, Any]) -> Dict[str, Any]:
     implementation = record["implementation"]
     testing = record["testing"]
     review = record["review"]
+    fix_loop = record["fix_loop"]
 
     origin = str(task.get("git_origin_ref") or "")
     implementation_ref = str(implementation.get("implementation_ref") or "")
@@ -251,4 +252,5 @@ def build_task_proof(base_dir: str, task: Dict[str, Any]) -> Dict[str, Any]:
         "implementation": implementation,
         "testing": testing,
         "review": review,
+        "fix_loop": fix_loop,
     }

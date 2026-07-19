@@ -108,4 +108,19 @@ def record_testing(
                 source="tester",
                 task_id=task_id,
             )
+    elif status in ("adequate", "passed"):
+        current = (load_task_record(base_dir, task_id).get("fix_loop", {}) or {})
+        if current.get("status") == "open" and current.get("route") == "tester":
+            from .fixloop_ops import resolve_fix_loop
+
+            try:
+                resolve_fix_loop(
+                    base_dir,
+                    resolution=f"Tester verified the repair: {summary}",
+                    source="tester",
+                    task_id=task_id,
+                )
+                testing["fix_loop_resolved"] = True
+            except ValueError as exc:
+                testing["fix_loop_pending_reason"] = str(exc)
     return testing

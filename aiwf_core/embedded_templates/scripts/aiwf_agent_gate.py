@@ -1,9 +1,8 @@
-import json, sys
-from datetime import datetime, timezone
+import json, re, sys
 from pathlib import Path
 from aiwf_core.adapters.claude.normalize_event import parse_claude_stdin, normalize
-from aiwf_core.adapters.claude.responses import allow, deny_pre_tool_use
-from aiwf_core.core.state._common import _exclusive_operation_lock
+from aiwf_core.adapters.claude.responses import allow, allow_with_updated_input, deny_pre_tool_use
+from aiwf_core.core.agent_runtime import start_dispatch
 from aiwf_core.core.task_records import load_task_record
 from aiwf_core.core.worktree_context import resolve_control_root
 
@@ -12,6 +11,12 @@ AGENT_SKILL_MAP = {
     "aiwf-tester": "aiwf-test",
     "aiwf-reviewer": "aiwf-review",
     "aiwf-architect": "aiwf-architect",
+}
+
+ROLE_ACTION = {
+    "aiwf-executor": "Implement the contract, verify your work, and record implementation.",
+    "aiwf-tester": "Test the current result independently and record testing.",
+    "aiwf-reviewer": "Review the tested result independently and record review.",
 }
 
 def _read_json(path, default=None):
@@ -31,6 +36,40 @@ def _active_task(base, task_id):
         {},
     )
 
+def _task_matches(tasks, text):
+    matches = []
+    for task in tasks:
+        if not isinstance(task, dict) or task.get("status") != "active":
+            continue
+        task_id = str(task.get("id") or "")
+        worktree = str(task.get("worktree_path") or "")
+        if (
+            task_id and re.search(
+                rf"(?<![A-Za-z0-9_-]){re.escape(task_id)}(?![A-Za-z0-9_-])",
+                text,
+            )
+        ) or (worktree and worktree in text):
+            matches.append(task)
+    return matches
+
+def _enriched_prompt(base, task, subagent_type, original_prompt):
+    task_id = str(task.get("id") or "")
+    worktree = str(task.get("worktree_path") or "")
+    task_path = base / str(task.get("doc_path") or f".aiwf/tasks/{task_id}.md")
+    lines = [
+        "AIWF assignment:",
+        f"Task: {task_id}",
+        f"Task contract: {task_path}",
+        f"Assigned worktree: {worktree}",
+        "Read the current Task contract from the control root and follow your AIWF role instructions.",
+        ROLE_ACTION.get(subagent_type, "Complete the assigned AIWF role."),
+        "Use the assigned worktree for project files. Task.md remains the contract.",
+        "If the contract conflicts with project reality, return RETURN_TO_PLANNER instead of guessing.",
+    ]
+    if str(original_prompt or "").strip():
+        lines.extend(["", "Planner context:", str(original_prompt).strip()])
+    return "\n".join(lines)
+
 def _workflow_dispatch_blocker(base, task_id, subagent_type):
     """Reject expensive workflow dispatches that cannot consume current state."""
     if subagent_type not in {"aiwf-executor", "aiwf-tester", "aiwf-reviewer"}:
@@ -39,12 +78,23 @@ def _workflow_dispatch_blocker(base, task_id, subagent_type):
     record = load_task_record(base, task_id)
     fix_loop = record.get("fix_loop", {}) or {}
     if fix_loop.get("status") == "open":
+        if fix_loop.get("escalation_required"):
+            return (
+                f"Cannot dispatch {subagent_type}: repeated fix-loop attempts require a Planner and user decision. "
+                "Run 'aiwf status --prompt' and show the recorded failures before retrying."
+            )
         route = str(fix_loop.get("route") or "planner")
         expected = {
             "aiwf-executor": "executor",
             "aiwf-tester": "tester",
         }.get(subagent_type, "")
         if route != expected:
+            if route == "executor":
+                return (
+                    f"Cannot dispatch {subagent_type}: an implementation repair is still pending. "
+                    "Load /aiwf-implement. Repair inline when it is tiny and fully understood; "
+                    "otherwise dispatch aiwf-executor. Record the repaired implementation before Tester."
+                )
             return (
                 f"Cannot dispatch {subagent_type}: the open fix-loop routes to {route}. "
                 "Run 'aiwf status --prompt' and follow that route first."
@@ -77,31 +127,6 @@ def _workflow_dispatch_blocker(base, task_id, subagent_type):
             )
     return ""
 
-def _running_workflow_role(path, task_id, session_id):
-    counts = {}
-    if path.exists():
-        for line in path.read_text(encoding="utf-8").splitlines():
-            try:
-                entry = json.loads(line)
-            except Exception:
-                continue
-            role = str(entry.get("subagent_type") or "")
-            if (
-                entry.get("task_id") != task_id
-                or role not in {"aiwf-executor", "aiwf-tester", "aiwf-reviewer"}
-            ):
-                continue
-            if entry.get("status") == "started":
-                if str(entry.get("session_id") or "") != session_id:
-                    continue
-                counts[role] = counts.get(role, 0) + 1
-            elif entry.get("status") == "completed":
-                completed_session = str(entry.get("session_id") or "")
-                if completed_session and completed_session != session_id:
-                    continue
-                counts[role] = max(0, counts.get(role, 0) - 1)
-    return next((role for role, count in counts.items() if count > 0), "")
-
 def main():
     data = parse_claude_stdin()
     if not data:
@@ -112,37 +137,35 @@ def main():
         allow()
 
     subagent_type = event.tool_input.get("subagent_type", "")
+    base = resolve_control_root(Path(__file__).resolve().parent.parent)
+    ledger = _read_json(base / ".aiwf" / "state" / "tasks.json", {"tasks": []})
+    original_prompt = str(event.tool_input.get("prompt") or "")
+    dispatch_text = "\n".join(
+        str(event.tool_input.get(key) or "")
+        for key in ("prompt", "description", "name")
+    )
+    matches = _task_matches(ledger.get("tasks", []) or [], dispatch_text)
+    if subagent_type == "general-purpose" and matches:
+        deny_pre_tool_use(
+            "Cannot use general-purpose as a substitute for an active Task role. "
+            "Run 'aiwf status --prompt' and dispatch the named AIWF role. "
+            "Use aiwf-explorer for separate read-only exploration."
+        )
     if subagent_type not in AGENT_SKILL_MAP:
         allow()
 
     required_skill = AGENT_SKILL_MAP[subagent_type]
-
-    base = resolve_control_root(Path(__file__).resolve().parent.parent)
-
-    ledger = _read_json(base / ".aiwf" / "state" / "tasks.json", {"tasks": []})
-    prompt = "\n".join(
-        str(event.tool_input.get(key) or "")
-        for key in ("prompt", "description", "name")
-    )
-    matches = [
-        task for task in ledger.get("tasks", []) or []
-        if isinstance(task, dict)
-        and task.get("status") == "active"
-        and str(task.get("id") or "")
-        and str(task.get("id")) in prompt
-    ]
     if len(matches) != 1:
         deny_pre_tool_use(
             f"Cannot dispatch {subagent_type}: prompt must name exactly one active Task ID. "
-            "Run 'aiwf status --prompt', then include the Task ID and assigned worktree in the Agent prompt."
+            "Run 'aiwf status --prompt' and name the intended Task clearly."
         )
     task = matches[0]
     active_task_id = str(task.get("id"))
     worktree_path = str(task.get("worktree_path") or "")
-    if not worktree_path or worktree_path not in prompt:
+    if not worktree_path:
         deny_pre_tool_use(
-            f"Cannot dispatch {subagent_type} for {active_task_id}: prompt must include its assigned "
-            f"worktree path '{worktree_path or '(not bound)'}'."
+            f"Cannot dispatch {subagent_type} for {active_task_id}: the Task has no assigned worktree."
         )
     # Check if required skill was loaded for this task
     log_path = base / ".aiwf" / "runtime" / "internal" / "skill-loads.jsonl"
@@ -170,33 +193,26 @@ def main():
     if blocker:
         deny_pre_tool_use(blocker)
 
-    dispatch_path = base / ".aiwf" / "runtime" / "internal" / "agent-dispatch.jsonl"
-    dispatch_path.parent.mkdir(parents=True, exist_ok=True)
     try:
-        with _exclusive_operation_lock(str(base), "agent-dispatch", timeout=2):
-            running = _running_workflow_role(
-                dispatch_path, active_task_id, event.session_id
+        running = start_dispatch(
+            base,
+            active_task_id,
+            subagent_type,
+            event.session_id,
+            str(task.get("plan_id") or task.get("parent_plan") or ""),
+            worktree_path,
+        )
+        if running:
+            deny_pre_tool_use(
+                f"Cannot dispatch {subagent_type}: {running} is still running for "
+                f"{active_task_id}. Wait for its Agent call to return; do not retry or substitute another Agent."
             )
-            if running and subagent_type in {"aiwf-executor", "aiwf-tester", "aiwf-reviewer"}:
-                deny_pre_tool_use(
-                    f"Cannot dispatch {subagent_type}: {running} is still running for "
-                    f"{active_task_id}. Wait for it to return before starting another workflow role."
-                )
-            entry = {
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-                "subagent_type": subagent_type,
-                "task_id": active_task_id,
-                "plan_id": task.get("plan_id") or task.get("parent_plan") or "",
-                "worktree_path": worktree_path,
-                "session_id": event.session_id,
-                "status": "started",
-            }
-            with open(dispatch_path, "a", encoding="utf-8") as handle:
-                handle.write(json.dumps(entry) + "\n")
     except TimeoutError as exc:
         deny_pre_tool_use(f"Cannot dispatch {subagent_type}: {exc}. Retry once.")
 
-    allow()
+    updated = dict(event.tool_input or {})
+    updated["prompt"] = _enriched_prompt(base, task, subagent_type, original_prompt)
+    allow_with_updated_input(updated)
 
 if __name__ == "__main__":
     main()

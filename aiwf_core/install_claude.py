@@ -203,6 +203,9 @@ def _build_settings_json(target: EmbedTarget | None = None) -> Dict[str, Any]:
                 {"matcher": "Agent|Task",                           **_h(q_agent_log)},
                 {"matcher": "Write|Edit|MultiEdit",                 **_h(q_auto_sync)},
             ],
+            "PostToolUseFailure": [
+                {"matcher": "Agent|Task",                           **_h(q_agent_log)},
+            ],
             "SubagentStop": [
                 {"matcher": "aiwf-executor|aiwf-tester|aiwf-reviewer|aiwf-architect", **_h(q_agent_log)},
             ],
@@ -1058,7 +1061,7 @@ def doctor(mode: str | None = None) -> Dict[str, Any]:
             hooks_cfg = settings_data.get("hooks", {})
             event_names = ["UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop"]
             if target.mode == "claude":
-                event_names.append("SubagentStop")
+                event_names.extend(["PostToolUseFailure", "SubagentStop"])
             for event_name in event_names:
                 entries = hooks_cfg.get(event_name, [])
                 if target.mode == "reasonix":
@@ -1081,7 +1084,7 @@ def doctor(mode: str | None = None) -> Dict[str, Any]:
         except Exception:
             event_names = ["UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop"]
             if target.mode == "claude":
-                event_names.append("SubagentStop")
+                event_names.extend(["PostToolUseFailure", "SubagentStop"])
             for ev in event_names:
                 checks["hooks"][ev] = {"configured": False, "valid_schema": False}
 

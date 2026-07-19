@@ -28,6 +28,8 @@ class TestPromptClarityContract(unittest.TestCase):
             "references/activation-critique.md",
             "references/lifecycle.md",
             "two real critique passes",
+            "changes execution, boundaries, or acceptance",
+            "Do not record the critique or activate the Task",
             "Run `aiwf status --prompt` when Planner starts work",
             "Closure Calibration",
             "Add, correct, or delete",
@@ -42,8 +44,27 @@ class TestPromptClarityContract(unittest.TestCase):
             "shared mechanism",
             "implementable, testable, and reviewable",
             "combined proof",
+            "Record the repaired implementation",
+            "When status says `Planner decision`",
+            "aiwf fixloop resolve --task-id <TASK-ID>",
+            "do not use Reviewer observation",
+            "may be retested inline",
+            "Always record a fresh testing snapshot",
+            "If repeated attempts require escalation",
         ]:
             self.assertIn(required, lifecycle)
+
+    def test_tester_is_mandatory_once_but_follow_up_uses_risk(self):
+        test_skill = " ".join(read("skills/aiwf-test/SKILL.md").split())
+        for required in [
+            "For the first validation",
+            "when `tester_required` is true",
+            "## Follow-Up Verification",
+            "Retest inline",
+            "Dispatch Tester again",
+            "record a fresh testing snapshot",
+        ]:
+            self.assertIn(required, test_skill)
 
     def test_planner_and_guides_preserve_design_and_consistency_judgment(self):
         combined = "\n".join([
@@ -92,6 +113,73 @@ class TestPromptClarityContract(unittest.TestCase):
             "Tester must return to Planner",
         ]:
             self.assertIn(required, task)
+
+    def test_known_context_is_a_concise_cold_start_handoff(self):
+        task = " ".join(
+            read("skills/aiwf-planner/references/task-contract.md").split()
+        )
+        template = (ROOT / "aiwf_core" / "core" / "index_ops.py").read_text(
+            encoding="utf-8"
+        )
+        executor = " ".join(read("agents/aiwf-executor.md").split())
+
+        for required in [
+            "cold-start handoff",
+            "There is no required bullet format",
+            "Do not include exploration history",
+            "cite the useful conclusion and its source",
+            "Remove the rest",
+        ]:
+            self.assertIn(required, task)
+        self.assertIn("without repeating Planner's exploration", template)
+        self.assertIn("inspect only the code needed", executor)
+        self.assertIn("stop broad orientation and begin work", executor)
+        self.assertIn("instead of reproducing Planner's exploration", executor)
+        critique = " ".join(
+            read("skills/aiwf-planner/references/activation-critique.md").split()
+        )
+        self.assertIn("Reread Known Context as Executor's cold start", critique)
+        self.assertIn("Remove exploration history", critique)
+
+    def test_task_proof_commands_are_distinct_and_real(self):
+        task = " ".join(
+            read("skills/aiwf-planner/references/task-contract.md").split()
+        )
+        critique = " ".join(
+            read("skills/aiwf-planner/references/activation-critique.md").split()
+        )
+        executor = " ".join(read("agents/aiwf-executor.md").split())
+
+        for required in [
+            "State each requirement once",
+            "Carry into Task.md the chosen direction",
+            "keep the design history and detailed rationale in the Plan",
+            "Verification Commands are final proof",
+            "selector really targets the named test",
+            "each necessary full regression runs once",
+            "production path in the claimed runtime",
+        ]:
+            self.assertIn(required, task)
+        self.assertIn("Check Verification Commands against the real scripts", critique)
+        self.assertIn("selectors narrow the run", critique)
+        self.assertIn("Do not load AIWF routing skills", executor)
+        self.assertIn("run the smallest relevant checks", executor)
+        self.assertIn("reread the Fixed Contract once", executor)
+
+    def test_fix_loop_roles_do_not_restart_the_whole_task(self):
+        executor = " ".join(read("agents/aiwf-executor.md").split())
+        implement = " ".join(read("skills/aiwf-implement/SKILL.md").split())
+        tester = " ".join(read("agents/aiwf-tester.md").split())
+        testing = " ".join(read("skills/aiwf-test/SKILL.md").split())
+
+        self.assertIn("First implementation: read the entire Task.md", executor)
+        self.assertIn("Repair: do not restart the Task", executor)
+        self.assertIn("only the affected Task clauses", implement)
+        self.assertIn("do not paste the original Task", implement)
+        self.assertIn("First validation: read the entire Task.md", tester)
+        self.assertIn("Follow-up verification: do not restart the Task", tester)
+        self.assertIn("do not repeat the whole Task by default", tester)
+        self.assertIn("Do not paste or reread the whole Task", testing)
 
     def test_planning_separates_capabilities_from_code_architecture(self):
         planner = read("skills/aiwf-planner/SKILL.md")
@@ -227,7 +315,10 @@ class TestPromptClarityContract(unittest.TestCase):
         self.assertIn("Do not paste the complete Task Packet", review)
         self.assertIn("The report must tell Planner what Executor changed", review)
         self.assertIn("one project-writing Executor at a time", implement)
-        self.assertIn("one Tester to own the final tested snapshot", testing)
+        self.assertIn(
+            "Do not run Tester beside Executor or another Tester",
+            " ".join(testing.split()),
+        )
         self.assertIn("Do not run it in parallel with Executor or Tester", review)
 
     def test_dispatch_uses_task_baseline_and_only_explicit_user_delta(self):
@@ -254,12 +345,14 @@ class TestPromptClarityContract(unittest.TestCase):
         self.assertIn("Do not add a Planner fallback", lifecycle_words)
         for source in role_skills:
             self.assertIn("USER_DELTA", source)
-            self.assertIn("Planner-created fallbacks", source)
+            self.assertIn("must not change execution", source)
             self.assertNotIn("verified fact not yet", source)
             self.assertNotIn("fresh facts not yet", source)
         for source in agents:
             self.assertIn("Other dispatch wording does", source)
             self.assertIn("not change the contract", source)
+            self.assertIn("fix-loop", source)
+            self.assertIn("required verification", source)
 
         executor = agents[0]
         self.assertIn("requires a named skill or tool", executor)
@@ -271,8 +364,7 @@ class TestPromptClarityContract(unittest.TestCase):
         self.assertIn("aiwf plan bind-worktree <PLAN-ID> --create", planner)
         self.assertIn("Every Plan worktree is a peer", lifecycle)
         self.assertIn("The command is idempotent", lifecycle)
-        self.assertIn("AIWF routes its relative", lifecycle)
-        self.assertIn("on every call", lifecycle)
+        self.assertIn("routes every project tool call to that worktree", lifecycle)
         self.assertIn("Task roles share the Plan worktree", lifecycle)
         for path in (
             "agents/aiwf-executor.md",

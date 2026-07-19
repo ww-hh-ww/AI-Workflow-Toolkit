@@ -94,6 +94,7 @@ class TestRecordDispatchContract(unittest.TestCase):
         session_id="test",
         skill_session_id="",
         event_cwd="",
+        prompt="",
     ):
         log = self.tmp / ".aiwf" / "runtime" / "internal" / "skill-loads.jsonl"
         log.parent.mkdir(parents=True, exist_ok=True)
@@ -104,7 +105,7 @@ class TestRecordDispatchContract(unittest.TestCase):
         }) + "\n")
         tool_input = {
             "subagent_type": subagent_type,
-            "prompt": f"Work on TASK-001 in assigned worktree {self.tmp}.",
+            "prompt": prompt or "TASK-001",
         }
         payload = json.dumps({
             "hook_event_name": "PreToolUse",
@@ -122,20 +123,121 @@ class TestRecordDispatchContract(unittest.TestCase):
             text=True,
         )
 
+    def _allowed_input(self, result):
+        self.assertEqual(result.returncode, 0, result.stderr)
+        output = json.loads(result.stdout)
+        hook = output["hookSpecificOutput"]
+        self.assertEqual(hook["permissionDecision"], "allow")
+        return hook["updatedInput"]
+
+    def _agent_return(self, subagent_type, message="TASK-001 completed."):
+        payload = json.dumps({
+            "hook_event_name": "PostToolUse",
+            "tool_name": "Agent",
+            "tool_input": {
+                "subagent_type": subagent_type,
+                "prompt": "TASK-001",
+            },
+            "tool_response": {"content": message},
+            "cwd": str(self.tmp),
+            "session_id": "test",
+        })
+        return subprocess.run(
+            [sys.executable, str(self.tmp / "scripts" / "aiwf_agent_log.py")],
+            cwd=self.tmp,
+            env=self.env,
+            input=payload,
+            capture_output=True,
+            text=True,
+        )
+
+    def _agent_failure(self, subagent_type, error="Agent initialization failed"):
+        payload = json.dumps({
+            "hook_event_name": "PostToolUseFailure",
+            "tool_name": "Agent",
+            "tool_input": {
+                "subagent_type": subagent_type,
+                "prompt": "TASK-001",
+            },
+            "error": error,
+            "is_interrupt": False,
+            "cwd": str(self.tmp),
+            "session_id": "test",
+        })
+        return subprocess.run(
+            [sys.executable, str(self.tmp / "scripts" / "aiwf_agent_log.py")],
+            cwd=self.tmp,
+            env=self.env,
+            input=payload,
+            capture_output=True,
+            text=True,
+        )
+
     def test_dispatch_from_control_session_uses_prompt_assignment(self):
         outside = self.tmp.parent
         allowed = self._dispatch(
             "aiwf-reviewer", "aiwf-review", event_cwd=outside,
         )
-        self.assertEqual(allowed.returncode, 0, allowed.stderr)
-        self.assertEqual(allowed.stdout.strip(), "")
+        updated = self._allowed_input(allowed)
+        self.assertIn("Task: TASK-001", updated["prompt"])
+        self.assertIn(
+            f"Task contract: {self.tmp.resolve() / '.aiwf/tasks/TASK-001.md'}",
+            updated["prompt"],
+        )
+        self.assertIn(f"Assigned worktree: {self.tmp}", updated["prompt"])
 
     def test_dispatch_does_not_require_an_unsupported_agent_cwd_field(self):
         result = self._dispatch(
             "aiwf-reviewer", "aiwf-review", event_cwd=self.tmp.parent,
         )
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout.strip(), "")
+        updated = self._allowed_input(result)
+        self.assertNotIn("cwd", updated)
+
+    def test_dispatch_adds_assignment_without_deleting_planner_context(self):
+        result = self._dispatch(
+            "aiwf-reviewer",
+            "aiwf-review",
+            prompt=(
+                "TASK-001\nFixed Contract: stale duplicated instructions\n"
+                "Use a fallback that Task.md does not permit.\n"
+                "USER_DELTA: The user explicitly requires a Windows smoke test."
+            ),
+        )
+
+        prompt = self._allowed_input(result)["prompt"]
+        self.assertIn("Task contract:", prompt)
+        self.assertIn("Assigned worktree:", prompt)
+        self.assertIn("Planner context:", prompt)
+        self.assertIn("stale duplicated instructions", prompt)
+        self.assertIn("Use a fallback", prompt)
+        self.assertIn(
+            "USER_DELTA: The user explicitly requires a Windows smoke test.",
+            prompt,
+        )
+
+    def test_general_purpose_cannot_substitute_for_active_task_role(self):
+        payload = json.dumps({
+            "hook_event_name": "PreToolUse",
+            "tool_name": "Agent",
+            "tool_input": {
+                "subagent_type": "general-purpose",
+                "prompt": "Implement TASK-001",
+            },
+            "cwd": str(self.tmp),
+            "session_id": "test",
+        })
+        result = subprocess.run(
+            [sys.executable, str(self.tmp / "scripts" / "aiwf_agent_gate.py")],
+            cwd=self.tmp,
+            env=self.env,
+            input=payload,
+            capture_output=True,
+            text=True,
+        )
+
+        output = json.loads(result.stdout)
+        reason = output["hookSpecificOutput"]["permissionDecisionReason"]
+        self.assertIn("Cannot use general-purpose as a substitute", reason)
 
     def _complete(
         self,
@@ -221,8 +323,7 @@ class TestRecordDispatchContract(unittest.TestCase):
 
         result = self._dispatch("aiwf-tester", "aiwf-test")
 
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout.strip(), "")
+        self._allowed_input(result)
 
     def test_reviewer_dispatch_is_blocked_before_tested_snapshot(self):
         record = self._read_record()
@@ -248,10 +349,38 @@ class TestRecordDispatchContract(unittest.TestCase):
         reason = output["hookSpecificOutput"]["permissionDecisionReason"]
         self.assertIn("fix-loop routes to planner", reason)
 
+    def test_implementation_fix_loop_explains_inline_repair_before_tester(self):
+        record = self._read_record()
+        record["fix_loop"] = {"status": "open", "route": "executor"}
+        self._write_record(record)
+
+        result = self._dispatch("aiwf-tester", "aiwf-test")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        output = json.loads(result.stdout)
+        reason = output["hookSpecificOutput"]["permissionDecisionReason"]
+        self.assertIn("implementation repair", reason)
+        self.assertIn("Repair inline", reason)
+        self.assertIn("Record the repaired implementation", reason)
+
+    def test_escalated_fix_loop_blocks_more_agents_for_user_decision(self):
+        record = self._read_record()
+        record["fix_loop"] = {
+            "status": "open", "route": "executor", "escalation_required": True,
+        }
+        self._write_record(record)
+
+        result = self._dispatch("aiwf-executor", "aiwf-implement")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        output = json.loads(result.stdout)
+        reason = output["hookSpecificOutput"]["permissionDecisionReason"]
+        self.assertIn("Planner and user decision", reason)
+        self.assertIn("recorded failures", reason)
+
     def test_second_workflow_role_waits_for_subagent_stop(self):
         first = self._dispatch("aiwf-executor", "aiwf-implement")
-        self.assertEqual(first.returncode, 0, first.stderr)
-        self.assertEqual(first.stdout.strip(), "")
+        self._allowed_input(first)
 
         blocked = self._dispatch("aiwf-executor", "aiwf-implement")
         output = json.loads(blocked.stdout)
@@ -261,8 +390,63 @@ class TestRecordDispatchContract(unittest.TestCase):
         completed = self._complete("aiwf-executor")
         self.assertEqual(completed.returncode, 0, completed.stderr)
         allowed = self._dispatch("aiwf-executor", "aiwf-implement")
-        self.assertEqual(allowed.returncode, 0, allowed.stderr)
-        self.assertEqual(allowed.stdout.strip(), "")
+        self._allowed_input(allowed)
+
+    def test_agent_tool_return_closes_dispatch_before_subagent_stop(self):
+        first = self._dispatch("aiwf-executor", "aiwf-implement")
+        self._allowed_input(first)
+
+        returned = self._agent_return("aiwf-executor")
+        self.assertEqual(returned.returncode, 0, returned.stderr)
+        allowed = self._dispatch("aiwf-executor", "aiwf-implement")
+        self._allowed_input(allowed)
+
+        entries = [
+            json.loads(line) for line in
+            (self.tmp / ".aiwf/runtime/internal/agent-dispatch.jsonl")
+            .read_text(encoding="utf-8").splitlines()
+        ]
+        self.assertEqual(entries[-2]["status"], "completed")
+        self.assertEqual(entries[-2]["completion_source"], "agent_return")
+
+    def test_stopped_agent_return_cancels_dispatch(self):
+        first = self._dispatch("aiwf-executor", "aiwf-implement")
+        self._allowed_input(first)
+
+        returned = self._agent_return(
+            "aiwf-executor", "Agent was stopped before completion."
+        )
+        self.assertEqual(returned.returncode, 0, returned.stderr)
+        entries = [
+            json.loads(line) for line in
+            (self.tmp / ".aiwf/runtime/internal/agent-dispatch.jsonl")
+            .read_text(encoding="utf-8").splitlines()
+        ]
+        self.assertEqual(entries[-1]["status"], "cancelled")
+        self.assertEqual(entries[-1]["completion_source"], "agent_return")
+
+        allowed = self._dispatch("aiwf-executor", "aiwf-implement")
+        self._allowed_input(allowed)
+
+    def test_failed_agent_tool_releases_dispatch_for_retry(self):
+        first = self._dispatch("aiwf-executor", "aiwf-implement")
+        self._allowed_input(first)
+
+        failed = self._agent_failure("aiwf-executor")
+        self.assertEqual(failed.returncode, 0, failed.stderr)
+        output = json.loads(failed.stdout)
+        context = output["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("running slot was released", context)
+        entries = [
+            json.loads(line) for line in
+            (self.tmp / ".aiwf/runtime/internal/agent-dispatch.jsonl")
+            .read_text(encoding="utf-8").splitlines()
+        ]
+        self.assertEqual(entries[-1]["status"], "cancelled")
+        self.assertEqual(entries[-1]["completion_source"], "agent_failure")
+
+        allowed = self._dispatch("aiwf-executor", "aiwf-implement")
+        self._allowed_input(allowed)
 
     def test_agent_requires_skill_loaded_in_the_current_session(self):
         result = self._dispatch(
@@ -287,7 +471,7 @@ class TestRecordDispatchContract(unittest.TestCase):
         tasks_path.write_text(json.dumps(tasks, indent=2) + "\n", encoding="utf-8")
 
         first = self._dispatch("aiwf-executor", "aiwf-implement")
-        self.assertEqual(first.stdout.strip(), "")
+        self._allowed_input(first)
         completed = self._complete("aiwf-executor", "Implementation completed.")
         self.assertEqual(completed.returncode, 0, completed.stderr)
 

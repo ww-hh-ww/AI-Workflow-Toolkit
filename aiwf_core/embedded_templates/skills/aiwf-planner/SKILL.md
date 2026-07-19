@@ -121,7 +121,10 @@ Before `aiwf task activate`, read `references/activation-critique.md` and run
 two real critique passes.
 
 Use code reality to challenge the contract. Revise and sync when a pass finds a
-problem. Record only a pass you can defend; do not perform critique as a form.
+problem. Any conclusion that changes execution, boundaries, or acceptance must
+first be written into the relevant MD and synced.
+Do not record the critique or activate the Task until this is done.
+Record only a pass you can defend; do not perform critique as a form.
 
 Before activation, run this from the control root. It creates or reuses the
 Plan's persistent worktree and branch:

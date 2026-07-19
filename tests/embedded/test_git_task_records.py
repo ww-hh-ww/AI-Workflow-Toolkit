@@ -86,6 +86,47 @@ class TestGitTaskRecords(unittest.TestCase):
         self.assertNotIn("evidence_id", testing)
         self.assertNotIn("accepted_evidence_ids", review)
 
+    def test_recorded_repair_routes_to_tester_and_verified_fix_loop_resolves(self):
+        from aiwf_core.commands.flow import _task_next
+        from aiwf_core.core.state.context_ops import record_implementation
+        from aiwf_core.core.state.testing_ops import record_testing
+        from aiwf_core.core.task_records import load_task_record
+
+        (self.tmp / "src").mkdir(exist_ok=True)
+        feature = self.tmp / "src/feature.py"
+        feature.write_text("VALUE = 1\n", encoding="utf-8")
+        record_implementation(str(self.tmp), "initial implementation")
+        record_testing(
+            str(self.tmp), status="failed", commands=["pytest -q"],
+            failure_summary="feature still fails",
+        )
+        failed_record = load_task_record(self.tmp, "TASK-001")
+        self.assertEqual(failed_record["fix_loop"]["route"], "executor")
+
+        feature.write_text("VALUE = 2\n", encoding="utf-8")
+        record_implementation(str(self.tmp), "small repair recorded inline")
+        repaired_record = load_task_record(self.tmp, "TASK-001")
+        self.assertEqual(repaired_record["fix_loop"]["status"], "open")
+        self.assertEqual(repaired_record["fix_loop"]["route"], "tester")
+        task = json.loads((self.tmp / ".aiwf/state/tasks.json").read_text())["tasks"][0]
+        next_role, next_action = _task_next(task, repaired_record)
+        self.assertEqual(next_role, "Verification follow-up")
+        self.assertIn("retest inline", next_action)
+        self.assertIn("dispatch aiwf-tester", next_action)
+
+        result = record_testing(
+            str(self.tmp), status="passed", commands=["pytest -q"],
+            coverage_summary="repair verified",
+            verification_results=[{
+                "command": "pytest -q", "expected": "pass",
+                "observed": "1 passed", "matched": True,
+            }],
+        )
+        self.assertTrue(result["fix_loop_resolved"])
+        verified_record = load_task_record(self.tmp, "TASK-001")
+        self.assertEqual(verified_record["fix_loop"]["status"], "resolved")
+        self.assertEqual(_task_next(task, verified_record)[0], "Reviewer")
+
     def test_write_after_review_invalidates_close(self):
         from aiwf_core.core.task_ledger import close_task
 
