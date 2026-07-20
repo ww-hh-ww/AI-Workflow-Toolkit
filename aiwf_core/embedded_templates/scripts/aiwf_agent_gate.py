@@ -80,8 +80,10 @@ def _workflow_dispatch_blocker(base, task_id, subagent_type):
     if fix_loop.get("status") == "open":
         if fix_loop.get("escalation_required"):
             return (
-                f"Cannot dispatch {subagent_type}: repeated fix-loop attempts require a Planner and user decision. "
-                "Run 'aiwf status --prompt' and show the recorded failures before retrying."
+                f"Cannot dispatch {subagent_type}: repeated fix-loop failures require a human decision. "
+                "Run 'aiwf status --prompt', explain the failure to the user, and ask what to do. "
+                "If the user chooses to continue, ask them to run "
+                f"'aiwf fixloop continue --task-id {task_id}', then run status again and follow its route."
             )
         route = str(fix_loop.get("route") or "planner")
         expected = {
@@ -125,6 +127,22 @@ def _workflow_dispatch_blocker(base, task_id, subagent_type):
                 "Cannot dispatch aiwf-reviewer before the active Task has a current "
                 "adequate/passed tested snapshot. Finish Tester first."
             )
+        if testing.get("status") == "passed":
+            from aiwf_core.core.task_proof import (
+                testing_proof_gaps,
+                validate_testing_against_task,
+            )
+
+            gaps = testing_proof_gaps(
+                validate_testing_against_task(str(base), task, testing)
+            )
+            if gaps:
+                return (
+                    "Cannot dispatch aiwf-reviewer: Tester proof is incomplete for "
+                    f"{task_id}: {', '.join(gaps[:5])}. Complete only the missing or "
+                    "mismatched verification; valid results on the unchanged snapshot "
+                    "are preserved."
+                )
     return ""
 
 def main():

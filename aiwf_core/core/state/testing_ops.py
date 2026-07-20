@@ -1,9 +1,37 @@
 """Record one Tester validation pass."""
 from __future__ import annotations
 
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+
+def _normalized_command(value: Any) -> str:
+    return re.sub(r"\s+", " ", str(value or "").strip()).strip("` ")
+
+
+def _merge_commands(previous: List[str], current: List[str]) -> List[str]:
+    merged: Dict[str, str] = {}
+    for command in [*previous, *current]:
+        normalized = _normalized_command(command)
+        if normalized:
+            merged[normalized] = str(command)
+    return list(merged.values())
+
+
+def _merge_verification_results(
+    previous: List[Dict[str, Any]], current: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    merged: Dict[str, Dict[str, Any]] = {}
+    for result in [*previous, *current]:
+        if not isinstance(result, dict):
+            continue
+        normalized = _normalized_command(result.get("command"))
+        if normalized:
+            merged[normalized] = dict(result)
+    return list(merged.values())
+
 
 def record_testing(
     base_dir: str,
@@ -15,7 +43,7 @@ def record_testing(
     verification_results: Optional[List[Dict[str, Any]]] = None,
     task_id: str = "",
 ) -> Dict[str, Any]:
-    """Validate and replace one Task's testing record."""
+    """Record testing, preserving valid results for an unchanged snapshot."""
     from ..state_schema import VALID_TESTING_STATUSES
 
     if status not in VALID_TESTING_STATUSES:
@@ -53,15 +81,67 @@ def record_testing(
         raise ValueError("testing requires a current implementation record for the active Task")
     parent_ref = implementation_ref or str(task.get("git_origin_ref") or "")
 
-    from ..git_snapshots import create_task_snapshot
+    from ..git_snapshots import create_task_snapshot, worktree_matches_ref
 
-    snapshot = create_task_snapshot(
-        worktree, task_id, "testing", parent_ref, summary=summary,
+    previous = task_record.get("testing", {}) or {}
+    previous_ref = str(previous.get("tested_ref") or "")
+    same_snapshot = bool(
+        previous.get("task_id") == task_id
+        and previous.get("based_on_ref") == parent_ref
+        and previous_ref
+        and worktree_matches_ref(worktree, previous_ref)
     )
+    if same_snapshot:
+        snapshot = {
+            "ref": previous_ref,
+            "named_ref": str(previous.get("snapshot_ref") or ""),
+            "files": list(previous.get("test_changed_files", []) or []),
+            "attempt": previous.get("attempt", 1),
+        }
+    else:
+        snapshot = create_task_snapshot(
+            worktree, task_id, "testing", parent_ref, summary=summary,
+        )
+
+    merged_commands = _merge_commands(
+        list(previous.get("commands", []) or []) if same_snapshot else [],
+        list(commands or []),
+    )
+    merged_results = _merge_verification_results(
+        list(previous.get("verification_results", []) or []) if same_snapshot else [],
+        list(verification_results or []),
+    )
+
+    unresolved_failed: Dict[str, str] = {}
+    if same_snapshot:
+        for command in previous.get("failed_commands", []) or []:
+            normalized = _normalized_command(command)
+            if normalized:
+                unresolved_failed[normalized] = str(command)
+    for result in verification_results or []:
+        normalized = _normalized_command(result.get("command"))
+        if not normalized:
+            continue
+        if result.get("matched") is True:
+            unresolved_failed.pop(normalized, None)
+        elif result.get("matched") is False:
+            unresolved_failed[normalized] = str(result.get("command"))
+    if status == "failed":
+        for command in failed_commands or commands or []:
+            normalized = _normalized_command(command)
+            if normalized:
+                unresolved_failed[normalized] = str(command)
+    for result in merged_results:
+        if result.get("matched") is False:
+            normalized = _normalized_command(result.get("command"))
+            if normalized:
+                unresolved_failed[normalized] = str(result.get("command"))
+
+    effective_status = "failed" if unresolved_failed else status
     testing: Dict[str, Any] = {
         "task_id": task_id,
-        "status": status,
-        "commands": list(commands or []),
+        "status": effective_status,
+        "commands": merged_commands,
         "summary": summary,
         "based_on_ref": parent_ref,
         "tested_ref": snapshot["ref"],
@@ -70,19 +150,29 @@ def record_testing(
         "attempt": snapshot["attempt"],
         "recorded_at": datetime.now(timezone.utc).isoformat(),
     }
-    if verification_results:
-        testing["verification_results"] = verification_results
-    if status == "failed":
-        testing["failure_summary"] = failure_summary or summary
-        testing["failed_commands"] = list(failed_commands or commands or [])
+    if merged_results:
+        testing["verification_results"] = merged_results
+    if unresolved_failed:
+        testing["failure_summary"] = (
+            failure_summary
+            or (str(previous.get("failure_summary") or "") if same_snapshot else "")
+            or summary
+        )
+        testing["failed_commands"] = list(unresolved_failed.values())
 
     if task_id:
         try:
-            from ..task_proof import validate_testing_against_task
+            from ..task_proof import testing_proof_gaps, validate_testing_against_task
             if task:
                 testing["proof_validation"] = validate_testing_against_task(
                     base_dir, task, testing
                 )
+                if (
+                    effective_status == "passed"
+                    and testing_proof_gaps(testing["proof_validation"])
+                ):
+                    effective_status = "partial"
+                    testing["status"] = "partial"
         except Exception as exc:
             testing["proof_validation"] = {"error": str(exc)}
 
@@ -93,9 +183,12 @@ def record_testing(
         record["review"] = default_review(task_id)
 
     update_task_record(base_dir, task_id, store)
-    update_task_runtime(base_dir, task_id, phase="reviewing")
+    update_task_runtime(
+        base_dir, task_id,
+        phase="testing" if effective_status == "partial" else "reviewing",
+    )
 
-    if status == "failed":
+    if effective_status == "failed":
         current = (load_task_record(base_dir, task_id).get("fix_loop", {}) or {})
         if not (current.get("status") == "open" and current.get("route") == "planner"):
             from .fixloop_ops import open_fix_loop
@@ -108,7 +201,7 @@ def record_testing(
                 source="tester",
                 task_id=task_id,
             )
-    elif status in ("adequate", "passed"):
+    elif effective_status in ("adequate", "passed"):
         current = (load_task_record(base_dir, task_id).get("fix_loop", {}) or {})
         if current.get("status") == "open" and current.get("route") == "tester":
             from .fixloop_ops import resolve_fix_loop
@@ -121,6 +214,16 @@ def record_testing(
                     task_id=task_id,
                 )
                 testing["fix_loop_resolved"] = True
+                update_task_record(
+                    base_dir, task_id,
+                    lambda record: record["testing"].update({"fix_loop_resolved": True}),
+                )
             except ValueError as exc:
                 testing["fix_loop_pending_reason"] = str(exc)
+                update_task_record(
+                    base_dir, task_id,
+                    lambda record: record["testing"].update(
+                        {"fix_loop_pending_reason": str(exc)}
+                    ),
+                )
     return testing

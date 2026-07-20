@@ -190,3 +190,22 @@ def confirm_temporary_ai_writes(stdscr) -> bool:
     _draw_wrapped(stdscr, lines, 1, max(1, w - 2), h - 1)
     stdscr.refresh()
     return stdscr.getch() in (ord("y"), ord("Y"))
+
+
+def confirm_fixloop_continue(stdscr, task_id: str, route: str, attempt: int) -> bool:
+    h, w = stdscr.getmaxyx()
+    stdscr.erase()
+    lines = [
+        "继续 Fix Loop",
+        "",
+        f"Task: {task_id}",
+        f"当前路线: {route or 'planner'}",
+        f"失败轮次: {attempt}",
+        "",
+        "这只解除 escalation，不会把问题标记为已解决。",
+        "继续后，Planner 会按当前路线恢复；当前实现通过测试后才能结束。",
+        "按 y 继续，其他键取消。",
+    ]
+    _draw_wrapped(stdscr, lines, 1, max(1, w - 2), h - 1)
+    stdscr.refresh()
+    return stdscr.getch() in (ord("y"), ord("Y"))

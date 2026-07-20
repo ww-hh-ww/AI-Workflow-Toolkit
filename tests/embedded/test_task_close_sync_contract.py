@@ -247,7 +247,7 @@ class TestTaskCloseSyncContract(unittest.TestCase):
         tasks = json.loads((base / ".aiwf/state/tasks.json").read_text(encoding="utf-8"))
         self.assertEqual(tasks["tasks"][0]["status"], "cancelled")
 
-    def test_command_policy_blocks_force_close_and_interrupt_for_agents(self):
+    def test_command_policy_blocks_human_only_recovery_commands_for_agents(self):
         policy_path = (
             Path(__file__).resolve().parent.parent.parent
             / "aiwf_core/embedded_templates/config/command-policy.json"
@@ -257,6 +257,7 @@ class TestTaskCloseSyncContract(unittest.TestCase):
 
         self.assertTrue(denied["aiwf task force-close"]["human_only"])
         self.assertTrue(denied["aiwf task interrupt"]["human_only"])
+        self.assertTrue(denied["aiwf fixloop continue"]["human_only"])
 
     def test_public_task_help_hides_internal_suspend(self):
         env = dict(os.environ)

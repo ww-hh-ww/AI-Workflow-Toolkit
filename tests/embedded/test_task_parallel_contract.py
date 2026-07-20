@@ -251,6 +251,39 @@ class TestTaskParallelContract(unittest.TestCase):
             set(data["task_records"]), {"TASK-A1", "TASK-B1"}
         )
 
+    def test_status_advances_ready_plan_while_another_agent_runs(self):
+        from aiwf_core.core.agent_runtime import start_dispatch
+        from aiwf_core.core.task_records import load_task_record, save_task_record
+
+        self.assertTrue(activate_task(str(self.tmp), "TASK-A1")["activated"])
+        self.assertTrue(activate_task(str(self.tmp), "TASK-B1")["activated"])
+        record_b = load_task_record(self.tmp, "TASK-B1")
+        record_b["implementation"]["implementation_ref"] = "implementation-b"
+        save_task_record(self.tmp, record_b)
+        self.assertFalse(start_dispatch(
+            self.tmp,
+            "TASK-A1",
+            "aiwf-executor",
+            "parallel-session",
+            "PLAN-A",
+            str(self.worktree_a),
+        ))
+
+        env = os.environ.copy()
+        env["PYTHONPATH"] = str(PROJECT_ROOT)
+        status = subprocess.run(
+            [sys.executable, "-m", "aiwf_core.cli", "status", "--prompt"],
+            cwd=self.tmp, env=env, capture_output=True, text=True, check=True,
+        ).stdout
+
+        self.assertIn("advance the ready Tasks below now", status)
+        self.assertIn("Do not wait for Agents in other Plan worktrees", status)
+        self.assertLess(status.index("- TASK-B1"), status.index("- TASK-A1"))
+        self.assertIn("TASK-A1", status)
+        self.assertIn("next=Agent running", status)
+        self.assertIn("TASK-B1", status)
+        self.assertIn("next=Tester", status)
+
     def test_two_plan_worktrees_complete_independent_task_chains(self):
         from aiwf_core.core.state.context_ops import record_implementation
         from aiwf_core.core.state.review_ops import record_review
@@ -345,7 +378,16 @@ class TestTaskParallelContract(unittest.TestCase):
         record["review"]["adversarial_observations"] = [{
             "id": "ADV-001", "severity": "warn", "disposition": "pending",
         }]
-        self.assertEqual(_task_next(task, record)[0], "Planner decision")
+        role, action = _task_next(task, record)
+        self.assertEqual(role, "Planner decision")
+        self.assertIn("before choosing deferred", action)
+        self.assertIn("deferred-findings.md", action)
+
+        record["review"]["adversarial_observations"][0]["disposition"] = "deferred"
+        role, action = _task_next(task, record)
+        self.assertEqual(role, "Close")
+        self.assertIn("confirm 1 deferred Reviewer observation", action)
+        self.assertIn("deferred-findings.md", action)
 
     def test_one_worktree_cannot_activate_two_tasks(self):
         first = activate_task(str(self.tmp), "TASK-A1")

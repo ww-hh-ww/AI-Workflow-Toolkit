@@ -39,9 +39,7 @@ commit.
    aiwf task close <TASK-ID>
    ```
 
-The command decides. It checks the Task's snapshot freshness, testing, review,
-findings, and fix-loop, then creates the Task commit. If it fails, report
-the exact blockers and the next required skill.
+   If it fails, report the exact blockers and the next required skill.
 
 ## Forbidden
 
@@ -50,8 +48,6 @@ the exact blockers and the next required skill.
 - Do not run `aiwf task interrupt`; it is human-only.
 - Do not run `aiwf task force-close`; it is human-only.
 - Do not continue editing files after close.
-
-VERIFY: Did you let the command decide?
 
 ## Stop Condition
 

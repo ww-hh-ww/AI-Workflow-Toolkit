@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
 from ..constants import VERSION
-from ..core.agent_runtime import WORKFLOW_ROLES, running_dispatches
+from ..core.agent_runtime import WORKFLOW_ROLES, resumable_agent, running_dispatches
 from ..core.git_workflow import plan_integration_state
 from ..core.state.goal_ops import get_active_goal
 from ..core.state.plan_ops import load_plans
@@ -24,7 +24,11 @@ def _read_json(path: Path, default: Dict[str, Any]) -> Dict[str, Any]:
         return default
 
 
-def _task_next(task: Dict[str, Any], record: Dict[str, Any]) -> Tuple[str, str]:
+def _task_next(
+    task: Dict[str, Any],
+    record: Dict[str, Any],
+    control: Path | None = None,
+) -> Tuple[str, str]:
     task_id = str(task.get("id") or "")
     requirements = task.get("requirements", {}) or {}
     fix_loop = record.get("fix_loop", {}) or {}
@@ -33,14 +37,34 @@ def _task_next(task: Dict[str, Any], record: Dict[str, Any]) -> Tuple[str, str]:
             return (
                 "Planner decision",
                 f"load /aiwf-planner and run aiwf fixloop status --task-id {task_id}; "
-                "show the repeated failures and ask the user whether to retry, roll back, interrupt, or override",
+                "tell the user what failed and what still needs verification, then ask whether "
+                f"to continue or interrupt and replan; to continue, the human runs "
+                f"aiwf fixloop continue --task-id {task_id}; after that, run aiwf status --prompt "
+                "again and follow its route",
             )
         route = str(fix_loop.get("route") or "planner")
         if route == "executor":
+            previous = (
+                resumable_agent(
+                    control, task_id=task_id, subagent_type="aiwf-executor",
+                )
+                if control else None
+            )
+            if previous:
+                agent_route = (
+                    f"otherwise, if available in this or the resumed original Claude session, "
+                    f"try once to resume aiwf-executor {previous['agent_id']} with "
+                    f"SendMessage: 'Resume {task_id} repair. Run aiwf task proof "
+                    f"{task_id}, fix the current finding, record implementation, and return'; "
+                    "if unavailable or resume fails, dispatch a new aiwf-executor with the "
+                    "Task ID and current finding"
+                )
+            else:
+                agent_route = "otherwise dispatch aiwf-executor"
             return (
                 "Implementation repair",
-                f"load /aiwf-implement for {task_id}; repair inline if tiny and clear, "
-                "otherwise dispatch aiwf-executor, then record implementation",
+                f"load /aiwf-implement for {task_id}; repair and record inline if tiny "
+                f"and clear; {agent_route}",
             )
         if route == "tester":
             return (
@@ -59,10 +83,58 @@ def _task_next(task: Dict[str, Any], record: Dict[str, Any]) -> Tuple[str, str]:
     review = record.get("review", {}) or {}
     if not implementation.get("implementation_ref"):
         if requirements.get("executor_required", True):
+            previous = (
+                resumable_agent(
+                    control, task_id=task_id, subagent_type="aiwf-executor",
+                )
+                if control else None
+            )
+            if previous:
+                return (
+                    "Executor",
+                    f"load /aiwf-implement; if available in this or the resumed original Claude "
+                    f"session, try once to resume aiwf-executor {previous['agent_id']} "
+                    f"with SendMessage: 'Resume {task_id}. Reread Task.md and the current "
+                    "diff, finish any missing work, record implementation, and return'; "
+                    "if unavailable or resume fails, dispatch a new aiwf-executor for the Task",
+                )
             return "Executor", f"load /aiwf-implement and dispatch aiwf-executor for {task_id}"
         return "Inline implementation", f"load /aiwf-implement, implement {task_id} inline, and record it"
-    if testing.get("status") not in ("adequate", "passed") or not testing.get("tested_ref"):
+    proof_gaps: List[str] = []
+    if control and testing.get("status") == "passed":
+        from ..core.task_proof import testing_proof_gaps, validate_testing_against_task
+
+        proof_gaps = testing_proof_gaps(
+            validate_testing_against_task(str(control), task, testing)
+        )
+    if (
+        testing.get("status") not in ("adequate", "passed")
+        or not testing.get("tested_ref")
+        or proof_gaps
+    ):
         if requirements.get("tester_required", True):
+            previous = (
+                resumable_agent(
+                    control, task_id=task_id, subagent_type="aiwf-tester",
+                )
+                if control else None
+            )
+            if previous:
+                return (
+                    "Tester",
+                    f"load /aiwf-test; if available in this or the resumed original Claude "
+                    f"session, try once to resume aiwf-tester {previous['agent_id']} with "
+                    f"SendMessage: 'Resume {task_id} testing. Read aiwf task proof, complete "
+                    "only missing verification, record testing, and return'; if unavailable or "
+                    "resume fails, dispatch a new aiwf-tester for the Task",
+                )
+            if proof_gaps:
+                missing = ", ".join(proof_gaps[:5])
+                return (
+                    "Tester",
+                    f"load /aiwf-test and complete the missing proof for {task_id}: {missing}; "
+                    "valid results on the unchanged tested snapshot are preserved",
+                )
             return "Tester", f"load /aiwf-test and dispatch aiwf-tester for {task_id}"
         return "Inline testing", f"load /aiwf-test, test {task_id} inline, and record it"
     pending = [
@@ -72,12 +144,40 @@ def _task_next(task: Dict[str, Any], record: Dict[str, Any]) -> Tuple[str, str]:
     if review.get("result") == "accepted" and pending:
         return (
             "Planner decision",
-            f"load /aiwf-planner and disposition {len(pending)} Reviewer observation(s) for {task_id}",
+            f"load /aiwf-planner and disposition {len(pending)} Reviewer observation(s) for {task_id}; "
+            "before choosing deferred, write the finding into its downstream Task or "
+            ".aiwf/memory/notes/deferred-findings.md",
         )
     if review.get("result") != "accepted" or not review.get("closure_allowed", False):
         if requirements.get("reviewer_required", True):
+            previous = (
+                resumable_agent(
+                    control, task_id=task_id, subagent_type="aiwf-reviewer",
+                )
+                if control else None
+            )
+            if previous:
+                return (
+                    "Reviewer",
+                    f"load /aiwf-review; if available in this or the resumed original Claude "
+                    f"session, try once to resume aiwf-reviewer {previous['agent_id']} with "
+                    f"SendMessage: 'Resume {task_id} review. Reconcile Task.md, the tested "
+                    "snapshot, and your report, record review, and return'; if unavailable or "
+                    "resume fails, dispatch a new aiwf-reviewer for the Task",
+                )
             return "Reviewer", f"load /aiwf-review and dispatch aiwf-reviewer for {task_id}"
         return "Inline review", f"load /aiwf-review, review {task_id} inline, and record it"
+    deferred = [
+        item for item in review.get("adversarial_observations", []) or []
+        if isinstance(item, dict) and item.get("disposition") == "deferred"
+    ]
+    if deferred:
+        return (
+            "Close",
+            f"load /aiwf-close; confirm {len(deferred)} deferred Reviewer observation(s) "
+            "are written in a downstream Task or .aiwf/memory/notes/deferred-findings.md, "
+            f"calibrate Task.md if needed, then close {task_id}",
+        )
     return "Close", f"load /aiwf-close, calibrate Task.md if needed, then close {task_id}"
 
 
@@ -104,7 +204,7 @@ def _active_rows(control: Path) -> List[Dict[str, Any]]:
         if not isinstance(task, dict) or task.get("status") != "active":
             continue
         record = load_task_record(control, str(task.get("id") or ""))
-        next_role, action = _task_next(task, record)
+        next_role, action = _task_next(task, record, control)
         task_id = str(task.get("id") or "")
         running = [
             item for item in running_dispatches(control, task_id=task_id)
@@ -128,9 +228,24 @@ def _active_rows(control: Path) -> List[Dict[str, Any]]:
                 )
             if calibration_missing:
                 next_role = "Planner calibration"
-                action = (
-                    f"load /aiwf-planner and run aiwf task calibrate {task_id} with the actual result"
-                )
+                deferred_count = len([
+                    item for item in (record.get("review", {}) or {}).get(
+                        "adversarial_observations", []
+                    ) or []
+                    if isinstance(item, dict) and item.get("disposition") == "deferred"
+                ])
+                if deferred_count:
+                    action = (
+                        f"load /aiwf-planner; confirm {deferred_count} deferred Reviewer "
+                        "observation(s) are written in a downstream Task or "
+                        ".aiwf/memory/notes/deferred-findings.md, then run "
+                        f"aiwf task calibrate {task_id} with the actual result"
+                    )
+                else:
+                    action = (
+                        f"load /aiwf-planner and run aiwf task calibrate {task_id} "
+                        "with the actual result"
+                    )
         rows.append({
             "id": task_id,
             "plan_id": task.get("plan_id") or task.get("parent_plan") or "",
@@ -276,7 +391,12 @@ def _print_prompt(
         print(f"Task contract: {control / '.aiwf/tasks' / (row['id'] + '.md')}")
         print(f"Plan: {row['plan_id'] or '(none)'}")
         print(f"Worktree: {row['worktree_path']}")
-        if row["next_role"].startswith("Inline"):
+        if "with SendMessage" in row["action"]:
+            print(
+                "Resume: try the listed Agent ID once only when it is available in this or "
+                "the resumed original Claude session. If it fails, start a new Agent."
+            )
+        elif row["next_role"].startswith("Inline"):
             print(
                 "Inline work: use relative project paths normally. AIWF routes this "
                 "session's project tools to the assigned worktree."
@@ -337,11 +457,23 @@ def _print_prompt(
         if rows:
             print("Other active Tasks:")
     elif rows:
-        print(
-            "Do now: manage the active Plan worktrees below. Dispatch each Task's next role with "
-            "its Task ID and assigned worktree. Independent Plans may run in parallel; "
-            "AIWF routes each Agent's project tools to its worktree."
-        )
+        ready = [row for row in rows if row["next_role"] != "Agent running"]
+        running = [row for row in rows if row["next_role"] == "Agent running"]
+        if ready and running:
+            print(
+                "Do now: advance the ready Tasks below now. Do not wait for Agents in other "
+                "Plan worktrees; process each Plan as its Agent returns."
+            )
+        elif running:
+            print(
+                "Do now: no Task is ready for another role. Wait for the next individual Agent "
+                "return without stopping, retrying, or substituting it."
+            )
+        else:
+            print(
+                "Do now: manage the ready Plan worktrees below. Dispatch each Task's next role "
+                "with its Task ID and assigned worktree. Independent Plans may run in parallel."
+            )
     elif plans_between:
         plan_ids = ", ".join(
             str(plan.get("plan_id") or plan.get("id")) for plan in plans_between
@@ -372,7 +504,14 @@ def _print_prompt(
     print("Required skills: " + (", ".join(required) if required else "none"))
 
     current_id = str((current or {}).get("id") or "")
-    display_rows = sorted(rows, key=lambda row: (row["id"] != current_id, row["id"]))
+    display_rows = sorted(
+        rows,
+        key=lambda row: (
+            row["next_role"] == "Agent running",
+            row["id"] != current_id,
+            row["id"],
+        ),
+    )
     for row in display_rows:
         marker = " [current]" if row["id"] == current_id else ""
         print(

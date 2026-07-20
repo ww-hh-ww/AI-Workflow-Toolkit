@@ -46,7 +46,9 @@ the same task-specific report and record.
 
 The report must tell Planner what Executor changed, what Tester proved, what
 Reviewer personally checked, why the Task can or cannot proceed, and what
-remains. Generic approval is not a valid handoff.
+remains. Every concrete finding must stay visible in the report even when it
+does not need a machine observation. Mark speculation as uncertainty or advice,
+not as a finding. Generic approval is not a valid handoff.
 
 When the implementation changes installation, configuration, migration,
 deployment, or public behavior, check the affected surface in reality. Do not

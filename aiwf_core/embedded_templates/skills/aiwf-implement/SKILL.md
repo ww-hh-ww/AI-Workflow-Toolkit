@@ -68,6 +68,12 @@ After the Task has an Executor implementation record, choose the cheapest honest
   implementation. That record hands the fix-loop to Tester.
 - If `executor_required` is false, follow `inline-execution.md`.
 
+When `aiwf status --prompt` names a previous Executor ID, resume that Agent for
+a non-trivial repair only if it is available in the current session or the
+resumed original session. Try `SendMessage` once. Send only the Task ID and
+tell it to read `aiwf task proof`. If resume is unavailable or fails, dispatch
+a new Executor with the Task ID and current finding. Do not retry the resume.
+
 The hook enforces the first Executor. Planner remains responsible for deciding
 whether later inline repair is actually simpler and safe.
 

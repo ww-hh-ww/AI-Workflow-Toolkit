@@ -43,6 +43,22 @@ Critic use their own prompts.
 - Do not add a Planner fallback, substitute method, acceptance change, or
   reinterpretation. The active role skill defines the rest of the prompt.
 
+## SendMessage
+
+Send a running Agent only new verified information that helps it avoid a wrong
+path. State the fact, its source, and the needed adjustment. Do not repeat
+Task.md, ask for progress, or ask a working Agent to record early.
+
+Resume a completed Agent only when Claude Code can access it in the current
+session or the resumed original session. Name the specific omission or finding
+and try `SendMessage` once. If it is unavailable or fails, dispatch a new Agent
+with the Task ID and tell it to read `aiwf task proof`. Once resumed, wait for
+its real return before starting the Task's next role.
+
+If the message would change execution, boundaries, or acceptance, do not send
+it as an adjustment. Ask the user to interrupt, then revise and critique the
+contract. Do not resume an Agent the user explicitly stopped.
+
 ## Parallel Plans
 
 One Planner owns governance from the control root. Every Plan worktree is a peer;
@@ -86,6 +102,9 @@ omits uncommitted project changes; resolve those with the user first.
 Keep parallel Plan records separate. After they return, choose merge order,
 inspect the merged change, and run integration proof.
 
+Process each Plan as soon as its Agent returns. Do not wait for the other
+parallel Plans before routing that Task to its next role.
+
 ## Findings And Repair
 
 Verify a returned finding before acting. Route a compatible repair to the
@@ -94,6 +113,31 @@ interrupt.
 
 Record each Reviewer observation decision with `aiwf record disposition`.
 Do not leave a machine-recorded observation resolved only in conversation.
+Read the complete Reviewer report, not only machine observations. Do not
+silently discard a concrete finding. Fix it, disposition it when tracking is
+needed, or explain why it is not applicable. In the Task closeout to the user,
+briefly state what was fixed and any remaining deferred, accepted, or dismissed
+finding with its reason. Suggestions and unverified concerns stay visible in
+the report but do not need governance state.
+
+For each pending observation:
+
+- Read the finding and the relevant Task promise. Do not repeat Reviewer's code
+  search, tests, or call-path analysis; check only enough evidence to route it.
+- If the finding makes the current Task contract false, do not disposition it
+  as non-blocking. Open a fix-loop with the observation, required repair, and
+  verification.
+- If the contract itself must change, ask the user whether to interrupt and
+  replan.
+- Otherwise record the appropriate disposition.
+
+Before marking a finding `deferred`, give it a place Planner will read again.
+If a downstream Task is known, write the finding and its source observation into
+that Task. Otherwise add a short entry with its trigger to
+`.aiwf/memory/notes/deferred-findings.md` and make sure the note is indexed in
+`MEMORY.md`. Remove the finding from the note when it moves into a Task, is
+resolved, accepted as a limitation, or dismissed. The source Task record keeps
+the history.
 
 For an out-of-Task issue affecting the main path, deployment, safety, data, or
 user trust, ask whether to fix it now or defer it with a visible reason. Never
@@ -112,14 +156,18 @@ disposition. Read the returned report and run:
 aiwf fixloop status --task-id <TASK-ID>
 ```
 
+If escalation blocks further Agents, show the user what failed and what still
+needs verification. Ask whether to continue the current Task or interrupt and
+replan. To continue, ask the human to run
+`aiwf fixloop continue --task-id <TASK-ID>`. Do not run it yourself. After the
+human continues, run `aiwf status --prompt` again and follow its route. Do not
+resolve the loop until Testing passes against the current implementation.
+
 - If the issue has been decided and its required evidence is recorded, run
   `aiwf fixloop resolve --task-id <TASK-ID> --source planner --resolution "<decision and evidence>"`.
 - If implementation or testing still remains, run `aiwf fixloop open` with the
   correct route and exact remaining work, then follow status.
 - If the Task contract must change, ask the user whether to interrupt it.
-- If repeated attempts require escalation, show the failures to the user. Do
-  not start another role until the user chooses whether to retry, roll back,
-  interrupt, or explicitly override.
 
 ## After A Task
 

@@ -35,6 +35,7 @@ from .state.adversarial_ops import (
 
 # ── Fix-loop ──
 from .state.fixloop_ops import (
+    continue_fix_loop,
     open_fix_loop,
     resolve_fix_loop,
 )

@@ -1,8 +1,16 @@
 import json, re, sys
+from datetime import datetime
 from pathlib import Path
 from aiwf_core.adapters.claude.normalize_event import parse_claude_stdin, normalize
 from aiwf_core.core.agent_worktree import AgentWorktreeError, resolve_agent_assignment
-from aiwf_core.core.agent_runtime import finish_dispatch
+from aiwf_core.core.agent_runtime import (
+    bind_dispatch_agent,
+    cancel_agent_dispatch,
+    finish_dispatch,
+    latest_agent_dispatch,
+    request_return_check,
+    start_resumed_dispatch,
+)
 from aiwf_core.core.worktree_context import resolve_control_root
 
 RETURN_MARKER = re.compile(r"(?m)^\s*(RETURN_TO_PLANNER|EXTERNAL_FINDING)\b\s*:?")
@@ -16,6 +24,29 @@ REPORT_LABELS = {
     "aiwf-executor": "the implementation report",
     "aiwf-tester": "the testing report",
     "aiwf-reviewer": "REVIEW_REPORT",
+}
+
+ROLE_RECORD = {
+    "aiwf-executor": ("implementation", "implementation_ref", "aiwf record implementation"),
+    "aiwf-tester": ("testing", "tested_ref", "aiwf record testing"),
+    "aiwf-reviewer": ("review", "reviewed_ref", "aiwf record review"),
+}
+
+RETURN_CHECK = {
+    "aiwf-executor": (
+        "Reread the Task.md Fixed Contract and current finding. Compare the final "
+        "diff with every relevant Done When item, main-path consumer, invariant, "
+        "and old-path expectation."
+    ),
+    "aiwf-tester": (
+        "Reread the Task.md proof requirements and current finding. Compare every "
+        "required observable with the actual command output, independent probes, "
+        "and any false-pass or bypass risk."
+    ),
+    "aiwf-reviewer": (
+        "Reread the complete Task.md. Reconcile its contract with the final diff, "
+        "Executor record, Tester evidence, callers, consumers, and old paths."
+    ),
 }
 
 
@@ -101,12 +132,139 @@ def _was_cancelled(value):
     return any(word in text for word in ("was stopped", "interrupted", "cancelled", "canceled"))
 
 
+def _was_background_launch(value):
+    return bool(
+        isinstance(value, dict)
+        and (
+            value.get("isAsync") is True
+            or str(value.get("status") or "") == "async_launched"
+        )
+    )
+
+
+def _timestamp(value):
+    try:
+        return datetime.fromisoformat(str(value or "").replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+
+
+def _completion_blocker(base, task_id, agent_type, agent_id):
+    requirement = ROLE_RECORD.get(agent_type)
+    if not requirement or not task_id or not agent_id:
+        return ""
+    dispatch = latest_agent_dispatch(
+        base, agent_type, agent_id, task_id=task_id,
+    )
+    if not dispatch:
+        return ""
+
+    from aiwf_core.core.task_records import load_task_record
+    section_name, ref_name, command = requirement
+    section = load_task_record(base, task_id).get(section_name, {}) or {}
+    started_at = _timestamp(dispatch.get("started_at"))
+    recorded_at = _timestamp(section.get("recorded_at"))
+    fresh = bool(
+        section.get("task_id") == task_id
+        and section.get(ref_name)
+        and started_at
+        and recorded_at
+        and recorded_at >= started_at
+    )
+    if fresh:
+        worktree = str(dispatch.get("worktree_path") or "")
+        try:
+            from aiwf_core.core.git_snapshots import worktree_matches_ref
+            fresh = bool(worktree and worktree_matches_ref(worktree, str(section[ref_name])))
+        except Exception:
+            fresh = False
+    if (
+        fresh
+        and agent_type == "aiwf-tester"
+        and section.get("status") in ("partial", "passed")
+    ):
+        from aiwf_core.core.task_ledger import load_ledger
+        from aiwf_core.core.task_proof import validate_testing_against_task
+
+        task = next(
+            (
+                item for item in load_ledger(str(base)).get("tasks", []) or []
+                if isinstance(item, dict) and item.get("id") == task_id
+            ),
+            None,
+        )
+        proof = validate_testing_against_task(str(base), task, section) if task else {}
+        from aiwf_core.core.task_proof import testing_proof_gaps
+
+        missing = testing_proof_gaps(proof)
+        if proof.get("strict") and missing:
+            named = ", ".join(dict.fromkeys(missing[:5]))
+            return (
+                f"The testing record for {task_id} is fresh, but it does not prove the "
+                f"complete Verification Commands contract: {named}. Run only the missing "
+                "or mismatched proof, then record each exact command, expected result, "
+                "and observed result. Existing valid results are preserved while the "
+                "tested worktree stays unchanged."
+            )
+    if fresh:
+        return ""
+
+    return (
+        f"The final contract check for {task_id} is done, but this Agent run has no "
+        f"fresh {section_name} record matching the current worktree. If the work is complete, "
+        f"run `{command}` with the exact results already observed; do not rerun successful "
+        "checks merely to create the record. Then return the final report."
+    )
+
+
+def _return_check_reason(task_id, agent_type):
+    check = RETURN_CHECK.get(agent_type)
+    if not check:
+        return ""
+    return (
+        f"Before returning from {task_id}, perform one final contract check. {check} "
+        "Fix any omission you find and update the role record to match the final "
+        "worktree. If nothing changed, reuse the successful checks already observed; "
+        "do not rerun them merely for this return check. Then return the concrete "
+        "result, or `RETURN_TO_PLANNER:` if the contract itself is wrong or unclear."
+    )
+
+
 def main():
     data = parse_claude_stdin()
     if not data:
         sys.exit(0)
 
     base = resolve_control_root(Path(__file__).resolve().parent.parent)
+
+    if data.get("hook_event_name") == "SubagentStart":
+        event = normalize(data)
+        agent_type = str(event.agent_type or "")
+        agent_id = str(event.agent_id or "")
+        if agent_type not in {
+            "aiwf-executor", "aiwf-tester", "aiwf-reviewer", "aiwf-architect",
+        }:
+            sys.exit(0)
+        resumed_task = start_resumed_dispatch(
+            base, agent_type, agent_id, str(data.get("session_id") or ""),
+        )
+        if resumed_task is not None:
+            sys.exit(0)
+        task_id = ""
+        if agent_type != "aiwf-architect":
+            try:
+                assignment = resolve_agent_assignment(event, base)
+                task_id = assignment.task_id if assignment else ""
+            except AgentWorktreeError:
+                pass
+        bind_dispatch_agent(
+            base,
+            agent_type,
+            agent_id,
+            task_id=task_id,
+            session_id=str(data.get("session_id") or ""),
+        )
+        sys.exit(0)
 
     if data.get("hook_event_name") == "SubagentStop":
         event = normalize(data)
@@ -130,6 +288,30 @@ def main():
                     for key in ("last_assistant_message", "cwd")
                 ),
             )
+        marker = RETURN_MARKER.search(str(data.get("last_assistant_message") or ""))
+        return_to_planner = bool(marker and marker.group(1) == "RETURN_TO_PLANNER")
+        cancelled = _was_cancelled(data)
+        if agent_type in RETURN_CHECK and not cancelled and request_return_check(
+            base,
+            agent_type,
+            str(data.get("agent_id") or ""),
+            task_id,
+        ):
+            print(json.dumps({
+                "decision": "block",
+                "reason": _return_check_reason(task_id, agent_type),
+            }))
+            sys.exit(0)
+        if not return_to_planner and not cancelled:
+            blocker = _completion_blocker(
+                base,
+                task_id,
+                agent_type,
+                str(data.get("agent_id") or ""),
+            )
+            if blocker:
+                print(json.dumps({"decision": "block", "reason": blocker}))
+                sys.exit(0)
         if agent_type != "aiwf-architect":
             reason = _return_reason(data.get("last_assistant_message"))
             if reason:
@@ -143,10 +325,35 @@ def main():
             session_id=str(data.get("session_id") or ""),
             status="cancelled" if _was_cancelled(data) else "completed",
             source="subagent_stop",
+            agent_id=str(data.get("agent_id") or ""),
         )
         sys.exit(0)
 
     event = normalize(data)
+    if event.tool_name == "TaskStop":
+        response = event.tool_response if isinstance(event.tool_response, dict) else {}
+        if (
+            data.get("hook_event_name") == "PostToolUse"
+            and str(response.get("task_type") or "") == "local_agent"
+        ):
+            agent_id = str(
+                response.get("task_id")
+                or event.tool_input.get("task_id")
+                or ""
+            )
+            stopped = cancel_agent_dispatch(base, agent_id, source="task_stop")
+            if stopped:
+                print(json.dumps({
+                    "hookSpecificOutput": {
+                        "hookEventName": "PostToolUse",
+                        "additionalContext": (
+                            f"[AIWF] {ROLE_LABELS.get(stopped['subagent_type'], 'Agent')} "
+                            f"was stopped for {stopped['task_id']}; its running slot is released."
+                        ),
+                    }
+                }))
+        sys.exit(0)
+
     if event.tool_name not in ("Agent", "Task"):
         sys.exit(0)
 
@@ -162,14 +369,37 @@ def main():
             for key in ("prompt", "description", "name")
         )
         task_id = _task_from_text(base, prompt)
+    else:
+        task_id = ""
+
+    # Claude emits PostToolUse when a background Agent launch succeeds. That
+    # event says nothing about whether the subagent has finished. SubagentStop
+    # is the sole normal completion signal for Claude workflow roles.
+    if (
+        event.engine == "claude"
+        and not tool_failed
+        and not _was_cancelled(event.tool_response)
+    ):
+        if subagent_type in TASK_ROLES and _was_background_launch(event.tool_response):
+            task_label = f" for {task_id}" if task_id else ""
+            print(json.dumps({
+                "hookSpecificOutput": {
+                    "hookEventName": "PostToolUse",
+                    "additionalContext": (
+                        f"[AIWF] {ROLE_LABELS[subagent_type]} is running in the background"
+                        f"{task_label}. Process each Plan when its Agent returns; do not "
+                        "wait for the other parallel Plans to finish."
+                    ),
+                }
+            }))
+        sys.exit(0)
+
+    if subagent_type in TASK_ROLES:
         reason = "" if tool_failed else _return_reason(_response_text(event.tool_response))
         if reason:
             _open_planner_fix_loop(
                 base, task_id, subagent_type.removeprefix("aiwf-"), reason
             )
-    else:
-        task_id = ""
-
     if subagent_type in TASK_ROLES:
         finish_dispatch(
             base,
@@ -177,7 +407,7 @@ def main():
             task_id=task_id,
             session_id=event.session_id,
             status="cancelled" if tool_failed or _was_cancelled(event.tool_response) else "completed",
-            source="agent_failure" if tool_failed else "agent_return",
+            source="agent_failure" if tool_failed else "agent_cancelled",
         )
 
     if task_id:
@@ -196,6 +426,22 @@ def main():
                     "the running slot was released. Read the actual tool error, then run "
                     "`aiwf status --prompt`. Retry only after addressing that error; do not "
                     "substitute general-purpose."
+                ),
+            }
+        }))
+    elif (
+        event.engine == "claude"
+        and subagent_type in TASK_ROLES
+        and _was_cancelled(event.tool_response)
+    ):
+        task_label = f" for {task_id}" if task_id else ""
+        print(json.dumps({
+            "hookSpecificOutput": {
+                "hookEventName": hook_event,
+                "additionalContext": (
+                    f"[AIWF] {ROLE_LABELS[subagent_type]} dispatch stopped{task_label}; "
+                    "the running slot was released. Run `aiwf status --prompt` before "
+                    "deciding whether to retry."
                 ),
             }
         }))

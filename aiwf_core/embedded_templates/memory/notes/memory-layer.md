@@ -6,13 +6,10 @@ Planner must review memory at two moments:
 - When work returns to Planner: after implementation, testing, review,
   Architect findings, milestone acceptance, or task closure brings back facts.
 
-This is a real decision, not background advice.
-
-Memory is Planner's small long-term notebook, not a project diary.
-
 Use `project-facts.md` for 3-7 facts that change future planning across tasks.
-Use `MEMORY.md` only as an index. Use `notes/<topic>.md` only for stable guidance
-Planner would otherwise rediscover.
+Use `MEMORY.md` only as an index. Use `notes/<topic>.md` for stable guidance
+Planner would otherwise rediscover, or for an unresolved cross-task finding
+that has no Task owner.
 
 Before changing memory, verify the source: code, proof, review, Architect report,
 completed task, or user decision. Do not store guesses, temporary progress, task

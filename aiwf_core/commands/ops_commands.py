@@ -49,6 +49,19 @@ def _cmd_fix_loop_resolve(args: argparse.Namespace) -> None:
     print(f"  Resolution: {args.resolution[:160]}")
 
 
+def _cmd_fix_loop_continue(args: argparse.Namespace) -> None:
+    from ..core.state_ops import continue_fix_loop
+
+    try:
+        result = continue_fix_loop(str(Path.cwd()), task_id=args.task_id)
+    except ValueError as exc:
+        print(f"Fix-loop continue blocked: {exc}", file=sys.stderr)
+        raise SystemExit(1)
+    print("Fix-loop continued by human decision")
+    print(f"  Route: {result.get('route') or 'planner'}")
+    print(f"  Attempt: {result.get('attempt_count', 0)}")
+
+
 def _cmd_fix_loop_status(args: argparse.Namespace) -> None:
     from ..core.task_ledger import resolve_active_task_id
     from ..core.task_records import load_task_record
@@ -77,6 +90,7 @@ def _cmd_fix_loop_help(args: argparse.Namespace) -> None:
     print("AIWF Fix-Loop")
     print("  aiwf fixloop open")
     print("  aiwf fixloop status")
+    print("  aiwf fixloop continue   - HUMAN ONLY continue after escalation")
     print("  aiwf fixloop resolve")
 
 

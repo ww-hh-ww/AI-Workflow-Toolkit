@@ -49,6 +49,7 @@ def normalize(data: Dict[str, Any]) -> NormalizedEvent:
         "PostToolUse": "post_tool_use",
         "UserPromptSubmit": "user_prompt",
         "Stop": "stop",
+        "SubagentStart": "subagent_start",
         "SubagentStop": "subagent_stop",
         "PostToolUseFailure": "post_tool_use",
     }
@@ -65,7 +66,10 @@ def normalize(data: Dict[str, Any]) -> NormalizedEvent:
         exit_code=_extract_exit_code(data),
         agent_id=data.get("agent_id", ""),
         agent_type=data.get("agent_type", ""),
-        transcript_path=str(data.get("transcript_path", "")),
+        transcript_path=str(
+            data.get("agent_transcript_path")
+            or data.get("transcript_path", "")
+        ),
     )
 
 

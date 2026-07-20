@@ -18,6 +18,60 @@ def _write_task(base: Path, task_id: str, body: str) -> dict:
 
 
 class TestTaskProofContract(unittest.TestCase):
+    def test_chinese_task_contract_keeps_strict_command_validation(self):
+        from aiwf_core.core.task_proof import validate_testing_against_task
+
+        base = Path(tempfile.mkdtemp(prefix="awproof_"))
+        task = _write_task(
+            base,
+            "TASK-ZH",
+            """# TASK-ZH
+
+## 固定契约
+
+### 结构归属
+
+GOAL-001 / PLAN-001。
+
+### 目标
+
+交付可运行入口。
+
+### 契约责任
+
+入口必须通过公开边界运行。
+
+### 证明标准
+
+完成条件：
+
+- **Running：** 入口输出 ready。
+
+验证命令：
+
+| 命令 | 预期可观察结果 |
+|------|----------------|
+| `pnpm test` | 测试通过。 |
+| `pnpm build` | 构建通过。 |
+""",
+        )
+
+        proof = validate_testing_against_task(str(base), task, {
+            "status": "passed",
+            "commands": ["pnpm test"],
+            "verification_results": [{
+                "command": "pnpm test",
+                "expected": "测试通过。",
+                "observed": "10 passed",
+                "matched": True,
+            }],
+        })
+
+        self.assertTrue(proof["strict"])
+        self.assertEqual(proof["required_commands"], ["pnpm test", "pnpm build"])
+        self.assertEqual(proof["missing_commands"], ["pnpm build"])
+        self.assertEqual(proof["missing_verification_results"], ["pnpm build"])
+
     def test_task_proof_exposes_current_fix_loop_to_follow_up_roles(self):
         from aiwf_core.core.task_proof import build_task_proof
 

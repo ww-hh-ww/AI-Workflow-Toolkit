@@ -53,6 +53,8 @@ either section into an implementation script.
 1. For first implementation, establish the objective, main path, consumer,
    invariant, proof, Contract Responsibility, and old-path expectation. For a
    repair, establish the finding, affected path, expected correction, and proof.
+   Read the project's actual compiler, test, and build configuration before
+   choosing the feedback commands.
    Once the relevant facts are clear, stop broad orientation and begin work.
    Continue tracing when the code reveals a real need; do not reconstruct the
    whole project before writing.
@@ -77,12 +79,14 @@ either section into an implementation script.
    or silently changing methods.
 6. Trace again after editing. Prove that the new code is consumed and that an
    old path does not still bypass it unnoticed.
-7. While iterating, run the smallest relevant checks. For first implementation,
-   run every Verification Command after the implementation is stable. For a
-   repair, run the exact reproducer, required verification from the proof, and
-   regressions affected by the change. Do not rerun the whole Task by default.
-   Compare actual output with the expected result. A mismatch is not evidence
-   of success.
+7. While iterating, run the smallest relevant checks. Read the complete relevant
+   diagnostics, group failures by root cause, and repair a coherent batch before
+   running the check again. Do not rebuild unchanged prerequisites unless their
+   result may be stale. For first implementation, run every Verification Command
+   after the implementation is stable. For a repair, run the exact reproducer,
+   required verification from the proof, and regressions affected by the change.
+   Do not rerun the whole Task by default. Compare actual output with the
+   expected result. A mismatch is not evidence of success.
 8. Before recording first implementation, reread the Fixed Contract once and
    compare it with the complete diff and actual proof. Before recording a
    repair, compare the result with the finding and affected contract clauses;

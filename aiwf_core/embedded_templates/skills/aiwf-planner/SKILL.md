@@ -159,8 +159,9 @@ Review memory again. Add, correct, or delete only durable facts that future
 planning would otherwise rediscover or forget. Every fact needs a source in
 code, proof, a completed task, an Architect report, or a user decision.
 
-Every unresolved finding needs one visible outcome: fix now, fold into current
-work, defer with a reason, or record that the user accepted the risk.
+Every unresolved finding needs one visible outcome: resolve it, defer it with a
+reason and return path, accept it as a known limitation, or dismiss it with a
+reason. Ask the user before accepting a material risk or tradeoff.
 
 Use `references/lifecycle.md` to compare the completed Task with its Plan,
 prepare the next Task, and close a completed Plan. Use Architect only when the

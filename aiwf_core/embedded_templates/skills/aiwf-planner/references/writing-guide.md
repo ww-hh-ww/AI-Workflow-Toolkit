@@ -49,7 +49,7 @@ Check:
 
 ## Required Frontmatter
 
-Every `.md` must have:
+Every Goal, Plan, Task, and Milestone node MD must have:
 
 ```yaml
 ---

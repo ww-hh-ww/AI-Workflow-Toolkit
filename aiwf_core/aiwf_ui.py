@@ -17,6 +17,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .core.git_workflow import plan_integration_state
+from .core.state.fixloop_ops import continue_fix_loop
 from .core.temporary_access import (
     disable_temporary_ai_writes,
     enable_temporary_ai_writes,
@@ -25,6 +26,7 @@ from .core.temporary_access import (
 from .core.worktree_context import resolve_control_root
 from .tui_actions import (
     choose_git_graph_view,
+    confirm_fixloop_continue,
     confirm_temporary_ai_writes,
     edit_file,
     memory_browser,
@@ -400,9 +402,15 @@ def render_tree(stdscr, nodes, selected_idx, scroll_offset, max_rows, detail_scr
     mode_labels = {0:"Main",1:"Milestones",2:"Tasks",3:"PlanChain",4:"GoalDeps"}
     canc_hint = "[+cancelled]" if show_cancelled else ""
     detail_hint = "[detail]" if detail_visible else "[full]"
+    continue_hint = ""
+    if 0 <= selected_idx < len(nodes) and nodes[selected_idx]["kind"] == "task":
+        record = data.get("task_records", {}).get(nodes[selected_idx]["id"], {}) or {}
+        fix_loop = record.get("fix_loop", {}) or {}
+        if fix_loop.get("status") == "open" and fix_loop.get("escalation_required"):
+            continue_hint = "  c:continue-fix"
     help_text = (
         f"Tab:{mode_labels.get(tree_mode,'?')}{canc_hint}  j/k  e:edit  r:rec  "
-        f"m:memory  v:git  a:AI-write  d:detail  x:cancelled  q  {detail_hint}"
+        f"m:memory  v:git  a:AI-write{continue_hint}  d:detail  x:cancelled  q  {detail_hint}"
     )
     try:
         stdscr.addstr(max_rows - 1, 0, help_text[:w - 1], curses.A_DIM)
@@ -901,9 +909,16 @@ def _build_status_bar(data):
     if held:
         plan_state += f" | 保留Plan={held}"
     temporary = " | 临时AI写入=开" if data.get("temporary_ai_writes") else ""
+    escalated = sum(
+        1 for record in data.get("task_records", {}).values()
+        if isinstance(record, dict)
+        and (record.get("fix_loop", {}) or {}).get("status") == "open"
+        and (record.get("fix_loop", {}) or {}).get("escalation_required")
+    )
+    fix_state = f" | Fix待决定={escalated}" if escalated else ""
     return (
         f" AIWF | 活跃任务={len(active_tasks)} | 阶段={','.join(phases) or '-'}"
-        f" | 状态={blocked}{plan_state}{temporary}"
+        f" | 状态={blocked}{plan_state}{fix_state}{temporary}"
     )
 
 
@@ -1028,6 +1043,34 @@ def main(stdscr):
                 elif confirm_temporary_ai_writes(stdscr):
                     enable_temporary_ai_writes(root)
                     last_data_mtime = 0
+        elif key == ord("c"):
+            if 0 <= selected < len(nodes) and nodes[selected]["kind"] == "task":
+                task_id = nodes[selected]["id"]
+                record = data.get("task_records", {}).get(task_id, {}) or {}
+                fix_loop = record.get("fix_loop", {}) or {}
+                if (
+                    fix_loop.get("status") == "open"
+                    and fix_loop.get("escalation_required")
+                    and confirm_fixloop_continue(
+                        stdscr,
+                        task_id,
+                        str(fix_loop.get("route") or "planner"),
+                        int(fix_loop.get("attempt_count", 0) or 0),
+                    )
+                ):
+                    try:
+                        continued = continue_fix_loop(str(root), task_id=task_id)
+                        show_message(
+                            stdscr,
+                            "Fix Loop",
+                            [
+                                f"{task_id} 已继续。",
+                                f"下一路线: {continued.get('route') or 'planner'}",
+                            ],
+                        )
+                        last_data_mtime = 0
+                    except ValueError as exc:
+                        show_message(stdscr, "Fix Loop", [str(exc)])
         elif key == ord("d"): detail_visible = not detail_visible; last_data_mtime = 0
         elif key == ord("x"): show_cancelled = not show_cancelled; set_show_cancelled(show_cancelled); last_data_mtime = 0
             # Force full refresh (reread all JSON)
@@ -1092,6 +1135,7 @@ def _show_records_inline(stdscr, data, task_id):
     implementation = record.get("implementation", {}) or {}
     testing = record.get("testing", {}) or {}
     review = record.get("review", {}) or {}
+    fix_loop = record.get("fix_loop", {}) or {}
 
     lines = [f"── {task_id} 记录 ──", ""]
     lines.append("实现:")
@@ -1111,6 +1155,14 @@ def _show_records_inline(stdscr, data, task_id):
     if review.get("blockers"):
         for b in review["blockers"]:
             lines.append(f"  阻塞: {b}")
+    if fix_loop.get("status") == "open":
+        lines.append("")
+        lines.append(
+            f"Fix loop: route={fix_loop.get('route') or 'planner'}  "
+            f"attempt={fix_loop.get('attempt_count', 0)}/{fix_loop.get('max_attempts', 2)}"
+        )
+        if fix_loop.get("escalation_required"):
+            lines.append("  等待用户决定。选中 Task 后按 c 可继续。")
 
     _render_wrapped_lines(stdscr, lines, 1, w, h - 2)
     try:

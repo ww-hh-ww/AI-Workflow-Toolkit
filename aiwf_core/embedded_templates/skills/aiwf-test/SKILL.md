@@ -34,6 +34,10 @@ by Tester and recorded with `aiwf record testing`.
    contract and retain room for independent judgment.
 5. Let Tester record testing. Do not record it again.
 
+Tester should record the complete validation pass once. If a required result is
+missing, run and record only that result. AIWF preserves earlier valid results
+only while the implementation and tested worktree are unchanged.
+
 The Agent prompt must name exactly one active Task ID. AIWF adds the current
 contract path and worktree, then routes project tools there. Do not use `EnterWorktree`
 or copy Task changes between worktrees. Other Plans may test in parallel; roles
@@ -59,7 +63,8 @@ verify a repair:
   dispatch when the earlier failure exposed a bypass or false pass.
 
 Either route must run the required regression checks and record a fresh testing
-snapshot. Inline follow-up is not permission to reuse the old result.
+snapshot after the repaired implementation is recorded. Inline follow-up is
+not permission to reuse results from the earlier implementation.
 
 Do not paste or reread the whole Task for follow-up verification unless the
 repair changed a wider contract path or the test method itself.

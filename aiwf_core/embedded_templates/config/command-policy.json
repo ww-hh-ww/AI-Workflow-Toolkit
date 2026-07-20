@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "description": "Additional AI command policy. force-close and interrupt are also hard-blocked by the hook. Human terminal users are not affected.",
+  "description": "Human-only AIWF commands. Human terminal and TUI actions are not affected.",
   "deny": [
     {
       "command": "aiwf task force-close",
@@ -10,6 +10,11 @@
     {
       "command": "aiwf task interrupt",
       "reason": "interrupt releases the active task execution window. Human interruption only.",
+      "human_only": true
+    },
+    {
+      "command": "aiwf fixloop continue",
+      "reason": "continue authorizes another workflow step after repeated failures. Human decision only.",
       "human_only": true
     }
   ]

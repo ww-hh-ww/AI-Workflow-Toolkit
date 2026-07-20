@@ -36,6 +36,7 @@ DEFAULT_WRITE_POLICY: Dict[str, Any] = {
 HUMAN_ONLY_COMMANDS = {
     "aiwf task force-close": "force-close bypasses all Task gates",
     "aiwf task interrupt": "interrupt releases the active Task execution window",
+    "aiwf fixloop continue": "continue authorizes work after repeated fix-loop failures",
 }
 
 
@@ -858,6 +859,17 @@ def check_bash(event: NormalizedEvent) -> Dict:
 
     if active_task_id:
         import re
+        if re.search(r"(^|[;&|]\s*)git\s+(?:add|stage)\b", command, re.IGNORECASE):
+            return {
+                "allowed": False,
+                "decision": "deny",
+                "command": command[:200],
+                "matched_pattern": "git add",
+                "reason": (
+                    "AIWF snapshots and 'aiwf task close' manage the Task index. "
+                    "Do not stage files during an active Task."
+                ),
+            }
         if re.search(r"(^|[;&|]\s*)git\s+commit\b", command, re.IGNORECASE):
             return {
                 "allowed": False,

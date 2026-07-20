@@ -14,6 +14,7 @@ class TestPromptClarityContract(unittest.TestCase):
     def test_planner_keeps_the_full_loop_without_repeating_every_guide(self):
         planner = read("skills/aiwf-planner/SKILL.md")
         lifecycle = read("skills/aiwf-planner/references/lifecycle.md")
+        lifecycle_text = " ".join(lifecycle.split())
         self.assertLess(len(planner.split()), 1200)
         for required in [
             "Discussion is the default",
@@ -38,6 +39,10 @@ class TestPromptClarityContract(unittest.TestCase):
         for required in [
             "## After A Task",
             "## Close Out A Plan",
+            "## SendMessage",
+            "new verified information",
+            "Do not repeat",
+            "real return",
             "Compare the actual result",
             "Do not modify a closed Plan",
             "shared files",
@@ -50,9 +55,27 @@ class TestPromptClarityContract(unittest.TestCase):
             "do not use Reviewer observation",
             "may be retested inline",
             "Always record a fresh testing snapshot",
-            "If repeated attempts require escalation",
+            "If escalation blocks further Agents",
+            "aiwf fixloop continue --task-id <TASK-ID>",
+            "Do not run it yourself",
         ]:
             self.assertIn(required, lifecycle)
+        for required in [
+            "current session or the resumed original session",
+            "try `SendMessage` once",
+            "dispatch a new Agent",
+        ]:
+            self.assertIn(required, lifecycle_text)
+
+        implement = read("skills/aiwf-implement/SKILL.md")
+        implement_text = " ".join(implement.split())
+        for required in [
+            "current session or the resumed original session",
+            "Try `SendMessage` once",
+            "If resume is unavailable or fails",
+            "Do not retry the resume",
+        ]:
+            self.assertIn(required, implement_text)
 
     def test_tester_is_mandatory_once_but_follow_up_uses_risk(self):
         test_skill = " ".join(read("skills/aiwf-test/SKILL.md").split())
@@ -164,6 +187,9 @@ class TestPromptClarityContract(unittest.TestCase):
         self.assertIn("selectors narrow the run", critique)
         self.assertIn("Do not load AIWF routing skills", executor)
         self.assertIn("run the smallest relevant checks", executor)
+        self.assertIn("actual compiler, test, and build configuration", executor)
+        self.assertIn("group failures by root cause", executor)
+        self.assertIn("Do not rebuild unchanged prerequisites", executor)
         self.assertIn("reread the Fixed Contract once", executor)
 
     def test_fix_loop_roles_do_not_restart_the_whole_task(self):
@@ -303,6 +329,10 @@ class TestPromptClarityContract(unittest.TestCase):
             "what Tester ran and proved",
             "assumptions used by remaining Tasks",
             "--adversarial-observations",
+            "Report every concrete, evidence-backed problem",
+            "do not present speculation as a defect",
+            "only for concrete non-blocking findings",
+            "Do not record a current contract failure",
         ]:
             self.assertIn(required, reviewer_text)
 
@@ -314,6 +344,7 @@ class TestPromptClarityContract(unittest.TestCase):
         self.assertIn("Do not paste the Task Packet", testing)
         self.assertIn("Do not paste the complete Task Packet", review)
         self.assertIn("The report must tell Planner what Executor changed", review)
+        self.assertIn("Every concrete finding must stay visible", review)
         self.assertIn("one project-writing Executor at a time", implement)
         self.assertIn(
             "Do not run Tester beside Executor or another Tester",
@@ -393,6 +424,15 @@ class TestPromptClarityContract(unittest.TestCase):
             "aiwf record disposition",
             read("skills/aiwf-planner/references/lifecycle.md"),
         )
+        lifecycle = read("skills/aiwf-planner/references/lifecycle.md")
+        lifecycle_words = " ".join(lifecycle.split())
+        self.assertIn("Before marking a finding `deferred`", lifecycle)
+        self.assertIn("notes/deferred-findings.md", lifecycle)
+        self.assertIn("Do not silently discard a concrete finding", lifecycle_words)
+        self.assertIn("Task closeout to the user", lifecycle_words)
+        self.assertIn("For each pending observation", lifecycle_words)
+        self.assertIn("check only enough evidence to route it", lifecycle_words)
+        self.assertIn("Open a fix-loop with the observation", lifecycle_words)
 
     def test_testing_skill_uses_the_real_public_commands(self):
         testing = read("skills/aiwf-test/SKILL.md")

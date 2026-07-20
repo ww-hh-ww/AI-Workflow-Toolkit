@@ -5,7 +5,7 @@ import argparse
 from pathlib import Path
 
 from .flow import cmd_status
-from .ops_commands import _cmd_doctor, _cmd_fix_loop_help, _cmd_fix_loop_open, _cmd_fix_loop_resolve, _cmd_fix_loop_status, _cmd_install
+from .ops_commands import _cmd_doctor, _cmd_fix_loop_continue, _cmd_fix_loop_help, _cmd_fix_loop_open, _cmd_fix_loop_resolve, _cmd_fix_loop_status, _cmd_install
 from .plan_commands import (
     _cmd_plan_attach,
     _cmd_plan_bind_worktree,
@@ -99,6 +99,9 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
     p_fl_status = p_fl_sub.add_parser("status", help="show fix-loop status")
     p_fl_status.add_argument("--task-id", default="", help="Task ID (defaults to current worktree)")
     p_fl_status.set_defaults(func=_cmd_fix_loop_status)
+    p_fl_continue = p_fl_sub.add_parser("continue", help="human-only continuation after escalation")
+    p_fl_continue.add_argument("--task-id", default="", help="Task ID (defaults to current worktree)")
+    p_fl_continue.set_defaults(func=_cmd_fix_loop_continue)
     p_fl_resolve = p_fl_sub.add_parser("resolve", help="resolve a fix-loop")
     p_fl_resolve.add_argument("--resolution", required=True, help="how it was resolved")
     p_fl_resolve.add_argument("--source", default="reviewer")

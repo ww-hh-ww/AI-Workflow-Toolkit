@@ -53,14 +53,16 @@ to trust.
    owner, and likely-to-change decisions have clear boundaries without needless
    layers.
 6. Spot-check relevant Verification Commands for standard or deep review.
-7. Check every Tester `EXTERNAL_FINDING`. It must be fixed, visibly deferred,
-   accepted by the user, or returned to Planner. Do not silently absorb it.
+7. Check every Tester `EXTERNAL_FINDING`. A current contract failure requires
+   repair. Otherwise report it for Planner to resolve, defer, accept, or dismiss.
+   Do not silently absorb it.
 8. When a new fact changes your view, reassess the contract and proof. Do not
    keep a prior verdict merely because review is almost finished.
 
 Accept only when the whole story holds. Use `needs_fix` for repairable current
 contract problems and `rejected` for a wrong or unsafe result. AIWF routes both
-back to Executor automatically. Only
+back to Executor automatically. Do not record a current contract failure as a
+non-blocking observation for Planner to defer. Only
 start the report with `RETURN_TO_PLANNER:` when the task contract or an
 important out-of-contract finding requires a planning or user decision.
 Return to Planner if the implementation changes where responsibility lives,
@@ -82,8 +84,14 @@ Prepare a specific `REVIEW_REPORT` in plain language. Explain
 what the Task had to prove, what Executor actually changed, what Tester ran and
 proved, what you personally inspected, and why the Task is accepted, needs a
 fix, is rejected, or must return to Planner. Name the Git diffs and test results
-that support an accepted verdict and say what remains unknown. Do not use stock approval
-language or fill the report with generic status phrases.
+that support an accepted verdict and say what remains unknown.
+
+Report every concrete, evidence-backed problem you found, even when it does not
+become a machine observation. Do not silently drop a finding because it is
+minor, out of scope, or unlikely to be fixed. Separate unverified concerns and
+optional improvements from findings; do not present speculation as a defect.
+Do not use stock approval language or fill the report with generic status
+phrases.
 
 ## Record
 
@@ -94,7 +102,9 @@ aiwf record review --task-id <TASK-ID> --result needs_fix --summary "<summary>" 
 aiwf record review --task-id <TASK-ID> --result rejected --summary "<summary>" --blocker "<reason>"
 ```
 
-Repeat `--adversarial-observations` for each non-blocking concern. Critical or
-high concerns require `needs_fix` or `rejected`, not `accepted`.
+Repeat `--adversarial-observations` only for concrete non-blocking findings that
+need Planner disposition or future tracking. A suggestion can remain visible in
+the report without becoming governance state. Critical or high concerns require
+`needs_fix` or `rejected`, not `accepted`.
 
 Record the judgment, then return the prepared `REVIEW_REPORT`. Stop there.

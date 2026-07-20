@@ -5,6 +5,7 @@ or forbidden_write boundaries. No Claude-specific logic.
 """
 from __future__ import annotations
 
+import re
 from typing import Dict, List, Optional
 
 from .event_model import ScopeResult
@@ -100,8 +101,22 @@ def check_bash_command(command: str) -> Dict:
     _MECHANICAL_TRUTH_FILES = [
         ".aiwf/state/tasks.json",
     ]
+    references_mechanical_truth = any(
+        value in command
+        for value in [*_MECHANICAL_TRUTH_DIRS, *_MECHANICAL_TRUTH_FILES]
+    )
+    safe_git_truth_operation = bool(
+        references_mechanical_truth
+        and re.fullmatch(
+            r"\s*(?:cd\s+[^\n;&|`$<>]+\s*&&\s*)?"
+            r"git\s+(?:add|stage|status|diff|show|ls-files|check-ignore)\b"
+            r"[^\n;&|`$<>]*",
+            command,
+            re.IGNORECASE,
+        )
+    )
     for prefix in _MECHANICAL_TRUTH_DIRS:
-        if prefix in command:
+        if prefix in command and not safe_git_truth_operation:
             return {
                 "allowed": False,
                 "decision": "deny",
@@ -115,7 +130,7 @@ def check_bash_command(command: str) -> Dict:
                 ),
             }
     for path in _MECHANICAL_TRUTH_FILES:
-        if path in command:
+        if path in command and not safe_git_truth_operation:
             return {
                 "allowed": False,
                 "decision": "deny",

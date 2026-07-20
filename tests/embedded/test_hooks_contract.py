@@ -309,24 +309,16 @@ class TestHooks(unittest.TestCase):
         fix_loop = self._task_record()["fix_loop"]
         self.assertNotEqual(fix_loop.get("status"), "open")
 
-    def test_normal_task_role_results_route_the_main_session_through_status(self):
+    def test_claude_agent_posttooluse_is_not_treated_as_completion(self):
         self._set_active_task("implementing")
 
-        for role, label, report in (
-            ("aiwf-executor", "Executor", "implementation report"),
-            ("aiwf-tester", "Tester", "testing report"),
-            ("aiwf-reviewer", "Reviewer", "REVIEW_REPORT"),
-        ):
+        for role in ("aiwf-executor", "aiwf-tester", "aiwf-reviewer"):
             with self.subTest(role=role):
-                result = self._agent_result(role, f"{label} completed the assigned work.")
+                result = self._agent_result(role, "Agent launched in the background.")
                 self.assertEqual(result.returncode, 0, result.stderr)
-                context = json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
-                self.assertIn(f"{label} returned", context)
-                self.assertIn(report, context)
-                self.assertIn("TASK-001", context)
-                self.assertIn("aiwf status --prompt", context)
+                self.assertFalse(result.stdout.strip())
 
-    def test_parallel_agent_result_names_its_task(self):
+    def test_parallel_agent_launches_do_not_emit_false_return_messages(self):
         self._set_active_task("implementing")
         tasks_path = self.tmp / ".aiwf/state/tasks.json"
         state = json.loads(tasks_path.read_text())
@@ -350,28 +342,23 @@ class TestHooks(unittest.TestCase):
             prompt=f"Test TASK-B1 in assigned worktree {other}.",
         )
 
-        context = json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
-        self.assertIn("Tester returned for TASK-B1", context)
-        self.assertNotIn("TASK-001", context)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(result.stdout.strip())
 
-    def test_agent_result_fallback_routes_external_finding(self):
+    def test_subagent_stop_routes_external_finding(self):
         self._set_active_task("reviewing")
-        result = self._agent_result(
+        result = self._subagent_stop(
             "aiwf-tester",
             "EXTERNAL_FINDING: service mode does not start the real pipeline",
         )
         self.assertEqual(result.returncode, 0, result.stderr)
-        output = json.loads(result.stdout)
-        context = output["hookSpecificOutput"]["additionalContext"]
-        self.assertIn("Stop normal progress", context)
-        self.assertIn("aiwf status --prompt", context)
 
         fix_loop = self._task_record()["fix_loop"]
         self.assertEqual(fix_loop["route"], "planner")
         self.assertEqual(fix_loop["source"], "tester")
         self.assertIn("service mode", fix_loop["reason"])
 
-    def test_reviewer_result_routes_the_main_session_through_status(self):
+    def test_reviewer_posttooluse_does_not_duplicate_native_return(self):
         self._set_active_task("closing")
 
         result = self._agent_result(
@@ -380,10 +367,7 @@ class TestHooks(unittest.TestCase):
         )
 
         self.assertEqual(result.returncode, 0, result.stderr)
-        output = json.loads(result.stdout)
-        context = output["hookSpecificOutput"]["additionalContext"]
-        self.assertIn("Read REVIEW_REPORT", context)
-        self.assertIn("aiwf status --prompt", context)
+        self.assertFalse(result.stdout.strip())
 
     # ── Stop ──
 
@@ -796,6 +780,18 @@ class TestHooks(unittest.TestCase):
         self.assertIn("deny", r.stdout)
         self.assertIn("aiwf task close", r.stdout)
 
+    def test_ai_cannot_stage_files_while_task_active(self):
+        self._set_active_task("implementing")
+        for command in (
+            "git add -A",
+            "git add .aiwf/state/tasks.json",
+            "cd src && git stage feature.py",
+        ):
+            with self.subTest(command=command):
+                result = self._bash(command)
+                self.assertIn("deny", result.stdout)
+                self.assertIn("Do not stage files", result.stdout)
+
     def test_bash_write_to_fix_loop_blocked(self):
         r = self._bash("echo '{}' > .aiwf/state/fix-loop.json")
         self.assertIn("deny", r.stdout)
@@ -805,6 +801,21 @@ class TestHooks(unittest.TestCase):
         # Reads are also blocked — use Read tool instead.
         r = self._bash("cat .aiwf/state/state.json")
         self.assertIn("deny", r.stdout)
+
+    def test_git_can_stage_cli_generated_truth_without_an_active_task(self):
+        for command in (
+            "git add .aiwf/state/plans.json .aiwf/records/events.json",
+            "cd '/tmp/project with spaces' && git add .aiwf/state/plans.json",
+            "git diff -- .aiwf/state/plans.json",
+        ):
+            with self.subTest(command=command):
+                result = self._bash(command)
+                self.assertNotIn("deny", result.stdout)
+
+        chained_write = self._bash(
+            "git add .aiwf/state/plans.json && printf '{}' > .aiwf/state/plans.json"
+        )
+        self.assertIn("deny", chained_write.stdout)
 
     def test_bash_without_mechanical_truth_path_allowed(self):
         r = self._bash("python3 -c 'print(1+1)'")
@@ -870,7 +881,11 @@ class TestHooks(unittest.TestCase):
         original = path.read_text(encoding="utf-8")
         try:
             path.write_text('{"schema_version": 1, "deny": []}\n', encoding="utf-8")
-            for command in ("aiwf task force-close", "aiwf task interrupt"):
+            for command in (
+                "aiwf task force-close",
+                "aiwf task interrupt",
+                "aiwf fixloop continue",
+            ):
                 result = self._bash(command)
                 self.assertIn("deny", result.stdout)
                 self.assertIn("Human action is required", result.stdout)

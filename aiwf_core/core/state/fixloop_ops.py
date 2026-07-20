@@ -9,6 +9,29 @@ from ..task_ledger import load_ledger, resolve_active_task_id, update_task_runti
 from ..task_records import load_task_record, update_task_record
 from ..worktree_context import resolve_worktree_root
 
+
+def _tester_verified_current_implementation(record: Dict[str, Any], source: str) -> bool:
+    implementation = record.get("implementation", {}) or {}
+    testing = record.get("testing", {}) or {}
+    implementation_ref = str(implementation.get("implementation_ref") or "")
+    return bool(
+        source == "tester"
+        and implementation_ref
+        and testing.get("status") == "passed"
+        and testing.get("tested_ref")
+        and str(testing.get("based_on_ref") or "") == implementation_ref
+    )
+
+
+def _continued_after_escalation(fix_loop: Dict[str, Any]) -> bool:
+    return any(
+        str(entry.get("source") or "") == "human"
+        and str(entry.get("reason") or "") == "human continued after escalation"
+        for entry in fix_loop.get("route_history", []) or []
+        if isinstance(entry, dict)
+    )
+
+
 def open_fix_loop(
     base_dir: str,
     route: str,
@@ -22,9 +45,10 @@ def open_fix_loop(
 ) -> Dict[str, Any]:
     """Open a fix-loop with route, reason, required fixes, and verification.
 
-    If already open: increments attempt_count, appends route_history.
+    A new Tester failure advances attempt_count. Repeated recording of the same
+    failure or a route change does not pretend to be another repair attempt.
     Uses a small fixed retry limit before asking for escalation.
-    If attempt_count > max_attempts: escalation_required=true, rollback_recommended
+    If attempt_count reaches max_attempts: escalation_required=true, rollback_recommended
     if checkpoint exists.
     Does NOT auto-execute fixes, modify goal/scope/context, or auto-close workflow.
     """
@@ -38,7 +62,41 @@ def open_fix_loop(
         nonlocal result
         fix_loop = record["fix_loop"]
         was_open = fix_loop.get("status") == "open"
-        attempt = int(fix_loop.get("attempt_count", 0) or 0) + 1 if was_open else 1
+        implementation = record.get("implementation", {}) or {}
+        testing = record.get("testing", {}) or {}
+        evidence_ref = str((
+            testing.get("tested_ref")
+            if source == "tester"
+            else implementation.get("implementation_ref")
+        ) or "")
+        history = list(fix_loop.get("route_history", []) or []) if was_open else []
+        duplicate = bool(
+            was_open
+            and any(
+                str(entry.get("route") or "") == route
+                and str(entry.get("source") or "") == source
+                and " ".join(str(entry.get("reason") or "").split()).casefold()
+                == " ".join(str(reason or "").split()).casefold()
+                and str(entry.get("evidence_ref") or "") == evidence_ref
+                for entry in history
+            )
+        )
+        prior_attempt = int(fix_loop.get("attempt_count", 0) or 0)
+        seen_failed_refs = {
+            str(entry.get("evidence_ref") or "")
+            for entry in history
+            if str(entry.get("source") or "") == "tester"
+            and entry.get("evidence_ref")
+        }
+        new_tester_failure = bool(
+            source == "tester"
+            and evidence_ref
+            and evidence_ref not in seen_failed_refs
+        )
+        if new_tester_failure:
+            attempt = prior_attempt + 1
+        else:
+            attempt = prior_attempt
         fix_loop.update({
             "status": "open",
             "route": route,
@@ -47,6 +105,14 @@ def open_fix_loop(
             "attempt_count": attempt,
             "max_attempts": int(fix_loop.get("max_attempts", 0) or 0) or 2,
         })
+        if not was_open:
+            fix_loop.update({
+                "resolution": "",
+                "escalation_required": False,
+                "escalation_reason": "",
+                "rollback_recommended": False,
+                "route_history": [],
+            })
         if required_fixes is not None:
             fix_loop["required_fixes"] = list(required_fixes)
         elif not was_open:
@@ -62,18 +128,63 @@ def open_fix_loop(
                 "reason": reason,
             }
         history = list(fix_loop.get("route_history", []) or [])
-        history.append({"attempt": attempt, "route": route, "reason": reason, "source": source})
-        fix_loop["route_history"] = history
-        if attempt > fix_loop["max_attempts"]:
+        if not duplicate:
+            entry = {
+                "attempt": attempt,
+                "route": route,
+                "reason": reason,
+                "source": source,
+            }
+            if evidence_ref:
+                entry["evidence_ref"] = evidence_ref
+            history.append(entry)
+            fix_loop["route_history"] = history
+        if new_tester_failure and attempt >= fix_loop["max_attempts"]:
             fix_loop["escalation_required"] = True
             fix_loop["escalation_reason"] = (
-                f"fix-loop attempts ({attempt}) exceeded max_attempts ({fix_loop['max_attempts']})"
+                f"fix-loop failed verification attempts ({attempt}) reached "
+                f"max_attempts ({fix_loop['max_attempts']})"
             )
             fix_loop["rollback_recommended"] = True
         result = dict(fix_loop)
 
     update_task_record(base_dir, effective_task, mutate)
     update_task_runtime(base_dir, effective_task, phase="reviewing")
+    return result
+
+
+def continue_fix_loop(base_dir: str, task_id: str = "") -> Dict[str, Any]:
+    """Human acknowledgement that permits the current fix-loop route to continue."""
+    effective_task = resolve_active_task_id(base_dir, task_id)
+    if not effective_task:
+        raise ValueError("fix-loop continue requires an active Task ID or assigned Task worktree")
+
+    result: Dict[str, Any] = {}
+
+    def mutate(record: Dict[str, Any]) -> None:
+        nonlocal result
+        fix_loop = record["fix_loop"]
+        if fix_loop.get("status") != "open":
+            raise ValueError("fix-loop is not open")
+        if not fix_loop.get("escalation_required"):
+            raise ValueError("fix-loop is not awaiting a human decision")
+        attempt = int(fix_loop.get("attempt_count", 0) or 0)
+        history = list(fix_loop.get("route_history", []) or [])
+        history.append({
+            "attempt": attempt,
+            "route": str(fix_loop.get("route") or "planner"),
+            "reason": "human continued after escalation",
+            "source": "human",
+        })
+        fix_loop.update({
+            "escalation_required": False,
+            "escalation_reason": "",
+            "rollback_recommended": False,
+            "route_history": history,
+        })
+        result = dict(fix_loop)
+
+    update_task_record(base_dir, effective_task, mutate)
     return result
 
 def _extract_paths_from_fixes(required_fixes: List[str]) -> List[str]:
@@ -245,10 +356,23 @@ def resolve_fix_loop(
                 blockers.append("scope violation has no structured event history to verify")
         else:
             scope_resolution = unresolved
-    if fix_loop.get("escalation_required") and not force:
+    if (
+        fix_loop.get("escalation_required")
+        and not force
+        and not _tester_verified_current_implementation(record, source)
+    ):
         blockers.append(
             "escalation_required=true; Planner cannot self-resolve escalation. "
             "Re-run with --force to override (Planner acknowledges the override)."
+        )
+    if (
+        _continued_after_escalation(fix_loop)
+        and source == "tester"
+        and not force
+        and not _tester_verified_current_implementation(record, source)
+    ):
+        blockers.append(
+            "continued escalation requires passed testing against the current implementation"
         )
     if fix_loop.get("required_verification"):
         if testing.get("status") not in ("adequate", "passed"):

@@ -52,8 +52,11 @@ try to break it.
    compared against the raw problem, return to Plan formation. Use independent
    option exploration before recording another critique pass.
 11. Confirm the project worktree is clean and the current branch is the feature
-   branch for this Plan. Do not start a Task on main, master, trunk, detached
-   HEAD, or a branch already bound to another Plan.
+   branch for this Plan. If project changes already exist, inspect them and ask
+   the user whether to keep or discard them. Do not commit, stash, restore, or
+   remove them without that decision. Commit kept changes to the Plan branch,
+   then activate from that clean baseline. Do not start a Task on main, master,
+   trunk, detached HEAD, or a branch already bound to another Plan.
 
 ## Boundary
 

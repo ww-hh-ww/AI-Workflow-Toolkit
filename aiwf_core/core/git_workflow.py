@@ -104,7 +104,10 @@ def task_activation_git_blockers(
     dirty = changed_project_files(base_dir)
     if dirty and not allow_dirty:
         blockers.append(
-            "Task activation requires a clean project worktree; commit, stash, or remove: "
+            "Task activation requires a clean project worktree. Inspect these changes "
+            "and ask the user whether to keep or discard them; do not commit, stash, "
+            "restore, or remove them without that decision. Kept changes may be committed "
+            "to the Plan branch before activation: "
             + ", ".join(dirty[:8])
         )
     bound = str((plan or {}).get("git_branch") or "")

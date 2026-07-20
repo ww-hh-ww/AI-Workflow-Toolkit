@@ -190,6 +190,9 @@ def _build_settings_json(target: EmbedTarget | None = None) -> Dict[str, Any]:
         }
     _h = lambda cmd: {"hooks": [{"type": "command", "command": cmd}]}
     return {
+        "env": {
+            "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1",
+        },
         "hooks": {
             "UserPromptSubmit": [_h(q_status)],
             "PreToolUse": [
@@ -201,10 +204,14 @@ def _build_settings_json(target: EmbedTarget | None = None) -> Dict[str, Any]:
             "PostToolUse": [
                 {"matcher": "Skill",                                **_h(q_skill_log)},
                 {"matcher": "Agent|Task",                           **_h(q_agent_log)},
+                {"matcher": "TaskStop",                             **_h(q_agent_log)},
                 {"matcher": "Write|Edit|MultiEdit",                 **_h(q_auto_sync)},
             ],
             "PostToolUseFailure": [
                 {"matcher": "Agent|Task",                           **_h(q_agent_log)},
+            ],
+            "SubagentStart": [
+                {"matcher": "aiwf-executor|aiwf-tester|aiwf-reviewer|aiwf-architect", **_h(q_agent_log)},
             ],
             "SubagentStop": [
                 {"matcher": "aiwf-executor|aiwf-tester|aiwf-reviewer|aiwf-architect", **_h(q_agent_log)},
@@ -294,6 +301,8 @@ def _write_settings(target: EmbedTarget | None = None) -> Path:
         existing = json.loads(target.read_text(encoding="utf-8"))
         new_hooks = settings.get("hooks", {})
         existing["hooks"] = _merge_hooks(existing.get("hooks"), new_hooks)
+        for key, value in settings.get("env", {}).items():
+            existing.setdefault("env", {}).setdefault(key, value)
         for perm in settings.get("permissions", {}).get("allow", []):
             existing.setdefault("permissions", {}).setdefault("allow", [])
             if perm not in existing["permissions"]["allow"]:
@@ -1061,7 +1070,7 @@ def doctor(mode: str | None = None) -> Dict[str, Any]:
             hooks_cfg = settings_data.get("hooks", {})
             event_names = ["UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop"]
             if target.mode == "claude":
-                event_names.extend(["PostToolUseFailure", "SubagentStop"])
+                event_names.extend(["PostToolUseFailure", "SubagentStart", "SubagentStop"])
             for event_name in event_names:
                 entries = hooks_cfg.get(event_name, [])
                 if target.mode == "reasonix":
@@ -1084,7 +1093,7 @@ def doctor(mode: str | None = None) -> Dict[str, Any]:
         except Exception:
             event_names = ["UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop"]
             if target.mode == "claude":
-                event_names.extend(["PostToolUseFailure", "SubagentStop"])
+                event_names.extend(["PostToolUseFailure", "SubagentStart", "SubagentStop"])
             for ev in event_names:
                 checks["hooks"][ev] = {"configured": False, "valid_schema": False}
 

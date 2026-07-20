@@ -63,6 +63,12 @@ class TestInstall(unittest.TestCase):
             self.assertFalse((self.tmp / retired).exists())
         self.assertTrue((self.tmp / ".aiwf" / "runtime").is_dir())
         self.assertTrue((self.tmp / ".aiwf" / "config").is_dir())
+        deferred_note = self.tmp / ".aiwf/memory/notes/deferred-findings.md"
+        self.assertTrue(deferred_note.exists())
+        self.assertIn(
+            "notes/deferred-findings.md",
+            (self.tmp / ".aiwf/memory/MEMORY.md").read_text(encoding="utf-8"),
+        )
         self.assertFalse((self.tmp / ".aiwf" / "artifacts").is_dir(), "artifacts/ directory retired in V1")
         self.assertFalse((self.tmp / ".aiwf" / "archive").is_dir(), "archive/ directory retired in V1")
 
@@ -161,6 +167,7 @@ Ship the product safely.
             denied = {entry["command"]: entry for entry in policy["deny"]}
             self.assertTrue(denied["aiwf task force-close"]["human_only"])
             self.assertTrue(denied["aiwf task interrupt"]["human_only"])
+            self.assertTrue(denied["aiwf fixloop continue"]["human_only"])
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
@@ -310,6 +317,10 @@ Ship the product safely.
                         "hooks": [{"type": "command", "command": "${CLAUDE_PROJECT_DIR}/scripts/aiwf_retired.py"}],
                     }],
                 },
+                "env": {
+                    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "0",
+                    "KEEP_ME": "yes",
+                },
                 "permissions": {"deny": ["Bash(rm:*)"]},
                 "customSetting": "keep-me",
             }), encoding="utf-8")
@@ -339,6 +350,8 @@ Ship the product safely.
             self.assertEqual(sum("aiwf_status.py" in command for command in commands), 1)
             self.assertEqual(installed["permissions"]["deny"], ["Bash(rm:*)"])
             self.assertEqual(installed["customSetting"], "keep-me")
+            self.assertEqual(installed["env"]["CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS"], "0")
+            self.assertEqual(installed["env"]["KEEP_ME"], "yes")
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
@@ -346,7 +359,7 @@ Ship the product safely.
         s = self._j(".claude/settings.json")
         for ev in [
             "UserPromptSubmit", "PreToolUse", "PostToolUse",
-            "PostToolUseFailure", "SubagentStop", "Stop",
+            "PostToolUseFailure", "SubagentStart", "SubagentStop", "Stop",
         ]:
             for entry in s["hooks"][ev]:
                 for h in entry["hooks"]:
@@ -363,16 +376,28 @@ Ship the product safely.
         post_matchers = [e.get("matcher", "") for e in s["hooks"]["PostToolUse"]]
         self.assertIn("Skill", post_matchers)
         self.assertIn("Agent|Task", post_matchers)
+        self.assertIn("TaskStop", post_matchers)
         self.assertIn("Write|Edit|MultiEdit", post_matchers)
         self.assertNotIn("Read|Glob|Grep|Write|Edit|MultiEdit|Bash", post_matchers)
         failure_matchers = [
             e.get("matcher", "") for e in s["hooks"]["PostToolUseFailure"]
         ]
         self.assertEqual(failure_matchers, ["Agent|Task"])
+        start_matchers = [e.get("matcher", "") for e in s["hooks"]["SubagentStart"]]
+        self.assertIn(
+            "aiwf-executor|aiwf-tester|aiwf-reviewer|aiwf-architect",
+            start_matchers,
+        )
         stop_matchers = [e.get("matcher", "") for e in s["hooks"]["SubagentStop"]]
         self.assertIn(
             "aiwf-executor|aiwf-tester|aiwf-reviewer|aiwf-architect",
             stop_matchers,
+        )
+
+    def test_claude_settings_enable_subagent_resume(self):
+        settings = self._j(".claude/settings.json")
+        self.assertEqual(
+            settings["env"]["CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS"], "1",
         )
 
     def test_skills_exist_with_frontmatter(self):

@@ -6,4 +6,4 @@ Planner reads this before planning. Keep it under 100 words.
 - Add facts only from code, proof, review, Architect reports, or user decisions.
 - Do not store progress, status, guesses, or details already obvious from the
   current Goal/Plan/Task/Milestone.
-- Usually do not change this file.
+- Change this file only when one of these long-term facts changes.

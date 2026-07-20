@@ -14,19 +14,6 @@ ROLE_SUBAGENTS = {
 }
 
 
-def _mark_role_recorded(base: Path, task_id: str, subagent_type: str) -> None:
-    """Close the dispatch window when the role records its Task result."""
-    from ..core.agent_runtime import finish_dispatch
-
-    finish_dispatch(
-        base,
-        subagent_type,
-        task_id=task_id,
-        status="completed",
-        source="record",
-    )
-
-
 def _require_role_dispatch(base: Path, role: str, task_id: str = "") -> str:
     """Fail early when a required role has not been dispatched for this task."""
     requirement = ROLE_SUBAGENTS.get(role)
@@ -61,7 +48,10 @@ def _require_role_dispatch(base: Path, role: str, task_id: str = "") -> str:
                 entry = json.loads(line)
             except Exception:
                 continue
-            if entry.get("task_id") == effective_task and entry.get("subagent_type") == subagent_type:
+            if (
+                entry.get("task_id") == effective_task
+                and entry.get("subagent_type") == subagent_type
+            ):
                 return effective_task
     raise ValueError(
         f"{role} record requires a task-scoped {subagent_type} dispatch. "
@@ -115,7 +105,6 @@ def _cmd_record_testing(args: argparse.Namespace) -> None:
         raise SystemExit(1)
 
     print(f"Testing recorded: status={args.status}")
-    _mark_role_recorded(Path.cwd(), task_id, "aiwf-tester")
     if testing.get("tested_ref"):
         print(f"  Tested ref: {testing['tested_ref']}")
     if args.commands:
@@ -178,7 +167,6 @@ def _cmd_record_review(args: argparse.Namespace) -> None:
         raise SystemExit(1)
 
     print(f"Review recorded: result={review.get('result')}")
-    _mark_role_recorded(Path.cwd(), task_id, "aiwf-reviewer")
     print(f"  Closure allowed: {review.get('closure_allowed', False)}")
     if review.get("reviewed_ref"):
         print(f"  Reviewed ref: {review['reviewed_ref']}")
@@ -203,7 +191,6 @@ def _cmd_record_implementation(args: argparse.Namespace) -> None:
         raise SystemExit(1)
 
     print(f"Implementation recorded: {implementation['task_id']}")
-    _mark_role_recorded(Path.cwd(), task_id, "aiwf-executor")
     print(f"  Implementation ref: {implementation['implementation_ref']}")
     print(f"  Changed files: {len(implementation.get('changed_files', []) or [])}")
 

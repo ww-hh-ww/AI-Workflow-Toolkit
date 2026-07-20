@@ -136,7 +136,54 @@ class TestStateCliOps(unittest.TestCase):
 
         self.assertEqual(status.returncode, 0, status.stderr)
         self.assertIn("Required skills: /aiwf-planner", status.stdout)
-        self.assertIn("ask the user whether to retry", status.stdout)
+        self.assertIn("tell the user what failed and what still needs verification", status.stdout)
+        self.assertIn("ask whether to continue or interrupt and replan", status.stdout)
+        self.assertIn("aiwf fixloop continue --task-id TASK-ACTIVE", status.stdout)
+        self.assertIn("run aiwf status --prompt again and follow its route", status.stdout)
+
+    def test_human_continue_releases_escalated_route_without_resolving(self):
+        self._set_active_task(record={
+            "task_id": "TASK-ACTIVE",
+            "implementation": {
+                "task_id": "TASK-ACTIVE", "implementation_ref": "fresh-ref",
+            },
+            "testing": {
+                "task_id": "TASK-ACTIVE", "status": "missing", "tested_ref": "",
+            },
+            "review": {"task_id": "TASK-ACTIVE", "result": "unknown"},
+            "fix_loop": {
+                "status": "open", "route": "tester", "reason": "repeated failure",
+                "escalation_required": True, "required_fixes": [],
+                "required_verification": ["pytest -q"],
+            },
+        })
+
+        from aiwf_core.aiwf_ui import _build_status_bar, load_all
+
+        blocked_status = self._run("status", "--prompt")
+        self.assertIn("Fix待决定=1", _build_status_bar(load_all(self.tmp)))
+        continued = self._run(
+            "fixloop", "continue", "--task-id", "TASK-ACTIVE",
+        )
+        repeated = self._run(
+            "fixloop", "continue", "--task-id", "TASK-ACTIVE",
+        )
+        status = self._run("status", "--prompt")
+
+        self.assertIn("Required skills: /aiwf-planner", blocked_status.stdout)
+        self.assertEqual(continued.returncode, 0, continued.stderr)
+        self.assertIn("Route: tester", continued.stdout)
+        self.assertEqual(repeated.returncode, 1)
+        self.assertIn("not awaiting a human decision", repeated.stderr)
+        self.assertEqual(status.returncode, 0, status.stderr)
+        self.assertIn("Required skills: /aiwf-test", status.stdout)
+        self.assertIn("dispatch aiwf-tester", status.stdout)
+        record = json.loads(
+            (self.tmp / ".aiwf/records/tasks/TASK-ACTIVE.json").read_text()
+        )
+        self.assertEqual(record["fix_loop"]["status"], "open")
+        self.assertFalse(record["fix_loop"]["escalation_required"])
+        self.assertEqual(record["fix_loop"]["route_history"][-1]["source"], "human")
 
     def test_status_prompt_names_task_and_supplies_agent_assignment(self):
         self._set_active_task()

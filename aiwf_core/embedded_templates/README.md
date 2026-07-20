@@ -22,6 +22,7 @@ Ask the agent, run `aiwf status`, or read narrative docs when you need a human e
 - `aiwf status` — default control panel.
 - `aiwf doctor` — installation health check.
 - `aiwf status --debug` — full state dump for debugging.
+- `aiwf fixloop continue --task-id TASK-ID` — human-only continuation after repeated failures.
 - Narrative docs in `goals/`, `plans/`, `tasks/`, `milestones/` — human-readable project structure.
 - `memory/project-facts.md` — tiny Planner memory; keep only durable planning facts.
 
