@@ -285,6 +285,7 @@ def build_task_proof(base_dir: str, task: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "task_id": task_id,
         "status": task.get("status", ""),
+        "kind": task.get("kind", ""),
         "git": {
             "branch": task.get("git_branch", ""),
             "origin_ref": origin,
@@ -292,6 +293,8 @@ def build_task_proof(base_dir: str, task: Dict[str, Any]) -> Dict[str, Any]:
             "tested_ref": tested_ref,
             "reviewed_ref": reviewed_ref,
             "commit": (task.get("closure", {}) or {}).get("git_commit", ""),
+            "integration_base_ref": task.get("integration_base_ref", ""),
+            "integration_plan_ref": task.get("integration_plan_ref", ""),
             "diffs": diffs,
         },
         "implementation": implementation,

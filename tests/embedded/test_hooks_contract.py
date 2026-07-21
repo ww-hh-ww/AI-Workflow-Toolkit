@@ -186,6 +186,26 @@ class TestHooks(unittest.TestCase):
         self.assertEqual(second.returncode, 0, second.stderr)
         self.assertEqual(second.stdout.strip(), "")
 
+    def test_status_prompt_acknowledges_state_for_the_next_user_prompt(self):
+        self.assertNotEqual(self._status().stdout.strip(), "")
+        self._set_active_task("testing", {
+            "task_id": "TASK-001",
+            "implementation": {"task_id": "TASK-001", "implementation_ref": "abc"},
+            "testing": {"task_id": "TASK-001", "status": "missing"},
+            "review": {"task_id": "TASK-001", "result": "unknown"},
+            "fix_loop": {"status": "none"},
+        })
+        env = os.environ.copy()
+        env["PYTHONPATH"] = str(PROJECT_ROOT)
+        status = subprocess.run(
+            [sys.executable, "-m", "aiwf_core.cli", "status", "--prompt"],
+            cwd=self.tmp, env=env, capture_output=True, text=True, timeout=TIMEOUT,
+        )
+
+        self.assertEqual(status.returncode, 0, status.stderr)
+        self.assertIn("Do now:", status.stdout)
+        self.assertEqual(self._status().stdout.strip(), "")
+
     def test_status_hook_announces_temporary_ai_writes_once(self):
         from aiwf_core.core.temporary_access import enable_temporary_ai_writes
 
@@ -219,6 +239,25 @@ class TestHooks(unittest.TestCase):
         ctx = out["hookSpecificOutput"]["additionalContext"]
         self.assertIn("TASK-001 changed state", ctx)
         self.assertIn("aiwf status --prompt", ctx)
+
+    def test_status_hook_names_a_suspended_task(self):
+        self._set_active_task("suspended", {
+            "task_id": "TASK-001",
+            "implementation": {"task_id": "TASK-001", "implementation_ref": "abc"},
+            "testing": {"task_id": "TASK-001", "status": "failed"},
+            "review": {"task_id": "TASK-001", "result": "unknown"},
+            "fix_loop": {"status": "open", "route": "executor"},
+        })
+        tasks = json.loads((self.tmp / ".aiwf/state/tasks.json").read_text())
+        tasks["tasks"][0]["status"] = "suspended"
+        tasks["tasks"][0]["phase"] = "suspended"
+        self._write_state("state/tasks.json", tasks)
+
+        result = self._status()
+
+        context = json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("TASK-001 is suspended", context)
+        self.assertIn("aiwf status --prompt", context)
 
     def test_status_hook_names_the_parallel_task_that_changed(self):
         other = self.tmp / "plan-b"
@@ -376,6 +415,20 @@ class TestHooks(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertNotIn('"decision": "block"', r.stdout)
         self.assertEqual(r.stdout.strip(), "")
+
+    def test_open_fix_loop_outside_closing_does_not_block_stop(self):
+        self._set_active_task("testing", {
+            "task_id": "TASK-001",
+            "implementation": {"task_id": "TASK-001", "implementation_ref": "abc"},
+            "testing": {"task_id": "TASK-001", "status": "failed"},
+            "review": {"task_id": "TASK-001", "result": "unknown"},
+            "fix_loop": {"status": "open", "route": "executor"},
+        })
+
+        result = self._stop()
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "")
 
     def test_reviewed_active_task_cannot_stop_before_task_close(self):
         self._set_active_task("closing", {

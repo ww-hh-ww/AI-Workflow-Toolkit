@@ -241,6 +241,26 @@ class TestRecordDispatchContract(unittest.TestCase):
         updated = self._allowed_input(result)
         self.assertNotIn("cwd", updated)
 
+    def test_architect_dispatch_does_not_require_an_active_task(self):
+        (self.tmp / ".aiwf/state/tasks.json").write_text(
+            json.dumps({"tasks": []}) + "\n", encoding="utf-8",
+        )
+        result = self._dispatch(
+            "aiwf-architect", "aiwf-architect",
+            prompt=(
+                "Mission: preserve the fixed mission\n"
+                "Review slice: full project\n"
+                "Selected lenses: code-reality\n"
+                "External comparison: none\n"
+                "Output directory: docs/architect/ARCH-20260720/code-reality"
+            ),
+        )
+
+        updated = self._allowed_input(result)
+        self.assertIn("AIWF Architect review", updated["prompt"])
+        self.assertIn("Review slice: full project", updated["prompt"])
+        self.assertNotIn("Task contract:", updated["prompt"])
+
     def test_dispatch_adds_assignment_without_deleting_planner_context(self):
         result = self._dispatch(
             "aiwf-reviewer",
@@ -374,14 +394,6 @@ Verification Commands:
             text=True,
         )
 
-    def _complete_after_return_check(self, subagent_type, agent_id):
-        checked = self._complete(subagent_type, agent_id=agent_id)
-        self.assertEqual(checked.returncode, 0, checked.stderr)
-        output = json.loads(checked.stdout)
-        self.assertEqual(output["decision"], "block")
-        self.assertIn("final contract check", output["reason"])
-        return self._complete(subagent_type, agent_id=agent_id)
-
     def test_review_record_is_blocked_before_required_reviewer_dispatch(self):
         blocked = self._cli(
             "record", "review", "--result", "needs_fix",
@@ -403,6 +415,8 @@ Verification Commands:
             "--summary", "main path bypass", "--blocker", "wire consumer",
         )
         self.assertEqual(recorded.returncode, 0, recorded.stderr)
+        self.assertIn("return the report you already prepared", recorded.stdout)
+        self.assertNotIn("omission check", recorded.stdout)
 
     def test_inline_record_is_allowed_when_role_is_not_required(self):
         tasks_path = self.tmp / ".aiwf" / "state" / "tasks.json"
@@ -495,6 +509,8 @@ Verification Commands:
         reason = output["hookSpecificOutput"]["permissionDecisionReason"]
         self.assertIn("human decision", reason)
         self.assertIn("aiwf fixloop continue --task-id TASK-001", reason)
+        self.assertIn("aiwf task interrupt TASK-001", reason)
+        self.assertIn("aiwf task force-close TASK-001", reason)
 
     def test_escalated_fix_loop_blocks_tester_until_human_continues(self):
         from aiwf_core.core.state.fixloop_ops import continue_fix_loop
@@ -557,8 +573,8 @@ Verification Commands:
         started = self._start("aiwf-executor", "executor-123")
         self.assertEqual(started.returncode, 0, started.stderr)
         self._fresh_implementation_record()
-        completed = self._complete_after_return_check(
-            "aiwf-executor", "executor-123",
+        completed = self._complete(
+            "aiwf-executor", agent_id="executor-123",
         )
         self.assertEqual(completed.returncode, 0, completed.stderr)
 
@@ -568,7 +584,7 @@ Verification Commands:
             .read_text(encoding="utf-8").splitlines()
         ]
         self.assertIn("bound", [entry["status"] for entry in entries])
-        self.assertIn("return_check", [entry["status"] for entry in entries])
+        self.assertNotIn("return_check", [entry["status"] for entry in entries])
         self.assertEqual(entries[-1]["status"], "completed")
         self.assertEqual(entries[-1]["agent_id"], "executor-123")
 
@@ -577,7 +593,7 @@ Verification Commands:
         self._allowed_input(first)
         self._start("aiwf-executor", "executor-123")
         self._fresh_implementation_record()
-        self._complete_after_return_check("aiwf-executor", "executor-123")
+        self._complete("aiwf-executor", agent_id="executor-123")
         record = self._read_record()
         record["fix_loop"] = {"status": "open", "route": "executor"}
         self._write_record(record)
@@ -595,7 +611,7 @@ Verification Commands:
         self._allowed_input(first)
         self._start("aiwf-executor", "executor-123")
         self._fresh_implementation_record()
-        self._complete_after_return_check("aiwf-executor", "executor-123")
+        self._complete("aiwf-executor", agent_id="executor-123")
 
         resumed = self._start("aiwf-executor", "executor-123")
 
@@ -623,7 +639,7 @@ Verification Commands:
             output["hookSpecificOutput"]["permissionDecisionReason"],
         )
 
-    def test_subagent_stop_checks_contract_then_keeps_agent_alive_until_recorded(self):
+    def test_subagent_stop_blocks_only_until_the_fresh_record_exists(self):
         first = self._dispatch("aiwf-executor", "aiwf-implement")
         self._allowed_input(first)
         self._start("aiwf-executor", "executor-123")
@@ -634,15 +650,6 @@ Verification Commands:
 
         self.assertEqual(blocked.returncode, 0, blocked.stderr)
         output = json.loads(blocked.stdout)
-        self.assertEqual(output["decision"], "block")
-        self.assertIn("final contract check", output["reason"])
-        self.assertIn("Reread the Task.md Fixed Contract", output["reason"])
-        self.assertIn("do not rerun them", output["reason"])
-
-        missing_record = self._complete(
-            "aiwf-executor", agent_id="executor-123",
-        )
-        output = json.loads(missing_record.stdout)
         self.assertEqual(output["decision"], "block")
         self.assertIn("aiwf record implementation", output["reason"])
         self.assertIn("do not rerun successful checks", output["reason"])

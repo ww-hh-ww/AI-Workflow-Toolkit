@@ -95,6 +95,10 @@ phrases.
 
 ## Record
 
+Before recording, briefly scan the Task promises and your review notes for a
+missing contract item, tested result, or concrete finding. Do not repeat the
+review merely for this check.
+
 ```bash
 aiwf record review --task-id <TASK-ID> --result accepted --summary "<why the whole story holds>"
 aiwf record review --task-id <TASK-ID> --result accepted --summary "<why it holds>" --adversarial-observations "warn:::<kind>:::<specific remaining concern>"

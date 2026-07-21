@@ -18,6 +18,7 @@ from .plan_commands import (
     _cmd_plan_detach,
     _cmd_plan_help,
     _cmd_plan_hold,
+    _cmd_plan_integrate,
     _cmd_plan_list,
     _cmd_plan_show,
 )
@@ -105,7 +106,6 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
     p_fl_resolve = p_fl_sub.add_parser("resolve", help="resolve a fix-loop")
     p_fl_resolve.add_argument("--resolution", required=True, help="how it was resolved")
     p_fl_resolve.add_argument("--source", default="reviewer")
-    p_fl_resolve.add_argument("--force", action="store_true")
     p_fl_resolve.add_argument("--task-id", default="", help="Task ID (defaults to current worktree)")
     p_fl_resolve.set_defaults(func=_cmd_fix_loop_resolve)
     p_fixloop.set_defaults(func=_cmd_fix_loop_help)
@@ -172,6 +172,17 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
     p_plh = p_plan_sub.add_parser("hold", help="leave a completed Plan open without repeated merge prompts")
     p_plh.add_argument("plan_id", help="Plan ID")
     p_plh.set_defaults(func=_cmd_plan_hold)
+    p_pli = p_plan_sub.add_parser("integrate", help="prepare or finish one Plan integration")
+    p_pli.add_argument("plan_id", help="Plan ID")
+    p_pli.add_argument("--status", choices=["passed", "failed"], default="",
+                       help="record proof for the prepared candidate and merge only when passed")
+    p_pli.add_argument("--command", action="append", default=[], dest="commands",
+                       help="exact integration verification command")
+    p_pli.add_argument("--verification-result", action="append", default=[],
+                       dest="verification_results",
+                       help="command:::expected:::observed:::matched|mismatched")
+    p_pli.add_argument("--summary", default="", help="concise integration result")
+    p_pli.set_defaults(func=_cmd_plan_integrate)
     p_plcl = p_plan_sub.add_parser("close", help="close a plan")
     p_plcl.add_argument("plan_id", help="plan ID")
     p_plcl.add_argument("--summary", default="", help="closure summary")
@@ -229,6 +240,10 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
     p_tca.set_defaults(func=_cmd_task_cancel)
     p_ta = p_task_sub.add_parser("activate", help="activate a task")
     p_ta.add_argument("task_id", help="task ID")
+    p_ta.add_argument(
+        "--accept-head-change", action="store_true",
+        help="resume a suspended Task from the current Git HEAD after user confirmation",
+    )
     p_ta.set_defaults(func=_cmd_task_activate)
     p_tcrit = p_task_sub.add_parser("critique", help="record one Planner activation critique pass")
     p_tcrit.add_argument("task_id", help="task ID")

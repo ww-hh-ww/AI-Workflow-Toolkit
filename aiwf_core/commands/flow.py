@@ -24,6 +24,56 @@ def _read_json(path: Path, default: Dict[str, Any]) -> Dict[str, Any]:
         return default
 
 
+def _hook_problem(task: Dict[str, Any], record: Dict[str, Any]) -> str:
+    fix_loop = record.get("fix_loop", {}) or {}
+    if fix_loop.get("status") == "open":
+        return f"{task['id']} fix-loop routes to {fix_loop.get('route') or 'planner'}"
+    review = record.get("review", {}) or {}
+    if review.get("result") in (
+        "rejected", "needs_fix", "needs_more_testing", "scope_violation",
+    ):
+        return f"{task['id']} review={review.get('result')}"
+    if task.get("scope_violation"):
+        return f"{task['id']} has a scope violation"
+    return ""
+
+
+def _acknowledge_status_hook(control: Path) -> None:
+    """Tell the short UserPrompt hook that this routing state was already read."""
+    workflow_tasks = [
+        task for task in load_ledger(str(control)).get("tasks", []) or []
+        if isinstance(task, dict) and task.get("status") in ("active", "suspended")
+    ]
+    active = [task for task in workflow_tasks if task.get("status") == "active"]
+    problems: List[str] = []
+    tasks: List[Dict[str, Any]] = []
+    for task in workflow_tasks:
+        record = load_task_record(control, str(task.get("id") or ""))
+        problem = _hook_problem(task, record)
+        if problem:
+            problems.append(problem)
+        tasks.append({
+            "id": task.get("id", ""),
+            "phase": task.get("phase", ""),
+            "worktree": task.get("worktree_path", ""),
+            "testing": (record.get("testing", {}) or {}).get("status", "missing"),
+            "review": (record.get("review", {}) or {}).get("result", "unknown"),
+            "fix": (record.get("fix_loop", {}) or {}).get("status", "none"),
+        })
+    tasks.sort(key=lambda task: str(task.get("id") or ""))
+    fingerprint = {
+        "tasks": tasks,
+        "problems": sorted(problems),
+        "temporary_ai_writes": temporary_ai_writes_enabled(control) and not active,
+    }
+    path = control / ".aiwf/runtime/internal/status-hook-last.json"
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(fingerprint, indent=2) + "\n", encoding="utf-8")
+    except OSError:
+        pass
+
+
 def _task_next(
     task: Dict[str, Any],
     record: Dict[str, Any],
@@ -37,10 +87,11 @@ def _task_next(
             return (
                 "Planner decision",
                 f"load /aiwf-planner and run aiwf fixloop status --task-id {task_id}; "
-                "tell the user what failed and what still needs verification, then ask whether "
-                f"to continue or interrupt and replan; to continue, the human runs "
-                f"aiwf fixloop continue --task-id {task_id}; after that, run aiwf status --prompt "
-                "again and follow its route",
+                "tell the user what failed and what still needs verification, then ask them to choose: "
+                f"continue with aiwf fixloop continue --task-id {task_id}; pause and replan with "
+                f"aiwf task interrupt {task_id}; or accept the unmet checks and close with "
+                f"aiwf task force-close {task_id}. These commands are human-only. If they continue, "
+                "run aiwf status --prompt again and follow its route",
             )
         route = str(fix_loop.get("route") or "planner")
         if route == "executor":
@@ -101,7 +152,11 @@ def _task_next(
             return "Executor", f"load /aiwf-implement and dispatch aiwf-executor for {task_id}"
         return "Inline implementation", f"load /aiwf-implement, implement {task_id} inline, and record it"
     proof_gaps: List[str] = []
-    if control and testing.get("status") == "passed":
+    if (
+        control
+        and testing.get("tested_ref")
+        and testing.get("status") in ("partial", "passed")
+    ):
         from ..core.task_proof import testing_proof_gaps, validate_testing_against_task
 
         proof_gaps = testing_proof_gaps(
@@ -145,7 +200,9 @@ def _task_next(
         return (
             "Planner decision",
             f"load /aiwf-planner and disposition {len(pending)} Reviewer observation(s) for {task_id}; "
-            "before choosing deferred, write the finding into its downstream Task or "
+            "fix an observation now when that is safe, bounded, and verifiable in this cycle; "
+            "before choosing deferred, explain why it should wait and its return trigger, ask the "
+            "user to agree, then write it into its downstream Task or "
             ".aiwf/memory/notes/deferred-findings.md",
         )
     if review.get("result") != "accepted" or not review.get("closure_allowed", False):
@@ -201,15 +258,33 @@ def _skill_for(next_role: str) -> str:
 def _active_rows(control: Path) -> List[Dict[str, Any]]:
     rows: List[Dict[str, Any]] = []
     for task in load_ledger(str(control)).get("tasks", []) or []:
-        if not isinstance(task, dict) or task.get("status") != "active":
+        if not isinstance(task, dict) or task.get("status") not in ("active", "suspended"):
             continue
         record = load_task_record(control, str(task.get("id") or ""))
-        next_role, action = _task_next(task, record, control)
         task_id = str(task.get("id") or "")
-        running = [
-            item for item in running_dispatches(control, task_id=task_id)
-            if item["subagent_type"] in WORKFLOW_ROLES
-        ]
+        suspended = task.get("status") == "suspended"
+        if suspended:
+            fix_loop = record.get("fix_loop", {}) or {}
+            next_role = "Planner decision"
+            if fix_loop.get("status") == "open":
+                action = (
+                    f"load /aiwf-planner; inspect the open fix-loop for suspended {task_id}, "
+                    "run any required activation critique, then reactivate this same Task and "
+                    "continue its routed repair; do not resolve an unfixed problem. If activation "
+                    "reports a changed Git HEAD, ask the user before using --accept-head-change"
+                )
+            else:
+                action = (
+                    f"load /aiwf-planner; inspect why {task_id} was suspended and decide whether "
+                    "to revise and reactivate it or cancel it"
+                )
+            running = []
+        else:
+            next_role, action = _task_next(task, record, control)
+            running = [
+                item for item in running_dispatches(control, task_id=task_id)
+                if item["subagent_type"] in WORKFLOW_ROLES
+            ]
         if len(running) == 1:
             role = running[0]["subagent_type"]
             started_at = str(running[0].get("started_at") or "unknown")
@@ -248,6 +323,7 @@ def _active_rows(control: Path) -> List[Dict[str, Any]]:
                     )
         rows.append({
             "id": task_id,
+            "task_status": task.get("status", ""),
             "plan_id": task.get("plan_id") or task.get("parent_plan") or "",
             "phase": task.get("phase", ""),
             "worktree_path": task.get("worktree_path", ""),
@@ -316,6 +392,7 @@ def cmd_status(args) -> None:
     if getattr(args, "debug", False):
         _print_debug(control, worktree, rows, current, plans_closeout, plans_between)
     elif getattr(args, "prompt", False):
+        _acknowledge_status_hook(control)
         _print_prompt(control, worktree, rows, current, plans_closeout, plans_between)
     else:
         _print_human(control, worktree, rows, current, plans_closeout, plans_between)
@@ -333,7 +410,7 @@ def _print_human(
     print(f"AIWF V{VERSION} - {product}")
     print(f"Control root: {control}")
     print(f"Current worktree: {worktree}")
-    print(f"Active Tasks: {len(rows)}")
+    print(f"Workflow Tasks: {len(rows)}")
     if not rows and temporary_ai_writes_enabled(control):
         print("Temporary AI project writes: enabled by human")
     for row in rows:
@@ -354,6 +431,8 @@ def _print_human(
         state = plan.get("_integration_state")
         if state == "merged_pending_close":
             print(f"Plan merged; ready to verify and close: {plan_id}")
+        elif state == "merged_unverified":
+            print(f"Plan merged without an integration record: {plan_id}")
         elif state == "git_incomplete":
             print(f"Plan Git history needs attention before close: {plan_id}")
         elif state == "held":
@@ -367,6 +446,43 @@ def _print_human(
     if not rows and not plans_closeout and not plans_between:
         goal = get_active_goal(str(control))
         print(f"Planning: {goal.get('current_goal') or goal.get('active_goal') or 'no active Goal'}")
+
+
+def _read_text(path: Path) -> str:
+    try:
+        return path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+
+
+def _memory_index_entries(path: Path) -> List[str]:
+    entries: List[str] = []
+    current = ""
+    for line in _read_text(path).splitlines():
+        stripped = line.strip()
+        if stripped.startswith("- ["):
+            if current:
+                entries.append(current)
+            current = stripped
+        elif current and line.startswith(("  ", "\t")) and stripped:
+            current += " " + stripped
+        elif current:
+            entries.append(current)
+            current = ""
+    if current:
+        entries.append(current)
+    return entries
+
+
+def _print_planner_memory(memory_root: Path) -> None:
+    print(f"Planner memory root: {memory_root}")
+    print("Planner memory snapshot:")
+    print("[project-facts.md]")
+    print(_read_text(memory_root / "project-facts.md") or "(empty)")
+    print("[MEMORY.md note index]")
+    entries = _memory_index_entries(memory_root / "MEMORY.md")
+    print("\n".join(entries) if entries else "(no indexed notes)")
+    print("Open a note only when its index entry matches the current decision.")
 
 
 def _print_prompt(
@@ -417,11 +533,22 @@ def _print_prompt(
             f"review={row['review_result']}, fix-loop={row['fix_loop']}"
         )
         if _skill_for(row["next_role"]) == "/aiwf-planner":
-            print(f"Planner memory root: {memory_root}")
+            _print_planner_memory(memory_root)
         return
 
     if plans_closeout:
         print("Do now: handle each open Plan at its current closeout point:")
+        awaiting = [
+            plan for plan in plans_closeout
+            if plan.get("_integration_state") == "awaiting_decision"
+        ]
+        if awaiting:
+            print(
+                "Before merge, ask whether the user wants /aiwf-architect. Review one Plan "
+                "alone; review independent Plans one by one; or review several Plans as one "
+                "slice when they form one capability path. Architect reports; it does not "
+                "replace integration proof or merge the branches."
+            )
         for plan in plans_closeout:
             plan_id = str(plan.get("plan_id") or plan.get("id"))
             branch = str(plan.get("git_branch") or "(unknown branch)")
@@ -429,14 +556,45 @@ def _print_prompt(
             integration_state = plan.get("_integration_state")
             if integration_state == "merged_pending_close":
                 print(
-                    f"- {plan_id} | merged into {base} | on {base}, inspect this Plan's "
-                    "merged result and integration behavior, run its integration proof, then close it."
+                    f"- {plan_id} | verified candidate merged into {base} | close this Plan now."
+                )
+            elif integration_state == "merged_unverified":
+                print(
+                    f"- {plan_id} | already merged without integration proof | run "
+                    f"aiwf plan integrate {plan_id}, verify the adopted candidate, and record "
+                    "the exact results before close."
                 )
             elif integration_state == "awaiting_decision":
                 print(
                     f"- {plan_id} | awaiting user decision | ask whether to add another Task, "
                     f"leave {branch} open, or merge it into {base}. Do not merge before the user chooses. "
                     f"If they choose to leave it open, run aiwf plan hold {plan_id}."
+                )
+            elif integration_state == "integration_ready":
+                candidate_path = str(
+                    ((plan.get("integration") or {}).get("candidate_worktree"))
+                    or plan.get("git_worktree_path") or "(candidate worktree missing)"
+                )
+                print(
+                    f"- {plan_id} | candidate prepared at {candidate_path} | run its integration "
+                    "checks there, then record "
+                    f"the exact results with aiwf plan integrate {plan_id} --status passed ..."
+                )
+            elif integration_state == "integration_conflict":
+                print(
+                    f"- {plan_id} | base and Plan conflict | create a kind=integration Task under "
+                    "this Plan, resolve it through Executor, Tester, Reviewer, and close, then rerun "
+                    f"aiwf plan integrate {plan_id}."
+                )
+            elif integration_state == "integration_failed":
+                print(
+                    f"- {plan_id} | integration proof failed | inspect the failure and add or repair "
+                    "a Task before preparing the Plan again."
+                )
+            elif integration_state == "base_changed":
+                print(
+                    f"- {plan_id} | {base} changed after preparation | rerun "
+                    f"aiwf plan integrate {plan_id}; old proof does not apply."
                 )
             elif integration_state == "held":
                 print(
@@ -484,7 +642,7 @@ def _print_prompt(
             "and maintain memory."
         )
         print("Required skills: /aiwf-planner")
-        print(f"Planner memory root: {memory_root}")
+        _print_planner_memory(memory_root)
         return
     else:
         print(
@@ -492,7 +650,7 @@ def _print_prompt(
             "Mission, Goal, Plan, or Task documents."
         )
         print("Required skills: /aiwf-planner")
-        print(f"Planner memory root: {memory_root}")
+        _print_planner_memory(memory_root)
         return
 
     required = sorted({
@@ -519,14 +677,8 @@ def _print_prompt(
             f"do={row['action']} | next={row['next_role']} | "
             f"skill={_skill_for(row['next_role'])} | worktree={row['worktree_path']}"
         )
-    if rows:
-        print(
-            "Before starting another Plan in parallel, load /aiwf-planner and inspect the relevant "
-            "code. Do not overlap the same file, responsibility, or shared mechanism. Check "
-            "interfaces, state, runtime paths, dependencies, merge order, and combined proof."
-        )
     if "/aiwf-planner" in required:
-        print(f"Planner memory root: {memory_root}")
+        _print_planner_memory(memory_root)
 
 
 def _print_debug(

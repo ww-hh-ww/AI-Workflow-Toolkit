@@ -21,8 +21,8 @@ try to break it.
 ## Required Actions
 
 1. Extract what the relevant Goal.md, Plan.md, Task.md, and Milestone.md claim.
-2. Use the `Planner memory root` printed by `aiwf status --prompt`. Read
-   `project-facts.md` and scan `MEMORY.md` there for facts that may change those
+2. Use the Planner memory snapshot printed by `aiwf status --prompt`. Open a
+   note from the listed memory root only when its index entry may change those
    claims.
 3. Explore code reality with `rg` and file reads. Do not rely on memory or the
    governance files.

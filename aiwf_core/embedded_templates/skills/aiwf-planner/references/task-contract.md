@@ -12,6 +12,9 @@ with each other or project reality, correct the planning first.
 
 An implementation Task needs a real `goal_id` and `plan_id`. A milestone
 verification Task uses `kind=milestone_verification` and `milestone_id` instead.
+Use `kind=integration` only after `aiwf plan integrate <PLAN-ID>` reports a Git
+conflict. State the combined behavior that must survive, the reported conflict
+surfaces, and the integration checks. Do not prescribe a line-by-line resolution.
 
 Set `executor_required`, `tester_required`, and `reviewer_required` from the
 work's real need. When true, the role must be dispatched. When false, the role

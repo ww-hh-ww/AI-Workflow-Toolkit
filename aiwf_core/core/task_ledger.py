@@ -412,7 +412,9 @@ def record_task_activation_critique(base_dir: str, task_id: str) -> Dict[str, An
         "ready": count >= REQUIRED_ACTIVATION_CRITIQUES,
     }
 
-def activation_blockers(base_dir: str, task_id: str) -> List[str]:
+def activation_blockers(
+    base_dir: str, task_id: str, accept_head_change: bool = False,
+) -> List[str]:
     """Task activation minimal gates.
 
     Task.md is the execution contract. Plan is not a gate.
@@ -439,6 +441,25 @@ def activation_blockers(base_dir: str, task_id: str) -> List[str]:
         from .state.plan_ops import get_plan
         plan = get_plan(base_dir, plan_id, migrate=False)
     target_worktree = str(plan.get("git_worktree_path") or resolve_worktree_root(base_dir))
+    if task.get("kind") == "integration":
+        integration = plan.get("integration", {}) or {}
+        if integration.get("status") != "conflict":
+            blockers.append(
+                "integration Task requires a current conflict preflight from "
+                f"'aiwf plan integrate {plan_id}'"
+            )
+        else:
+            from .git_workflow import repository_info
+
+            base_branch = str(plan.get("git_base_branch") or "")
+            base_info = repository_info(str(resolve_control_root(base_dir)))
+            if base_info.get("branch") != base_branch:
+                blockers.append(f"control root must remain on integration base '{base_branch}'")
+            if base_info.get("head") != str(integration.get("base_ref") or ""):
+                blockers.append("integration base changed; rerun Plan integration preflight")
+            plan_info = repository_info(target_worktree)
+            if plan_info.get("head") != str(integration.get("plan_ref") or ""):
+                blockers.append("Plan branch changed; rerun Plan integration preflight")
     occupied = {
         str(item.get("id"))
         for item in tasks
@@ -452,7 +473,8 @@ def activation_blockers(base_dir: str, task_id: str) -> List[str]:
             "target worktree already has active Task " + ", ".join(sorted(occupied))
         )
     record = load_task_record(base_dir, task_id)
-    if task.get("scope_violation"):
+    resuming = task.get("status") == "suspended"
+    if task.get("scope_violation") and not resuming:
         blockers.append(
             "scope violation remains recorded; revert the violating files, then run "
             "aiwf fix-loop resolve --resolution '<what was reverted>' before activating another task"
@@ -460,7 +482,7 @@ def activation_blockers(base_dir: str, task_id: str) -> List[str]:
     if task.get("phase") == "closing":
         blockers.append("this Task still needs to close")
     fix_loop = record.get("fix_loop", {}) or {}
-    if fix_loop.get("status") == "open":
+    if fix_loop.get("status") == "open" and not resuming:
         required = fix_loop.get("required_verification", []) or []
         suffix = f"; required verification: {', '.join(map(str, required[:3]))}" if required else ""
         blockers.append(
@@ -476,12 +498,26 @@ def activation_blockers(base_dir: str, task_id: str) -> List[str]:
     plan_needs_worktree = bool(plan_id and plan and not plan.get("git_worktree_path"))
     if not plan_needs_worktree:
         try:
-            from .git_workflow import task_activation_git_blockers
+            from .git_workflow import repository_info, task_activation_git_blockers
+
+            expected_head = str(task.get("git_origin_ref") or "") if resuming else ""
+            current_head = str(repository_info(target_worktree).get("head") or "")
+            if (
+                expected_head
+                and current_head
+                and current_head != expected_head
+                and not accept_head_change
+            ):
+                blockers.append(
+                    "Git HEAD changed while the Task was suspended. Inspect the new commits; "
+                    "if the user accepts current HEAD as the resumed baseline, rerun: "
+                    f"aiwf task activate {task_id} --accept-head-change"
+                )
             blockers.extend(task_activation_git_blockers(
                 target_worktree,
                 plan,
-                allow_dirty=task.get("status") == "suspended",
-                expected_head=str(task.get("git_origin_ref") or "") if task.get("status") == "suspended" else "",
+                allow_dirty=resuming,
+                expected_head="",
             ))
         except Exception as e:
             blockers.append(f"Git activation check failed: {e}")
@@ -532,11 +568,15 @@ def _active_plan_blockers(base_dir: str, task: Dict[str, Any]) -> List[str]:
 
     return blockers
 
-def activate_task(base_dir: str, task_id: str) -> Dict[str, Any]:
+def activate_task(
+    base_dir: str, task_id: str, accept_head_change: bool = False,
+) -> Dict[str, Any]:
     """Activate a planned task if execution-window gates pass."""
     try:
         with _exclusive_operation_lock(str(resolve_control_root(base_dir)), "task-ledger"):
-            return _activate_task_locked(base_dir, task_id)
+            return _activate_task_locked(
+                base_dir, task_id, accept_head_change=accept_head_change,
+            )
     except TimeoutError as exc:
         return {
             "activated": False,
@@ -546,10 +586,14 @@ def activate_task(base_dir: str, task_id: str) -> Dict[str, Any]:
         }
 
 
-def _activate_task_locked(base_dir: str, task_id: str) -> Dict[str, Any]:
+def _activate_task_locked(
+    base_dir: str, task_id: str, accept_head_change: bool = False,
+) -> Dict[str, Any]:
     ledger = load_ledger(base_dir)
     task = _find(ledger["tasks"], task_id)
-    blockers = activation_blockers(base_dir, task_id)
+    blockers = activation_blockers(
+        base_dir, task_id, accept_head_change=accept_head_change,
+    )
     if blockers:
         return {"activated": False, "task": task, "ledger": ledger, "blockers": blockers}
     from .temporary_access import disable_temporary_ai_writes
@@ -575,6 +619,10 @@ def _activate_task_locked(base_dir: str, task_id: str) -> Dict[str, Any]:
                 bind_plan_worktree(base_dir, p, target)
                 worktree = resolve_worktree_root(target)
                 p.setdefault("task_status", {})[task_id] = "active"
+                if task.get("kind") == "integration":
+                    integration = p.get("integration", {}) or {}
+                    task["integration_base_ref"] = str(integration.get("base_ref") or "")
+                    task["integration_plan_ref"] = str(integration.get("plan_ref") or "")
                 save_plans(base_dir, plans)
                 break
     if task.get("plan_id"):
@@ -591,15 +639,42 @@ def _activate_task_locked(base_dir: str, task_id: str) -> Dict[str, Any]:
             pass
     from .git_workflow import repository_info
 
-    if not resuming or not task.get("git_origin_ref"):
-        git_info = repository_info(str(worktree))
+    git_info = repository_info(str(worktree))
+    adopted_head_ref = ""
+    if (
+        resuming
+        and accept_head_change
+        and task.get("git_origin_ref")
+        and git_info["head"] != task.get("git_origin_ref")
+    ):
+        from .task_records import load_task_record
+
+        previous = load_task_record(base_dir, task_id)
+        observations = list(
+            (previous.get("review", {}) or {}).get("adversarial_observations", []) or []
+        )
+        fresh = default_task_record(task_id)
+        fresh["fix_loop"] = previous.get("fix_loop", {}) or fresh["fix_loop"]
+        fresh["review"]["adversarial_observations"] = observations
+        save_task_record(base_dir, fresh)
+        task["git_origin_ref"] = git_info["head"]
+        task["git_branch"] = git_info["branch"]
+        task["adopted_head_ref"] = git_info["head"]
+        adopted_head_ref = git_info["head"]
+    elif not resuming or not task.get("git_origin_ref"):
         ref = git_info["head"]
         task["git_origin_ref"] = ref
         task["git_branch"] = git_info["branch"]
         save_task_record(base_dir, default_task_record(task_id))
     task["worktree_path"] = str(worktree)
     save_ledger(base_dir, ledger)
-    return {"activated": True, "task": task, "ledger": ledger, "blockers": []}
+    return {
+        "activated": True,
+        "task": task,
+        "ledger": ledger,
+        "blockers": [],
+        "adopted_head_ref": adopted_head_ref,
+    }
 
 def interrupt_task(base_dir: str, reason: str = "", task_id: str = "") -> Dict[str, Any]:
     try:
@@ -751,8 +826,13 @@ def _close_task_locked(base_dir: str, task_id: str = "", note: str = "") -> Dict
             blockers.append("Reviewer did not accept the current tested snapshot")
         if reviewed_ref:
             try:
-                from .git_snapshots import worktree_matches_ref
-                if not worktree_matches_ref(worktree, reviewed_ref):
+                from .git_snapshots import worktree_changes_from_ref, worktree_matches_ref
+                matches = (
+                    not worktree_changes_from_ref(worktree, reviewed_ref)
+                    if task.get("kind") == "integration"
+                    else worktree_matches_ref(worktree, reviewed_ref)
+                )
+                if not matches:
                     from .git_workflow import reviewed_snapshot_mismatch_message
                     blockers.append(reviewed_snapshot_mismatch_message(worktree, reviewed_ref))
             except Exception as e:
@@ -914,6 +994,31 @@ def _force_close_task_locked(base_dir: str, reason: str = "", task_id: str = "")
     if warning:
         task.setdefault("close_warnings", []).append(warning)
 
+    from .agent_runtime import cancel_task_dispatches
+    from .task_records import update_task_record
+
+    cancel_task_dispatches(base_dir, task_id, source="task_force_close")
+
+    def record_human_decision(record: Dict[str, Any]) -> None:
+        fix_loop = record.get("fix_loop", {}) or {}
+        if fix_loop.get("status") != "open":
+            return
+        history = list(fix_loop.get("route_history", []) or [])
+        history.append({
+            "attempt": int(fix_loop.get("attempt_count", 0) or 0),
+            "route": str(fix_loop.get("route") or "planner"),
+            "reason": reason.strip() or "human force-closed the Task",
+            "source": "human",
+        })
+        fix_loop.update({
+            "escalation_required": False,
+            "escalation_reason": "",
+            "rollback_recommended": False,
+            "route_history": history,
+        })
+        record["fix_loop"] = fix_loop
+
+    update_task_record(base_dir, task_id, record_human_decision)
     save_ledger(base_dir, ledger)
 
     try:

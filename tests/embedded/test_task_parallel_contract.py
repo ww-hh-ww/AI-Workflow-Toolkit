@@ -188,6 +188,8 @@ class TestTaskParallelContract(unittest.TestCase):
             f"Planner memory root: {self.tmp.resolve() / '.aiwf/memory'}",
             status.stdout,
         )
+        self.assertIn("Planner memory snapshot:", status.stdout)
+        self.assertIn("[Memory Review](notes/memory-layer.md)", status.stdout)
 
         index_path = self.tmp / ".aiwf/memory/MEMORY.md"
         original = index_path.read_text(encoding="utf-8")
@@ -228,6 +230,7 @@ class TestTaskParallelContract(unittest.TestCase):
         self.assertIn("next=Executor", status)
         self.assertIn("next=Tester", status)
         self.assertIn("Independent Plans may run in parallel", status)
+        self.assertNotIn("Before starting another Plan", status)
         self.assertIn("Required skills: /aiwf-implement, /aiwf-test", status)
 
         status_from_plan_a = subprocess.run(
@@ -354,6 +357,106 @@ class TestTaskParallelContract(unittest.TestCase):
 
         self.assertEqual(resolved["status"], "resolved")
 
+    def test_suspended_task_reactivates_with_its_open_fix_loop(self):
+        from aiwf_core.core.state.fixloop_ops import open_fix_loop
+        from aiwf_core.core.task_ledger import interrupt_task
+        from aiwf_core.core.task_records import load_task_record
+
+        self.assertTrue(activate_task(str(self.tmp), "TASK-A1")["activated"])
+        open_fix_loop(
+            str(self.worktree_a), route="executor", reason="repair the real defect",
+            required_fixes=["fix feature-a.txt"], task_id="TASK-A1",
+        )
+        interrupted = interrupt_task(
+            str(self.worktree_a), reason="human paused the task", task_id="TASK-A1",
+        )
+        self.assertTrue(interrupted["interrupted"])
+
+        resumed = activate_task(str(self.tmp), "TASK-A1")
+
+        self.assertTrue(resumed["activated"], resumed["blockers"])
+        self.assertEqual(resumed["task"]["status"], "active")
+        self.assertEqual(
+            load_task_record(self.tmp, "TASK-A1")["fix_loop"]["route"], "executor",
+        )
+
+    def test_suspended_task_adopts_changed_head_only_after_explicit_flag(self):
+        from aiwf_core.core.state.fixloop_ops import open_fix_loop
+        from aiwf_core.core.task_ledger import interrupt_task
+        from aiwf_core.core.task_records import load_task_record, save_task_record
+
+        self.assertTrue(activate_task(str(self.tmp), "TASK-A1")["activated"])
+        open_fix_loop(
+            str(self.worktree_a), route="executor", reason="repair the real defect",
+            required_fixes=["fix feature-a.txt"], task_id="TASK-A1",
+        )
+        record = load_task_record(self.tmp, "TASK-A1")
+        record["review"]["adversarial_observations"] = [{
+            "id": "ADV-001", "severity": "warn", "kind": "edge",
+            "message": "preserve this finding", "disposition": "pending",
+        }]
+        save_task_record(self.tmp, record)
+        self.assertTrue(interrupt_task(
+            str(self.worktree_a), reason="pause", task_id="TASK-A1",
+        )["interrupted"])
+
+        (self.worktree_a / "external.txt").write_text("accepted head\n", encoding="utf-8")
+        subprocess.run(["git", "add", "external.txt"], cwd=self.worktree_a, check=True)
+        subprocess.run(
+            ["git", "commit", "-m", "external accepted change"],
+            cwd=self.worktree_a, check=True, capture_output=True,
+        )
+        current_head = subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=self.worktree_a, check=True,
+            capture_output=True, text=True,
+        ).stdout.strip()
+
+        blocked = activate_task(str(self.tmp), "TASK-A1")
+        self.assertFalse(blocked["activated"])
+        self.assertIn("--accept-head-change", " ".join(blocked["blockers"]))
+
+        resumed = activate_task(
+            str(self.tmp), "TASK-A1", accept_head_change=True,
+        )
+        self.assertTrue(resumed["activated"], resumed["blockers"])
+        self.assertEqual(resumed["adopted_head_ref"], current_head)
+        self.assertEqual(resumed["task"]["git_origin_ref"], current_head)
+        refreshed = load_task_record(self.tmp, "TASK-A1")
+        self.assertFalse(refreshed["implementation"]["implementation_ref"])
+        self.assertEqual(refreshed["testing"]["status"], "missing")
+        self.assertEqual(refreshed["review"]["result"], "unknown")
+        self.assertEqual(
+            refreshed["review"]["adversarial_observations"][0]["id"], "ADV-001",
+        )
+        self.assertEqual(refreshed["fix_loop"]["status"], "open")
+
+    def test_suspended_fix_loop_can_be_resolved_by_explicit_task_id(self):
+        from aiwf_core.core.state.fixloop_ops import open_fix_loop, resolve_fix_loop
+        from aiwf_core.core.task_ledger import interrupt_task
+
+        self.assertTrue(activate_task(str(self.tmp), "TASK-A1")["activated"])
+        open_fix_loop(
+            str(self.worktree_a), route="planner", reason="decision already made",
+            task_id="TASK-A1",
+        )
+        self.assertTrue(interrupt_task(
+            str(self.worktree_a), reason="pause", task_id="TASK-A1",
+        )["interrupted"])
+
+        resolved = resolve_fix_loop(
+            str(self.tmp), resolution="verified decision", source="planner",
+            task_id="TASK-A1",
+        )
+
+        self.assertEqual(resolved["status"], "resolved")
+        task = next(
+            item for item in load_ledger(str(self.tmp))["tasks"]
+            if item["id"] == "TASK-A1"
+        )
+        self.assertEqual(task["status"], "suspended")
+        self.assertEqual(task["phase"], "suspended")
+        self.assertEqual(task["suspended_phase"], "reviewing")
+
     def test_optional_agents_route_to_inline_work_without_skipping_records(self):
         from aiwf_core.commands.flow import _task_next
         from aiwf_core.core.task_records import default_task_record
@@ -380,7 +483,9 @@ class TestTaskParallelContract(unittest.TestCase):
         }]
         role, action = _task_next(task, record)
         self.assertEqual(role, "Planner decision")
+        self.assertIn("fix an observation now", action)
         self.assertIn("before choosing deferred", action)
+        self.assertIn("ask the user to agree", action)
         self.assertIn("deferred-findings.md", action)
 
         record["review"]["adversarial_observations"][0]["disposition"] = "deferred"

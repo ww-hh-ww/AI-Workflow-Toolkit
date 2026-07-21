@@ -19,8 +19,8 @@ path cannot satisfy it, but it must not invent a broader mission.
 
 Before dispatch, ask the user to choose:
 
-- Review slice: full project, one milestone, recent completed work, one
-  capability path, or a named concern.
+- Review slice: full project, one milestone, one or several completed Plans,
+  recent completed work, one capability path, or a named concern.
 - Lenses:
   - `mission-mechanism`: right path and better structure.
   - `code-reality`: real callers, consumers, old paths, and wiring.
@@ -33,6 +33,10 @@ Do not infer these choices silently.
 ## Dispatch
 
 Use one `aiwf-architect` Agent for a small slice or a few related lenses.
+
+For several Plans, ask whether to review each Plan separately or review their
+combined capability path. Separate reviews judge independent results. A unified
+review judges their shared structure, interactions, and combined main path.
 
 For a full project, all lenses, or substantial external comparison, ask
 whether to split. If the user agrees, dispatch one Agent per lens. Give every

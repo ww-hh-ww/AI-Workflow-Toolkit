@@ -26,8 +26,8 @@ owners, old paths, and proof. Mark important unverified facts Unknown.
 1. Run `aiwf status --prompt`.
 2. Read `.aiwf/mission.md`.
 3. Read the relevant Goal, Plan, Task, Milestone, and their matching JSON state.
-4. Use the `Planner memory root` printed by status. Read `project-facts.md` and
-   scan `MEMORY.md` there. Open a note only when it matches the work.
+4. Use the Planner memory snapshot printed by status. Open a note from the
+   listed memory root only when its index entry matches the work.
 5. Read relevant user-requested `docs/architect/ARCH-*` reports.
 6. Inspect the code and runtime surfaces needed for the current decision.
 
@@ -161,11 +161,13 @@ code, proof, a completed task, an Architect report, or a user decision.
 
 Every unresolved finding needs one visible outcome: resolve it, defer it with a
 reason and return path, accept it as a known limitation, or dismiss it with a
-reason. Ask the user before accepting a material risk or tradeoff.
+reason. Fix it now when that is safe, bounded, and verifiable in this cycle. Ask
+the user before deferring work or accepting a material risk or tradeoff.
 
 Use `references/lifecycle.md` to compare the completed Task with its Plan,
-prepare the next Task, and close a completed Plan. Use Architect only when the
-user asks for a broader structural audit.
+prepare the next Task, and close a completed Plan. Before merging completed
+Plans, suggest Architect and explain the single-Plan, separate multi-Plan, and
+unified multi-Plan review choices. The user decides whether to run it.
 
 ## Stop Condition
 

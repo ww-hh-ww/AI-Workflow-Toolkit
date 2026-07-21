@@ -86,6 +86,30 @@ class TestGitTaskRecords(unittest.TestCase):
         self.assertNotIn("evidence_id", testing)
         self.assertNotIn("accepted_evidence_ids", review)
 
+    def test_adopted_head_can_close_without_creating_an_empty_commit(self):
+        from aiwf_core.core.git_snapshots import create_task_snapshot
+        from aiwf_core.core.git_workflow import create_task_commit
+
+        head = subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=self.tmp, check=True,
+            capture_output=True, text=True,
+        ).stdout.strip()
+        reviewed = create_task_snapshot(
+            str(self.tmp), "TASK-001", "review", head,
+            summary="adopted existing reviewed commit",
+        )["ref"]
+        result = create_task_commit(
+            str(self.tmp),
+            {
+                "id": "TASK-001", "title": "adopt accepted head",
+                "git_branch": "feature/test", "adopted_head_ref": head,
+            },
+            head,
+            reviewed,
+        )
+
+        self.assertEqual(result, head)
+
     def test_testing_records_accumulate_on_the_same_snapshot(self):
         from aiwf_core.core.state.context_ops import record_implementation
         from aiwf_core.core.state.testing_ops import record_testing
@@ -155,6 +179,58 @@ Verification Commands:
         self.assertEqual(proof["missing_commands"], [])
         self.assertEqual(proof["missing_verification_results"], [])
 
+    def test_partial_testing_route_names_missing_proof(self):
+        from aiwf_core.commands.flow import _task_next
+        from aiwf_core.core.state.context_ops import record_implementation
+        from aiwf_core.core.state.testing_ops import record_testing
+        from aiwf_core.core.task_records import load_task_record
+
+        task_doc = self.tmp / ".aiwf/tasks/TASK-001.md"
+        task_doc.parent.mkdir(parents=True, exist_ok=True)
+        task_doc.write_text(
+            """# TASK-001
+
+## Fixed Contract
+
+### Objective
+
+Ship the feature.
+
+### Proof Standard
+
+Done When:
+
+- [Running] Both checks pass.
+
+Verification Commands:
+
+| Command | Expected Observable Output |
+|---------|----------------------------|
+| pytest unit | unit passes |
+| pytest integration | integration passes |
+""",
+            encoding="utf-8",
+        )
+        (self.tmp / "src").mkdir(exist_ok=True)
+        (self.tmp / "src/feature.py").write_text("VALUE = 1\n", encoding="utf-8")
+        record_implementation(str(self.tmp), "implemented feature")
+        testing = record_testing(
+            str(self.tmp), status="passed", commands=["pytest unit"],
+            verification_results=[{
+                "command": "pytest unit", "expected": "unit passes",
+                "observed": "unit passes", "matched": True,
+            }],
+        )
+        self.assertEqual(testing["status"], "partial")
+
+        task = json.loads((self.tmp / ".aiwf/state/tasks.json").read_text())["tasks"][0]
+        role, action = _task_next(
+            task, load_task_record(self.tmp, "TASK-001"), self.tmp,
+        )
+        self.assertEqual(role, "Tester")
+        self.assertIn("pytest integration", action)
+        self.assertIn("valid results on the unchanged tested snapshot are preserved", action)
+
     def test_testing_record_starts_fresh_after_the_worktree_changes(self):
         from aiwf_core.core.state.context_ops import record_implementation
         from aiwf_core.core.state.testing_ops import record_testing
@@ -181,6 +257,61 @@ Verification Commands:
 
         self.assertNotEqual(second["tested_ref"], first["tested_ref"])
         self.assertEqual(second["commands"], ["pytest integration"])
+
+    def test_new_snapshots_invalidate_review_but_preserve_observations(self):
+        from aiwf_core.core.state.context_ops import record_implementation
+        from aiwf_core.core.state.review_ops import record_review
+        from aiwf_core.core.state.testing_ops import record_testing
+        from aiwf_core.core.task_records import load_task_record
+
+        (self.tmp / "src").mkdir(exist_ok=True)
+        feature = self.tmp / "src/feature.py"
+        feature.write_text("VALUE = 1\n", encoding="utf-8")
+        record_implementation(str(self.tmp), "initial implementation")
+        record_testing(str(self.tmp), status="passed", commands=["pytest -q"])
+        record_review(
+            str(self.tmp), result="accepted", closure_allowed=True,
+            summary="sound with one follow-up",
+            adversarial_observations=[{
+                "id": "ADV-001", "severity": "warn", "kind": "boundary",
+                "message": "cover the alternate entry", "disposition": "pending",
+            }],
+        )
+
+        feature.write_text("VALUE = 2\n", encoding="utf-8")
+        record_implementation(str(self.tmp), "addressed review observation")
+        after_implementation = load_task_record(self.tmp, "TASK-001")
+        self.assertEqual(after_implementation["testing"]["status"], "missing")
+        self.assertEqual(after_implementation["review"]["result"], "unknown")
+        self.assertEqual(
+            after_implementation["review"]["adversarial_observations"][0]["id"],
+            "ADV-001",
+        )
+
+        record_testing(str(self.tmp), status="passed", commands=["pytest -q"])
+        record_review(
+            str(self.tmp), result="accepted", closure_allowed=True,
+            summary="repair verified and reviewed",
+            adversarial_observations=[{
+                "id": "ADV-001", "severity": "low", "kind": "cleanup",
+                "message": "consider a smaller fixture", "disposition": "pending",
+            }],
+        )
+        final = load_task_record(self.tmp, "TASK-001")["review"]
+        self.assertEqual([item["id"] for item in final["adversarial_observations"]], [
+            "ADV-001", "ADV-002",
+        ])
+        from aiwf_core.core.state.adversarial_ops import disposition_adversarial_observation
+
+        disposition_adversarial_observation(
+            str(self.tmp), "ADV-001", "resolved",
+            reason="alternate entry is now covered and verified",
+            task_id="TASK-001",
+        )
+        disposed = load_task_record(self.tmp, "TASK-001")["review"]
+        self.assertEqual(
+            disposed["adversarial_observations"][0]["disposition"], "resolved",
+        )
 
     def test_recorded_repair_routes_to_tester_and_verified_fix_loop_resolves(self):
         from aiwf_core.commands.flow import _task_next
@@ -268,6 +399,41 @@ Verification Commands:
         self.assertEqual(
             resolved["testing"]["based_on_ref"],
             implementation["implementation_ref"],
+        )
+
+    def test_planner_cannot_resolve_escalation_without_human_decision(self):
+        from aiwf_core.core.state.context_ops import record_implementation
+        from aiwf_core.core.state.fixloop_ops import resolve_fix_loop
+        from aiwf_core.core.state.testing_ops import record_testing
+        from aiwf_core.core.task_records import load_task_record, update_task_record
+
+        (self.tmp / "src").mkdir(exist_ok=True)
+        (self.tmp / "src/feature.py").write_text("VALUE = 1\n", encoding="utf-8")
+        record_implementation(str(self.tmp), "initial implementation")
+        record_testing(
+            str(self.tmp), status="failed", commands=["pytest -q"],
+            failure_summary="feature still fails",
+        )
+
+        def escalate(record):
+            record["fix_loop"].update({
+                "escalation_required": True,
+                "escalation_reason": "retry limit reached",
+                "required_fixes": [],
+                "required_verification": [],
+            })
+
+        update_task_record(self.tmp, "TASK-001", escalate)
+
+        with self.assertRaisesRegex(ValueError, "human must continue, interrupt, or force-close"):
+            resolve_fix_loop(
+                str(self.tmp), resolution="Planner accepts the failure",
+                source="planner", task_id="TASK-001",
+            )
+
+        self.assertEqual(
+            load_task_record(self.tmp, "TASK-001")["fix_loop"]["status"],
+            "open",
         )
 
     def test_continued_escalation_does_not_accept_adequate_testing(self):
@@ -485,7 +651,12 @@ Verification Commands:
             cwd=self.tmp, check=True, capture_output=True,
         )
         self.assertTrue(plan_merged_into_base(str(self.tmp), plan))
-        self.assertEqual(plan_integration_state(str(self.tmp), plan), "merged_pending_close")
+        self.assertEqual(plan_integration_state(str(self.tmp), plan), "merged_unverified")
+        merge_commit = subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=self.tmp, check=True,
+            capture_output=True, text=True,
+        ).stdout.strip()
+        plan["integration"] = {"status": "merged", "merge_commit": merge_commit}
         self.assertEqual(plan_close_blockers(str(self.tmp), plan), [])
 
     def test_new_task_clears_a_held_plan_decision(self):

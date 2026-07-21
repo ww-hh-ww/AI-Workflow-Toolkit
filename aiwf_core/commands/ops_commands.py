@@ -29,6 +29,7 @@ def _cmd_fix_loop_open(args: argparse.Namespace) -> None:
         print(f"  Required fixes: {len(args.required_fixes)}")
     if args.required_verification:
         print(f"  Required verification: {len(args.required_verification)}")
+    print("  Next: run aiwf status --prompt and follow its route")
 
 
 def _cmd_fix_loop_resolve(args: argparse.Namespace) -> None:
@@ -39,14 +40,15 @@ def _cmd_fix_loop_resolve(args: argparse.Namespace) -> None:
             str(Path.cwd()),
             resolution=args.resolution,
             source=args.source or "reviewer",
-            force=bool(args.force),
             task_id=args.task_id,
         )
     except ValueError as exc:
         print(f"Fix-loop resolution blocked: {exc}", file=sys.stderr)
+        print("  Next: run aiwf status --prompt and follow its route", file=sys.stderr)
         raise SystemExit(1)
     print(f"Fix-loop resolved: status={result['status']}")
     print(f"  Resolution: {args.resolution[:160]}")
+    print("  Next: run aiwf status --prompt and follow its route")
 
 
 def _cmd_fix_loop_continue(args: argparse.Namespace) -> None:
@@ -60,13 +62,14 @@ def _cmd_fix_loop_continue(args: argparse.Namespace) -> None:
     print("Fix-loop continued by human decision")
     print(f"  Route: {result.get('route') or 'planner'}")
     print(f"  Attempt: {result.get('attempt_count', 0)}")
+    print("  Next: run aiwf status --prompt and follow its route")
 
 
 def _cmd_fix_loop_status(args: argparse.Namespace) -> None:
-    from ..core.task_ledger import resolve_active_task_id
+    from ..core.state.fixloop_ops import resolve_fixloop_task_id
     from ..core.task_records import load_task_record
 
-    task_id = resolve_active_task_id(str(Path.cwd()), args.task_id)
+    task_id = resolve_fixloop_task_id(str(Path.cwd()), args.task_id)
     if not task_id:
         print("Fix-loop status blocked: Task ID required or no Task is assigned to this worktree", file=sys.stderr)
         raise SystemExit(1)
@@ -84,6 +87,9 @@ def _cmd_fix_loop_status(args: argparse.Namespace) -> None:
         print(f"  Verify: {str(item)[:160]}")
     if fix_loop.get("escalation_required"):
         print("  Human decision required: yes")
+        print(f"  Continue: aiwf fixloop continue --task-id {task_id}")
+        print(f"  Pause and replan: aiwf task interrupt {task_id}")
+        print(f"  Accept unmet checks and close: aiwf task force-close {task_id}")
 
 
 def _cmd_fix_loop_help(args: argparse.Namespace) -> None:

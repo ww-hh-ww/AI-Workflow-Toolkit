@@ -202,6 +202,7 @@ def create_task_commit(
     base = Path(base_dir)
     info = repository_info(base_dir)
     expected_branch = str(task.get("git_branch") or "")
+    integration_task = str(task.get("kind") or "") == "integration"
     if expected_branch and info["branch"] != expected_branch:
         raise ValueError(
             f"Task is bound to Git branch '{expected_branch}', current branch is '{info['branch']}'"
@@ -216,28 +217,51 @@ def create_task_commit(
             "Git HEAD changed since Task activation; " + SNAPSHOT_GUIDANCE +
             ". Re-plan or restart the Task on the current branch"
         )
-    if not worktree_matches_ref(base_dir, reviewed_ref):
+    if integration_task:
+        if worktree_changes_from_ref(base_dir, reviewed_ref):
+            raise ValueError(reviewed_snapshot_mismatch_message(base_dir, reviewed_ref))
+    elif not worktree_matches_ref(base_dir, reviewed_ref):
         raise ValueError(reviewed_snapshot_mismatch_message(base_dir, reviewed_ref))
     files = diff_files(base_dir, origin_ref, reviewed_ref)
     if not files:
+        if (
+            str(task.get("adopted_head_ref") or "") == info["head"]
+            and ref_tree(base_dir, info["head"]) == ref_tree(base_dir, reviewed_ref)
+            and worktree_matches_ref(base_dir, reviewed_ref)
+        ):
+            return info["head"]
         raise ValueError("Task has no reviewed project changes to commit")
     staged_result = _run(base, "diff", "--cached", "--name-only", "-z")
     if staged_result.returncode != 0:
         raise ValueError(staged_result.stderr.strip() or "cannot inspect the Git index")
     staged_before = parse_nul_paths(staged_result.stdout)
-    if staged_before:
+    if staged_before and not integration_task:
         staged = ", ".join(staged_before[:8])
         raise ValueError(
             f"Git index already contains staged files: {staged}; "
             "unstage them before Task close"
         )
-    _required(base, "add", "-A", "--", *files)
+    if integration_task:
+        merge_head = _run(base, "rev-parse", "-q", "--verify", "MERGE_HEAD")
+        expected_parent = str(task.get("integration_base_ref") or "")
+        if merge_head.returncode != 0:
+            raise ValueError(
+                "integration Task has not merged its recorded base ref; run the merge from "
+                "Task.md and resolve it before close"
+            )
+        if expected_parent and merge_head.stdout.strip() != expected_parent:
+            raise ValueError("integration Task is resolving a different base commit than it activated with")
+        _required(base, "add", "-A", "--", ".")
+    else:
+        _required(base, "add", "-A", "--", *files)
     staged_tree = _required(base, "write-tree")
     expected_tree = ref_tree(base_dir, reviewed_ref)
-    if staged_tree != expected_tree:
+    project_mismatch = bool(tree_changes(base_dir, reviewed_ref, staged_tree))
+    if (integration_task and project_mismatch) or (not integration_task and staged_tree != expected_tree):
         changes = tree_changes(base_dir, reviewed_ref, staged_tree)
         detail = format_tree_changes(changes) or "tree content or file modes differ"
-        _run(base, "reset", "-q", "HEAD", "--", ".")
+        if not integration_task:
+            _run(base, "reset", "-q", "HEAD", "--", ".")
         raise ValueError(
             f"staged Task tree does not match the reviewed snapshot ({detail}); "
             f"{SNAPSHOT_GUIDANCE}"
@@ -258,7 +282,10 @@ def create_task_commit(
         _run(base, "reset", "-q", "HEAD", "--", ".")
         raise ValueError(result.stderr.strip() or result.stdout.strip() or "git commit failed")
     commit = _required(base, "rev-parse", "HEAD")
-    if ref_tree(base_dir, commit) != expected_tree:
+    if integration_task:
+        if tree_changes(base_dir, reviewed_ref, commit):
+            raise ValueError("created integration commit differs from the reviewed project snapshot")
+    elif ref_tree(base_dir, commit) != expected_tree:
         raise ValueError("created commit differs from the reviewed snapshot")
     if changed_project_files(base_dir):
         raise ValueError("project files changed during commit; retest and review the remaining changes")
@@ -296,12 +323,33 @@ def plan_integration_state(base_dir: str, plan: Dict[str, Any]) -> str:
         return "working"
     if not any(status == "closed" for status in statuses.values()):
         return "no_completed_work"
+    branch = str(plan.get("git_branch") or "")
+    head_ref = str(plan.get("git_head_ref") or "")
+    if branch and head_ref:
+        actual = _run(Path(base_dir), "rev-parse", f"{branch}^{{commit}}")
+        if actual.returncode != 0 or actual.stdout.strip() != head_ref:
+            return "git_incomplete"
+    integration = plan.get("integration", {}) or {}
+    integration_status = str(integration.get("status") or "")
+    if integration_status == "conflict":
+        return "integration_conflict"
+    if integration_status == "failed":
+        return "integration_failed"
+    if integration_status == "prepared":
+        base_branch = str(plan.get("git_base_branch") or "")
+        current_base = _run(Path(base_dir), "rev-parse", f"{base_branch}^{{commit}}")
+        if current_base.returncode != 0:
+            return "git_incomplete"
+        if current_base.stdout.strip() != str(integration.get("base_ref") or ""):
+            return "base_changed"
+        return "integration_ready"
     merge_state = plan_merge_state(base_dir, plan)
     if merge_state == "merged":
+        if integration_status != "merged":
+            return "merged_unverified"
         return "merged_pending_close"
     if merge_state == "unknown":
         return "git_incomplete"
-    head_ref = str(plan.get("git_head_ref") or "")
     if head_ref and str(plan.get("integration_hold_ref") or "") == head_ref:
         return "held"
     return "awaiting_decision"
@@ -329,4 +377,16 @@ def plan_close_blockers(base_dir: str, plan: Dict[str, Any]) -> List[str]:
         )
     elif not plan_merged_into_base(base_dir, plan):
         blockers.append(f"Plan branch '{branch}' is not merged into '{base_branch}'")
+    integration = plan.get("integration", {}) or {}
+    if str(integration.get("status") or "") != "merged":
+        blockers.append(
+            "Plan has no passing integration record for the merged result; run "
+            f"'aiwf plan integrate {plan.get('plan_id') or plan.get('id')}' and record proof"
+        )
+    else:
+        merge_commit = str(integration.get("merge_commit") or "")
+        if not merge_commit or _run(
+            Path(base_dir), "merge-base", "--is-ancestor", merge_commit, base_branch,
+        ).returncode != 0:
+            blockers.append("recorded Plan merge commit is not present on the base branch")
     return blockers

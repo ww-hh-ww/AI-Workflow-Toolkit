@@ -8,6 +8,50 @@ from typing import Any, Dict, List, Optional
 from ._common import BLOCKING_REVIEW_RESULTS
 
 
+def invalidated_review(task_id: str, previous: Dict[str, Any]) -> Dict[str, Any]:
+    """Invalidate the verdict while keeping observations available to Planner."""
+    from ..state_schema import default_review
+
+    review = default_review(task_id)
+    review["adversarial_observations"] = [
+        dict(item)
+        for item in (previous.get("adversarial_observations", []) or [])
+        if isinstance(item, dict)
+    ]
+    return review
+
+
+def _merge_observations(
+    previous: List[Dict[str, Any]], current: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    merged = [dict(item) for item in previous if isinstance(item, dict)]
+    signatures = {
+        (item.get("severity"), item.get("kind"), item.get("message"))
+        for item in merged
+    }
+    next_id = max(
+        [
+            int(str(item.get("id") or "").removeprefix("ADV-"))
+            for item in merged
+            if str(item.get("id") or "").removeprefix("ADV-").isdigit()
+        ]
+        or [0]
+    )
+    for item in current:
+        if not isinstance(item, dict):
+            continue
+        signature = (item.get("severity"), item.get("kind"), item.get("message"))
+        if signature in signatures:
+            continue
+        next_id += 1
+        added = dict(item)
+        added["id"] = f"ADV-{next_id:03d}"
+        added.setdefault("disposition", "pending")
+        merged.append(added)
+        signatures.add(signature)
+    return merged
+
+
 def record_review(
     base_dir: str,
     result: str,
@@ -56,10 +100,17 @@ def record_review(
     if not worktree_matches_ref(worktree, tested_ref):
         raise ValueError("project files changed after testing; record testing again before review")
 
-    observations = list(adversarial_observations or [])
+    observations = _merge_observations(
+        list((task_record.get("review", {}) or {}).get("adversarial_observations", []) or []),
+        list(adversarial_observations or []),
+    )
     unresolved_high = [
         item for item in observations
-        if isinstance(item, dict) and item.get("severity") in ("critical", "high")
+        if (
+            isinstance(item, dict)
+            and item.get("severity") in ("critical", "high")
+            and item.get("disposition") != "resolved"
+        )
     ]
     if result == "accepted" and unresolved_high:
         raise ValueError("critical/high observations cannot be accepted")

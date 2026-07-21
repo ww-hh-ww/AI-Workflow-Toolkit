@@ -72,7 +72,12 @@ _SHOW_CANCELLED = False
 _PLAN_CLOSEOUT_LABELS = {
     "awaiting_decision": "Awaiting user decision: add a Task, leave open, or merge",
     "held": "Intentionally left open",
-    "merged_pending_close": "Merged; verify the integrated result and close",
+    "integration_ready": "Integration candidate prepared; run proof",
+    "integration_conflict": "Integration conflict; create an integration Task",
+    "integration_failed": "Integration proof failed; repair or add a Task",
+    "base_changed": "Base changed; prepare the integration candidate again",
+    "merged_unverified": "Merged without integration proof; verify before close",
+    "merged_pending_close": "Merged and verified; close the Plan",
     "git_incomplete": "Git history incomplete",
     "no_completed_work": "No completed result; add a Task or cancel the Plan",
 }
@@ -326,6 +331,9 @@ def status_icon(status):
     return {"closed": "✓", "cancelled": "✗", "active": "◉",
             "ready": "○", "open": "○", "pending": "○",
             "awaiting_decision": "?", "held": "‖",
+            "integration_ready": "◇", "integration_conflict": "!",
+            "integration_failed": "!", "base_changed": "↻",
+            "merged_unverified": "!",
             "merged_pending_close": "◆", "git_incomplete": "!",
             "no_completed_work": "?"}.get(status, "○")
 
@@ -404,9 +412,14 @@ def render_tree(stdscr, nodes, selected_idx, scroll_offset, max_rows, detail_scr
     detail_hint = "[detail]" if detail_visible else "[full]"
     continue_hint = ""
     if 0 <= selected_idx < len(nodes) and nodes[selected_idx]["kind"] == "task":
+        selected_task = _find_task(data, nodes[selected_idx]["id"]) or {}
         record = data.get("task_records", {}).get(nodes[selected_idx]["id"], {}) or {}
         fix_loop = record.get("fix_loop", {}) or {}
-        if fix_loop.get("status") == "open" and fix_loop.get("escalation_required"):
+        if (
+            selected_task.get("status") in ("active", "suspended")
+            and fix_loop.get("status") == "open"
+            and fix_loop.get("escalation_required")
+        ):
             continue_hint = "  c:continue-fix"
     help_text = (
         f"Tab:{mode_labels.get(tree_mode,'?')}{canc_hint}  j/k  e:edit  r:rec  "
@@ -730,6 +743,13 @@ def _node_summary(node, data):
         closeout = _plan_closeout_label(plan)
         if closeout:
             lines.append(f"Next: {closeout}")
+        integration = plan.get("integration", {}) or {}
+        if integration.get("candidate_ref"):
+            lines.append(f"Candidate: {str(integration['candidate_ref'])[:12]}")
+        if integration.get("merge_commit"):
+            lines.append(f"Merge commit: {str(integration['merge_commit'])[:12]}")
+        if integration.get("conflicts"):
+            lines.append("Conflicts: " + ", ".join(integration["conflicts"][:5]))
         lines.append(f"Worktree: {plan.get('git_worktree_path') or '-'}")
         lines.append(f"Branch: {plan.get('git_branch') or '-'}")
         task_ids = [t.get("id") for t in (data.get("tasks", {}).get("tasks", []) or [])
@@ -819,6 +839,13 @@ def _build_detail(node, data):
         closeout = _plan_closeout_label(plan)
         if closeout:
             lines.append(f" Next: {closeout}")
+        integration = plan.get("integration", {}) or {}
+        if integration.get("candidate_ref"):
+            lines.append(f" Candidate: {str(integration['candidate_ref'])[:12]}")
+        if integration.get("merge_commit"):
+            lines.append(f" Merge commit: {str(integration['merge_commit'])[:12]}")
+        if integration.get("conflicts"):
+            lines.append(" Conflicts: " + ", ".join(integration["conflicts"][:5]))
         lines.append(f" Goal: {plan.get('goal_id', '-')}")
         lines.append(f" MS:   {plan.get('milestone_id', '-')}")
         task_ids = [t.get("id") for t in (data.get("tasks", {}).get("tasks", []) or [])
@@ -902,16 +929,31 @@ def _build_status_bar(data):
         1 for plan in plans
         if isinstance(plan, dict) and _plan_display_status(plan) == "held"
     )
+    integrating = sum(
+        1 for plan in plans
+        if isinstance(plan, dict) and _plan_display_status(plan) in {
+            "integration_ready", "integration_conflict", "integration_failed", "base_changed",
+            "merged_unverified",
+        }
+    )
     blocked = "阻塞" if state.get("blocked") else "正常"
     plan_state = ""
     if awaiting:
         plan_state += f" | 待决定Plan={awaiting}"
     if held:
         plan_state += f" | 保留Plan={held}"
+    if integrating:
+        plan_state += f" | 集成中Plan={integrating}"
     temporary = " | 临时AI写入=开" if data.get("temporary_ai_writes") else ""
+    actionable_task_ids = {
+        str(task.get("id") or "")
+        for task in data["tasks"].get("tasks", []) or []
+        if isinstance(task, dict) and task.get("status") in ("active", "suspended")
+    }
     escalated = sum(
-        1 for record in data.get("task_records", {}).values()
-        if isinstance(record, dict)
+        1 for task_id, record in data.get("task_records", {}).items()
+        if task_id in actionable_task_ids
+        and isinstance(record, dict)
         and (record.get("fix_loop", {}) or {}).get("status") == "open"
         and (record.get("fix_loop", {}) or {}).get("escalation_required")
     )
@@ -1046,10 +1088,12 @@ def main(stdscr):
         elif key == ord("c"):
             if 0 <= selected < len(nodes) and nodes[selected]["kind"] == "task":
                 task_id = nodes[selected]["id"]
+                selected_task = _find_task(data, task_id) or {}
                 record = data.get("task_records", {}).get(task_id, {}) or {}
                 fix_loop = record.get("fix_loop", {}) or {}
                 if (
-                    fix_loop.get("status") == "open"
+                    selected_task.get("status") in ("active", "suspended")
+                    and fix_loop.get("status") == "open"
                     and fix_loop.get("escalation_required")
                     and confirm_fixloop_continue(
                         stdscr,
@@ -1136,6 +1180,7 @@ def _show_records_inline(stdscr, data, task_id):
     testing = record.get("testing", {}) or {}
     review = record.get("review", {}) or {}
     fix_loop = record.get("fix_loop", {}) or {}
+    task = _find_task(data, task_id) or {}
 
     lines = [f"── {task_id} 记录 ──", ""]
     lines.append("实现:")
@@ -1162,7 +1207,10 @@ def _show_records_inline(stdscr, data, task_id):
             f"attempt={fix_loop.get('attempt_count', 0)}/{fix_loop.get('max_attempts', 2)}"
         )
         if fix_loop.get("escalation_required"):
-            lines.append("  等待用户决定。选中 Task 后按 c 可继续。")
+            if task.get("status") in ("active", "suspended"):
+                lines.append("  等待用户决定。选中 Task 后按 c 可继续。")
+            else:
+                lines.append("  Task 已结束；这是历史未解决记录。")
 
     _render_wrapped_lines(stdscr, lines, 1, w, h - 2)
     try:

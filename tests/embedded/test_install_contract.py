@@ -481,7 +481,7 @@ Ship the product safely.
     def test_status_shows_embedded_mode(self):
         r = _run([sys.executable, "-m", "aiwf_core.cli", "status"], self.tmp)
         self.assertIn("AIWF V1.0 - Claude Code", r.stdout)
-        self.assertIn("Active Tasks:", r.stdout)
+        self.assertIn("Workflow Tasks:", r.stdout)
 
     def test_claude_md_exists(self):
         self.assertTrue((self.tmp / "CLAUDE.md").exists())

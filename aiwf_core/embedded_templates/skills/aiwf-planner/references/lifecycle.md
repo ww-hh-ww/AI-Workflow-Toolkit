@@ -129,9 +129,14 @@ For each pending observation:
   verification.
 - If the contract itself must change, ask the user whether to interrupt and
   replan.
+- If the finding can be fixed safely in this cycle without changing
+  responsibility or acceptance, fix and verify it now. Do not defer it merely
+  to close the Task sooner.
 - Otherwise record the appropriate disposition.
 
-Before marking a finding `deferred`, give it a place Planner will read again.
+Before marking a finding `deferred`, tell the user what remains, its consequence,
+why fixing it now is the wrong choice, and when it should return. Ask the user to
+agree. Then give it a place Planner will read again.
 If a downstream Task is known, write the finding and its source observation into
 that Task. Otherwise add a short entry with its trigger to
 `.aiwf/memory/notes/deferred-findings.md` and make sure the note is indexed in
@@ -157,11 +162,17 @@ aiwf fixloop status --task-id <TASK-ID>
 ```
 
 If escalation blocks further Agents, show the user what failed and what still
-needs verification. Ask whether to continue the current Task or interrupt and
-replan. To continue, ask the human to run
-`aiwf fixloop continue --task-id <TASK-ID>`. Do not run it yourself. After the
+needs verification. Ask the user to choose: continue with
+`aiwf fixloop continue --task-id <TASK-ID>`, pause and replan with
+`aiwf task interrupt <TASK-ID>`, or accept the unmet checks and close with
+`aiwf task force-close <TASK-ID>`. These commands are human-only. After the
 human continues, run `aiwf status --prompt` again and follow its route. Do not
 resolve the loop until Testing passes against the current implementation.
+
+If the Task was interrupted while its fix-loop was open, reactivate that same
+Task and continue the loop; do not resolve an unfixed problem. If Git HEAD
+changed while it was suspended, inspect the commits and ask the user. After
+explicit approval, run `aiwf task activate <TASK-ID> --accept-head-change`.
 
 - If the issue has been decided and its required evidence is recorded, run
   `aiwf fixloop resolve --task-id <TASK-ID> --source planner --resolution "<decision and evidence>"`.
@@ -187,6 +198,12 @@ Tell the user what the Plan now delivers and any remaining gap. Ask whether to
 add another Task, leave the Plan open, or merge it. Do not merge before the user
 chooses.
 
+Before merge, offer `/aiwf-architect` once. For one Plan, review that Plan. For
+several independent Plans, they may be reviewed one by one. When several Plans
+form one capability path or change the same structure, review them together as
+one slice. The user chooses; Architect remains optional and does not replace
+integration proof.
+
 If the user leaves it open, run:
 
 ```text
@@ -194,11 +211,20 @@ aiwf plan hold <PLAN-ID>
 ```
 
 Do not ask again while the Plan result is unchanged. If the user chooses to
-merge, follow the dependency order, verify the integrated result on the base
-branch, then run:
+merge, run `aiwf plan integrate <PLAN-ID>`. It prepares a candidate against the
+latest base without changing the base branch. Run the Plan's integration checks
+against that exact candidate, then record the expected and observed results with
+the same command using `--status passed`. AIWF merges only that passing
+candidate. If it reports a conflict, create a `kind=integration` Task and use the
+normal Executor, Tester, Reviewer, and close chain.
+
+For several Plans, follow dependencies and integrate one at a time against the
+moving base. Close each Plan after its own passing candidate is merged. If the
+Plans only work as a combination, run the combined proof before closing them.
+Then run:
 
 ```text
-aiwf plan close --summary "<what the Plan delivered>"
+aiwf plan close <PLAN-ID> --summary "<what the Plan delivered>"
 ```
 
 Do not modify a closed Plan or link new work to it. Create a new Plan instead.

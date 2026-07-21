@@ -99,7 +99,9 @@ class TestTaskCloseSyncContract(unittest.TestCase):
 
     def test_force_close_updates_task_md_contract_status(self):
         from aiwf_core.core.index_ops import parse_md, sync_index, write_narrative_doc
+        from aiwf_core.core.agent_runtime import running_dispatches, start_dispatch
         from aiwf_core.core.task_ledger import force_close_task
+        from aiwf_core.core.task_records import default_task_record, load_task_record
 
         base = Path(tempfile.mkdtemp(prefix="awclose_"))
         for rel in (".aiwf/state", ".aiwf/records", ".aiwf/tasks"):
@@ -130,6 +132,21 @@ class TestTaskCloseSyncContract(unittest.TestCase):
                 "requirements": {"tester_required": True},
             }],
         }), encoding="utf-8")
+        record = default_task_record("TASK-003")
+        record["fix_loop"].update({
+            "status": "open",
+            "route": "tester",
+            "attempt_count": 2,
+            "escalation_required": True,
+            "escalation_reason": "retry limit reached",
+            "rollback_recommended": True,
+        })
+        record_path = base / ".aiwf/records/tasks/TASK-003.json"
+        record_path.parent.mkdir(parents=True, exist_ok=True)
+        record_path.write_text(json.dumps(record), encoding="utf-8")
+        self.assertFalse(start_dispatch(
+            base, "TASK-003", "aiwf-tester", "session-1", "PLAN-001", str(base),
+        ))
 
         result = force_close_task(str(base), reason="human override")
 
@@ -138,11 +155,20 @@ class TestTaskCloseSyncContract(unittest.TestCase):
         self.assertEqual(result["task"]["closure"]["reason"], "human override")
         self.assertNotIn("accepted_by_human", result["task"]["closure"])
         self.assertNotIn("gate_passed", result["task"]["closure"])
+        fix_loop = load_task_record(base, "TASK-003")["fix_loop"]
+        self.assertEqual(fix_loop["status"], "open")
+        self.assertFalse(fix_loop["escalation_required"])
+        self.assertFalse(fix_loop["rollback_recommended"])
+        self.assertEqual(fix_loop["route_history"][-1]["source"], "human")
+        self.assertEqual(running_dispatches(base, task_id="TASK-003"), [])
         fm, _ = parse_md(task_doc)
         self.assertEqual(fm["contract_status"], "closed")
         sync_index(str(base))
         tasks = json.loads((base / ".aiwf/state/tasks.json").read_text(encoding="utf-8"))
         self.assertEqual(tasks["tasks"][0]["status"], "closed")
+
+        from aiwf_core.aiwf_ui import _build_status_bar, load_all
+        self.assertNotIn("Fix待决定", _build_status_bar(load_all(base)))
 
     def test_interrupt_suspends_without_closing_and_survives_sync(self):
         from aiwf_core.core.index_ops import parse_md, sync_index, write_narrative_doc

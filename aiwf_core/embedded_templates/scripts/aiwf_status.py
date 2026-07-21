@@ -87,13 +87,15 @@ def main():
         return
 
     ledger = _read_json(ledger_path, {"tasks": []})
-    active = [
+    workflow_tasks = [
         task for task in ledger.get("tasks", []) or []
-        if isinstance(task, dict) and task.get("status") == "active"
+        if isinstance(task, dict) and task.get("status") in ("active", "suspended")
     ]
+    active = [task for task in workflow_tasks if task.get("status") == "active"]
+    suspended = [task for task in workflow_tasks if task.get("status") == "suspended"]
     problems = []
     fingerprint_tasks = []
-    for task in active:
+    for task in workflow_tasks:
         record = _record(base, str(task.get("id") or ""))
         problem = _problem(task, record)
         if problem:
@@ -143,10 +145,14 @@ def main():
         message = f"[AIWF] AIWF problem state changed. {route}"
     elif previous:
         message = f"[AIWF] AIWF routing state changed. {route}"
-    elif len(active) == 1:
+    elif len(active) == 1 and not suspended:
         message = f"[AIWF] {active[0]['id']} is active. {route}"
     elif active:
         message = f"[AIWF] {len(active)} Tasks are active across Plan worktrees. {route}"
+    elif len(suspended) == 1:
+        message = f"[AIWF] {suspended[0]['id']} is suspended. {route}"
+    elif suspended:
+        message = f"[AIWF] {len(suspended)} Tasks are suspended. {route}"
     else:
         message = f"[AIWF] Plan Before Work. {route}"
     if problems:

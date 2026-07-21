@@ -101,5 +101,9 @@ aiwf record testing --task-id <TASK-ID> --status failed --command "<exact comman
 aiwf record testing --task-id <TASK-ID> --status adequate --summary "<why the environment cannot run the proof>"
 ```
 
+Before recording, briefly scan the proof requirements and your results for a
+missing command, observable, or finding. Do not repeat testing merely for this
+check.
+
 Report the required command results, independent probes, false-pass risks, and
 external findings in plain language. Stop after recording testing.

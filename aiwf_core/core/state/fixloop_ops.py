@@ -153,9 +153,25 @@ def open_fix_loop(
     return result
 
 
+def resolve_fixloop_task_id(base_dir: str, task_id: str = "") -> str:
+    """Resolve an explicit active or suspended Task for fix-loop recovery."""
+    if task_id:
+        task = next(
+            (
+                item for item in load_ledger(base_dir).get("tasks", []) or []
+                if isinstance(item, dict) and item.get("id") == task_id
+            ),
+            None,
+        )
+        if task and task.get("status") in ("active", "suspended"):
+            return task_id
+        return ""
+    return resolve_active_task_id(base_dir)
+
+
 def continue_fix_loop(base_dir: str, task_id: str = "") -> Dict[str, Any]:
     """Human acknowledgement that permits the current fix-loop route to continue."""
-    effective_task = resolve_active_task_id(base_dir, task_id)
+    effective_task = resolve_fixloop_task_id(base_dir, task_id)
     if not effective_task:
         raise ValueError("fix-loop continue requires an active Task ID or assigned Task worktree")
 
@@ -213,7 +229,6 @@ def _revalidate_required_fixes(
     base: Path,
     required_fixes: List[str],
     scope_violation_events: List[Dict],
-    force: bool,
 ) -> Dict[str, Any]:
     """Re-validate required_fixes against current git state and review resolutions.
 
@@ -224,7 +239,7 @@ def _revalidate_required_fixes(
     - The target file appears in scope_violation_events as resolved_reverted, OR
     - The fix is verified against current git diff (file was changed since fix-loop opened)
 
-    Without force, any still_unresolved fix blocks resolution.
+    Any still_unresolved fix blocks resolution.
     """
     result: Dict[str, Any] = {
         "still_unresolved": [],
@@ -260,11 +275,7 @@ def _revalidate_required_fixes(
         if fix_path in resolved_paths:
             result["resolved_reverted"].append(fix_path)
         elif not diff_available:
-            if force:
-                # Planner override: treat as resolved when diff is unavailable
-                result["stale_resolved"].append(fix_path)
-            else:
-                result["still_unresolved"].append(fix_path)
+            result["still_unresolved"].append(fix_path)
         elif fix_path in changed_files:
             # File was changed — fix may have been applied
             result["stale_resolved"].append(fix_path)
@@ -272,8 +283,7 @@ def _revalidate_required_fixes(
             # File not in diff and not resolved — fix is stale (already reverted or never applied)
             result["stale_resolved"].append(fix_path)
 
-    # Without force, still_unresolved items block resolution
-    if result["still_unresolved"] and not force:
+    if result["still_unresolved"]:
         result["blockers"].append(
             f"{len(result['still_unresolved'])} required fix(es) still unresolved "
             f"(diff unavailable): {', '.join(result['still_unresolved'][:5])}"
@@ -285,7 +295,6 @@ def resolve_fix_loop(
     base_dir: str,
     resolution: str,
     source: str = "reviewer",
-    force: bool = False,
     task_id: str = "",
 ) -> Dict[str, Any]:
     """Resolve a fix-loop only after its mechanical verification gates pass.
@@ -293,11 +302,8 @@ def resolve_fix_loop(
     Re-validates required_fixes against current git diff and review.json
     scope_violation_events. Blocks resolution when fixes are still unresolved
     (target files not in diff and not marked resolved_reverted).
-
-    When force=True, Planner explicitly acknowledges that remaining changed files
-    are legitimate (e.g. cross-task modifications), not scope violations.
     """
-    effective_task = resolve_active_task_id(base_dir, task_id)
+    effective_task = resolve_fixloop_task_id(base_dir, task_id)
     if not effective_task:
         raise ValueError("fix-loop resolution requires an active Task ID or assigned Task worktree")
     task = next(
@@ -320,7 +326,7 @@ def resolve_fix_loop(
     required_fixes = fix_loop.get("required_fixes", []) or []
     review = record["review"]
     scope_events = review.get("scope_violation_events", []) or []
-    reval = _revalidate_required_fixes(base, required_fixes, scope_events, force)
+    reval = _revalidate_required_fixes(base, required_fixes, scope_events)
     if reval["blockers"]:
         blockers.extend(reval["blockers"])
     # Log revalidation details for transparency
@@ -344,31 +350,27 @@ def resolve_fix_loop(
             str(event.get("path")) for event in unresolved
             if event.get("path") in set(changed.get("files", []) or [])
         })
-        if changed.get("source") == "unavailable" and not force:
+        if changed.get("source") == "unavailable":
             blockers.append("scope violation cannot be verified because git change detection is unavailable")
-        elif remaining and not force:
+        elif remaining:
             blockers.append("scope-violating files remain changed: " + ", ".join(remaining[:5]))
+        elif not scope_events:
+            blockers.append("scope violation has no structured event history to verify")
         elif not unresolved:
-            if force:
-                # All events already resolved_reverted — just clear the flag.
-                task["scope_violation"] = False
-            else:
-                blockers.append("scope violation has no structured event history to verify")
+            task["scope_violation"] = False
         else:
             scope_resolution = unresolved
     if (
         fix_loop.get("escalation_required")
-        and not force
         and not _tester_verified_current_implementation(record, source)
     ):
         blockers.append(
             "escalation_required=true; Planner cannot self-resolve escalation. "
-            "Re-run with --force to override (Planner acknowledges the override)."
+            "The human must continue, interrupt, or force-close the Task."
         )
     if (
         _continued_after_escalation(fix_loop)
         and source == "tester"
-        and not force
         and not _tester_verified_current_implementation(record, source)
     ):
         blockers.append(
@@ -398,10 +400,8 @@ def resolve_fix_loop(
             blocker for blocker in (review.get("blockers", []) or [])
             if not str(blocker).startswith("scope_violation:")
         ]
-        if not force:
-            # Normal resolution: reset review to force re-review after fix
-            review["result"] = "unknown"
-            review["closure_allowed"] = False
+        review["result"] = "unknown"
+        review["closure_allowed"] = False
         task["scope_violation"] = False
     fix_loop["status"] = "resolved"
     fix_loop["resolution"] = resolution
@@ -411,12 +411,22 @@ def resolve_fix_loop(
         current["review"] = review
 
     update_task_record(base_dir, effective_task, store)
-    update_task_runtime(
-        base_dir,
-        effective_task,
-        phase="reviewing" if review.get("result") != "accepted" else "closing",
-        scope_violation=bool(task.get("scope_violation")),
-    )
+    next_phase = "reviewing" if review.get("result") != "accepted" else "closing"
+    if task.get("status") == "suspended":
+        update_task_runtime(
+            base_dir,
+            effective_task,
+            phase="suspended",
+            suspended_phase=next_phase,
+            scope_violation=bool(task.get("scope_violation")),
+        )
+    else:
+        update_task_runtime(
+            base_dir,
+            effective_task,
+            phase=next_phase,
+            scope_violation=bool(task.get("scope_violation")),
+        )
     return dict(fix_loop)
 
 def _check_verification_coverage(

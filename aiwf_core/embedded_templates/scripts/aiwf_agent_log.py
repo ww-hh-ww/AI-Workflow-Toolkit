@@ -8,7 +8,6 @@ from aiwf_core.core.agent_runtime import (
     cancel_agent_dispatch,
     finish_dispatch,
     latest_agent_dispatch,
-    request_return_check,
     start_resumed_dispatch,
 )
 from aiwf_core.core.worktree_context import resolve_control_root
@@ -31,24 +30,6 @@ ROLE_RECORD = {
     "aiwf-tester": ("testing", "tested_ref", "aiwf record testing"),
     "aiwf-reviewer": ("review", "reviewed_ref", "aiwf record review"),
 }
-
-RETURN_CHECK = {
-    "aiwf-executor": (
-        "Reread the Task.md Fixed Contract and current finding. Compare the final "
-        "diff with every relevant Done When item, main-path consumer, invariant, "
-        "and old-path expectation."
-    ),
-    "aiwf-tester": (
-        "Reread the Task.md proof requirements and current finding. Compare every "
-        "required observable with the actual command output, independent probes, "
-        "and any false-pass or bypass risk."
-    ),
-    "aiwf-reviewer": (
-        "Reread the complete Task.md. Reconcile its contract with the final diff, "
-        "Executor record, Tester evidence, callers, consumers, and old paths."
-    ),
-}
-
 
 def _return_reason(message):
     if not isinstance(message, str):
@@ -210,23 +191,10 @@ def _completion_blocker(base, task_id, agent_type, agent_id):
         return ""
 
     return (
-        f"The final contract check for {task_id} is done, but this Agent run has no "
-        f"fresh {section_name} record matching the current worktree. If the work is complete, "
+        f"This Agent run for {task_id} has no fresh {section_name} record matching "
+        f"the current worktree. If the work is complete, "
         f"run `{command}` with the exact results already observed; do not rerun successful "
         "checks merely to create the record. Then return the final report."
-    )
-
-
-def _return_check_reason(task_id, agent_type):
-    check = RETURN_CHECK.get(agent_type)
-    if not check:
-        return ""
-    return (
-        f"Before returning from {task_id}, perform one final contract check. {check} "
-        "Fix any omission you find and update the role record to match the final "
-        "worktree. If nothing changed, reuse the successful checks already observed; "
-        "do not rerun them merely for this return check. Then return the concrete "
-        "result, or `RETURN_TO_PLANNER:` if the contract itself is wrong or unclear."
     )
 
 
@@ -291,17 +259,6 @@ def main():
         marker = RETURN_MARKER.search(str(data.get("last_assistant_message") or ""))
         return_to_planner = bool(marker and marker.group(1) == "RETURN_TO_PLANNER")
         cancelled = _was_cancelled(data)
-        if agent_type in RETURN_CHECK and not cancelled and request_return_check(
-            base,
-            agent_type,
-            str(data.get("agent_id") or ""),
-            task_id,
-        ):
-            print(json.dumps({
-                "decision": "block",
-                "reason": _return_check_reason(task_id, agent_type),
-            }))
-            sys.exit(0)
         if not return_to_planner and not cancelled:
             blocker = _completion_blocker(
                 base,

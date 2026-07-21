@@ -82,8 +82,9 @@ def _workflow_dispatch_blocker(base, task_id, subagent_type):
             return (
                 f"Cannot dispatch {subagent_type}: repeated fix-loop failures require a human decision. "
                 "Run 'aiwf status --prompt', explain the failure to the user, and ask what to do. "
-                "If the user chooses to continue, ask them to run "
-                f"'aiwf fixloop continue --task-id {task_id}', then run status again and follow its route."
+                f"They may continue with 'aiwf fixloop continue --task-id {task_id}', pause with "
+                f"'aiwf task interrupt {task_id}', or accept the unmet checks and close with "
+                f"'aiwf task force-close {task_id}'. These commands are human-only."
             )
         route = str(fix_loop.get("route") or "planner")
         expected = {
@@ -173,19 +174,7 @@ def main():
         allow()
 
     required_skill = AGENT_SKILL_MAP[subagent_type]
-    if len(matches) != 1:
-        deny_pre_tool_use(
-            f"Cannot dispatch {subagent_type}: prompt must name exactly one active Task ID. "
-            "Run 'aiwf status --prompt' and name the intended Task clearly."
-        )
-    task = matches[0]
-    active_task_id = str(task.get("id"))
-    worktree_path = str(task.get("worktree_path") or "")
-    if not worktree_path:
-        deny_pre_tool_use(
-            f"Cannot dispatch {subagent_type} for {active_task_id}: the Task has no assigned worktree."
-        )
-    # Check if required skill was loaded for this task
+    # Check if the matching role skill was loaded in this session.
     log_path = base / ".aiwf" / "runtime" / "internal" / "skill-loads.jsonl"
     loaded = False
     if log_path.exists():
@@ -205,6 +194,26 @@ def main():
         deny_pre_tool_use(
             f"Cannot dispatch {subagent_type}: skill not loaded.\n"
             f"  → Load /{required_skill} first, then dispatch {subagent_type}."
+        )
+
+    if subagent_type == "aiwf-architect":
+        updated = dict(event.tool_input or {})
+        updated["prompt"] = (
+            f"AIWF Architect review\nControl root: {base}\n\n{original_prompt.strip()}"
+        ).strip()
+        allow_with_updated_input(updated)
+
+    if len(matches) != 1:
+        deny_pre_tool_use(
+            f"Cannot dispatch {subagent_type}: prompt must name exactly one active Task ID. "
+            "Run 'aiwf status --prompt' and name the intended Task clearly."
+        )
+    task = matches[0]
+    active_task_id = str(task.get("id"))
+    worktree_path = str(task.get("worktree_path") or "")
+    if not worktree_path:
+        deny_pre_tool_use(
+            f"Cannot dispatch {subagent_type} for {active_task_id}: the Task has no assigned worktree."
         )
 
     blocker = _workflow_dispatch_blocker(base, active_task_id, subagent_type)

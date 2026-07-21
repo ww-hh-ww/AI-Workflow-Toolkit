@@ -373,6 +373,7 @@ def attach_task_to_plan(base_dir: str, plan_id: str, task_id: str) -> Dict[str, 
     if not plan:
         return {"attached": False, "plan": None, "plans": plans, "reason": f"plan not found: {plan_id}"}
     _require_open_plan(plan, "link a Task")
+    attached_kind = ""
     try:
         from ..task_ledger import load_ledger, save_ledger
 
@@ -380,6 +381,7 @@ def attach_task_to_plan(base_dir: str, plan_id: str, task_id: str) -> Dict[str, 
         for task in ledger.get("tasks", []) or []:
             if not isinstance(task, dict) or task.get("id") != task_id:
                 continue
+            attached_kind = str(task.get("kind") or "")
             existing = str(task.get("plan_id") or task.get("parent_plan") or "")
             if existing and existing != plan_id:
                 return {
@@ -403,6 +405,11 @@ def attach_task_to_plan(base_dir: str, plan_id: str, task_id: str) -> Dict[str, 
     if task_id not in task_ids:
         task_ids.append(task_id)
         plan.pop("integration_hold_ref", None)
+        if not (
+            attached_kind == "integration"
+            and str((plan.get("integration", {}) or {}).get("status") or "") == "conflict"
+        ):
+            plan.pop("integration", None)
     status = plan.setdefault("task_status", {}).get(task_id, "unknown")
     try:
         from ..task_ledger import load_ledger
@@ -464,7 +471,7 @@ def hold_plan_integration(base_dir: str, plan_id: str) -> Dict[str, Any]:
         raise ValueError("Plan still has unfinished Tasks")
     if state == "no_completed_work":
         raise ValueError("Plan has no completed Task result to hold; add work or cancel the Plan")
-    if state == "merged_pending_close":
+    if state in ("merged_pending_close", "merged_unverified"):
         raise ValueError("Plan is already merged; verify the integrated result and close it")
     if state == "git_incomplete":
         raise ValueError("Plan Git history is incomplete; repair its branch, base, and head first")
@@ -516,6 +523,8 @@ def reconcile_task_to_plan(base_dir: str, task: Dict[str, Any]) -> Dict[str, Any
     if commit:
         if str(plan.get("integration_hold_ref") or "") != commit:
             plan.pop("integration_hold_ref", None)
+        if str(plan.get("git_head_ref") or "") != commit:
+            plan.pop("integration", None)
         plan["git_head_ref"] = commit
     # V1: task close updates rollup only; plan close must be explicit
     plan["updated_at"] = _now()

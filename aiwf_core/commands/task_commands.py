@@ -98,7 +98,10 @@ def _cmd_task_activate(args: argparse.Namespace) -> None:
         for blocker in critique_blockers[:8]:
             print(f"    - {blocker}")
         raise SystemExit(1)
-    result = activate_task(str(Path.cwd()), args.task_id)
+    result = activate_task(
+        str(Path.cwd()), args.task_id,
+        accept_head_change=bool(getattr(args, "accept_head_change", False)),
+    )
     print(f"Task activation: {args.task_id} activated={result['activated']}")
     if result["blockers"]:
         print(f"  Blockers ({len(result['blockers'])}):")
@@ -107,6 +110,13 @@ def _cmd_task_activate(args: argparse.Namespace) -> None:
         raise SystemExit(1)
     else:
         print("  Execution window updated.")
+        if result.get("adopted_head_ref"):
+            print(
+                "  Current Git HEAD adopted as the resumed Task baseline; "
+                "old implementation/testing/review proof was invalidated."
+            )
+            print("  The open fix-loop and Reviewer observations were preserved.")
+        print("  Next: aiwf status --prompt")
 
 def _cmd_task_critique(args: argparse.Namespace) -> None:
     from ..core.task_ledger import record_task_activation_critique
@@ -160,6 +170,7 @@ def _cmd_task_calibrate(args: argparse.Namespace) -> None:
         raise SystemExit(1)
     print(f"Task calibration written: {task_id}")
     print("  Section: Closure Calibration")
+    print("  Next: aiwf status --prompt")
 
 def _cmd_task_close(args: argparse.Namespace) -> None:
     from ..core.task_ledger import close_task, resolve_active_task_id
@@ -256,7 +267,7 @@ def _cmd_task_close(args: argparse.Namespace) -> None:
     if kind == "milestone_verification" and task_ms_id:
         print(f"  Next: aiwf milestone close {task_ms_id}")
     else:
-        print(f"  Next: aiwf-planner")
+        print("  Next: aiwf status --prompt")
     print(f"  → Report this summary to the human and wait for instructions.")
 
     # Granularity warnings

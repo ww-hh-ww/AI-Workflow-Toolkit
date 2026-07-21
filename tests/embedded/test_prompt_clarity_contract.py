@@ -57,7 +57,9 @@ class TestPromptClarityContract(unittest.TestCase):
             "Always record a fresh testing snapshot",
             "If escalation blocks further Agents",
             "aiwf fixloop continue --task-id <TASK-ID>",
-            "Do not run it yourself",
+            "aiwf task interrupt <TASK-ID>",
+            "aiwf task force-close <TASK-ID>",
+            "These commands are human-only",
         ]:
             self.assertIn(required, lifecycle)
         for required in [
@@ -277,6 +279,9 @@ class TestPromptClarityContract(unittest.TestCase):
         self.assertIn("Do not carry other lenses into a split review", agent)
         self.assertIn("unique directory", skill)
         self.assertIn("Do not turn findings into Tasks", skill)
+        self.assertIn("one or several completed Plans", skill)
+        self.assertIn("review each Plan separately", skill)
+        self.assertIn("combined capability path", skill)
 
     def test_architect_references_preserve_all_review_capabilities(self):
         combined = "\n".join([
@@ -427,6 +432,8 @@ class TestPromptClarityContract(unittest.TestCase):
         lifecycle = read("skills/aiwf-planner/references/lifecycle.md")
         lifecycle_words = " ".join(lifecycle.split())
         self.assertIn("Before marking a finding `deferred`", lifecycle)
+        self.assertIn("Do not defer it merely", lifecycle_words)
+        self.assertIn("Ask the user to agree", lifecycle_words)
         self.assertIn("notes/deferred-findings.md", lifecycle)
         self.assertIn("Do not silently discard a concrete finding", lifecycle_words)
         self.assertIn("Task closeout to the user", lifecycle_words)

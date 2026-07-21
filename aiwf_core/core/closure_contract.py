@@ -19,12 +19,10 @@ def closure_conditions_met(
     blockers = []
     missing = []
 
-    # Open fix-loop blocks closure regardless of other conditions
-    if fix_loop.get("status") == "open":
-        blockers.append("fix-loop is open — resolve or escalate before closing")
-        missing.append("fix-loop")
-
     if closing_task:
+        if fix_loop.get("status") == "open":
+            blockers.append("fix-loop is open — resolve or escalate before closing")
+            missing.append("fix-loop")
         blockers.append(
             "active task is in closing; run aiwf status --prompt and follow its route before stopping"
         )

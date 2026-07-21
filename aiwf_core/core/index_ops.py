@@ -596,6 +596,17 @@ def _sync_plan_task_relations(root: Path, dry_run: bool, changes: List[str]) -> 
         if task_relation_changed and "integration_hold_ref" in plan:
             plan.pop("integration_hold_ref", None)
             plan_changed = True
+        preserves_conflict = (
+            str((plan.get("integration", {}) or {}).get("status") or "") == "conflict"
+            and any(
+                str(task.get("kind") or "") == "integration"
+                and str(task.get("status") or "") not in ("closed", "cancelled")
+                for task in linked_tasks if isinstance(task, dict)
+            )
+        )
+        if task_relation_changed and "integration" in plan and not preserves_conflict:
+            plan.pop("integration", None)
+            plan_changed = True
         if plan.get("task_ids") != task_ids:
             plan["task_ids"] = task_ids
             plan_changed = True

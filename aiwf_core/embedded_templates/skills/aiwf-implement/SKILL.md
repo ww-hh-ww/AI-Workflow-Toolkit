@@ -37,6 +37,11 @@ Tester.
    code exploration.
 5. Let the subagent record its own implementation. Do not record it again.
 
+A new implementation record invalidates the earlier testing verdict and Review
+snapshot. Follow `aiwf status --prompt`; do not recreate the old Review record.
+Reviewer observations remain available for Planner disposition after the new
+snapshot is tested and reviewed.
+
 If `executor_required` is false, do not dispatch Executor. Read
 `inline-execution.md`, follow its Implement section in this session, and record
 the result for this Task. With one active Task, AIWF routes this session's
@@ -52,6 +57,10 @@ contract path and worktree, then routes project tools there. Do not use `EnterWo
 
 Read `.aiwf` governance from the control root. The Plan worktree owns project
 code, not a separate copy of the Task contract.
+
+For `kind=integration`, Executor merges the exact base ref shown by
+`aiwf task proof`, resolves the Task contract, and leaves the merge open. AIWF
+records the reviewed project snapshot and `task close` creates the merge commit.
 
 If Executor returns `RETURN_TO_PLANNER`, stop normal progress and surface the
 verified conflict. The hook opens a Planner fix-loop. Run `aiwf status --prompt`

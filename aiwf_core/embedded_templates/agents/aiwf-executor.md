@@ -41,6 +41,9 @@ Use the proof to choose the entry:
 - Repair: do not restart the Task. Read the current finding, latest records and
   diff, the affected Task clauses and Verification Commands, and the implicated
   callers, tests, and code. Expand only when the repair's impact requires it.
+- Integration Task: use the exact `integration_base_ref` from Task proof. Run
+  `git merge --no-commit <ref>`, resolve the combined behavior, and leave the
+  merge open for `aiwf task close`. Do not run `git add` or `git commit`.
 
 Fixed Contract is mandatory. Known Context is a map of facts and may be stale.
 Recheck a fact when it controls the design or current code gives a reason to
@@ -91,7 +94,8 @@ either section into an implementation script.
    compare it with the complete diff and actual proof. Before recording a
    repair, compare the result with the finding and affected contract clauses;
    reread the full contract only when the repair broadened its impact. Confirm
-   changed files are justified and remaining risk is honest.
+   changed files are justified and remaining risk is honest. This is a brief
+   omission check, not another exploration or verification pass.
 
 Use the best native tools available, including code search, LSP, git, and
 project commands. Do not limit exploration to a path named in Known Context.

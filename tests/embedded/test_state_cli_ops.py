@@ -94,6 +94,15 @@ class TestStateCliOps(unittest.TestCase):
         self.assertEqual(resolved.returncode, 0, resolved.stderr)
         self.assertEqual(json.loads(fix_path.read_text())["fix_loop"]["status"], "resolved")
 
+    def test_fixloop_resolve_has_no_force_override(self):
+        result = self._run(
+            "fixloop", "resolve", "--force",
+            "--resolution", "skip unresolved escalation",
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("unrecognized arguments: --force", result.stderr)
+
     def test_status_prompt_follows_fixloop_route(self):
         cases = {
             "planner": "/aiwf-planner",
@@ -133,13 +142,22 @@ class TestStateCliOps(unittest.TestCase):
         })
 
         status = self._run("status", "--prompt")
+        fixloop_status = self._run(
+            "fixloop", "status", "--task-id", "TASK-ACTIVE",
+        )
 
         self.assertEqual(status.returncode, 0, status.stderr)
+        self.assertEqual(fixloop_status.returncode, 0, fixloop_status.stderr)
         self.assertIn("Required skills: /aiwf-planner", status.stdout)
         self.assertIn("tell the user what failed and what still needs verification", status.stdout)
-        self.assertIn("ask whether to continue or interrupt and replan", status.stdout)
         self.assertIn("aiwf fixloop continue --task-id TASK-ACTIVE", status.stdout)
+        self.assertIn("aiwf task interrupt TASK-ACTIVE", status.stdout)
+        self.assertIn("aiwf task force-close TASK-ACTIVE", status.stdout)
+        self.assertIn("These commands are human-only", status.stdout)
         self.assertIn("run aiwf status --prompt again and follow its route", status.stdout)
+        self.assertIn("aiwf fixloop continue --task-id TASK-ACTIVE", fixloop_status.stdout)
+        self.assertIn("aiwf task interrupt TASK-ACTIVE", fixloop_status.stdout)
+        self.assertIn("aiwf task force-close TASK-ACTIVE", fixloop_status.stdout)
 
     def test_human_continue_releases_escalated_route_without_resolving(self):
         self._set_active_task(record={
@@ -185,6 +203,25 @@ class TestStateCliOps(unittest.TestCase):
         self.assertFalse(record["fix_loop"]["escalation_required"])
         self.assertEqual(record["fix_loop"]["route_history"][-1]["source"], "human")
 
+    def test_tui_ignores_stale_escalation_on_closed_task(self):
+        self._set_active_task(record={
+            "task_id": "TASK-ACTIVE",
+            "implementation": {"task_id": "TASK-ACTIVE"},
+            "testing": {"task_id": "TASK-ACTIVE", "status": "failed"},
+            "review": {"task_id": "TASK-ACTIVE", "result": "unknown"},
+            "fix_loop": {
+                "status": "open", "route": "tester",
+                "escalation_required": True,
+            },
+        })
+        tasks = json.loads((self.tmp / ".aiwf/state/tasks.json").read_text())
+        tasks["tasks"][0].update({"status": "closed", "phase": "closed"})
+        self._write_json("state/tasks.json", tasks)
+
+        from aiwf_core.aiwf_ui import _build_status_bar, load_all
+
+        self.assertNotIn("Fix待决定", _build_status_bar(load_all(self.tmp)))
+
     def test_status_prompt_names_task_and_supplies_agent_assignment(self):
         self._set_active_task()
         status = self._run("status", "--prompt")
@@ -212,7 +249,32 @@ class TestStateCliOps(unittest.TestCase):
         self.assertIn("not proof that the Agent is stuck", status.stdout)
         self.assertIn("Do not stop, retry, or substitute", status.stdout)
 
-    def test_planner_prompt_prints_control_root_memory_path(self):
+    def test_status_routes_suspended_fix_loop_back_to_the_same_task(self):
+        self._set_active_task("TASK-ACTIVE", "reviewing", {
+            "task_id": "TASK-ACTIVE",
+            "implementation": {"task_id": "TASK-ACTIVE", "implementation_ref": "abc"},
+            "testing": {"task_id": "TASK-ACTIVE", "status": "failed"},
+            "review": {"task_id": "TASK-ACTIVE", "result": "unknown"},
+            "fix_loop": {
+                "status": "open", "route": "executor", "reason": "repair defect",
+            },
+        })
+        tasks = json.loads((self.tmp / ".aiwf/state/tasks.json").read_text())
+        tasks["tasks"][0]["status"] = "suspended"
+        tasks["tasks"][0]["phase"] = "suspended"
+        tasks["tasks"][0]["suspended_phase"] = "reviewing"
+        self._write_json("state/tasks.json", tasks)
+
+        status = self._run("status", "--prompt")
+
+        self.assertEqual(status.returncode, 0, status.stderr)
+        self.assertIn("Required skills: /aiwf-planner", status.stdout)
+        self.assertIn("suspended TASK-ACTIVE", status.stdout)
+        self.assertIn("reactivate this same Task", status.stdout)
+        self.assertIn("do not resolve an unfixed problem", status.stdout)
+        self.assertIn("--accept-head-change", status.stdout)
+
+    def test_planner_prompt_includes_control_root_memory_snapshot(self):
         status = self._run("status", "--prompt")
         self.assertEqual(status.returncode, 0, status.stderr)
         self.assertIn("Required skills: /aiwf-planner", status.stdout)
@@ -220,6 +282,21 @@ class TestStateCliOps(unittest.TestCase):
             f"Planner memory root: {self.tmp.resolve() / '.aiwf' / 'memory'}",
             status.stdout,
         )
+        self.assertIn("Planner memory snapshot:", status.stdout)
+        self.assertIn("[project-facts.md]", status.stdout)
+        self.assertIn("Keep only 3-7 long-term facts", status.stdout)
+        self.assertIn("[MEMORY.md note index]", status.stdout)
+        self.assertIn("[Memory Review](notes/memory-layer.md)", status.stdout)
+
+    def test_non_planner_prompt_does_not_inject_planner_memory(self):
+        self._set_active_task()
+
+        status = self._run("status", "--prompt")
+
+        self.assertEqual(status.returncode, 0, status.stderr)
+        self.assertIn("Required skills: /aiwf-implement", status.stdout)
+        self.assertNotIn("Planner memory snapshot:", status.stdout)
+        self.assertNotIn("[project-facts.md]", status.stdout)
 
     def test_task_calibration_is_replaced_not_duplicated(self):
         created = self._run(

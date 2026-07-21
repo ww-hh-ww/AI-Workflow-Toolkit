@@ -14,6 +14,13 @@ ROLE_SUBAGENTS = {
 }
 
 
+def _print_record_handoff() -> None:
+    print(
+        "  Next: return the report you already prepared to the main session. "
+        "Do not rerun successful work. The main session runs aiwf status --prompt"
+    )
+
+
 def _require_role_dispatch(base: Path, role: str, task_id: str = "") -> str:
     """Fail early when a required role has not been dispatched for this task."""
     requirement = ROLE_SUBAGENTS.get(role)
@@ -104,7 +111,7 @@ def _cmd_record_testing(args: argparse.Namespace) -> None:
         print(f"Testing record blocked: {exc}", file=sys.stderr)
         raise SystemExit(1)
 
-    print(f"Testing recorded: status={args.status}")
+    print(f"Testing recorded: status={testing.get('status', args.status)}")
     if testing.get("tested_ref"):
         print(f"  Tested ref: {testing['tested_ref']}")
     if args.commands:
@@ -115,6 +122,13 @@ def _cmd_record_testing(args: argparse.Namespace) -> None:
         print("  Fix-loop: resolved by this verification")
     elif testing.get("fix_loop_pending_reason"):
         print(f"  Fix-loop remains open: {testing['fix_loop_pending_reason'][:240]}")
+    if testing.get("status") == "partial":
+        from ..core.task_proof import testing_proof_gaps
+
+        missing = testing_proof_gaps(testing.get("proof_validation", {}) or {})
+        if missing:
+            print(f"  Missing proof: {', '.join(missing[:5])}")
+    _print_record_handoff()
 
 
 def _parse_observations(raw_observations: list[str]) -> list[dict]:
@@ -172,6 +186,7 @@ def _cmd_record_review(args: argparse.Namespace) -> None:
         print(f"  Reviewed ref: {review['reviewed_ref']}")
     if review.get("blockers"):
         print(f"  Blockers: {len(review['blockers'])}")
+    _print_record_handoff()
 
 
 def _cmd_record_implementation(args: argparse.Namespace) -> None:
@@ -193,6 +208,7 @@ def _cmd_record_implementation(args: argparse.Namespace) -> None:
     print(f"Implementation recorded: {implementation['task_id']}")
     print(f"  Implementation ref: {implementation['implementation_ref']}")
     print(f"  Changed files: {len(implementation.get('changed_files', []) or [])}")
+    _print_record_handoff()
 
 
 def _cmd_record_disposition(args: argparse.Namespace) -> None:
@@ -211,6 +227,7 @@ def _cmd_record_disposition(args: argparse.Namespace) -> None:
         print(f"Disposition blocked: {exc}", file=sys.stderr)
         raise SystemExit(1)
     print(f"Reviewer observation {result['id']}: {result['disposition']}")
+    print("  Next: run aiwf status --prompt and follow its route")
 
 
 def _cmd_record_help(args: argparse.Namespace) -> None:

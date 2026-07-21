@@ -291,49 +291,6 @@ def latest_agent_dispatch(
     return None
 
 
-def request_return_check(
-    base_dir: str | Path,
-    subagent_type: str,
-    agent_id: str,
-    task_id: str,
-) -> bool:
-    """Record one final contract-check request for this Agent dispatch."""
-    if not agent_id:
-        return False
-    dispatch = latest_agent_dispatch(
-        base_dir, subagent_type, agent_id, task_id=task_id,
-    )
-    if not dispatch:
-        return False
-    started_at = str(dispatch.get("started_at") or "")
-    for entry in _entries(base_dir):
-        if (
-            entry.get("status") == "return_check"
-            and str(entry.get("subagent_type") or "") == subagent_type
-            and str(entry.get("agent_id") or "") == agent_id
-            and str(entry.get("task_id") or "") == task_id
-            and str(entry.get("dispatch_started_at") or "") == started_at
-        ):
-            return False
-
-    control = resolve_control_root(base_dir)
-    path = dispatch_path(control)
-    entry = {
-        "timestamp": _now(),
-        "subagent_type": subagent_type,
-        "task_id": task_id,
-        "session_id": dispatch.get("session_id", ""),
-        "agent_id": agent_id,
-        "status": "return_check",
-        "dispatch_started_at": started_at,
-    }
-    with _exclusive_operation_lock(str(control), "agent-dispatch", timeout=2):
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with path.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(entry) + "\n")
-    return True
-
-
 def finish_dispatch(
     base_dir: str | Path,
     subagent_type: str,

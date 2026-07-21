@@ -95,12 +95,15 @@ def record_implementation(
         record["command"] = command[:1000]
         record["exit_code"] = exit_code
     from ..review_contract import add_scope_violation_blocker
-    from ..state_schema import default_review, default_testing
+    from ..state_schema import default_testing
+    from .review_ops import invalidated_review
 
     def store(task_record):
         task_record["implementation"] = record
         task_record["testing"] = default_testing(active_task_id)
-        task_record["review"] = default_review(active_task_id)
+        task_record["review"] = invalidated_review(
+            active_task_id, task_record.get("review", {}) or {},
+        )
         if violations:
             fix_loop = task_record.get("fix_loop", {}) or {}
             fix_loop.update({

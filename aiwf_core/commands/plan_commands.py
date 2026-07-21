@@ -67,6 +67,18 @@ def _cmd_plan_show(args: argparse.Namespace) -> None:
             print(f"  Branch: {plan['git_branch']}")
             print(f"  Base: {plan.get('git_base_branch') or '(unknown)'}")
             print(f"  Head: {plan.get('git_head_ref') or '(no closed Task commit)'}")
+        integration = plan.get("integration", {}) or {}
+        if integration:
+            print("Plan integration:")
+            print(f"  Status: {integration.get('status') or '(unknown)'}")
+            print(f"  Base ref: {integration.get('base_ref') or '(none)'}")
+            print(f"  Candidate: {integration.get('candidate_ref') or '(none)'}")
+            if integration.get("candidate_worktree"):
+                print(f"  Run checks in: {integration['candidate_worktree']}")
+            if integration.get("merge_commit"):
+                print(f"  Merge commit: {integration['merge_commit']}")
+            if integration.get("conflicts"):
+                print(f"  Conflicts: {', '.join(integration['conflicts'][:8])}")
         integration_state = plan_integration_state(str(Path.cwd()), plan)
         if integration_state not in ("working", "open", "closed", "cancelled"):
             print(f"Plan closeout: {integration_state}")
@@ -257,6 +269,7 @@ def _cmd_plan_help(args: argparse.Namespace) -> None:
     print("  aiwf plan show PLAN-001")
     print("  aiwf plan list")
     print("  aiwf plan hold PLAN-001")
+    print("  aiwf plan integrate PLAN-001")
     print("  aiwf plan close PLAN-001 --summary '...'")
     print("  aiwf plan cancel PLAN-001 --reason '...'")
     print("  aiwf plan link-task PLAN-001 TASK-001")
@@ -276,6 +289,64 @@ def _cmd_plan_hold(args: argparse.Namespace) -> None:
     print(f"Plan integration {action}: {args.plan_id}")
     print(f"  Head: {str(result['hold_ref'])[:12]}")
     print("  The Plan remains open and will not prompt for merge until its result changes.")
+
+
+def _cmd_plan_integrate(args: argparse.Namespace) -> None:
+    from .state_commands import _parse_verification_results
+    from ..core.plan_integration import finish_plan_integration, prepare_plan_integration
+
+    try:
+        if not getattr(args, "status", ""):
+            result = prepare_plan_integration(str(Path.cwd()), args.plan_id)
+            if result.get("conflict"):
+                print(f"Plan integration needs an integration Task: {args.plan_id}")
+                if result.get("conflicts"):
+                    print("  Conflicts: " + ", ".join(result["conflicts"][:8]))
+                print(
+                    "  Create a Task under this Plan with kind=integration. Its contract must "
+                    "merge the recorded base ref into the Plan branch, resolve the combined "
+                    "behavior, and run the normal Executor, Tester, Reviewer, and close chain."
+                )
+                print("  After that Task closes, run this command again.")
+                return
+            print(f"Plan integration prepared: {args.plan_id}")
+            print(f"  Base ref: {result['base_ref'][:12]}")
+            print(f"  Candidate ref: {result['candidate_ref'][:12]}")
+            print(f"  Run checks in: {result['candidate_worktree']}")
+            if result.get("already_merged"):
+                print("  Existing merged result adopted as the candidate; verify it before close.")
+            print("  Run the Plan's integration checks against this exact candidate.")
+            print(
+                f"  Then run: aiwf plan integrate {args.plan_id} --status passed "
+                "--command '<exact command>' --verification-result "
+                "'<command>:::<expected>:::<observed>:::matched' --summary '<result>'"
+            )
+            return
+
+        verification_results = _parse_verification_results(
+            getattr(args, "verification_results", []) or [],
+        )
+        result = finish_plan_integration(
+            str(Path.cwd()),
+            args.plan_id,
+            status=args.status,
+            commands=getattr(args, "commands", []) or [],
+            verification_results=verification_results,
+            summary=getattr(args, "summary", "") or "",
+        )
+    except ValueError as exc:
+        print(f"Plan integration blocked: {exc}", file=sys.stderr)
+        raise SystemExit(1)
+
+    if not result.get("merged"):
+        print(f"Plan integration recorded failed: {args.plan_id}")
+        print("  Keep the Plan open, inspect the failure, and add or repair a Task.")
+        return
+    integration = result.get("integration", {}) or {}
+    print(f"Plan merged into its base: {args.plan_id}")
+    print(f"  Verified candidate: {str(integration.get('candidate_ref') or '')[:12]}")
+    print(f"  Merge commit: {str(integration.get('merge_commit') or '')[:12]}")
+    print(f"  Next: aiwf plan close {args.plan_id} --summary '<what the Plan delivers>'")
 
 def _update_md_status(entity_type: str, entity_id: str, status: str,
                       summary: str = "") -> None:
@@ -321,7 +392,10 @@ def _cmd_plan_close(args: argparse.Namespace) -> None:
                 "mode": "normal",
                 "accepted": True,
                 "summary": summary,
-                "merged_commit": repository_info(str(Path.cwd()))["head"],
+                "merged_commit": str(
+                    ((p.get("integration") or {}).get("merge_commit"))
+                    or repository_info(str(Path.cwd()))["head"]
+                ),
             }
             p["updated_at"] = datetime.now(timezone.utc).isoformat()
             save_plans(str(Path.cwd()), data)

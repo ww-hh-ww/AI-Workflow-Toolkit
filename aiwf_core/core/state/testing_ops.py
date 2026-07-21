@@ -176,11 +176,13 @@ def record_testing(
         except Exception as exc:
             testing["proof_validation"] = {"error": str(exc)}
 
-    from ..state_schema import default_review
+    from .review_ops import invalidated_review
 
     def store(record):
         record["testing"] = testing
-        record["review"] = default_review(task_id)
+        record["review"] = invalidated_review(
+            task_id, record.get("review", {}) or {},
+        )
 
     update_task_record(base_dir, task_id, store)
     update_task_runtime(

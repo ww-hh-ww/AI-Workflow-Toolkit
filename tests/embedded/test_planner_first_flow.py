@@ -56,9 +56,9 @@ class TestPlannerFirstFlow(unittest.TestCase):
             )
         prompt = output.getvalue()
         self.assertIn("handle each open Plan at its current closeout point", prompt)
-        self.assertIn("- PLAN-001 | merged into main", prompt)
-        self.assertIn("- PLAN-004 | merged into main", prompt)
-        self.assertIn("run its integration proof, then close it", prompt)
+        self.assertIn("- PLAN-001 | verified candidate merged into main", prompt)
+        self.assertIn("- PLAN-004 | verified candidate merged into main", prompt)
+        self.assertIn("close this Plan now", prompt)
         self.assertNotIn("merge in the planned order", prompt)
         self.assertNotIn("combined result", prompt)
         self.assertNotIn("Before starting another Plan", prompt)
@@ -83,6 +83,8 @@ class TestPlannerFirstFlow(unittest.TestCase):
         self.assertIn("add another Task, leave", prompt)
         self.assertIn("Do not merge before the user chooses", prompt)
         self.assertIn("aiwf plan hold PLAN-001", prompt)
+        self.assertIn("ask whether the user wants /aiwf-architect", prompt)
+        self.assertIn("review several Plans as one slice", prompt)
 
         output = StringIO()
         with redirect_stdout(output):

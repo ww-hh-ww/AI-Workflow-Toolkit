@@ -21,8 +21,9 @@ not guess. Surface the mismatch and follow the phase skill.
 
 ## Hard Rules
 
-- `/aiwf-architect` is manually triggered, and is also used for milestone
-  acceptance when `aiwf status --prompt` routes there.
+- At Plan closeout, suggest `/aiwf-architect` and let the human choose whether
+  to use it. It is also used for milestone acceptance when
+  `aiwf status --prompt` routes there.
 - One Planner owns governance. One Plan owns one worktree, and one worktree has
   at most one active Task. Different Plans may run in parallel after Planner
   checks real dependencies. Executor, Tester, and Reviewer remain sequential
