@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
@@ -78,7 +79,9 @@ def _task_next(
     task: Dict[str, Any],
     record: Dict[str, Any],
     control: Path | None = None,
+    host: str = "",
 ) -> Tuple[str, str]:
+    host = (host or os.environ.get("AIWF_HOST", "claude")).lower()
     task_id = str(task.get("id") or "")
     requirements = task.get("requirements", {}) or {}
     fix_loop = record.get("fix_loop", {}) or {}
@@ -102,14 +105,22 @@ def _task_next(
                 if control else None
             )
             if previous:
-                agent_route = (
-                    f"otherwise, if available in this or the resumed original Claude session, "
-                    f"try once to resume aiwf-executor {previous['agent_id']} with "
-                    f"SendMessage: 'Resume {task_id} repair. Run aiwf task proof "
-                    f"{task_id}, fix the current finding, record implementation, and return'; "
-                    "if unavailable or resume fails, dispatch a new aiwf-executor with the "
-                    "Task ID and current finding"
-                )
+                if host == "opencode":
+                    agent_route = (
+                        f"otherwise continue the previous aiwf-executor child once with "
+                        f"task_id {previous['agent_id']} and tell it to read aiwf task proof "
+                        f"{task_id}; if continuation is unavailable, dispatch a new "
+                        "aiwf-executor with the Task ID and current finding"
+                    )
+                else:
+                    agent_route = (
+                        f"otherwise, if available in this or the resumed original Claude session, "
+                        f"try once to resume aiwf-executor {previous['agent_id']} with "
+                        f"SendMessage: 'Resume {task_id} repair. Run aiwf task proof "
+                        f"{task_id}, fix the current finding, record implementation, and return'; "
+                        "if unavailable or resume fails, dispatch a new aiwf-executor with the "
+                        "Task ID and current finding"
+                    )
             else:
                 agent_route = "otherwise dispatch aiwf-executor"
             return (
@@ -141,6 +152,14 @@ def _task_next(
                 if control else None
             )
             if previous:
+                if host == "opencode":
+                    return (
+                        "Executor",
+                        f"load /aiwf-implement; continue the previous aiwf-executor child once "
+                        f"with task_id {previous['agent_id']} and tell it to reread Task.md, "
+                        "the current diff, and missing work; if continuation is unavailable, "
+                        "dispatch a new aiwf-executor for the Task",
+                    )
                 return (
                     "Executor",
                     f"load /aiwf-implement; if available in this or the resumed original Claude "
@@ -175,6 +194,14 @@ def _task_next(
                 if control else None
             )
             if previous:
+                if host == "opencode":
+                    return (
+                        "Tester",
+                        f"load /aiwf-test; continue the previous aiwf-tester child once with "
+                        f"task_id {previous['agent_id']} and tell it to read aiwf task proof "
+                        f"{task_id} and complete only missing verification; if continuation is "
+                        "unavailable, dispatch a new aiwf-tester for the Task",
+                    )
                 return (
                     "Tester",
                     f"load /aiwf-test; if available in this or the resumed original Claude "
@@ -214,6 +241,14 @@ def _task_next(
                 if control else None
             )
             if previous:
+                if host == "opencode":
+                    return (
+                        "Reviewer",
+                        f"load /aiwf-review; continue the previous aiwf-reviewer child once "
+                        f"with task_id {previous['agent_id']} and tell it to reconcile Task.md, "
+                        "the tested snapshot, and its report; if continuation is unavailable, "
+                        "dispatch a new aiwf-reviewer for the Task",
+                    )
                 return (
                     "Reviewer",
                     f"load /aiwf-review; if available in this or the resumed original Claude "
@@ -255,7 +290,7 @@ def _skill_for(next_role: str) -> str:
     }.get(next_role, "/aiwf-planner")
 
 
-def _active_rows(control: Path) -> List[Dict[str, Any]]:
+def _active_rows(control: Path, host: str = "") -> List[Dict[str, Any]]:
     rows: List[Dict[str, Any]] = []
     for task in load_ledger(str(control)).get("tasks", []) or []:
         if not isinstance(task, dict) or task.get("status") not in ("active", "suspended"):
@@ -280,7 +315,7 @@ def _active_rows(control: Path) -> List[Dict[str, Any]]:
                 )
             running = []
         else:
-            next_role, action = _task_next(task, record, control)
+            next_role, action = _task_next(task, record, control, host)
             running = [
                 item for item in running_dispatches(control, task_id=task_id)
                 if item["subagent_type"] in WORKFLOW_ROLES
@@ -372,6 +407,7 @@ def _installed(control: Path) -> bool:
         and (
             (control / ".claude/settings.json").exists()
             or (control / ".reasonix/settings.json").exists()
+            or (control / ".opencode/plugins/aiwf.js").exists()
         )
     )
 
@@ -382,10 +418,20 @@ def cmd_status(args) -> None:
     if not _installed(control):
         print(f"AIWF V{VERSION}")
         print("No embedded AIWF installation found in this project.")
-        print("Install with: aiwf install claude")
+        print("Install with: aiwf install claude or aiwf install opencode")
         return
 
-    rows = _active_rows(control)
+    host = os.environ.get("AIWF_HOST", "").lower()
+    if not host:
+        if (control / ".opencode/plugins/aiwf.js").exists() and not (
+            control / ".claude/settings.json"
+        ).exists():
+            host = "opencode"
+        elif (control / ".reasonix/settings.json").exists():
+            host = "reasonix"
+        else:
+            host = "claude"
+    rows = _active_rows(control, host)
     current = task_for_worktree(str(worktree))
     plans_closeout = _plans_at_closeout(control)
     plans_between = _plans_between_tasks(control)
@@ -406,7 +452,15 @@ def _print_human(
     plans_closeout: List[Dict[str, Any]],
     plans_between: List[Dict[str, Any]],
 ) -> None:
-    product = "Reasonix" if (control / ".reasonix/settings.json").exists() else "Claude Code"
+    if os.environ.get("AIWF_HOST", "").lower() == "opencode" or (
+        (control / ".opencode/plugins/aiwf.js").exists()
+        and not (control / ".claude/settings.json").exists()
+    ):
+        product = "OpenCode"
+    elif (control / ".reasonix/settings.json").exists():
+        product = "Reasonix"
+    else:
+        product = "Claude Code"
     print(f"AIWF V{VERSION} - {product}")
     print(f"Control root: {control}")
     print(f"Current worktree: {worktree}")

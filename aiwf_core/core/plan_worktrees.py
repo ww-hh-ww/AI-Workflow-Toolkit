@@ -1,6 +1,7 @@
 """Create and reuse persistent Git worktrees for Plans."""
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any, Dict
 
@@ -59,12 +60,25 @@ def create_plan_worktree(
 
     relative_parent: Path | None = None
     if not worktree_path:
-        config_dir = ".reasonix" if (
-            (control / ".reasonix/settings.json").exists()
-            and not (control / ".claude/settings.json").exists()
-        ) else ".claude"
+        host = os.environ.get("AIWF_HOST", "").strip().lower()
+        if host == "opencode" and (control / ".opencode/plugins/aiwf.js").exists():
+            config_dir = ".opencode"
+        elif (control / ".claude/settings.json").exists():
+            config_dir = ".claude"
+        elif (control / ".opencode/plugins/aiwf.js").exists():
+            config_dir = ".opencode"
+        else:
+            config_dir = ".reasonix"
         relative_parent = Path(config_dir) / "worktrees"
-        _ensure_local_ignore(control, relative_parent)
+        managed_worktree_roots = {relative_parent}
+        if (control / ".claude/settings.json").exists():
+            managed_worktree_roots.add(Path(".claude/worktrees"))
+        if (control / ".opencode/plugins/aiwf.js").exists():
+            managed_worktree_roots.add(Path(".opencode/worktrees"))
+        if (control / ".reasonix/settings.json").exists():
+            managed_worktree_roots.add(Path(".reasonix/worktrees"))
+        for managed_root in sorted(managed_worktree_roots, key=str):
+            _ensure_local_ignore(control, managed_root)
     dirty = changed_project_files(str(control))
     if dirty:
         raise ValueError(

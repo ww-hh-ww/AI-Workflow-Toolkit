@@ -14,6 +14,7 @@ def is_installed_aiwf_root(path: PathLike) -> bool:
     integration = (
         (root / ".claude" / "settings.json").exists()
         or (root / ".reasonix" / "settings.json").exists()
+        or (root / ".opencode" / "plugins" / "aiwf.js").exists()
     )
     return state.exists() and integration
 

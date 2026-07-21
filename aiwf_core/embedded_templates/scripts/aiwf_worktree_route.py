@@ -10,7 +10,7 @@ def main():
         allow()
 
     event = normalize(data)
-    if event.tool_name not in ("Read", "Glob", "Grep"):
+    if event.tool_name not in ("Read", "Glob", "Grep", "List"):
         allow()
 
     try:

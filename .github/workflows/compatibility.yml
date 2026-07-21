@@ -1,0 +1,55 @@
+name: Compatibility
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  host-platforms:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+        python: ["3.9", "3.12"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: python -m pip install -e . pytest
+      - run: python -m pytest -q tests/embedded/test_compatibility_install.py tests/embedded/test_event_role_provenance.py tests/embedded/test_project_root_resolution.py
+
+  embedded-full:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e . pytest
+      - run: python -m pytest -q tests/embedded
+
+  opencode-smoke:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: python -m pip install -e .
+      - run: npm install -g opencode-ai
+      - run: python -m aiwf_core.cli install opencode --force
+      - run: python -m aiwf_core.cli doctor --host opencode
+      - run: opencode debug config

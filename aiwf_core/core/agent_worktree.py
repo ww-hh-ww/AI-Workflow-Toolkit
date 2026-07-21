@@ -1,4 +1,4 @@
-"""Bind Claude task work to the Task's Plan worktree."""
+"""Bind native coding-agent work to the Task's Plan worktree."""
 from __future__ import annotations
 
 import json
@@ -14,6 +14,7 @@ from .worktree_context import resolve_control_root
 
 
 TASK_ROLE_TYPES = frozenset({"aiwf-executor", "aiwf-tester", "aiwf-reviewer"})
+NATIVE_SESSION_ENGINES = frozenset({"claude", "opencode"})
 
 
 class AgentWorktreeError(RuntimeError):
@@ -41,7 +42,7 @@ def is_task_role(agent_type: str) -> bool:
 
 def _is_planner_session(event: NormalizedEvent) -> bool:
     """Return whether this is the main Planner session, not a subagent."""
-    if event.engine != "claude" or event.agent_id:
+    if event.engine not in NATIVE_SESSION_ENGINES or event.agent_id:
         return False
     role = str(event.agent_type or "").lower()
     return not role or "planner" in role or role == "main"
@@ -72,6 +73,25 @@ def _matching_tasks(tasks: Iterable[Dict[str, Any]], text: str) -> List[Dict[str
         if task_id and worktree and _task_id_in_text(task_id, text) and worktree in text:
             matches.append(task)
     return matches
+
+
+def _bash_task_ids(event: NormalizedEvent) -> set[str]:
+    """Return Task IDs explicitly selected by a Bash --task-id argument."""
+    if event.tool_name != "Bash":
+        return set()
+    command = str((event.tool_input or {}).get("command") or "")
+    try:
+        tokens = shlex.split(command)
+    except ValueError:
+        return set()
+
+    task_ids: set[str] = set()
+    for index, token in enumerate(tokens):
+        if token == "--task-id" and index + 1 < len(tokens):
+            task_ids.add(tokens[index + 1])
+        elif token.startswith("--task-id="):
+            task_ids.add(token.split("=", 1)[1])
+    return {task_id for task_id in task_ids if task_id}
 
 
 def _transcript_candidates(event: NormalizedEvent) -> List[Tuple[Path, bool]]:
@@ -129,7 +149,7 @@ def resolve_agent_assignment(
     control_root: Optional[Path] = None,
 ) -> Optional[AgentAssignment]:
     """Resolve one task-role subagent to the Task named in its dispatch prompt."""
-    if event.engine != "claude" or not is_task_role(event.agent_type):
+    if event.engine not in NATIVE_SESSION_ENGINES or not is_task_role(event.agent_type):
         return None
 
     control = (control_root or resolve_control_root(event.cwd or Path.cwd())).resolve()
@@ -139,6 +159,21 @@ def resolve_agent_assignment(
     ]
     if not tasks:
         return None
+
+    # The OpenCode plugin supplies the assigned worktree as the child session's
+    # logical cwd. Claude keeps its transcript-based dispatch resolution.
+    if event.engine == "opencode":
+        try:
+            current = Path(event.cwd).expanduser().resolve()
+        except (OSError, RuntimeError, ValueError):
+            current = None
+        cwd_matches = [
+            task for task in tasks
+            if current is not None
+            and Path(str(task["worktree_path"])).expanduser().resolve() == current
+        ]
+        if len(cwd_matches) == 1:
+            return _assignment(cwd_matches[0], control)
 
     for transcript, agent_specific in _transcript_candidates(event):
         text = _read_transcript(transcript)
@@ -199,17 +234,23 @@ def resolve_planner_assignment(
     if len(current_matches) == 1:
         return _assignment(current_matches[0], control)
 
-    # In a parallel cycle, absolute paths and Bash commands may name one worktree.
-    # Route only when that input identifies exactly one Task; never guess.
+    # In a parallel cycle, an absolute path or an explicit Bash --task-id may
+    # identify one worktree. Route only when all selectors agree; never guess.
     tool_text = json.dumps(event.tool_input or {}, ensure_ascii=False)
-    named = []
+    explicit_task_ids = _bash_task_ids(event)
+    named: Dict[str, Dict[str, Any]] = {}
     for task in tasks:
+        task_id = str(task.get("id") or "")
         raw_worktree = str(Path(str(task["worktree_path"])).expanduser())
         resolved_worktree = str(Path(raw_worktree).resolve())
-        if raw_worktree in tool_text or resolved_worktree in tool_text:
-            named.append(task)
+        if (
+            task_id in explicit_task_ids
+            or raw_worktree in tool_text
+            or resolved_worktree in tool_text
+        ):
+            named[task_id] = task
     if len(named) == 1:
-        return _assignment(named[0], control)
+        return _assignment(next(iter(named.values())), control)
 
     if len(tasks) == 1:
         return _assignment(tasks[0], control)
@@ -283,6 +324,10 @@ def route_agent_tool(
         already_in_worktree = Path(event.cwd).expanduser().resolve() == assignment.worktree
     except (OSError, RuntimeError, ValueError):
         already_in_worktree = False
+    # OpenCode child sessions keep the parent session directory even when AIWF
+    # binds the child to a Plan worktree. Always make relative project tools
+    # explicit there. Claude can continue using its native worktree cwd.
+    route_from_parent = event.engine == "opencode"
     path_key = {
         "Read": "file_path",
         "Write": "file_path",
@@ -290,12 +335,17 @@ def route_agent_tool(
         "MultiEdit": "file_path",
         "Glob": "path",
         "Grep": "path",
+        "List": "path",
     }.get(event.tool_name)
     if path_key:
         current = str(updated.get(path_key) or "")
         routed = (
             _routed_path(current, assignment)
-            if _is_governance_path(current, assignment) or not already_in_worktree
+            if (
+                _is_governance_path(current, assignment)
+                or route_from_parent
+                or not already_in_worktree
+            )
             else current
         )
         if routed != current:
@@ -311,7 +361,7 @@ def route_agent_tool(
         prefix = f"cd {shlex.quote(str(assignment.worktree))} &&"
         if (
             command.strip()
-            and not already_in_worktree
+            and (route_from_parent or not already_in_worktree)
             and not command.lstrip().startswith(prefix)
         ):
             updated["command"] = f"{prefix} {command}"

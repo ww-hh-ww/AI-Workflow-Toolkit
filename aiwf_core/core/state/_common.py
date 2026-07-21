@@ -9,6 +9,8 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Callable, Dict, Optional, TypeVar
 
+from ...platform.file_lock import locked_file
+
 BLOCKING_REVIEW_RESULTS = {
     "needs_fix", "needs_more_testing", "evidence_insufficient",
     "scope_violation", "rejected",
@@ -95,16 +97,11 @@ def _locked_json_update(path: Path, default: Dict, mutator: Callable[[Dict], T])
     same time. The lock covers read -> compute next ID -> append -> write so
     records are not overwritten by a concurrent writer.
     """
-    import fcntl
-
     lock_path = path.with_name(f"{path.name}.lock")
-    lock_path.parent.mkdir(parents=True, exist_ok=True)
-    with lock_path.open("a+", encoding="utf-8") as lock:
-        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+    with locked_file(lock_path):
         data = _read(path)
         if not data:
             data = dict(default)
         result = mutator(data)
         _atomic_write(path, data)
-        fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
         return result

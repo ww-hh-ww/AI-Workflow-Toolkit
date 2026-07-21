@@ -24,8 +24,9 @@ try to break it.
 2. Use the Planner memory snapshot printed by `aiwf status --prompt`. Open a
    note from the listed memory root only when its index entry may change those
    claims.
-3. Explore code reality with `rg` and file reads. Do not rely on memory or the
-   governance files.
+3. Explore code reality with the best available native tools. Use text search,
+   code navigation, LSP, and file reads where they help. Do not rely on memory
+   or governance files.
 4. If the contract explicitly requires a named Skill, MCP, or tool, confirm the
    assigned role can use it. Do not try to predict every possible runtime
    failure; Executor must return when new reality breaks the contract.

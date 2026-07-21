@@ -22,7 +22,10 @@ def _show_planner_facade() -> None:
     aiwf_state_path = root / ".aiwf" / "state" / "state.json"
     claude_settings = root / ".claude" / "settings.json"
     reasonix_settings = root / ".reasonix" / "settings.json"
-    if aiwf_state_path.exists() and (reasonix_settings.exists() or claude_settings.exists()):
+    opencode_plugin = root / ".opencode" / "plugins" / "aiwf.js"
+    if aiwf_state_path.exists() and (
+        reasonix_settings.exists() or claude_settings.exists() or opencode_plugin.exists()
+    ):
         cmd_status(argparse.Namespace())
         return
     print(f"AIWF V{VERSION} — Embedded Workflow Governance")
@@ -31,6 +34,7 @@ def _show_planner_facade() -> None:
     print()
     print("Start here:")
     print("  aiwf install claude      # Claude Code")
+    print("  aiwf install opencode    # OpenCode")
     print("  aiwf install reasonix    # Reasonix")
     print()
     print("Useful checks after install:")
@@ -126,6 +130,7 @@ def _show_tiered_help(show_all: bool = False) -> None:
     print()
     print("Primary path:")
     print("  aiwf install claude      # Claude Code")
+    print("  aiwf install opencode    # OpenCode")
     print("  aiwf install reasonix    # Reasonix")
 
 

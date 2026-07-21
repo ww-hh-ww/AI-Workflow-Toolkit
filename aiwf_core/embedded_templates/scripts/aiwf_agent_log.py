@@ -8,6 +8,7 @@ from aiwf_core.core.agent_runtime import (
     cancel_agent_dispatch,
     finish_dispatch,
     latest_agent_dispatch,
+    running_dispatches,
     start_resumed_dispatch,
 )
 from aiwf_core.core.worktree_context import resolve_control_root
@@ -130,13 +131,24 @@ def _timestamp(value):
         return None
 
 
-def _completion_blocker(base, task_id, agent_type, agent_id):
+def _completion_blocker(base, task_id, agent_type, agent_id="", session_id=""):
     requirement = ROLE_RECORD.get(agent_type)
-    if not requirement or not task_id or not agent_id:
+    if not requirement or not task_id:
         return ""
-    dispatch = latest_agent_dispatch(
-        base, agent_type, agent_id, task_id=task_id,
-    )
+    if not agent_id and not session_id:
+        return ""
+    if agent_id:
+        dispatch = latest_agent_dispatch(
+            base, agent_type, agent_id, task_id=task_id,
+        )
+    else:
+        candidates = [
+            item for item in running_dispatches(
+                base, task_id=task_id, session_id=session_id,
+            )
+            if item["subagent_type"] == agent_type
+        ]
+        dispatch = candidates[0] if len(candidates) == 1 else None
     if not dispatch:
         return ""
 
@@ -351,20 +363,46 @@ def main():
             }))
         sys.exit(0)
 
+    reason = ""
+    completion_note = ""
+    child_agent_id = ""
     if subagent_type in TASK_ROLES:
+        if event.engine == "opencode" and isinstance(event.tool_response, dict):
+            metadata = event.tool_response.get("metadata", {}) or {}
+            child_agent_id = str(
+                metadata.get("sessionId") or metadata.get("sessionID") or ""
+            )
+            if child_agent_id:
+                bind_dispatch_agent(
+                    base,
+                    subagent_type,
+                    child_agent_id,
+                    task_id=task_id,
+                    session_id=event.session_id,
+                )
         reason = "" if tool_failed else _return_reason(_response_text(event.tool_response))
         if reason:
             _open_planner_fix_loop(
                 base, task_id, subagent_type.removeprefix("aiwf-"), reason
             )
+        elif event.engine == "opencode" and not _was_cancelled(event.tool_response):
+            completion_note = _completion_blocker(
+                base, task_id, subagent_type, session_id=event.session_id,
+            )
     if subagent_type in TASK_ROLES:
+        cancelled = _was_cancelled(event.tool_response)
         finish_dispatch(
             base,
             subagent_type,
             task_id=task_id,
             session_id=event.session_id,
-            status="cancelled" if tool_failed or _was_cancelled(event.tool_response) else "completed",
-            source="agent_failure" if tool_failed else "agent_cancelled",
+            status="cancelled" if tool_failed or cancelled else "completed",
+            source=(
+                "agent_failure" if tool_failed
+                else "agent_cancelled" if cancelled
+                else "agent_return"
+            ),
+            agent_id=child_agent_id,
         )
 
     if task_id:
@@ -417,13 +455,20 @@ def main():
         }))
     elif subagent_type in TASK_ROLES:
         task_label = f" for {task_id}" if task_id else ""
+        next_step = (
+            completion_note
+            + " Continue the same OpenCode child with the `task_id` returned by the "
+            "Task tool. Do not dispatch the next workflow role yet."
+            if completion_note else
+            f"Read {REPORT_LABELS[subagent_type]}, then run `aiwf status --prompt` "
+            "and follow its route."
+        )
         print(json.dumps({
             "hookSpecificOutput": {
                 "hookEventName": hook_event,
                 "additionalContext": (
-                    f"[AIWF] {ROLE_LABELS[subagent_type]} returned{task_label}. Read "
-                    f"{REPORT_LABELS[subagent_type]}, then run "
-                    "`aiwf status --prompt` and follow its route."
+                    f"[AIWF] {ROLE_LABELS[subagent_type]} returned{task_label}. "
+                    f"{next_step}"
                 ),
             }
         }))

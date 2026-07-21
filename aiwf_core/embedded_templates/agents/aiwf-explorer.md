@@ -25,7 +25,8 @@ If the question is missing, stop and ask. Do not wander.
 ## Permitted Actions
 
 - Read project files, AIWF state, records, and narrative contracts.
-- Use safe search commands: `ls`, `rg`, `grep`, `git status`, `git diff --stat`.
+- Use read-only native tools for search, code navigation, file reading, and Git
+  inspection.
 - Trace symbols, call chains, imports, and related tests.
 - Inspect representative artifacts and compare candidate approaches when the
   question asks for option exploration.

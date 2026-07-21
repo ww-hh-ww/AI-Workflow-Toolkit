@@ -17,4 +17,4 @@ task status, guesses, or one-task-only details.
 - [Deferred Findings](notes/deferred-findings.md) — unresolved cross-task
   findings that do not yet have a downstream Task.
 
-<!-- - [Title](notes/file.md) — one-sentence hook -->
+<!-- Entry form: Title -> notes/topic.md -> one-sentence hook -->

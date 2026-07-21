@@ -6,6 +6,7 @@ Core defines engineering semantics; the Claude-compatible adapter formats hooks.
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 from typing import Any, Dict, List, NamedTuple
 
@@ -244,8 +245,8 @@ def _is_aiwf_hook_handler(handler: Any) -> bool:
     """Return whether a hook handler is managed by AIWF."""
     if not isinstance(handler, dict):
         return False
-    command = str(handler.get("command") or "").replace("\\", "/")
-    return "scripts/aiwf_" in command
+    values = [handler.get("command"), *(handler.get("args") or [])]
+    return any("scripts/aiwf_" in str(value or "").replace("\\", "/") for value in values)
 
 
 def _without_aiwf_hook_handlers(entry: Any) -> Any:
@@ -1017,7 +1018,12 @@ def install_embedded(mode: str = "claude", force: bool = False) -> Dict[str, Any
 
 
 def install_claude(force: bool = False) -> Dict[str, Any]:
-    return install_embedded("claude", force=force)
+    results = install_embedded("claude", force=force)
+    if sys.platform == "win32":
+        from .platform.windows_install import apply_windows_claude_compat
+
+        apply_windows_claude_compat(_project_root())
+    return results
 
 
 def install_reasonix(force: bool = False) -> Dict[str, Any]:
@@ -1107,7 +1113,7 @@ def doctor(mode: str | None = None) -> Dict[str, Any]:
                     "aiwf_auto_sync.py", "aiwf_review_gate.py"]:
         path = root / "scripts" / script
         exists = path.exists()
-        executable = exists and (path.stat().st_mode & 0o111)
+        executable = exists and (sys.platform == "win32" or bool(path.stat().st_mode & 0o111))
         checks["scripts"][script] = {"exists": exists, "executable": executable}
 
     # Directory structure check

@@ -191,7 +191,8 @@ Ship the product safely.
 
     def test_package_declares_yaml_runtime_dependency(self):
         pyproject = (PROJECT_ROOT / "pyproject.toml").read_text(encoding="utf-8")
-        self.assertIn('dependencies = ["PyYAML>=6.0"]', pyproject)
+        self.assertIn('"PyYAML>=6.0"', pyproject)
+        self.assertIn("windows-curses>=2.4; platform_system == 'Windows'", pyproject)
 
     def test_reinstall_refreshes_write_policy_help_without_overwriting_choice(self):
         tmp = Path(tempfile.mkdtemp(prefix="awwritepolicy_"))
@@ -493,7 +494,8 @@ Ship the product safely.
                   "aiwf_agent_gate.py", "aiwf_auto_sync.py"]:
             p = self.tmp / "scripts" / s
             self.assertTrue(p.exists(), f"Missing: {s}")
-            self.assertTrue(p.stat().st_mode & 0o111, f"Not executable: {s}")
+            if os.name != "nt":
+                self.assertTrue(p.stat().st_mode & 0o111, f"Not executable: {s}")
 
 
 

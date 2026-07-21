@@ -75,10 +75,15 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
 
     # ── status / install / doctor ──
     p_install = sub.add_parser("install", help="install AIWF integration (skills, hooks, agents, state, scripts)")
-    p_install.add_argument("mode", choices=["claude", "reasonix"], help="installation mode")
+    p_install.add_argument("mode", choices=["claude", "opencode", "reasonix"], help="installation mode")
     p_install.add_argument("--force", action="store_true", help="force overwrite")
     p_install.set_defaults(func=_cmd_install)
-    sub.add_parser("doctor", help="check AIWF installation health").set_defaults(func=_cmd_doctor)
+    p_doctor = sub.add_parser("doctor", help="check AIWF installation health")
+    p_doctor.add_argument(
+        "--host", choices=["claude", "opencode", "reasonix"],
+        help="check one installed host adapter when several coexist",
+    )
+    p_doctor.set_defaults(func=_cmd_doctor)
     p_status = sub.add_parser("status", help="show project status (--prompt for AI, --debug for full)")
     p_status.add_argument("--prompt", action="store_true", help="AI prompt injection format")
     p_status.add_argument("--debug", action="store_true", help="full debug panel")

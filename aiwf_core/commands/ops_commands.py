@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import subprocess
 import sys
 from pathlib import Path
 
@@ -101,11 +102,27 @@ def _cmd_fix_loop_help(args: argparse.Namespace) -> None:
 
 
 def _cmd_install(args: argparse.Namespace) -> None:
-    from ..install_claude import TARGETS, install_embedded
+    if args.mode == "opencode":
+        from ..install_opencode import (
+            COMMAND_NAME, ENTRY_COMMAND, PRODUCT_NAME, install_opencode,
+        )
+        product_name = PRODUCT_NAME
+        command_name = COMMAND_NAME
+        entry_command = ENTRY_COMMAND
+        results = install_opencode(force=bool(args.force))
+    else:
+        from ..install_claude import TARGETS, install_claude, install_embedded
 
-    target = TARGETS[args.mode]
-    results = install_embedded(args.mode, force=bool(args.force))
-    print(f"# AIWF V{VERSION} - {target.product_name} Integration Installed")
+        target = TARGETS[args.mode]
+        product_name = target.product_name
+        command_name = target.command_name
+        entry_command = target.entry_command
+        results = (
+            install_claude(force=bool(args.force))
+            if args.mode == "claude"
+            else install_embedded(args.mode, force=bool(args.force))
+        )
+    print(f"# AIWF V{VERSION} - {product_name} Integration Installed")
     if results["created"]:
         print(f"Created ({len(results['created'])}):")
         for path in results["created"]:
@@ -114,16 +131,35 @@ def _cmd_install(args: argparse.Namespace) -> None:
         print(f"Updated ({len(results['updated'])}):")
         for path in results["updated"]:
             print(f"  ~ {path}")
+    git = subprocess.run(
+        ["git", "rev-parse", "--verify", "HEAD"],
+        cwd=str(Path.cwd()),
+        capture_output=True,
+        text=True,
+    )
+    if git.returncode != 0:
+        print("Before starting AIWF work: initialize Git and create the initial commit.")
     print("Next:")
-    print(f"  1. Start {target.product_name}: {target.command_name}")
-    print(f"  2. Load Planner: {target.entry_command}")
+    print(f"  1. Start {product_name}: {command_name}")
+    print(f"  2. Load Planner: {entry_command}")
     print("  3. Describe the goal or question")
 
 
 def _cmd_doctor(args: argparse.Namespace) -> None:
-    from ..install_claude import doctor
-
-    results = doctor()
+    requested_host = getattr(args, "host", None)
+    if requested_host == "opencode" or (
+        requested_host is None
+        and (Path.cwd() / ".opencode" / "plugins" / "aiwf.js").exists()
+        and not (
+            (Path.cwd() / ".claude" / "settings.json").exists()
+            or (Path.cwd() / ".reasonix" / "settings.json").exists()
+        )
+    ):
+        from ..install_opencode import doctor_opencode
+        results = doctor_opencode()
+    else:
+        from ..install_claude import doctor
+        results = doctor(mode=requested_host)
     overall = results["overall"]
     product = results.get("product_name", "embedded")
     config_dir = results.get("config_dir", ".claude")
@@ -132,7 +168,7 @@ def _cmd_doctor(args: argparse.Namespace) -> None:
 
     print(f"# AIWF Doctor - {product} - {overall}")
     print(f"{icon(results['instruction_md'])} {instruction_file}")
-    print(f"{icon(results['settings_json'])} {config_dir}/settings.json")
+    print(f"{icon(results['settings_json'])} {results.get('settings_label', config_dir + '/settings.json')}")
     print("Skills:")
     for name, info in results["skills"].items():
         print(f"  {icon(info['exists'] and info.get('has_frontmatter', False))} {name}")

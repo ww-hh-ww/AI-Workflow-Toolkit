@@ -1,6 +1,7 @@
 """Task-role Agents are mechanically routed to their Plan worktrees."""
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -155,6 +156,56 @@ class TestAgentWorktreeRouting(unittest.TestCase):
         self.assertEqual(from_worktree.tool_input["file_path"], expected)
         self.assertEqual(absolute.tool_input["file_path"], expected)
 
+    def test_opencode_role_uses_its_current_plan_worktree(self):
+        event = NormalizedEvent(
+            engine="opencode",
+            event_type="pre_tool_use",
+            session_id="opencode-child",
+            cwd=str(self.worktree_b),
+            tool_name="Read",
+            tool_input={"file_path": ".aiwf/tasks/TASK-B.md"},
+            agent_type="aiwf-executor",
+        )
+
+        routed = route_agent_tool(event, self.root)
+
+        self.assertEqual(routed.assignment.task_id, "TASK-B")
+        self.assertEqual(
+            routed.tool_input["file_path"],
+            str((self.root / ".aiwf/tasks/TASK-B.md").resolve()),
+        )
+
+        project_read = NormalizedEvent(
+            engine="opencode",
+            event_type="pre_tool_use",
+            session_id="opencode-child",
+            cwd=str(self.worktree_b),
+            tool_name="Read",
+            tool_input={"file_path": "src/feature.py"},
+            agent_type="aiwf-executor",
+        )
+        routed_project = route_agent_tool(project_read, self.root)
+        self.assertEqual(
+            routed_project.tool_input["file_path"],
+            str((self.worktree_b / "src/feature.py").resolve()),
+        )
+
+        bash = NormalizedEvent(
+            engine="opencode",
+            event_type="pre_tool_use",
+            session_id="opencode-child",
+            cwd=str(self.worktree_b),
+            tool_name="Bash",
+            tool_input={"command": "python3 -m pytest -q"},
+            agent_type="aiwf-executor",
+        )
+        routed_bash = route_agent_tool(bash, self.root)
+        self.assertTrue(
+            routed_bash.tool_input["command"].startswith(
+                f"cd {self.worktree_b.resolve()} && "
+            )
+        )
+
     def test_bash_governance_paths_use_control_root(self):
         main = self._agent_transcript("a", "TASK-A")
         routed = route_agent_tool(
@@ -255,6 +306,50 @@ class TestAgentWorktreeRouting(unittest.TestCase):
         self.assertEqual(routed.assignment.task_id, "TASK-B")
         self.assertIsNone(route_agent_tool(ambiguous, self.root))
 
+    def test_parallel_planner_routes_bash_by_explicit_task_id(self):
+        for engine, agent_type in (("claude", ""), ("opencode", "aiwf-planner")):
+            with self.subTest(engine=engine):
+                event = NormalizedEvent(
+                    engine=engine,
+                    event_type="pre_tool_use",
+                    session_id="session-1",
+                    cwd=str(self.root),
+                    tool_name="Bash",
+                    tool_input={
+                        "command": (
+                            "aiwf record testing --task-id TASK-B --status passed "
+                            "--command 'pytest -q'"
+                        ),
+                    },
+                    agent_type=agent_type,
+                )
+
+                routed = route_agent_tool(event, self.root)
+
+                self.assertEqual(routed.assignment.task_id, "TASK-B")
+                self.assertTrue(
+                    routed.tool_input["command"].startswith(
+                        f"cd {self.worktree_b.resolve()} && "
+                    )
+                )
+
+    def test_parallel_planner_does_not_route_conflicting_selectors(self):
+        event = NormalizedEvent(
+            engine="claude",
+            event_type="pre_tool_use",
+            session_id="session-1",
+            cwd=str(self.root),
+            tool_name="Bash",
+            tool_input={
+                "command": (
+                    f"cd {self.worktree_a} && "
+                    "aiwf record testing --task-id=TASK-B --status passed"
+                ),
+            },
+        )
+
+        self.assertIsNone(route_agent_tool(event, self.root))
+
 
 class TestAgentWorktreeHookIntegration(unittest.TestCase):
     def test_write_and_bash_hooks_route_into_a_real_git_worktree(self):
@@ -348,9 +443,11 @@ class TestAgentWorktreeHookIntegration(unittest.TestCase):
             bash_output = json.loads(bash_hook.stdout)["hookSpecificOutput"]
             self.assertEqual(bash_output["permissionDecision"], "allow")
             routed_command = bash_output["updatedInput"]["command"]
-            run(["/bin/sh", "-c", routed_command])
-            self.assertTrue((worktree / "routed-marker.txt").exists())
-            self.assertFalse((control / "routed-marker.txt").exists())
+            shell = shutil.which("sh")
+            if shell:
+                run([shell, "-c", routed_command])
+                self.assertTrue((worktree / "routed-marker.txt").exists())
+                self.assertFalse((control / "routed-marker.txt").exists())
 
             inline_event = {
                 "hook_event_name": "PreToolUse",

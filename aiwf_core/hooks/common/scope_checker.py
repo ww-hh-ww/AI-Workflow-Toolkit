@@ -536,7 +536,7 @@ def check_file_write(event: NormalizedEvent) -> ScopeResult:
                 active_context_id=state.get("active_context_id") or "(none)",
                 reason=(
                     "command-policy.json protects human-only commands and cannot be edited "
-                    "by AI tools. A human may edit it outside the Claude Code session."
+                    "by AI tools. A human may edit it outside the coding-agent session."
                 ),
             )
         if normalized.startswith(".aiwf/memory/") and not _is_planner_inline_role(role):
@@ -1039,7 +1039,7 @@ def _check_command_policy_bash_write(command: str, cwd: Path) -> Optional[Dict]:
         "matched_pattern": target,
         "reason": (
             "command-policy.json protects human-only commands and cannot be edited "
-            "by AI shell commands. A human may edit it outside the Claude Code session."
+            "by AI shell commands. A human may edit it outside the coding-agent session."
         ),
     }
 

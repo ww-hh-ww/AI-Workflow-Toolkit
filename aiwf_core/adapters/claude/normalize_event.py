@@ -5,6 +5,7 @@ Translates coding-shell hook JSON into backend-neutral AIWF events.
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -56,7 +57,7 @@ def normalize(data: Dict[str, Any]) -> NormalizedEvent:
     normalized_type = type_map.get(event_type, event_type.lower())
 
     return NormalizedEvent(
-        engine="claude",
+        engine=os.environ.get("AIWF_HOOK_ENGINE", "").lower() or "claude",
         event_type=normalized_type,
         session_id=data.get("session_id", ""),
         cwd=str(resolve_worktree_root(data.get("cwd", str(Path.cwd())))),
