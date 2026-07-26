@@ -12,13 +12,14 @@ from ..state_schema import (
     VALID_RELATION_TYPES,
     default_goals,
 )
-from ._common import _atomic_write, _read_json
+from ..worktree_context import resolve_control_root
+from ._common import _atomic_write, _governance_locked, _read_json
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 def _goals_path(base_dir: str) -> Path:
-    return Path(base_dir) / ".aiwf" / "state" / "goals.json"
+    return resolve_control_root(base_dir) / ".aiwf" / "state" / "goals.json"
 
 def _read(path: Path, default: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     return _read_json(path, default)
@@ -119,6 +120,7 @@ def get_active_goal(base_dir: str) -> Dict[str, Any]:
 
 # ── mutation ──────────────────────────────────────────────────────────────
 
+@_governance_locked
 def add_child_goal(base_dir: str, parent_id: str, child_id: str,
                    title: str = "", intent: str = "") -> Dict[str, Any]:
     tree = load_goal_tree(base_dir)
@@ -155,6 +157,7 @@ def add_child_goal(base_dir: str, parent_id: str, child_id: str,
     save_goal_tree(base_dir, tree)
     return {"parent": parent, "child": child, "tree": tree}
 
+@_governance_locked
 def init_root(base_dir: str, goal_id: str,
               title: str = "", intent: str = "") -> Dict[str, Any]:
     """Create a root Goal."""
@@ -216,6 +219,7 @@ def _detect_cycles(tree: Dict[str, Any]) -> List[str]:
 
 # ── structural operations: graft & prune ──────────────────────────────────
 
+@_governance_locked
 def add_relation(base_dir: str, source_id: str, target_id: str,
                  rel_type: str = "depends_on", reason: str = "",
                  allow_cross: bool = False) -> Dict[str, Any]:
@@ -266,6 +270,7 @@ def add_relation(base_dir: str, source_id: str, target_id: str,
     save_goal_tree(base_dir, tree)
     return {"added": True, "relation": rel}
 
+@_governance_locked
 def remove_relation(base_dir: str, source_id: str, target_id: str) -> Dict[str, Any]:
     """Remove a sibling relation."""
     tree = load_goal_tree(base_dir)

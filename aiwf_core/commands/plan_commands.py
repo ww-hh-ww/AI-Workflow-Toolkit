@@ -38,6 +38,10 @@ def _cmd_plan_create(args: argparse.Namespace) -> None:
         print(f"  Tasks: {', '.join(result['task_ids'])}")
     from ..core.index_ops import sync_index
     sync_result = sync_index(str(Path.cwd()))
+    if sync_result.get("errors"):
+        print("  sync warning: Plan.md still needs correction before Task activation")
+        for error in sync_result["errors"][:8]:
+            print(f"    - {error}")
     if sync_result["changes"]:
         for c in sync_result["changes"][:5]:
             print(f"  sync: {c}")
@@ -153,13 +157,14 @@ def _cmd_plan_list(args: argparse.Namespace) -> None:
 def _cmd_plan_dep_add(args: argparse.Namespace) -> None:
     from ..core.state.plan_ops import add_plan_dependency
     from ..core.index_ops import parse_md, write_narrative_doc, sync_index
+    from ..core.worktree_context import resolve_control_root
     try:
         result = add_plan_dependency(str(Path.cwd()), args.plan_id, args.dependency_id)
     except ValueError as e:
         print(f"Plan dependency add blocked: {e}", file=sys.stderr)
         raise SystemExit(1)
     # Update Plan.md frontmatter
-    plan_doc = Path.cwd() / ".aiwf" / "plans" / f"{args.plan_id}.md"
+    plan_doc = resolve_control_root(Path.cwd()) / ".aiwf" / "plans" / f"{args.plan_id}.md"
     if plan_doc.exists():
         fm, body = parse_md(plan_doc)
         if fm is not None:
@@ -174,6 +179,7 @@ def _cmd_plan_dep_add(args: argparse.Namespace) -> None:
 def _cmd_plan_dep_remove(args: argparse.Namespace) -> None:
     from ..core.state.plan_ops import remove_plan_dependency
     from ..core.index_ops import parse_md, write_narrative_doc, sync_index
+    from ..core.worktree_context import resolve_control_root
     try:
         result = remove_plan_dependency(
             str(Path.cwd()), args.plan_id, args.dependency_id, args.reason,
@@ -181,7 +187,7 @@ def _cmd_plan_dep_remove(args: argparse.Namespace) -> None:
     except ValueError as e:
         print(f"Plan dependency remove blocked: {e}", file=sys.stderr)
         raise SystemExit(1)
-    plan_doc = Path.cwd() / ".aiwf" / "plans" / f"{args.plan_id}.md"
+    plan_doc = resolve_control_root(Path.cwd()) / ".aiwf" / "plans" / f"{args.plan_id}.md"
     if plan_doc.exists():
         fm, body = parse_md(plan_doc)
         if fm is not None:
@@ -211,6 +217,7 @@ def _cmd_plan_attach(args: argparse.Namespace) -> None:
     """Attach a task to an existing Plan — sets Task.md frontmatter plan_id, sync derives Plan.task_ids."""
     from ..core.state.plan_ops import attach_task_to_plan
     from ..core.index_ops import parse_md, write_narrative_doc, sync_index
+    from ..core.worktree_context import resolve_control_root
     plan_id = getattr(args, "plan_id", "") or ""
     task_id = getattr(args, "task_id", "") or ""
     if not plan_id or not task_id:
@@ -223,7 +230,7 @@ def _cmd_plan_attach(args: argparse.Namespace) -> None:
         raise SystemExit(1)
     if result.get("attached"):
         # Update Task.md frontmatter — plan_id is the master input
-        task_doc = Path.cwd() / ".aiwf" / "tasks" / f"{task_id}.md"
+        task_doc = resolve_control_root(Path.cwd()) / ".aiwf" / "tasks" / f"{task_id}.md"
         if task_doc.exists():
             fm, body = parse_md(task_doc)
             if fm is not None:
@@ -239,6 +246,7 @@ def _cmd_plan_detach(args: argparse.Namespace) -> None:
     """Detach a task from a Plan — clears Task.md frontmatter plan_id, sync updates Plan.task_ids."""
     from ..core.state.plan_ops import detach_task_from_plan
     from ..core.index_ops import parse_md, write_narrative_doc, sync_index
+    from ..core.worktree_context import resolve_control_root
     plan_id = getattr(args, "plan_id", "") or ""
     task_id = getattr(args, "task_id", "") or ""
     if not plan_id or not task_id:
@@ -250,7 +258,7 @@ def _cmd_plan_detach(args: argparse.Namespace) -> None:
         print(f"Plan task unlink blocked: {e}", file=sys.stderr)
         raise SystemExit(1)
     if result.get("detached"):
-        task_doc = Path.cwd() / ".aiwf" / "tasks" / f"{task_id}.md"
+        task_doc = resolve_control_root(Path.cwd()) / ".aiwf" / "tasks" / f"{task_id}.md"
         if task_doc.exists():
             fm, body = parse_md(task_doc)
             if fm is not None:
@@ -351,12 +359,13 @@ def _cmd_plan_integrate(args: argparse.Namespace) -> None:
 def _update_md_status(entity_type: str, entity_id: str, status: str,
                       summary: str = "") -> None:
     from ..core.index_ops import parse_md, write_narrative_doc, sync_index
+    from ..core.worktree_context import resolve_control_root
     from pathlib import Path as _P
     dir_map = {"plan": ".aiwf/plans", "milestone": ".aiwf/milestones"}
     subdir = dir_map.get(entity_type)
     if not subdir:
         return
-    doc = _P.cwd() / subdir / f"{entity_id}.md"
+    doc = resolve_control_root(_P.cwd()) / subdir / f"{entity_id}.md"
     if not doc.exists():
         return
     fm, body = parse_md(doc)

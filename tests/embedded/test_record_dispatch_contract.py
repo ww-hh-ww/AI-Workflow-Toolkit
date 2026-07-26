@@ -11,6 +11,27 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
+VALID_TASK_CONTRACT = """# TASK-001
+
+## Fixed Contract
+
+### Structural Home
+
+GOAL-001 / PLAN-001.
+
+### Objective
+
+Deliver the tested result.
+
+### Contract Responsibility
+
+Own and prove the result described by this test.
+
+### Proof Standard
+
+- [Built] The result exists in the reviewed snapshot.
+"""
+
 
 class TestRecordDispatchContract(unittest.TestCase):
     def setUp(self):
@@ -54,6 +75,9 @@ class TestRecordDispatchContract(unittest.TestCase):
                 },
             }],
         }, indent=2) + "\n", encoding="utf-8")
+        task_doc = self.tmp / ".aiwf/tasks/TASK-001.md"
+        task_doc.parent.mkdir(parents=True, exist_ok=True)
+        task_doc.write_text(VALID_TASK_CONTRACT, encoding="utf-8")
         self.record_path = self.tmp / ".aiwf/records/tasks/TASK-001.json"
         self.record_path.parent.mkdir(parents=True, exist_ok=True)
         self._write_record({

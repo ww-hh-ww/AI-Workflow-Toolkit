@@ -22,6 +22,27 @@ from aiwf_core.hooks.common.scope_checker import check_bash, check_file_write
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
+VALID_TASK_CONTRACT = """# {task_id}
+
+## Fixed Contract
+
+### Structural Home
+
+GOAL-001 / {plan_id}.
+
+### Objective
+
+Deliver the tested result.
+
+### Contract Responsibility
+
+Own and prove the result described by this test.
+
+### Proof Standard
+
+- [Built] The result exists in the reviewed snapshot.
+"""
+
 
 class TestTaskParallelContract(unittest.TestCase):
     def setUp(self):
@@ -74,6 +95,17 @@ class TestTaskParallelContract(unittest.TestCase):
         upsert_task(str(self.tmp), "TASK-A1", status="ready", plan_id="PLAN-A")
         upsert_task(str(self.tmp), "TASK-A2", status="ready", plan_id="PLAN-A")
         upsert_task(str(self.tmp), "TASK-B1", status="ready", plan_id="PLAN-B")
+        task_dir = self.tmp / ".aiwf/tasks"
+        task_dir.mkdir(parents=True, exist_ok=True)
+        for task_id, plan_id in (
+            ("TASK-A1", "PLAN-A"),
+            ("TASK-A2", "PLAN-A"),
+            ("TASK-B1", "PLAN-B"),
+        ):
+            (task_dir / f"{task_id}.md").write_text(
+                VALID_TASK_CONTRACT.format(task_id=task_id, plan_id=plan_id),
+                encoding="utf-8",
+            )
 
     def tearDown(self):
         shutil.rmtree(self.tmp, ignore_errors=True)

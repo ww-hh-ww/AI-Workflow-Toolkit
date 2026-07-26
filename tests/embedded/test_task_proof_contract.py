@@ -18,7 +18,74 @@ def _write_task(base: Path, task_id: str, body: str) -> dict:
 
 
 class TestTaskProofContract(unittest.TestCase):
-    def test_chinese_task_contract_keeps_strict_command_validation(self):
+    def test_missing_task_document_blocks_activation_and_testing_proof(self):
+        from aiwf_core.core.task_proof import (
+            activation_proof_blockers,
+            testing_proof_gaps,
+            validate_testing_against_task,
+        )
+
+        base = Path(tempfile.mkdtemp(prefix="awproof_"))
+        task = {
+            "id": "TASK-MISSING",
+            "doc_path": ".aiwf/tasks/TASK-MISSING.md",
+        }
+
+        blockers = activation_proof_blockers(str(base), task)
+        self.assertIn("Task.md proof contract is missing", blockers[0])
+        proof = validate_testing_against_task(
+            str(base), task, {"status": "passed", "commands": []},
+        )
+        self.assertFalse(proof["schema_recognized"])
+        self.assertIn("Task.md proof contract is missing", testing_proof_gaps(proof))
+
+    def test_malformed_current_contract_fails_closed(self):
+        from aiwf_core.core.task_proof import (
+            activation_proof_blockers,
+            testing_proof_gaps,
+            validate_testing_against_task,
+        )
+
+        base = Path(tempfile.mkdtemp(prefix="awproof_"))
+        task = _write_task(
+            base,
+            "TASK-MALFORMED",
+            """# TASK-MALFORMED
+
+## Fixed Contracts
+
+### Structural Home
+
+GOAL-001 / PLAN-001.
+
+### Objective
+
+Ship the route.
+
+### Contract Responsibility
+
+Own the route.
+
+### Proof Standards
+
+- [Running] The route works.
+""",
+        )
+
+        blockers = activation_proof_blockers(str(base), task)
+        joined = "\n".join(blockers)
+        self.assertIn("contract structure is malformed", joined)
+        self.assertIn("## Fixed Contract", joined)
+        self.assertIn("### Proof Standard", joined)
+
+        proof = validate_testing_against_task(
+            str(base), task, {"status": "passed", "commands": []},
+        )
+        self.assertFalse(proof["schema_recognized"])
+        self.assertTrue(proof["contract_errors"])
+        self.assertEqual(testing_proof_gaps(proof), proof["contract_errors"])
+
+    def test_chinese_task_contract_keeps_structured_command_validation(self):
         from aiwf_core.core.task_proof import validate_testing_against_task
 
         base = Path(tempfile.mkdtemp(prefix="awproof_"))
@@ -67,7 +134,7 @@ GOAL-001 / PLAN-001。
             }],
         })
 
-        self.assertTrue(proof["strict"])
+        self.assertTrue(proof["schema_recognized"])
         self.assertEqual(proof["required_commands"], ["pnpm test", "pnpm build"])
         self.assertEqual(proof["missing_commands"], ["pnpm build"])
         self.assertEqual(proof["missing_verification_results"], ["pnpm build"])

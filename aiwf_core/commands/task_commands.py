@@ -73,6 +73,10 @@ def _cmd_task_plan(args: argparse.Namespace) -> None:
     # V1: Task.md is the execution contract — always created on task create
     _write_task_narrative(Path.cwd(), task)
     sync_result = sync_index(str(Path.cwd()))
+    if sync_result.get("errors"):
+        print("  sync warning: Task.md still needs correction before activation")
+        for error in sync_result["errors"][:8]:
+            print(f"    - {error}")
     if sync_result["changes"]:
         for c in sync_result["changes"][:5]:
             print(f"  sync: {c}")

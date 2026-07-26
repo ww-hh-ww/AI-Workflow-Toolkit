@@ -36,6 +36,10 @@ expected outputs, and validation harnesses.
 
 ## Fixed Contract
 
+Keep `## Fixed Contract` and its required `### Structural Home`,
+`### Objective`, `### Contract Responsibility`, and `### Proof Standard`
+headings exact. AIWF reads these headings to enforce activation and proof.
+
 Every Task must say:
 
 - Structural Home: why this Task belongs under its Goal and Plan, or milestone.

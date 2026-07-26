@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional
 
 from ..state_schema import LEGACY_GOAL_ID, default_plans
 from ..worktree_context import resolve_control_root
-from ._common import _atomic_write, _read_json
+from ._common import _atomic_write, _governance_locked, _read_json
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -124,6 +124,7 @@ def plan_readiness(base_dir: str, plan_id: str) -> Dict[str, Any]:
         "blockers": blockers,
     }
 
+@_governance_locked
 def add_plan_dependency(base_dir: str, plan_id: str, dependency_id: str) -> Dict[str, Any]:
     plans = load_plans(base_dir)
     plan = _find_plan(plans, plan_id)
@@ -141,6 +142,7 @@ def add_plan_dependency(base_dir: str, plan_id: str, dependency_id: str) -> Dict
     save_plans(base_dir, plans)
     return {"plan": plan, "dependency_id": dependency_id, "added": True}
 
+@_governance_locked
 def remove_plan_dependency(base_dir: str, plan_id: str, dependency_id: str,
                            reason: str) -> Dict[str, Any]:
     reason = reason.strip()
@@ -248,6 +250,7 @@ def save_plans(base_dir: str, plans: Dict[str, Any]) -> None:
     plans.setdefault("plans", [])
     _write(_plans_path(base_dir), plans)
 
+@_governance_locked
 def upsert_plan(base_dir: str, plan_id: str, goal_id: str = "", task_ids: Optional[List[str]] = None,
                 status: str = "open", milestone_id: str = "", title: str = "",
                 **_legacy) -> Dict[str, Any]:
@@ -367,6 +370,7 @@ def upsert_plan(base_dir: str, plan_id: str, goal_id: str = "", task_ids: Option
         attach_plan_to_milestone(base_dir, milestone_id, plan_id, task_ids=plan.get("task_ids", []) or [])
     return {"plan": plan, "plans": plans}
 
+@_governance_locked
 def attach_task_to_plan(base_dir: str, plan_id: str, task_id: str) -> Dict[str, Any]:
     plans = load_plans(base_dir)
     plan = _find_plan(plans, plan_id)
@@ -436,6 +440,7 @@ def attach_task_to_plan(base_dir: str, plan_id: str, task_id: str) -> Dict[str, 
             pass
     return {"attached": True, "plan": plan, "plans": plans}
 
+@_governance_locked
 def detach_task_from_plan(base_dir: str, plan_id: str, task_id: str) -> Dict[str, Any]:
     plans = load_plans(base_dir)
     plan = _find_plan(plans, plan_id)
@@ -456,6 +461,7 @@ def plan_exists(base_dir: str, plan_id: str) -> bool:
     return bool(get_plan(base_dir, plan_id, migrate=False))
 
 
+@_governance_locked
 def hold_plan_integration(base_dir: str, plan_id: str) -> Dict[str, Any]:
     from ..git_workflow import plan_integration_state
 
@@ -483,6 +489,7 @@ def hold_plan_integration(base_dir: str, plan_id: str) -> Dict[str, Any]:
     save_plans(base_dir, plans)
     return {"plan": plan, "hold_ref": head_ref, "changed": True}
 
+@_governance_locked
 def reconcile_task_to_plan(base_dir: str, task: Dict[str, Any]) -> Dict[str, Any]:
     """Roll closed task progress into its parent plan registry entry."""
     task_id = str(task.get("id", "") or "")

@@ -13,7 +13,9 @@ from pathlib import Path
 from ..core.state._common import _read_json
 
 def _mission_path(base_dir: str) -> Path:
-    return Path(base_dir) / ".aiwf" / "state" / "mission.json"
+    from ..core.worktree_context import resolve_control_root
+
+    return resolve_control_root(base_dir) / ".aiwf" / "state" / "mission.json"
 
 def _read_mission(base_dir: str) -> dict:
     return _read_json(_mission_path(base_dir))

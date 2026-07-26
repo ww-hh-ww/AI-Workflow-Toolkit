@@ -117,12 +117,15 @@ not write memory.
 
 ### 3. Critique Before Activation
 
-Before `aiwf task activate`, read `references/activation-critique.md` and run
-two real critique passes.
+Before `aiwf task activate`, read `references/activation-critique.md`.
+Run two real critique passes. First
+check whether the contract is complete and internally consistent. Then check
+the updated contract against project reality. Do not record the same thought
+twice.
 
 Use code reality to challenge the contract. Revise and sync when a pass finds a
-problem. Any conclusion that changes execution, boundaries, or acceptance must
-first be written into the relevant MD and synced.
+problem. Any conclusion that changes execution, boundaries, interfaces, or
+proof must first be written into the relevant MD and synced.
 Do not record the critique or activate the Task until this is done.
 Record only a pass you can defend; do not perform critique as a form.
 

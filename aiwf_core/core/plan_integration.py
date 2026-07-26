@@ -8,14 +8,18 @@ from typing import Any, Dict, List, Optional
 from .git_snapshots import ref_tree
 from .git_workflow import changed_project_files, repository_info
 from .plan_integration_git import (
+    canonical_candidate,
     conflict_paths,
     git_operation,
+    is_governance_path,
     is_ancestor,
     require_git,
+    resolve_governance_from_ref,
     resolve_ref,
     run_git,
+    unmerged_paths,
 )
-from .state._common import _exclusive_operation_lock
+from .state._common import _governance_state_lock
 from .state.plan_ops import load_plans, save_plans
 from .worktree_context import resolve_control_root
 
@@ -102,7 +106,7 @@ def _basic_blockers(control: Path, plan: Dict[str, Any]) -> List[str]:
 def prepare_plan_integration(base_dir: str, plan_id: str) -> Dict[str, Any]:
     """Bring the Plan branch up to the current base when the merge is conflict-free."""
     control = resolve_control_root(base_dir)
-    with _exclusive_operation_lock(str(control), "plan-integration"):
+    with _governance_state_lock(str(control)):
         data = load_plans(str(control))
         plan = _find_plan(data, plan_id)
         if not plan:
@@ -138,41 +142,65 @@ def prepare_plan_integration(base_dir: str, plan_id: str) -> Dict[str, Any]:
                         "integrating this Plan"
                     )
                 conflicts = conflict_paths(preview.stdout + "\n" + preview.stderr)
-                plan["integration"] = {
-                    "status": "conflict",
-                    "base_ref": base_ref,
-                    "plan_ref": plan_ref,
-                    "conflicts": conflicts[:20],
-                    "prepared_at": _now(),
-                }
-                plan.pop("integration_hold_ref", None)
-                plan["updated_at"] = _now()
-                save_plans(str(control), data)
-                return {
-                    "prepared": False,
-                    "conflict": True,
-                    "plan": plan,
-                    "conflicts": conflicts,
-                    "base_ref": base_ref,
-                    "plan_ref": plan_ref,
-                }
+                project_conflicts = [
+                    path for path in conflicts if not is_governance_path(path)
+                ]
+                if not conflicts or project_conflicts:
+                    plan["integration"] = {
+                        "status": "conflict",
+                        "base_ref": base_ref,
+                        "plan_ref": plan_ref,
+                        "conflicts": (project_conflicts or conflicts)[:20],
+                        "prepared_at": _now(),
+                    }
+                    plan.pop("integration_hold_ref", None)
+                    plan["updated_at"] = _now()
+                    save_plans(str(control), data)
+                    return {
+                        "prepared": False,
+                        "conflict": True,
+                        "plan": plan,
+                        "conflicts": project_conflicts or conflicts,
+                        "base_ref": base_ref,
+                        "plan_ref": plan_ref,
+                    }
             merge = run_git(
                 worktree, "merge", "--no-edit", base_ref,
                 "-m", f"Integrate {base_branch} into {plan_id}",
             )
             if merge.returncode != 0:
-                if git_operation(worktree) == "merge":
-                    run_git(worktree, "merge", "--abort")
-                raise ValueError(merge.stderr.strip() or merge.stdout.strip() or "base merge failed")
+                unresolved = unmerged_paths(worktree)
+                if unresolved and all(is_governance_path(path) for path in unresolved):
+                    try:
+                        resolve_governance_from_ref(worktree, base_ref)
+                        commit = run_git(worktree, "commit", "--no-edit")
+                        if commit.returncode != 0:
+                            raise ValueError(
+                                commit.stderr.strip() or commit.stdout.strip()
+                                or "cannot finish governance-only merge"
+                            )
+                    except ValueError:
+                        if git_operation(worktree) == "merge":
+                            run_git(worktree, "merge", "--abort")
+                        raise
+                else:
+                    if git_operation(worktree) == "merge":
+                        run_git(worktree, "merge", "--abort")
+                    raise ValueError(
+                        merge.stderr.strip() or merge.stdout.strip() or "base merge failed"
+                    )
             candidate_ref = require_git(worktree, "rev-parse", "HEAD")
             plan["git_head_ref"] = candidate_ref
 
+        candidate_ref, candidate_tree = canonical_candidate(
+            control, candidate_ref, base_ref, plan_id,
+        )
         plan["integration"] = {
             "status": "prepared",
             "base_ref": base_ref,
             "plan_ref": plan_ref,
             "candidate_ref": candidate_ref,
-            "candidate_tree": ref_tree(str(control), candidate_ref),
+            "candidate_tree": candidate_tree,
             "candidate_worktree": str(control if already_merged else worktree),
             "commands": [],
             "verification_results": [],
@@ -221,7 +249,7 @@ def finish_plan_integration(
         )
 
     control = resolve_control_root(base_dir)
-    with _exclusive_operation_lock(str(control), "plan-integration"):
+    with _governance_state_lock(str(control)):
         data = load_plans(str(control))
         plan = _find_plan(data, plan_id)
         if not plan:

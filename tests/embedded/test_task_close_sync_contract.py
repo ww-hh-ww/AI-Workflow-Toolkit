@@ -28,7 +28,26 @@ class TestTaskCloseSyncContract(unittest.TestCase):
             "reviewer_required": False,
             "rollback_required": False,
             "dependencies": [],
-        }, "# TASK-001\n")
+        }, """# TASK-001
+
+## Fixed Contract
+
+### Structural Home
+
+GOAL-001 / PLAN-001.
+
+### Objective
+
+Close the completed task.
+
+### Contract Responsibility
+
+Own and record the completed result.
+
+### Proof Standard
+
+- [Built] The result is present.
+""")
         (base / ".aiwf/state/state.json").write_text(json.dumps({
             "phase": "reviewing",
             "active_task_id": "TASK-001",
@@ -96,6 +115,44 @@ class TestTaskCloseSyncContract(unittest.TestCase):
         self.assertTrue(result["closed"], result["blockers"])
         fm, _ = parse_md(task_doc)
         self.assertEqual(fm["contract_status"], "closed")
+
+    def test_close_retry_repairs_parent_plan_rollup(self):
+        from aiwf_core.core.task_ledger import close_task
+
+        base = Path(tempfile.mkdtemp(prefix="awclose_"))
+        (base / ".aiwf/state").mkdir(parents=True)
+        (base / ".aiwf/state/tasks.json").write_text(json.dumps({
+            "schema_version": 1,
+            "tasks": [{
+                "id": "TASK-REPAIR",
+                "status": "closed",
+                "plan_id": "PLAN-REPAIR",
+                "closure": {"git_commit": "abc123"},
+            }],
+        }), encoding="utf-8")
+        (base / ".aiwf/state/plans.json").write_text(json.dumps({
+            "schema_version": 1,
+            "plans": [{
+                "id": "PLAN-REPAIR",
+                "plan_id": "PLAN-REPAIR",
+                "status": "open",
+                "task_ids": ["TASK-REPAIR"],
+                "task_status": {"TASK-REPAIR": "active"},
+                "closed_task_ids": [],
+                "remaining_task_ids": ["TASK-REPAIR"],
+            }],
+        }), encoding="utf-8")
+
+        result = close_task(str(base), "TASK-REPAIR")
+
+        self.assertTrue(result["closed"], result["blockers"])
+        self.assertTrue(result["plan_progress"]["reconciled"])
+        plan = json.loads(
+            (base / ".aiwf/state/plans.json").read_text(encoding="utf-8")
+        )["plans"][0]
+        self.assertEqual(plan["task_status"]["TASK-REPAIR"], "closed")
+        self.assertEqual(plan["closed_task_ids"], ["TASK-REPAIR"])
+        self.assertEqual(plan["remaining_task_ids"], [])
 
     def test_force_close_updates_task_md_contract_status(self):
         from aiwf_core.core.index_ops import parse_md, sync_index, write_narrative_doc

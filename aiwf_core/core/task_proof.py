@@ -34,7 +34,8 @@ class VerificationCommand:
 class TaskProofContract:
     task_id: str
     path: Path
-    strict: bool
+    schema_recognized: bool
+    contract_errors: List[str]
     proof_levels: List[str]
     verification_commands: List[VerificationCommand]
     placeholders: List[str]
@@ -128,10 +129,25 @@ def read_task_proof_contract(base_dir: str, task: Dict[str, Any]) -> Optional[Ta
     if not path.exists():
         return None
     text = path.read_text(encoding="utf-8")
-    strict = (
-        _has_heading(text, 2, "Fixed Contract")
-        and _has_heading(text, 3, "Proof Standard")
+    required_headings = (
+        (2, "Fixed Contract"),
+        (3, "Structural Home"),
+        (3, "Objective"),
+        (3, "Contract Responsibility"),
+        (3, "Proof Standard"),
     )
+    missing_headings = [
+        f"{'#' * level} {heading}"
+        for level, heading in required_headings
+        if not _has_heading(text, level, heading)
+    ]
+    contract_errors = []
+    if missing_headings:
+        contract_errors.append(
+            "Task.md contract structure is malformed; missing exact heading(s): "
+            + ", ".join(missing_headings)
+        )
+    schema_recognized = not contract_errors
     proof_section = _section(text, "Proof Standard")
     proof_text = "\n".join(
         line for line in proof_section.splitlines()
@@ -156,18 +172,31 @@ def read_task_proof_contract(base_dir: str, task: Dict[str, Any]) -> Optional[Ta
     return TaskProofContract(
         task_id=str(task.get("id") or task.get("task_id") or ""),
         path=path,
-        strict=strict,
+        schema_recognized=schema_recognized,
+        contract_errors=contract_errors,
         proof_levels=levels,
         verification_commands=commands,
         placeholders=placeholders,
     )
 
 
-def activation_proof_blockers(base_dir: str, task: Dict[str, Any]) -> List[str]:
-    """Block activation of strict Task Packets with vague proof contracts."""
+def task_contract_structure_errors(base_dir: str, task: Dict[str, Any]) -> List[str]:
     contract = read_task_proof_contract(base_dir, task)
-    if not contract or not contract.strict:
-        return []
+    if contract:
+        return list(contract.contract_errors)
+    from .worktree_context import resolve_control_root
+
+    path = _task_doc_path(resolve_control_root(base_dir), task)
+    return [f"Task.md proof contract is missing: {path}"]
+
+
+def activation_proof_blockers(base_dir: str, task: Dict[str, Any]) -> List[str]:
+    """Block activation when the current Task contract is missing or incomplete."""
+    contract = read_task_proof_contract(base_dir, task)
+    structure_errors = task_contract_structure_errors(base_dir, task)
+    if structure_errors:
+        return structure_errors
+    assert contract is not None
     blockers: List[str] = []
     if contract.placeholders:
         blockers.append(
@@ -196,8 +225,20 @@ def validate_testing_against_task(
 ) -> Dict[str, Any]:
     """Compare recorded testing commands with the task's required commands."""
     contract = read_task_proof_contract(base_dir, task)
-    if not contract or not contract.strict:
-        return {"strict": False, "required_commands": [], "missing_commands": []}
+    if not contract:
+        return {
+            "schema_recognized": False,
+            "contract_errors": ["Task.md proof contract is missing"],
+            "required_commands": [],
+            "missing_commands": [],
+        }
+    if not contract.schema_recognized:
+        return {
+            "schema_recognized": False,
+            "contract_errors": list(contract.contract_errors),
+            "required_commands": [],
+            "missing_commands": [],
+        }
     required = [cmd.command for cmd in contract.verification_commands]
     recorded = [
         _norm_command(cmd) for cmd in (testing.get("commands", []) or [])
@@ -226,7 +267,8 @@ def validate_testing_against_task(
         and not _norm(result_by_command[_norm_command(cmd)].get("observed", ""))
     ]
     return {
-        "strict": True,
+        "schema_recognized": True,
+        "contract_errors": [],
         "required_commands": required,
         "recorded_commands": recorded,
         "missing_commands": missing,
@@ -237,10 +279,8 @@ def validate_testing_against_task(
 
 
 def testing_proof_gaps(proof: Dict[str, Any]) -> List[str]:
-    """Return the exact strict-proof gaps that still need Tester attention."""
-    if not proof.get("strict"):
-        return []
-    gaps: List[str] = []
+    """Return contract and proof gaps that still need Tester attention."""
+    gaps: List[str] = list(proof.get("contract_errors", []) or [])
     for key in (
         "missing_commands",
         "missing_verification_results",

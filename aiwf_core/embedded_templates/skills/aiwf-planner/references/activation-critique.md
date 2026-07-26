@@ -1,84 +1,86 @@
 # Activation Critique
 
-Use this before `aiwf task activate`. This is critic mode, not author mode.
-Its job is to correct the governance files before implementation starts.
+Use this before `aiwf task activate`. Correct the contract before implementation
+starts. Do not implement project code here.
 
-Run two passes. Each pass asks the same question:
+Run two passes.
 
-> What would make this Task false or useless even if completed?
+## Pass 1: Check The Contract
 
-Pass 2 must not copy Pass 1. Re-check the weakest assumption from Pass 1 from
-a different angle. When the Plan commits to a technical method, compare that
-method with the raw problem, representative inputs, and support boundary. Ask
-whether another mechanism fits the problem more directly.
+Read the relevant Goal.md, Plan.md, Task.md, and Milestone.md. Use the memory
+snapshot from `aiwf status --prompt` when it may change the design.
 
-Critical reread before activation. Reread the relevant Goal.md, Plan.md,
-Task.md, and Milestone.md as claims to test, not truth to trust. Look for
-missing proof, guessed facts, vague handoff, placeholder text, mismatched
-boundaries, hidden old paths, and unresolved Unknowns. Do not defend the plan;
-try to break it.
+Ask whether Task.md is ready to hand to a new Executor:
 
-## Required Actions
+- Are the required Fixed Contract headings present at the exact levels defined
+  in `task-contract.md`?
+- Is the outcome clear, useful, and consistent with its Goal and Plan?
+- Are responsibility, interfaces, invariants, consumers, main path, and old
+  path clear enough to implement without guessing?
+- Do Built, Wired, and Running describe the whole result without contradiction
+  or repetition?
+- Does Known Context contain reliable entry points, important facts, traps, and
+  real unknowns? Remove exploration history, pasted output, broad code maps,
+  and choices the Executor should make.
+- Are dependencies and handoffs to other Tasks accurate?
+- Are required Skills, MCP tools, and role capabilities named only when the
+  contract really depends on them?
+- Do Verification Commands exist or name the exact command that this Task must
+  create? Does each command prove a distinct claim with an expected observable
+  result?
+- Is the Task small enough to complete and prove, but broad enough to cover all
+  relevant entry points and consumers?
 
-1. Extract what the relevant Goal.md, Plan.md, Task.md, and Milestone.md claim.
-2. Use the Planner memory snapshot printed by `aiwf status --prompt`. Open a
-   note from the listed memory root only when its index entry may change those
-   claims.
-3. Explore code reality with the best available native tools. Use text search,
-   code navigation, LSP, and file reads where they help. Do not rely on memory
-   or governance files.
-4. If the contract explicitly requires a named Skill, MCP, or tool, confirm the
-   assigned role can use it. Do not try to predict every possible runtime
-   failure; Executor must return when new reality breaks the contract.
-5. Compare the governance claims against code reality. Check main path,
-   consumer, invariant, proof, runtime entrypoints, and old
-   path or bypass risk.
-   For structural work, check whether module boundaries follow ownership and
-   change rather than Goal or Task names. Trace dependency direction and who
-   owns shared state and failures.
-6. Reread Known Context as Executor's cold start. Keep concise, source-backed
-   conclusions and useful code anchors. Remove exploration history, pasted
-   output, broad code maps, and local choices that Executor should make.
-7. Check Verification Commands against the real scripts and test runner.
-   Confirm that selectors narrow the run, commands prove different claims, a
-   full regression is not repeated, and runtime tests exercise production code
-   in the claimed runtime. If the Task will create a command, verify the runner
-   syntax and name the exact target it must execute.
-8. If a conclusion changes execution, boundaries, or acceptance, write it into
-   the relevant MD and run `aiwf sync` before recording the critique. If it is
-   not written back, do not record the critique or activate the Task.
-9. If the main path, consumer, invariant, or proof is still guessed, do not
-   activate. Create exploration/design work or ask the user.
-10. If a chosen technical method has no source-backed basis or was never
-   compared against the raw problem, return to Plan formation. Use independent
-   option exploration before recording another critique pass.
-11. Confirm the project worktree is clean and the current branch is the feature
-   branch for this Plan. If project changes already exist, inspect them and ask
-   the user whether to keep or discard them. Do not commit, stash, restore, or
-   remove them without that decision. Commit kept changes to the Plan branch,
-   then activate from that clean baseline. Do not start a Task on main, master,
-   trunk, detached HEAD, or a branch already bound to another Plan.
+Resolve missing, vague, guessed, or conflicting parts. Inspect the project when
+needed. If the contract changes, edit the relevant MD and run `aiwf sync`.
 
-## Boundary
+## Pass 2: Check Against Reality
 
-This step must read enough code to judge the design contract. Read as Planner:
-trace callers, inspect entrypoints, follow data/control flow, check consumers,
-and compare the intended structure with the real one.
+Reread the updated contract as claims to test, not truth to trust. Explore the
+actual project with the best available native tools. Use text search, code
+navigation, LSP, and focused file reads where they help.
 
-It may revise governance MD and run `aiwf sync`.
+- Trace real entry points, callers, consumers, data flow, and control flow.
+- Check every main-path variant that the outcome must support.
+- Check current interfaces, ownership, shared state, failure ownership, and
+  dependency direction. Confirm module boundaries follow ownership and change,
+  rather than Goal or Task names.
+- Look for an old path, bypass, duplicate implementation, or unsupported
+  runtime path that would make the Task appear complete while the product still
+  behaves the old way.
+- Check Verification Commands against the real scripts and test runner. Confirm
+  that selectors narrow the run, repeated full regressions are removed, and
+  runtime tests exercise production code in the claimed runtime.
+- Challenge the weakest design assumption. When the Plan chose a technical
+  method, compare it with the raw problem, representative inputs, and support
+  boundary.
 
-It must not implement project behavior, edit project source, rewrite tests to
-fit the Task, or start solving the engineering problem. If reality shows the
-contract is wrong, fix the governance MD and sync. If reality is still unclear,
-create exploration/design work or ask the user.
+If reality changes execution, boundaries, interfaces, or proof, update the
+relevant MD and run `aiwf sync` before recording this pass. If the main path,
+consumer, invariant, or proof is still guessed, do not activate. Explore
+further, revise the design, or ask the user.
 
-Do not fill a fixed output form. At the end of each pass, briefly state what
-reality was checked, the weakest assumption, whether the contract changed, and
-whether it can be defended. Only after a pass concludes that activation is
-honest, run:
+## Before Recording
+
+Confirm the project worktree is clean and the current branch belongs to this
+Plan. If project changes already exist, inspect them and ask the user whether
+to keep or discard them. Do not commit, stash, restore, or remove them without
+that decision.
+
+If the contract explicitly requires a named Skill, MCP, or tool, confirm the
+assigned role can use it. Do not try to predict every possible runtime failure;
+Executor must return when new reality breaks the contract.
+
+A critique may correctly conclude that no MD change is needed. It still must be
+based on a real check. At the end of each pass, briefly state what was checked,
+the weakest assumption, whether the contract changed, and why it is ready or
+not ready.
+
+Only record a pass that you can defend:
 
 ```text
 aiwf task critique <TASK-ID>
 ```
 
-Do not record a critique pass for a guessed or broken contract.
+Do not record the critique or activate the Task while the contract is guessed,
+contradictory, or out of date.

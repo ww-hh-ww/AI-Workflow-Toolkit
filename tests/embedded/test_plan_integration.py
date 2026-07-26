@@ -6,6 +6,34 @@ import unittest
 from pathlib import Path
 
 
+def _write_valid_task_contract(base: Path, task_id: str) -> None:
+    path = base / ".aiwf/tasks" / f"{task_id}.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        f"""# {task_id}
+
+## Fixed Contract
+
+### Structural Home
+
+PLAN-001 integration.
+
+### Objective
+
+Integrate the tested result.
+
+### Contract Responsibility
+
+Own and prove the integrated result.
+
+### Proof Standard
+
+- [Built] The integrated result exists in the reviewed snapshot.
+""",
+        encoding="utf-8",
+    )
+
+
 class TestPlanIntegration(unittest.TestCase):
     def setUp(self):
         self.control = Path(tempfile.mkdtemp(prefix="aiwf_plan_integration_"))
@@ -69,7 +97,7 @@ class TestPlanIntegration(unittest.TestCase):
                        check=True, capture_output=True)
 
         prepared = prepare_plan_integration(str(self.control), "PLAN-001")
-        self.assertTrue(prepared["prepared"])
+        self.assertTrue(prepared["prepared"], prepared)
         self.assertNotEqual(prepared["candidate_ref"], self.plan_head)
         plan = load_plans(str(self.control))["plans"][0]
         self.assertEqual(plan_integration_state(str(self.control), plan), "integration_ready")
@@ -114,6 +142,148 @@ class TestPlanIntegration(unittest.TestCase):
                 }],
                 summary="stale proof",
             )
+
+    def test_merge_preserves_dirty_control_governance_and_ignores_plan_copy(self):
+        from aiwf_core.core.plan_integration import (
+            finish_plan_integration,
+            prepare_plan_integration,
+        )
+        from aiwf_core.core.state.plan_ops import load_plans, save_plans
+
+        plan_state = self.worktree / ".aiwf/state/milestones.json"
+        plan_state.parent.mkdir(parents=True, exist_ok=True)
+        plan_state.write_text('{"updated_at":"stale-plan"}\n', encoding="utf-8")
+        subprocess.run(["git", "add", ".aiwf/state/milestones.json"], cwd=self.worktree,
+                       check=True)
+        subprocess.run(["git", "commit", "-m", "historical plan state"], cwd=self.worktree,
+                       check=True, capture_output=True)
+        data = load_plans(str(self.control))
+        data["plans"][0]["git_head_ref"] = self._git(self.worktree, "rev-parse", "HEAD")
+        save_plans(str(self.control), data)
+
+        prepared = prepare_plan_integration(str(self.control), "PLAN-001")
+        self.assertNotEqual(
+            prepared["candidate_ref"],
+            self._git(self.worktree, "rev-parse", "HEAD"),
+        )
+        candidate_state = subprocess.run(
+            ["git", "cat-file", "-e",
+             f"{prepared['candidate_ref']}:.aiwf/state/milestones.json"],
+            cwd=self.control, capture_output=True,
+        )
+        self.assertNotEqual(candidate_state.returncode, 0)
+        control_state = self.control / ".aiwf/state/milestones.json"
+        control_state.write_text('{"updated_at":"current-control"}\n', encoding="utf-8")
+
+        result = finish_plan_integration(
+            str(self.control), "PLAN-001", status="passed",
+            commands=["test -f feature.txt"],
+            verification_results=[{
+                "command": "test -f feature.txt",
+                "expected": "exit 0",
+                "observed": "exit 0",
+                "matched": True,
+            }],
+            summary="project result integrates without replacing governance state",
+        )
+
+        self.assertTrue(result["merged"])
+        self.assertEqual(
+            control_state.read_text(encoding="utf-8"),
+            '{"updated_at":"current-control"}\n',
+        )
+        committed = subprocess.run(
+            ["git", "cat-file", "-e", "HEAD:.aiwf/state/milestones.json"],
+            cwd=self.control, capture_output=True,
+        )
+        self.assertNotEqual(committed.returncode, 0)
+
+    def test_merge_preserves_tracked_control_governance_change(self):
+        from aiwf_core.core.plan_integration import (
+            finish_plan_integration,
+            prepare_plan_integration,
+        )
+        from aiwf_core.core.state.plan_ops import load_plans, save_plans
+
+        control_state = self.control / ".aiwf/state/milestones.json"
+        control_state.write_text('{"updated_at":"committed"}\n', encoding="utf-8")
+        subprocess.run(["git", "add", ".aiwf/state/milestones.json"], cwd=self.control,
+                       check=True)
+        subprocess.run(["git", "commit", "-m", "governance checkpoint"], cwd=self.control,
+                       check=True, capture_output=True)
+
+        data = load_plans(str(self.control))
+        data["plans"][0]["git_base_ref"] = self._git(self.control, "rev-parse", "HEAD")
+        save_plans(str(self.control), data)
+        prepare_plan_integration(str(self.control), "PLAN-001")
+        control_state.write_text('{"updated_at":"runtime-change"}\n', encoding="utf-8")
+
+        result = finish_plan_integration(
+            str(self.control), "PLAN-001", status="passed",
+            commands=["test -f feature.txt"],
+            verification_results=[{
+                "command": "test -f feature.txt",
+                "expected": "exit 0",
+                "observed": "exit 0",
+                "matched": True,
+            }],
+            summary="tracked governance remains outside the project merge",
+        )
+
+        self.assertTrue(result["merged"])
+        self.assertEqual(
+            control_state.read_text(encoding="utf-8"),
+            '{"updated_at":"runtime-change"}\n',
+        )
+        committed = self._git(
+            self.control, "show", "HEAD:.aiwf/state/milestones.json",
+        )
+        self.assertEqual(committed, '{"updated_at":"committed"}')
+
+    def test_governance_only_merge_conflict_uses_control_state(self):
+        from aiwf_core.core.plan_integration import prepare_plan_integration
+        from aiwf_core.core.state.plan_ops import load_plans, save_plans
+
+        plan_state = self.worktree / ".aiwf/state/milestones.json"
+        plan_state.parent.mkdir(parents=True, exist_ok=True)
+        plan_state.write_text('{"owner":"plan"}\n', encoding="utf-8")
+        subprocess.run(
+            ["git", "add", ".aiwf/state/milestones.json"],
+            cwd=self.worktree, check=True,
+        )
+        subprocess.run(
+            ["git", "commit", "-m", "plan governance copy"],
+            cwd=self.worktree, check=True, capture_output=True,
+        )
+        data = load_plans(str(self.control))
+        data["plans"][0]["git_head_ref"] = self._git(
+            self.worktree, "rev-parse", "HEAD",
+        )
+        save_plans(str(self.control), data)
+
+        control_state = self.control / ".aiwf/state/milestones.json"
+        control_state.parent.mkdir(parents=True, exist_ok=True)
+        control_state.write_text('{"owner":"control"}\n', encoding="utf-8")
+        subprocess.run(
+            ["git", "add", ".aiwf/state/milestones.json"],
+            cwd=self.control, check=True,
+        )
+        subprocess.run(
+            ["git", "commit", "-m", "control governance state"],
+            cwd=self.control, check=True, capture_output=True,
+        )
+
+        prepared = prepare_plan_integration(str(self.control), "PLAN-001")
+
+        self.assertTrue(prepared["prepared"], prepared)
+        self.assertFalse(prepared["conflict"])
+        self.assertEqual(
+            self._git(
+                self.control, "show",
+                f"{prepared['candidate_ref']}:.aiwf/state/milestones.json",
+            ),
+            '{"owner":"control"}',
+        )
 
     def test_already_merged_plan_can_adopt_and_verify_current_base(self):
         from aiwf_core.core.git_workflow import plan_integration_state
@@ -188,6 +358,7 @@ class TestPlanIntegration(unittest.TestCase):
             str(self.control), "TASK-INTEGRATE", status="ready",
             plan_id="PLAN-001", kind="integration",
         )
+        _write_valid_task_contract(self.control, "TASK-INTEGRATE")
         plan = load_plans(str(self.control))["plans"][0]
         self.assertEqual(plan["integration"]["status"], "conflict")
         activated = activate_task(str(self.control), "TASK-INTEGRATE")
@@ -245,6 +416,7 @@ class TestPlanIntegration(unittest.TestCase):
                 },
             }],
         }, indent=2) + "\n", encoding="utf-8")
+        _write_valid_task_contract(self.control, "TASK-INTEGRATE")
         data = load_plans(str(self.control))
         data["plans"][0]["task_ids"].append("TASK-INTEGRATE")
         data["plans"][0]["task_status"]["TASK-INTEGRATE"] = "active"

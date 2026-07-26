@@ -190,7 +190,7 @@ def _completion_blocker(base, task_id, agent_type, agent_id="", session_id=""):
         from aiwf_core.core.task_proof import testing_proof_gaps
 
         missing = testing_proof_gaps(proof)
-        if proof.get("strict") and missing:
+        if missing:
             named = ", ".join(dict.fromkeys(missing[:5]))
             return (
                 f"The testing record for {task_id} is fresh, but it does not prove the "

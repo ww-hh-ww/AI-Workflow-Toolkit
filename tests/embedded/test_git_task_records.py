@@ -10,6 +10,27 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
+VALID_TASK_CONTRACT = """# TASK-001
+
+## Fixed Contract
+
+### Structural Home
+
+GOAL-001 / PLAN-001.
+
+### Objective
+
+Deliver the tested result.
+
+### Contract Responsibility
+
+Own and prove the result described by this test.
+
+### Proof Standard
+
+- [Built] The result exists in the reviewed snapshot.
+"""
+
 
 class TestGitTaskRecords(unittest.TestCase):
     def setUp(self):
@@ -45,6 +66,9 @@ class TestGitTaskRecords(unittest.TestCase):
             json.dumps({"schema_version": 1, "tasks": [task]}, indent=2) + "\n",
             encoding="utf-8",
         )
+        task_doc = self.tmp / ".aiwf/tasks/TASK-001.md"
+        task_doc.parent.mkdir(parents=True, exist_ok=True)
+        task_doc.write_text(VALID_TASK_CONTRACT, encoding="utf-8")
         state = json.loads((self.tmp / ".aiwf/state/state.json").read_text())
         state.update({"active_task_id": "TASK-001", "phase": "executing", "git_origin_ref": self.origin})
         (self.tmp / ".aiwf/state/state.json").write_text(json.dumps(state, indent=2) + "\n")
@@ -192,9 +216,17 @@ Verification Commands:
 
 ## Fixed Contract
 
+### Structural Home
+
+GOAL-001 / PLAN-001.
+
 ### Objective
 
 Ship the feature.
+
+### Contract Responsibility
+
+Own and prove the feature.
 
 ### Proof Standard
 

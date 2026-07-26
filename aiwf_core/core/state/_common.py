@@ -4,8 +4,10 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+import threading
 import time
 from contextlib import contextmanager
+from functools import wraps
 from pathlib import Path
 from typing import Callable, Dict, Optional, TypeVar
 
@@ -17,6 +19,7 @@ BLOCKING_REVIEW_RESULTS = {
 }
 
 T = TypeVar("T")
+_GOVERNANCE_LOCK_STATE = threading.local()
 
 
 class StateFileError(ValueError):
@@ -51,6 +54,41 @@ def _exclusive_operation_lock(base_dir: str, name: str, timeout: float = 5.0):
             lock_path.unlink()
         except FileNotFoundError:
             pass
+
+
+@contextmanager
+def _governance_state_lock(base_dir: str, timeout: float = 5.0):
+    """Serialize short governance transitions across tasks, Plans, and sync."""
+    from ..worktree_context import resolve_control_root
+
+    control = str(resolve_control_root(base_dir))
+    depths = getattr(_GOVERNANCE_LOCK_STATE, "depths", None)
+    if depths is None:
+        depths = {}
+        _GOVERNANCE_LOCK_STATE.depths = depths
+    if depths.get(control, 0):
+        depths[control] += 1
+        try:
+            yield
+        finally:
+            depths[control] -= 1
+        return
+
+    depths[control] = 1
+    try:
+        with _exclusive_operation_lock(control, "governance-state", timeout=timeout):
+            yield
+    finally:
+        depths.pop(control, None)
+
+
+def _governance_locked(function):
+    """Apply the shared governance lock to a function whose first arg is base_dir."""
+    @wraps(function)
+    def wrapped(base_dir, *args, **kwargs):
+        with _governance_state_lock(base_dir):
+            return function(base_dir, *args, **kwargs)
+    return wrapped
 
 
 def _read_json(path: Path, default: Optional[Dict] = None) -> Dict:

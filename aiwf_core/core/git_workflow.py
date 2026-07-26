@@ -14,6 +14,9 @@ from .worktree_context import resolve_worktree_root, same_path
 
 
 PROTECTED_BRANCHES = {"main", "master", "trunk"}
+_INTERNAL_EXCLUDES = [
+    ":(exclude).aiwf", ":(exclude).aiwf/**",
+]
 SNAPSHOT_GUIDANCE = (
     "AIWF snapshots are intentionally outside the branch; do not commit, "
     "cherry-pick, merge, or reset them manually"
@@ -251,7 +254,21 @@ def create_task_commit(
             )
         if expected_parent and merge_head.stdout.strip() != expected_parent:
             raise ValueError("integration Task is resolving a different base commit than it activated with")
-        _required(base, "add", "-A", "--", ".")
+        from .plan_integration_git import (
+            is_governance_path,
+            resolve_governance_from_ref,
+            unmerged_paths,
+        )
+
+        _required(base, "add", "-A", "--", ".", *_INTERNAL_EXCLUDES)
+        unresolved = unmerged_paths(base)
+        if unresolved and all(is_governance_path(path) for path in unresolved):
+            resolve_governance_from_ref(base, "HEAD")
+        elif unresolved:
+            raise ValueError(
+                "integration Task still has unresolved project conflicts: "
+                + ", ".join(unresolved[:8])
+            )
     else:
         _required(base, "add", "-A", "--", *files)
     staged_tree = _required(base, "write-tree")

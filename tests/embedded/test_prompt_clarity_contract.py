@@ -29,7 +29,7 @@ class TestPromptClarityContract(unittest.TestCase):
             "references/activation-critique.md",
             "references/lifecycle.md",
             "two real critique passes",
-            "changes execution, boundaries, or acceptance",
+            "changes execution, boundaries, interfaces, or",
             "Do not record the critique or activate the Task",
             "Run `aiwf status --prompt` when Planner starts work",
             "Closure Calibration",
@@ -163,7 +163,7 @@ class TestPromptClarityContract(unittest.TestCase):
         critique = " ".join(
             read("skills/aiwf-planner/references/activation-critique.md").split()
         )
-        self.assertIn("Reread Known Context as Executor's cold start", critique)
+        self.assertIn("Does Known Context contain reliable entry points", critique)
         self.assertIn("Remove exploration history", critique)
 
     def test_task_proof_commands_are_distinct_and_real(self):
@@ -179,6 +179,8 @@ class TestPromptClarityContract(unittest.TestCase):
             "State each requirement once",
             "Carry into Task.md the chosen direction",
             "keep the design history and detailed rationale in the Plan",
+            "Keep `## Fixed Contract`",
+            "headings exact",
             "Verification Commands are final proof",
             "selector really targets the named test",
             "each necessary full regression runs once",
@@ -187,6 +189,7 @@ class TestPromptClarityContract(unittest.TestCase):
             self.assertIn(required, task)
         self.assertIn("Check Verification Commands against the real scripts", critique)
         self.assertIn("selectors narrow the run", critique)
+        self.assertIn("required Fixed Contract headings", critique)
         self.assertIn("Do not load AIWF routing skills", executor)
         self.assertIn("run the smallest relevant checks", executor)
         self.assertIn("actual compiler, test, and build configuration", executor)

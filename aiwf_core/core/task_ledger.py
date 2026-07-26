@@ -9,7 +9,12 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from .state.goal_ops import get_active_goal
-from .state._common import _atomic_write, _exclusive_operation_lock, _read_json
+from .state._common import (
+    _atomic_write,
+    _governance_locked,
+    _governance_state_lock,
+    _read_json,
+)
 from .task_records import default_task_record, load_task_record, save_task_record
 from .worktree_context import resolve_control_root, resolve_worktree_root, same_path
 
@@ -247,8 +252,7 @@ def resolve_active_task_id(base_dir: str, task_id: str = "") -> str:
 
 def update_task_runtime(base_dir: str, task_id: str, **changes: Any) -> Dict[str, Any]:
     """Atomically update runtime fields for one Task."""
-    control = resolve_control_root(base_dir)
-    with _exclusive_operation_lock(str(control), "task-ledger"):
+    with _governance_state_lock(base_dir):
         ledger = load_ledger(base_dir)
         task = _find(ledger.get("tasks", []), task_id)
         if not task:
@@ -262,6 +266,7 @@ def update_task_runtime(base_dir: str, task_id: str, **changes: Any) -> Dict[str
         save_ledger(base_dir, ledger)
         return task
 
+@_governance_locked
 def upsert_task(
     base_dir: str,
     task_id: str,
@@ -383,12 +388,19 @@ def task_activation_critique_blockers(base_dir: str, task_id: str) -> List[str]:
     count = task_activation_critique_count(task)
     if count >= REQUIRED_ACTIVATION_CRITIQUES:
         return []
+    focus = (
+        "Pass 1: check that Task.md is complete, consistent, and ready for handoff"
+        if count == 0
+        else "Pass 2: check the updated contract against actual code and proof paths"
+    )
     return [
         f"activation critique count {count}/{REQUIRED_ACTIVATION_CRITIQUES}; "
-        "load /aiwf-planner, read references/activation-critique.md, run the critique, "
+        f"{focus}; load /aiwf-planner, read references/activation-critique.md, "
+        "update the relevant MD and sync when reality changes the contract, "
         f"then record it with: aiwf task critique {task_id}"
     ]
 
+@_governance_locked
 def record_task_activation_critique(base_dir: str, task_id: str) -> Dict[str, Any]:
     ledger = load_ledger(base_dir)
     task = _find(ledger.get("tasks", []), task_id)
@@ -573,7 +585,7 @@ def activate_task(
 ) -> Dict[str, Any]:
     """Activate a planned task if execution-window gates pass."""
     try:
-        with _exclusive_operation_lock(str(resolve_control_root(base_dir)), "task-ledger"):
+        with _governance_state_lock(base_dir):
             return _activate_task_locked(
                 base_dir, task_id, accept_head_change=accept_head_change,
             )
@@ -678,7 +690,7 @@ def _activate_task_locked(
 
 def interrupt_task(base_dir: str, reason: str = "", task_id: str = "") -> Dict[str, Any]:
     try:
-        with _exclusive_operation_lock(str(resolve_control_root(base_dir)), "task-ledger"):
+        with _governance_state_lock(base_dir):
             return _interrupt_task_locked(base_dir, reason=reason, task_id=task_id)
     except TimeoutError as exc:
         return {
@@ -730,7 +742,7 @@ def _interrupt_task_locked(base_dir: str, reason: str = "", task_id: str = "") -
 
 def close_task(base_dir: str, task_id: str = "", note: str = "") -> Dict[str, Any]:
     try:
-        with _exclusive_operation_lock(str(resolve_control_root(base_dir)), "task-ledger"):
+        with _governance_state_lock(base_dir):
             return _close_task_locked(base_dir, task_id=task_id, note=note)
     except TimeoutError as exc:
         return {
@@ -758,7 +770,19 @@ def _close_task_locked(base_dir: str, task_id: str = "", note: str = "") -> Dict
         if warning:
             task.setdefault("close_warnings", []).append(warning)
             save_ledger(base_dir, ledger)
-        return {"closed": True, "task": task, "ledger": ledger, "blockers": []}
+        try:
+            from .state.plan_ops import reconcile_task_to_plan
+
+            plan_progress = reconcile_task_to_plan(base_dir, task)
+        except Exception as exc:
+            plan_progress = {"reconciled": False, "reason": f"plan reconcile failed: {exc}"}
+        return {
+            "closed": True,
+            "task": task,
+            "ledger": ledger,
+            "blockers": [],
+            "plan_progress": plan_progress,
+        }
     if task.get("status") != "active":
         return {
             "closed": False,
@@ -779,6 +803,9 @@ def _close_task_locked(base_dir: str, task_id: str = "", note: str = "") -> Dict
             blockers.append("open fix-loop blocks task close")
         if task.get("scope_violation"):
             blockers.append("unresolved Forbidden Write violation blocks task close")
+        from .task_proof import task_contract_structure_errors
+
+        blockers.extend(task_contract_structure_errors(base_dir, task))
 
         if reqs.get("executor_required"):
             if (
@@ -797,6 +824,9 @@ def _close_task_locked(base_dir: str, task_id: str = "", note: str = "") -> Dict
                 from .task_proof import validate_testing_against_task
 
                 proof = validate_testing_against_task(base_dir, task, testing)
+                for error in proof.get("contract_errors", []) or []:
+                    if str(error) not in blockers:
+                        blockers.append(str(error))
                 for key, label in (
                     ("missing_commands", "missing Verification Command"),
                     ("missing_verification_results", "missing expected/observed result"),
@@ -804,7 +834,7 @@ def _close_task_locked(base_dir: str, task_id: str = "", note: str = "") -> Dict
                     ("empty_observed_results", "empty observed result"),
                 ):
                     values = proof.get(key, []) or []
-                    if proof.get("strict") and values:
+                    if proof.get("schema_recognized") and values:
                         blockers.append(f"{label}: {', '.join(map(str, values[:5]))}")
 
         if reqs.get("reviewer_required"):
@@ -940,7 +970,7 @@ def _close_task_locked(base_dir: str, task_id: str = "", note: str = "") -> Dict
 
 def force_close_task(base_dir: str, reason: str = "", task_id: str = "") -> Dict[str, Any]:
     try:
-        with _exclusive_operation_lock(str(resolve_control_root(base_dir)), "task-ledger"):
+        with _governance_state_lock(base_dir):
             return _force_close_task_locked(base_dir, reason=reason, task_id=task_id)
     except TimeoutError as exc:
         return {

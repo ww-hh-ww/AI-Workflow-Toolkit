@@ -4,11 +4,12 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Dict
 
+from ..worktree_context import resolve_control_root
 from ._common import _read
 
 
 def get_active_goal(base_dir: str) -> Dict[str, Any]:
-    goals = _read(Path(base_dir) / ".aiwf/state/goals.json") or {
+    goals = _read(resolve_control_root(base_dir) / ".aiwf/state/goals.json") or {
         "goals": [],
         "active_goal_id": None,
     }

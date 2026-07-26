@@ -42,7 +42,9 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 def _plans_dir(base_dir: str) -> Path:
-    return Path(base_dir) / ".aiwf" / "plans"
+    from .worktree_context import resolve_control_root
+
+    return resolve_control_root(base_dir) / ".aiwf" / "plans"
 
 def _safe_task_id(task_id: str) -> str:
     cleaned = "".join(ch for ch in task_id.strip() if ch.isalnum() or ch in ("-", "_", "."))

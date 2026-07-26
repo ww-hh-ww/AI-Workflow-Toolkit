@@ -16,7 +16,11 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import yaml
-from .state._common import _atomic_write, _read_json as _read_state_json
+from .state._common import (
+    _atomic_write,
+    _governance_locked,
+    _read_json as _read_state_json,
+)
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -137,7 +141,9 @@ def check_index(base_dir: str) -> Dict[str, Any]:
         {"healthy": bool, "issues": [{"type": "task", "id": "TASK-001", "issue": "..."}]}
     """
     issues: List[Dict[str, str]] = []
-    root = Path(base_dir)
+    from .worktree_context import resolve_control_root
+
+    root = resolve_control_root(base_dir)
 
     # Check tasks
     tasks_path = root / ".aiwf" / "state" / "tasks.json"
@@ -283,6 +289,7 @@ def _parse_list_field(value: str) -> list:
             pass
     return [item.strip() for item in raw.replace(",", " ").split() if item.strip()]
 
+@_governance_locked
 def sync_index(base_dir: str, dry_run: bool = False) -> Dict[str, Any]:
     """Sync MD frontmatter -> JSON for all entities with narrative docs.
 
@@ -870,24 +877,43 @@ Do NOT implement feature changes here.
 Run integration and acceptance sub-steps through `/aiwf-architect` with the
 `milestone-acceptance` lens.
 
-## Objective
+## Fixed Contract
+
+### Structural Home
+
+Milestone verification for {milestone_id}. The authoritative Pass Standard is
+in `.aiwf/milestones/{milestone_id}.md`.
+
+### Objective
 
 Verify milestone {milestone_id}.
+
+### Contract Responsibility
+
+Exercise every Pass Standard item in the running system, verify cross-Goal
+interfaces and main paths, and record the technical result without implementing
+feature changes.
+
+### Proof Standard
+
+Done When:
+
+- [Running] Every Pass Standard item is exercised in the real runtime.
+- [Wired] Main paths and cross-Goal interfaces consume the verified capability.
+- [Running] Milestone integration, architecture review, and assessment records
+  reflect the observed result.
+
+Verification Commands:
+
+| Command | Expected Observable Output |
+|---------|----------------------------|
+| Unknown — blocks: | Unknown — blocks: |
 
 ## Milestone Reference
 
 - Milestone: {milestone_id}
 - Milestone.md: `.aiwf/milestones/{milestone_id}.md`
 - This task is: kind=milestone_verification
-
-## Pass Standard Source
-
-The authoritative Pass Standard is in `.aiwf/milestones/{milestone_id}.md`.
-
-## Verification
-
-Unknown — blocks: real commands and runtime scenarios for every Pass Standard
-item, plus cross-Goal interfaces and main paths that must remain intact
 
 ## Done When
 
@@ -931,8 +957,20 @@ def create_narrative_for_entity(base_dir: str, entity_id: str, entity_type: str,
 
     Returns the doc_path string.
     """
-    root = Path(base_dir)
+    from .worktree_context import resolve_control_root
+
+    root = resolve_control_root(base_dir)
     doc_path_str = generate_narrative_doc_path(entity_id, entity_type)
+    full_path = root / doc_path_str
+    if full_path.exists():
+        existing_fm, _ = parse_md(full_path)
+        if (
+            existing_fm is not None
+            and existing_fm.get("id") == entity_id
+            and existing_fm.get("type") == entity_type
+        ):
+            return doc_path_str
+
     title = title or entity_id
 
     # Frontmatter per V1 Design Contract §3
@@ -995,6 +1033,19 @@ def create_narrative_for_entity(base_dir: str, entity_id: str, entity_type: str,
         fm["title"] = title
         body = f"# {entity_id} — {title}\n\nUnknown — blocks: unsupported narrative type requires explicit content.\n"
 
-    full_path = root / doc_path_str
+    if full_path.exists():
+        existing_fm, existing_body = parse_md(full_path)
+        existing_fm = existing_fm or {}
+        conflicting_id = existing_fm.get("id") not in (None, "", entity_id)
+        conflicting_type = existing_fm.get("type") not in (None, "", entity_type)
+        if conflicting_id or conflicting_type:
+            return doc_path_str
+        repaired = dict(fm)
+        repaired.update(existing_fm)
+        repaired["id"] = entity_id
+        repaired["type"] = entity_type
+        write_narrative_doc(full_path, repaired, existing_body or body)
+        return doc_path_str
+
     write_narrative_doc(full_path, fm, body)
     return doc_path_str

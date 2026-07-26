@@ -11,13 +11,14 @@ from ..state_schema import (
     VALID_MILESTONE_VERDICTS,
     default_milestones,
 )
-from ._common import _atomic_write, _read_json
+from ..worktree_context import resolve_control_root
+from ._common import _atomic_write, _governance_locked, _read_json
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 def _milestones_path(base_dir: str) -> Path:
-    return Path(base_dir) / ".aiwf" / "state" / "milestones.json"
+    return resolve_control_root(base_dir) / ".aiwf" / "state" / "milestones.json"
 
 def _read(path: Path, default: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     return _read_json(path, default)
@@ -177,6 +178,7 @@ def get_milestone(base_dir: str, milestone_id: str) -> Dict[str, Any]:
 def milestone_exists(base_dir: str, milestone_id: str) -> bool:
     return bool(get_milestone(base_dir, milestone_id))
 
+@_governance_locked
 def upsert_milestone(
     base_dir: str,
     milestone_id: str,
@@ -290,6 +292,7 @@ def upsert_milestone(
     save_milestones(base_dir, data)
     return {"milestone": milestone, "milestones": data}
 
+@_governance_locked
 def link_milestone_plan(base_dir: str, milestone_id: str, plan_id: str) -> Dict[str, Any]:
     """Link a plan to a milestone."""
     data = load_milestones(base_dir)
@@ -302,6 +305,7 @@ def link_milestone_plan(base_dir: str, milestone_id: str, plan_id: str) -> Dict[
     save_milestones(base_dir, data)
     return {"linked": True, "milestone_id": milestone_id, "plan_id": plan_id}
 
+@_governance_locked
 def unlink_milestone_plan(base_dir: str, milestone_id: str, plan_id: str) -> Dict[str, Any]:
     """Unlink a plan from a milestone."""
     data = load_milestones(base_dir)
@@ -315,6 +319,7 @@ def unlink_milestone_plan(base_dir: str, milestone_id: str, plan_id: str) -> Dic
     save_milestones(base_dir, data)
     return {"unlinked": True, "milestone_id": milestone_id, "plan_id": plan_id}
 
+@_governance_locked
 def link_milestone_task(base_dir: str, milestone_id: str, task_id: str) -> Dict[str, Any]:
     """Link a task to a milestone."""
     data = load_milestones(base_dir)
@@ -327,6 +332,7 @@ def link_milestone_task(base_dir: str, milestone_id: str, task_id: str) -> Dict[
     save_milestones(base_dir, data)
     return {"linked": True, "milestone_id": milestone_id, "task_id": task_id}
 
+@_governance_locked
 def unlink_milestone_task(base_dir: str, milestone_id: str, task_id: str) -> Dict[str, Any]:
     """Unlink a task from a milestone."""
     data = load_milestones(base_dir)
@@ -340,6 +346,7 @@ def unlink_milestone_task(base_dir: str, milestone_id: str, task_id: str) -> Dic
     save_milestones(base_dir, data)
     return {"unlinked": True, "milestone_id": milestone_id, "task_id": task_id}
 
+@_governance_locked
 def attach_plan_to_milestone(base_dir: str, milestone_id: str, plan_id: str,
                              task_ids: Optional[List[str]] = None) -> Dict[str, Any]:
     data = load_milestones(base_dir)
@@ -355,6 +362,7 @@ def attach_plan_to_milestone(base_dir: str, milestone_id: str, plan_id: str,
     save_milestones(base_dir, data)
     return {"attached": True, "milestone": milestone}
 
+@_governance_locked
 def reconcile_plan_to_milestone(base_dir: str, plan: Dict[str, Any]) -> Dict[str, Any]:
     milestone_id = str(plan.get("milestone_id") or "")
     plan_id = str(plan.get("plan_id") or plan.get("id") or "")
@@ -375,6 +383,7 @@ def reconcile_plan_to_milestone(base_dir: str, plan: Dict[str, Any]) -> Dict[str
     save_milestones(base_dir, data)
     return {"reconciled": True, "milestone": milestone}
 
+@_governance_locked
 def record_milestone_assessment(
     base_dir: str,
     milestone_id: str,
@@ -482,6 +491,7 @@ def _auto_fill_verification_task_review(base_dir: str, milestone_id: str, verdic
             task_id=str(task.get("id") or ""),
         )
 
+@_governance_locked
 def record_milestone_integration(
     base_dir: str,
     milestone_id: str,
@@ -584,6 +594,7 @@ def record_milestone_integration(
 
     return {"recorded": True, "milestone_id": milestone_id, "integration_test": it}
 
+@_governance_locked
 def record_milestone_arch_review(
     base_dir: str,
     milestone_id: str,
@@ -776,6 +787,7 @@ def check_milestone_technical_readiness(base_dir: str, milestone_id: str) -> Lis
         )
     return blockers
 
+@_governance_locked
 def confirm_milestone_acceptance(
     base_dir: str,
     milestone_id: str,
@@ -845,6 +857,7 @@ def _find_verification_task(base_dir: str, milestone_id: str) -> Optional[Dict[s
         pass
     return None
 
+@_governance_locked
 def close_milestone(base_dir: str, milestone_id: str) -> Dict[str, Any]:
     data = load_milestones(base_dir)
     milestone = _find_milestone(data, milestone_id)

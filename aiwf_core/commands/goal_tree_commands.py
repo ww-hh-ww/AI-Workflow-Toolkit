@@ -13,12 +13,13 @@ def _update_md_status(entity_type: str, entity_id: str, status: str,
                       summary: str = "") -> None:
     """Write status back to MD frontmatter and sync to JSON."""
     from ..core.index_ops import parse_md, write_narrative_doc, sync_index
+    from ..core.worktree_context import resolve_control_root
     dir_map = {"goal": ".aiwf/goals", "plan": ".aiwf/plans",
                "milestone": ".aiwf/milestones"}
     subdir = dir_map.get(entity_type)
     if not subdir:
         return
-    doc = Path.cwd() / subdir / f"{entity_id}.md"
+    doc = resolve_control_root(Path.cwd()) / subdir / f"{entity_id}.md"
     if not doc.exists():
         return
     fm, body = parse_md(doc)
@@ -187,6 +188,10 @@ def _cmd_goal_create(args: argparse.Namespace) -> None:
         save_goal_tree(str(Path.cwd()), tree)
     print(f"  Narrative doc: {path}")
     sync_result = sync_index(str(Path.cwd()))
+    if sync_result.get("errors"):
+        print("  sync warning: Goal.md still needs correction")
+        for error in sync_result["errors"][:8]:
+            print(f"    - {error}")
     if sync_result["changes"]:
         for c in sync_result["changes"][:5]:
             print(f"  sync: {c}")

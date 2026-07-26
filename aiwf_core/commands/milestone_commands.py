@@ -34,6 +34,10 @@ def _cmd_milestone_create(args: argparse.Namespace) -> None:
                                        status=m.get("status", ""))
     print(f"  Narrative doc: {path}")
     sync_result = sync_index(str(Path.cwd()))
+    if sync_result.get("errors"):
+        print("  sync warning: Milestone.md still needs correction")
+        for error in sync_result["errors"][:8]:
+            print(f"    - {error}")
     if sync_result["changes"]:
         for c in sync_result["changes"][:5]:
             print(f"  sync: {c}")
@@ -255,7 +259,12 @@ def _update_milestone_md(milestone_id: str, plan_ids=None, task_ids=None,
                         status: str = "", summary: str = "") -> None:
     """Update Milestone.md frontmatter fields, then sync to JSON."""
     from ..core.index_ops import parse_md, write_narrative_doc, sync_index
-    ms_doc = Path.cwd() / ".aiwf" / "milestones" / f"{milestone_id}.md"
+    from ..core.worktree_context import resolve_control_root
+
+    ms_doc = (
+        resolve_control_root(Path.cwd())
+        / ".aiwf" / "milestones" / f"{milestone_id}.md"
+    )
     if not ms_doc.exists():
         return
     fm, body = parse_md(ms_doc)
