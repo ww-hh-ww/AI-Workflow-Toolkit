@@ -218,6 +218,13 @@ the same command using `--status passed`. AIWF merges only that passing
 candidate. If it reports a conflict, create a `kind=integration` Task and use the
 normal Executor, Tester, Reviewer, and close chain.
 
+If that preflight becomes stale before the integration Task activates, run
+`aiwf plan integrate <PLAN-ID>` again. It may refresh around one pending or
+suspended integration Task. Governance-only commits are adopted
+automatically. For other Plan-branch commits, inspect the diff with the user;
+only after approval rerun with `--accept-head-change`. Recheck Task.md and
+repeat both critique passes when the recorded refs change.
+
 For several Plans, follow dependencies and integrate one at a time against the
 moving base. Close each Plan after its own passing candidate is merged. If the
 Plans only work as a combination, run the combined proof before closing them.

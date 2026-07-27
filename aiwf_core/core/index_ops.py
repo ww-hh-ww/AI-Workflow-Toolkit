@@ -289,6 +289,46 @@ def _parse_list_field(value: str) -> list:
             pass
     return [item.strip() for item in raw.replace(",", " ").split() if item.strip()]
 
+
+def _active_task_frontmatter_drift(
+    entry: Dict[str, Any],
+    fm: Dict[str, Any],
+) -> List[str]:
+    """Return execution-contract fields changed after Task activation."""
+    drift: List[str] = []
+    scalar_fields = ("goal_id", "plan_id", "milestone_id", "kind")
+    for key in scalar_fields:
+        if str(entry.get(key) or "").strip() != str(fm.get(key) or "").strip():
+            drift.append(key)
+
+    current_requirements = entry.get("requirements", {}) or {}
+    for key in (
+        "executor_required",
+        "tester_required",
+        "reviewer_required",
+        "rollback_required",
+    ):
+        value = fm.get(key)
+        parsed = value if isinstance(value, bool) else (
+            str(value or "").strip().lower() in ("true", "yes", "1")
+        )
+        if bool(current_requirements.get(key, False)) != parsed:
+            drift.append(key)
+
+    tester_write = fm.get("tester_write")
+    if not isinstance(tester_write, list):
+        tester_write = _parse_list_field(str(tester_write or ""))
+    if list(current_requirements.get("tester_write", []) or []) != tester_write:
+        drift.append("tester_write")
+
+    dependencies = fm.get("dependencies")
+    if not isinstance(dependencies, list):
+        dependencies = _parse_list_field(str(dependencies or ""))
+    if list(entry.get("dependencies", []) or []) != dependencies:
+        drift.append("dependencies")
+    return drift
+
+
 @_governance_locked
 def sync_index(base_dir: str, dry_run: bool = False) -> Dict[str, Any]:
     """Sync MD frontmatter -> JSON for all entities with narrative docs.
@@ -352,6 +392,13 @@ def sync_index(base_dir: str, dry_run: bool = False) -> Dict[str, Any]:
 
             # Active task: locked JSON fields are not overwritten by sync.
             if etype == "task" and eid in active_task_ids:
+                drift = _active_task_frontmatter_drift(entry, fm)
+                if drift:
+                    errors.append(
+                        f"task:{eid}: active Task contract is frozen; frontmatter "
+                        f"changes were not synced: {', '.join(drift)}. Interrupt the "
+                        "Task before changing its contract."
+                    )
                 synced.append(f"{etype}:{eid}")
                 continue
 

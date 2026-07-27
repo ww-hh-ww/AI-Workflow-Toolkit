@@ -27,6 +27,7 @@ DEFAULT_WRITE_POLICY: Dict[str, Any] = {
     "project_writes_require_active_task": True,
     "freeze_active_task_md": True,
     "first_implementation_requires_executor": True,
+    "governance_git_tracking": "tracked",
     "tester_project_writes": "test_assets_only",
     "architect_project_writes": "reports_only",
     "explorer_project_writes": "deny",
@@ -37,6 +38,7 @@ HUMAN_ONLY_COMMANDS = {
     "aiwf task force-close": "force-close bypasses all Task gates",
     "aiwf task interrupt": "interrupt releases the active Task execution window",
     "aiwf fixloop continue": "continue authorizes work after repeated fix-loop failures",
+    "aiwf governance tracking": "changing governance Git tracking changes project traceability",
 }
 
 
@@ -859,16 +861,63 @@ def check_bash(event: NormalizedEvent) -> Dict:
 
     if active_task_id:
         import re
+        merges = list(re.finditer(
+            r"(^|[;&|]\s*)git\s+merge\b([^;&|]*)",
+            command,
+            re.IGNORECASE,
+        ))
+        for merge in merges:
+            merge_args = merge.group(2)
+            integration_task = str((active_task or {}).get("kind") or "") == "integration"
+            expected_ref = str((active_task or {}).get("integration_base_ref") or "")
+            if (
+                not integration_task
+                or not re.search(r"(?:^|\s)--no-commit(?:\s|$)", merge_args)
+                or not re.search(r"(?:^|\s)--no-ff(?:\s|$)", merge_args)
+                or not expected_ref
+                or expected_ref not in merge_args
+            ):
+                reason = (
+                    "Active Tasks cannot change Git HEAD with a merge. Return to Planner "
+                    "and integrate at a Task boundary."
+                )
+                if integration_task:
+                    reason = (
+                        "This integration Task must leave the merge open. Run exactly "
+                        f"'git merge --no-ff --no-commit {expected_ref}', resolve files without "
+                        "git add, and do not run 'git merge --continue' or 'git commit'. "
+                        "AIWF snapshots use a separate index; 'aiwf task close' stages the "
+                        "reviewed tree and creates the merge commit. To abandon the merge, "
+                        "ask the user to interrupt and cancel the Task."
+                    )
+                return {
+                    "allowed": False,
+                    "decision": "deny",
+                    "command": command[:200],
+                    "matched_pattern": "git merge",
+                    "reason": reason,
+                }
         if re.search(r"(^|[;&|]\s*)git\s+(?:add|stage)\b", command, re.IGNORECASE):
+            reason = (
+                "AIWF snapshots and 'aiwf task close' manage the Task index. "
+                "Do not stage files during an active Task. Do not force-close "
+                "to unlock staging; finish the required records, then normal "
+                "'aiwf task close' stages the reviewed result."
+            )
+            if str((active_task or {}).get("kind") or "") == "integration":
+                reason = (
+                    "Do not stage integration conflict resolutions. Edit the conflicted "
+                    "files and leave the merge open. AIWF records implementation, testing, "
+                    "and review with a separate snapshot index; normal 'aiwf task close' "
+                    "stages the reviewed tree, verifies the recorded base ref, and creates "
+                    "the merge commit."
+                )
             return {
                 "allowed": False,
                 "decision": "deny",
                 "command": command[:200],
                 "matched_pattern": "git add",
-                "reason": (
-                    "AIWF snapshots and 'aiwf task close' manage the Task index. "
-                    "Do not stage files during an active Task."
-                ),
+                "reason": reason,
             }
         if re.search(r"(^|[;&|]\s*)git\s+commit\b", command, re.IGNORECASE):
             return {

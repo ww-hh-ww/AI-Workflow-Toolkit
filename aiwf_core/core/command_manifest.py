@@ -75,6 +75,12 @@ COMMAND_MANIFEST: Dict[str, Dict] = {
         "visible": True, "tested": "partial", "in_status_prompt": True,
         "keep": "MD frontmatter -> JSON compiler",
     },
+    "governance": {
+        "tier": ADVANCED, "core": "infra",
+        "caller": "user/planner", "trigger": "on-demand",
+        "visible": True, "tested": "yes", "in_status_prompt": False,
+        "keep": "human tracking choice and Planner-safe compact checkpoints",
+    },
     "milestone": {
         "tier": PRIMARY, "core": "goal_progress",
         "caller": "planner", "trigger": "on-milestone",

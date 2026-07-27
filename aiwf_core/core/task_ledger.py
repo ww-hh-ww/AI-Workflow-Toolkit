@@ -584,9 +584,10 @@ def activate_task(
     base_dir: str, task_id: str, accept_head_change: bool = False,
 ) -> Dict[str, Any]:
     """Activate a planned task if execution-window gates pass."""
+    task = _find(load_ledger(base_dir).get("tasks", []), task_id)
     try:
         with _governance_state_lock(base_dir):
-            return _activate_task_locked(
+            result = _activate_task_locked(
                 base_dir, task_id, accept_head_change=accept_head_change,
             )
     except TimeoutError as exc:
@@ -596,6 +597,16 @@ def activate_task(
             "ledger": load_ledger(base_dir),
             "blockers": [str(exc)],
         }
+    if result.get("activated") and task and str(task.get("kind") or "") != "integration":
+        try:
+            from .governance_git import checkpoint_governance
+
+            result["governance_checkpoint"] = checkpoint_governance(
+                base_dir, reason=f"after Task activation: {task_id}",
+            )
+        except ValueError as exc:
+            result["governance_checkpoint_warning"] = str(exc)
+    return result
 
 
 def _activate_task_locked(
@@ -852,6 +863,11 @@ def _close_task_locked(base_dir: str, task_id: str = "", note: str = "") -> Dict
         tested_ref = str(testing.get("tested_ref") or "")
         reviewed_ref = str(review.get("reviewed_ref") or "")
         worktree = str(task.get("worktree_path") or resolve_worktree_root(base_dir))
+        if task.get("kind") == "integration":
+            if not tested_ref:
+                blockers.append("integration Task requires a current tested snapshot")
+            if not reviewed_ref:
+                blockers.append("integration Task requires a current reviewed snapshot")
         if tested_ref and reviewed_ref != tested_ref:
             blockers.append("Reviewer did not accept the current tested snapshot")
         if reviewed_ref:
@@ -1008,6 +1024,21 @@ def _force_close_task_locked(base_dir: str, reason: str = "", task_id: str = "")
         }
 
     unsatisfied = _task_unsatisfied_checks(base_dir, task)
+    worktree = str(task.get("worktree_path") or resolve_worktree_root(base_dir))
+    from .plan_integration_git import git_operation
+
+    operation = git_operation(Path(worktree))
+    if operation:
+        return {
+            "closed": False,
+            "task": task,
+            "ledger": ledger,
+            "blockers": [
+                f"cannot force-close while the Task worktree has an open Git {operation}. "
+                "Use normal task close to keep a reviewed merge, or interrupt then cancel "
+                "the Task to abandon it"
+            ],
+        }
 
     task["status"] = "closed"
     task["phase"] = "closed"

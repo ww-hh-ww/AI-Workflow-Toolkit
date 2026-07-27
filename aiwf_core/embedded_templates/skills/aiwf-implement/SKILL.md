@@ -59,8 +59,10 @@ Read `.aiwf` governance from the control root. The Plan worktree owns project
 code, not a separate copy of the Task contract.
 
 For `kind=integration`, Executor merges the exact base ref shown by
-`aiwf task proof`, resolves the Task contract, and leaves the merge open. AIWF
-records the reviewed project snapshot and `task close` creates the merge commit.
+`aiwf task proof` with `git merge --no-ff --no-commit <ref>`, resolves the Task
+contract, and leaves the merge open. AIWF records the reviewed project snapshot
+and `task close` creates the merge commit. Do not run `git add`,
+`git merge --continue`, or `git commit`.
 
 If Executor returns `RETURN_TO_PLANNER`, stop normal progress and surface the
 verified conflict. The hook opens a Planner fix-loop. Run `aiwf status --prompt`

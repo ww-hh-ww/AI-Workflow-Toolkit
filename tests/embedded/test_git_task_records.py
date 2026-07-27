@@ -110,6 +110,23 @@ class TestGitTaskRecords(unittest.TestCase):
         self.assertNotIn("evidence_id", testing)
         self.assertNotIn("accepted_evidence_ids", review)
 
+    def test_status_route_catches_project_changes_after_review(self):
+        from aiwf_core.commands.flow import _task_next
+        from aiwf_core.core.task_ledger import load_ledger
+        from aiwf_core.core.task_records import load_task_record
+
+        self._record_full_chain()
+        (self.tmp / "src/feature.py").write_text("VALUE = 2\n", encoding="utf-8")
+        task = load_ledger(str(self.tmp))["tasks"][0]
+        record = load_task_record(self.tmp, "TASK-001")
+
+        role, action = _task_next(task, record, self.tmp)
+
+        self.assertEqual(role, "Implementation repair")
+        self.assertIn("project files changed after review", action)
+        self.assertIn("rerun only the affected testing and review", action)
+        self.assertIn("Do not interrupt", action)
+
     def test_adopted_head_can_close_without_creating_an_empty_commit(self):
         from aiwf_core.core.git_snapshots import create_task_snapshot
         from aiwf_core.core.git_workflow import create_task_commit
@@ -133,6 +150,169 @@ class TestGitTaskRecords(unittest.TestCase):
         )
 
         self.assertEqual(result, head)
+
+    def test_reviewed_integration_merge_commit_is_adopted_only_with_exact_parents(self):
+        from aiwf_core.core.git_snapshots import create_task_snapshot
+        from aiwf_core.core.git_workflow import create_task_commit
+
+        subprocess.run(["git", "switch", "main"], cwd=self.tmp, check=True, capture_output=True)
+        (self.tmp / "base.txt").write_text("new base\n", encoding="utf-8")
+        subprocess.run(["git", "add", "base.txt"], cwd=self.tmp, check=True)
+        subprocess.run(
+            ["git", "commit", "-m", "advance base"],
+            cwd=self.tmp, check=True, capture_output=True,
+        )
+        base_ref = subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=self.tmp, check=True,
+            capture_output=True, text=True,
+        ).stdout.strip()
+        subprocess.run(
+            ["git", "switch", "feature/test"],
+            cwd=self.tmp, check=True, capture_output=True,
+        )
+        subprocess.run(
+            ["git", "merge", "--no-ff", "--no-commit", base_ref],
+            cwd=self.tmp, check=True, capture_output=True,
+        )
+        subprocess.run(
+            ["git", "commit", "-m", "reviewed integration"],
+            cwd=self.tmp, check=True, capture_output=True,
+        )
+        merge_ref = subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=self.tmp, check=True,
+            capture_output=True, text=True,
+        ).stdout.strip()
+        reviewed_ref = create_task_snapshot(
+            str(self.tmp), "TASK-001", "review", self.origin,
+            summary="reviewed the exact merged tree",
+        )["ref"]
+        task = {
+            "id": "TASK-001",
+            "title": "integrate base",
+            "kind": "integration",
+            "git_branch": "feature/test",
+            "integration_base_ref": base_ref,
+        }
+
+        self.assertEqual(
+            create_task_commit(str(self.tmp), task, self.origin, reviewed_ref),
+            merge_ref,
+        )
+
+        subprocess.run(
+            ["git", "commit", "--allow-empty", "-m", "wrong integration shape"],
+            cwd=self.tmp, check=True, capture_output=True,
+        )
+        with self.assertRaisesRegex(ValueError, "two parents"):
+            create_task_commit(str(self.tmp), task, self.origin, reviewed_ref)
+
+    def test_integration_task_requires_current_test_and_review_snapshots(self):
+        from aiwf_core.core.task_ledger import close_task
+
+        tasks_path = self.tmp / ".aiwf/state/tasks.json"
+        tasks = json.loads(tasks_path.read_text())
+        tasks["tasks"][0].update({
+            "kind": "integration",
+            "requirements": {
+                "executor_required": False,
+                "tester_required": False,
+                "reviewer_required": False,
+            },
+        })
+        tasks_path.write_text(json.dumps(tasks, indent=2) + "\n", encoding="utf-8")
+
+        result = close_task(str(self.tmp), "TASK-001")
+
+        self.assertFalse(result["closed"])
+        self.assertIn(
+            "integration Task requires a current tested snapshot",
+            result["blockers"],
+        )
+        self.assertIn(
+            "integration Task requires a current reviewed snapshot",
+            result["blockers"],
+        )
+
+    def test_cancel_aborts_open_merge_and_force_close_does_not_choose(self):
+        from aiwf_core.core.task_ledger import force_close_task
+
+        subprocess.run(["git", "switch", "main"], cwd=self.tmp, check=True, capture_output=True)
+        (self.tmp / "base.txt").write_text("new base\n", encoding="utf-8")
+        subprocess.run(["git", "add", "base.txt"], cwd=self.tmp, check=True)
+        subprocess.run(
+            ["git", "commit", "-m", "advance base"],
+            cwd=self.tmp, check=True, capture_output=True,
+        )
+        base_ref = subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=self.tmp, check=True,
+            capture_output=True, text=True,
+        ).stdout.strip()
+        subprocess.run(
+            ["git", "switch", "feature/test"],
+            cwd=self.tmp, check=True, capture_output=True,
+        )
+        subprocess.run(
+            ["git", "merge", "--no-ff", "--no-commit", base_ref],
+            cwd=self.tmp, check=True, capture_output=True,
+        )
+        tasks_path = self.tmp / ".aiwf/state/tasks.json"
+        tasks = json.loads(tasks_path.read_text())
+        tasks["tasks"][0].update({
+            "status": "suspended",
+            "phase": "suspended",
+            "worktree_path": str(self.tmp),
+        })
+        tasks_path.write_text(json.dumps(tasks, indent=2) + "\n", encoding="utf-8")
+        state_path = self.tmp / ".aiwf/state/state.json"
+        state = json.loads(state_path.read_text())
+        for key in ("active_task_id", "active_plan_id", "phase", "git_origin_ref"):
+            state.pop(key, None)
+        state_path.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
+        env = os.environ.copy()
+        env["PYTHONPATH"] = str(PROJECT_ROOT)
+
+        cancelled = subprocess.run(
+            [
+                sys.executable, "-m", "aiwf_core.cli",
+                "task", "cancel", "TASK-001", "--reason", "abandon integration",
+            ],
+            cwd=self.tmp, env=env, capture_output=True, text=True,
+        )
+
+        self.assertEqual(cancelled.returncode, 0, cancelled.stderr)
+        self.assertNotEqual(
+            subprocess.run(
+                ["git", "rev-parse", "-q", "--verify", "MERGE_HEAD"],
+                cwd=self.tmp, capture_output=True,
+            ).returncode,
+            0,
+        )
+        self.assertFalse((self.tmp / "base.txt").exists())
+        tasks = json.loads(tasks_path.read_text())
+        self.assertEqual(tasks["tasks"][0]["status"], "cancelled")
+
+        subprocess.run(
+            ["git", "merge", "--no-ff", "--no-commit", base_ref],
+            cwd=self.tmp, check=True, capture_output=True,
+        )
+        tasks["tasks"][0].update({"status": "active", "phase": "implementing"})
+        tasks_path.write_text(json.dumps(tasks, indent=2) + "\n", encoding="utf-8")
+
+        forced = force_close_task(
+            str(self.tmp), reason="accept incomplete integration",
+            task_id="TASK-001",
+        )
+
+        self.assertFalse(forced["closed"])
+        self.assertEqual(
+            subprocess.run(
+                ["git", "rev-parse", "-q", "--verify", "MERGE_HEAD"],
+                cwd=self.tmp, capture_output=True,
+            ).returncode,
+            0,
+        )
+        self.assertIn("Use normal task close", forced["blockers"][0])
+        self.assertIn("interrupt then cancel", forced["blockers"][0])
 
     def test_testing_records_accumulate_on_the_same_snapshot(self):
         from aiwf_core.core.state.context_ops import record_implementation

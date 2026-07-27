@@ -26,6 +26,12 @@ from .state_commands import _cmd_record_disposition, _cmd_record_help, _cmd_reco
 from .goal_tree_commands import _cmd_goal_cancel, _cmd_goal_close, _cmd_goal_create, _cmd_goal_help, _cmd_goal_tree_list, _cmd_goal_tree_show, _cmd_relation_add, _cmd_relation_remove
 from .milestone_commands import _cmd_milestone_arch_review, _cmd_milestone_assess, _cmd_milestone_cancel, _cmd_milestone_close, _cmd_milestone_confirm, _cmd_milestone_create, _cmd_milestone_help, _cmd_milestone_integration_test, _cmd_milestone_link_plan, _cmd_milestone_link_task, _cmd_milestone_list, _cmd_milestone_show, _cmd_milestone_unlink_plan, _cmd_milestone_unlink_task
 from .mission_commands import _cmd_mission_show
+from .governance_commands import (
+    _cmd_governance_checkpoint,
+    _cmd_governance_help,
+    _cmd_governance_status,
+    _cmd_governance_tracking,
+)
 from .task_commands import _cmd_task_activate, _cmd_task_calibrate, _cmd_task_cancel, _cmd_task_close, _cmd_task_critique, _cmd_task_force_close, _cmd_task_help, _cmd_task_interrupt, _cmd_task_plan, _cmd_task_proof, _cmd_task_show, _cmd_task_status
 from ..constants import VERSION
 
@@ -88,6 +94,22 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
     p_status.add_argument("--prompt", action="store_true", help="AI prompt injection format")
     p_status.add_argument("--debug", action="store_true", help="full debug panel")
     p_status.set_defaults(func=cmd_status)
+
+    # ── governance Git ──
+    p_gov = sub.add_parser("governance", help="governance Git tracking and checkpoints")
+    p_gov_sub = p_gov.add_subparsers(dest="governance_cmd")
+    p_gov_sub.add_parser("status", help="show governance Git mode and pending files").set_defaults(
+        func=_cmd_governance_status,
+    )
+    p_gov_sub.add_parser("checkpoint", help="commit pending tracked governance only").set_defaults(
+        func=_cmd_governance_checkpoint,
+    )
+    p_gov_tracking = p_gov_sub.add_parser(
+        "tracking", help="choose tracked or local governance",
+    )
+    p_gov_tracking.add_argument("mode", choices=["tracked", "local"])
+    p_gov_tracking.set_defaults(func=_cmd_governance_tracking)
+    p_gov.set_defaults(func=_cmd_governance_help)
 
     # ── fixloop ──
     p_fixloop = sub.add_parser("fixloop", help="fix-loop recovery")
@@ -187,6 +209,11 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
                        dest="verification_results",
                        help="command:::expected:::observed:::matched|mismatched")
     p_pli.add_argument("--summary", default="", help="concise integration result")
+    p_pli.add_argument(
+        "--accept-head-change",
+        action="store_true",
+        help="adopt inspected project commits before refreshing Plan integration",
+    )
     p_pli.set_defaults(func=_cmd_plan_integrate)
     p_plcl = p_plan_sub.add_parser("close", help="close a plan")
     p_plcl.add_argument("plan_id", help="plan ID")

@@ -126,7 +126,18 @@ def _cmd_plan_bind_worktree(args: argparse.Namespace) -> None:
             plans["plans"][index] = plan
             break
     save_plans(base, plans)
+    checkpoint = {}
+    try:
+        from ..core.governance_git import checkpoint_governance
+
+        checkpoint = checkpoint_governance(
+            base, reason=f"after binding Plan worktree: {args.plan_id}",
+        )
+    except ValueError as exc:
+        print(f"  Governance checkpoint pending: {exc}")
     print(f"Plan worktree bound: {args.plan_id}")
+    if checkpoint.get("committed"):
+        print(f"  Governance checkpoint: {checkpoint['commit'][:12]}")
     if getattr(args, "create", False):
         print(f"  Action: {'created' if binding.get('created') else 'reused'}")
     print(f"  Worktree: {binding['worktree_path']}")
@@ -305,16 +316,34 @@ def _cmd_plan_integrate(args: argparse.Namespace) -> None:
 
     try:
         if not getattr(args, "status", ""):
-            result = prepare_plan_integration(str(Path.cwd()), args.plan_id)
+            result = prepare_plan_integration(
+                str(Path.cwd()),
+                args.plan_id,
+                accept_head_change=bool(
+                    getattr(args, "accept_head_change", False)
+                ),
+            )
+            checkpoint = result.get("governance_checkpoint", {}) or {}
+            if checkpoint.get("committed"):
+                print(f"Governance checkpoint: {checkpoint['commit'][:12]}")
             if result.get("conflict"):
                 print(f"Plan integration needs an integration Task: {args.plan_id}")
+                task_id = str(result.get("integration_task_id") or "")
                 if result.get("conflicts"):
                     print("  Conflicts: " + ", ".join(result["conflicts"][:8]))
-                print(
-                    "  Create a Task under this Plan with kind=integration. Its contract must "
-                    "merge the recorded base ref into the Plan branch, resolve the combined "
-                    "behavior, and run the normal Executor, Tester, Reviewer, and close chain."
-                )
+                if task_id:
+                    print(f"  Existing integration Task: {task_id}")
+                else:
+                    print(
+                        "  Create a Task under this Plan with kind=integration. Its contract must "
+                        "merge the recorded base ref into the Plan branch, resolve the combined "
+                        "behavior, and run the normal Executor, Tester, Reviewer, and close chain."
+                    )
+                if result.get("critique_reset_task_ids"):
+                    print(
+                        "  Preflight inputs changed. Recheck Task.md and run both "
+                        "activation critique passes again before activation."
+                    )
                 print("  After that Task closes, run this command again.")
                 return
             print(f"Plan integration prepared: {args.plan_id}")
@@ -323,6 +352,12 @@ def _cmd_plan_integrate(args: argparse.Namespace) -> None:
             print(f"  Run checks in: {result['candidate_worktree']}")
             if result.get("already_merged"):
                 print("  Existing merged result adopted as the candidate; verify it before close.")
+            if result.get("integration_task_no_longer_needed"):
+                print(
+                    "  The refreshed preflight has no project conflict. Integration Task "
+                    f"{result.get('integration_task_id')} is no longer needed; ask the "
+                    "user before cancelling it."
+                )
             print("  Run the Plan's integration checks against this exact candidate.")
             print(
                 f"  Then run: aiwf plan integrate {args.plan_id} --status passed "
@@ -409,6 +444,14 @@ def _cmd_plan_close(args: argparse.Namespace) -> None:
             p["updated_at"] = datetime.now(timezone.utc).isoformat()
             save_plans(str(Path.cwd()), data)
             _update_md_status("plan", plan_id, "closed", summary)
+            try:
+                from ..core.governance_git import checkpoint_governance
+
+                checkpoint_governance(
+                    Path.cwd(), reason=f"after Plan close: {plan_id}",
+                )
+            except ValueError as exc:
+                print(f"  Governance checkpoint pending: {exc}")
             print(f"Plan closed: {plan_id}")
             return
     print(f"Plan not found: {plan_id}", file=sys.stderr)

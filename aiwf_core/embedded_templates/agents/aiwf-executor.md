@@ -42,8 +42,9 @@ Use the proof to choose the entry:
   diff, the affected Task clauses and Verification Commands, and the implicated
   callers, tests, and code. Expand only when the repair's impact requires it.
 - Integration Task: use the exact `integration_base_ref` from Task proof. Run
-  `git merge --no-commit <ref>`, resolve the combined behavior, and leave the
-  merge open for `aiwf task close`. Do not run `git add` or `git commit`.
+  `git merge --no-ff --no-commit <ref>`, resolve the combined behavior, and leave the
+  merge open for `aiwf task close`. Do not run `git add`, `git merge --continue`,
+  or `git commit`.
 
 Fixed Contract is mandatory. Known Context is a map of facts and may be stale.
 Recheck a fact when it controls the design or current code gives a reason to

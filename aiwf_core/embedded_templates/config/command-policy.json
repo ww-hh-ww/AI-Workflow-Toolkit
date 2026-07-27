@@ -16,6 +16,11 @@
       "command": "aiwf fixloop continue",
       "reason": "continue authorizes another workflow step after repeated failures. Human decision only.",
       "human_only": true
+    },
+    {
+      "command": "aiwf governance tracking",
+      "reason": "changing governance Git tracking changes project traceability. Human decision only.",
+      "human_only": true
     }
   ]
 }

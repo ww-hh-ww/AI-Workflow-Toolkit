@@ -139,6 +139,11 @@ class TestTaskParallelContract(unittest.TestCase):
         self.assertNotIn("active_task_id", state)
         self.assertTrue((self.tmp / ".aiwf/records/tasks/TASK-A1.json").exists())
         self.assertTrue((self.tmp / ".aiwf/records/tasks/TASK-B1.json").exists())
+        status = subprocess.run(
+            ["git", "status", "--porcelain", "--untracked-files=all"],
+            cwd=self.tmp, check=True, capture_output=True, text=True,
+        ).stdout
+        self.assertNotIn(".aiwf/", status)
 
     def test_plan_worktree_create_is_idempotent_and_keeps_control_root_clean(self):
         upsert_plan(str(self.tmp), "PLAN-C")
@@ -173,6 +178,7 @@ class TestTaskParallelContract(unittest.TestCase):
             cwd=self.tmp, check=True, capture_output=True, text=True,
         ).stdout
         self.assertNotIn(".claude/worktrees", status)
+        self.assertNotIn(".aiwf/", status)
 
     def test_opencode_session_uses_its_own_worktree_directory_when_hosts_coexist(self):
         plugin = self.tmp / ".opencode/plugins/aiwf.js"

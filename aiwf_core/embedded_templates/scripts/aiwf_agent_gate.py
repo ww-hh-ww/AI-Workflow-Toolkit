@@ -2,16 +2,13 @@ import json, re, sys
 from pathlib import Path
 from aiwf_core.adapters.claude.normalize_event import parse_claude_stdin, normalize
 from aiwf_core.adapters.claude.responses import allow, allow_with_updated_input, deny_pre_tool_use
-from aiwf_core.core.agent_runtime import start_dispatch
+from aiwf_core.core.agent_runtime import (
+    ROLE_REQUIRED_SKILL,
+    WORKFLOW_ROLES,
+    start_dispatch,
+)
 from aiwf_core.core.task_records import load_task_record
 from aiwf_core.core.worktree_context import resolve_control_root
-
-AGENT_SKILL_MAP = {
-    "aiwf-executor": "aiwf-implement",
-    "aiwf-tester": "aiwf-test",
-    "aiwf-reviewer": "aiwf-review",
-    "aiwf-architect": "aiwf-architect",
-}
 
 ROLE_ACTION = {
     "aiwf-executor": "Implement the contract, verify your work, and record implementation.",
@@ -72,7 +69,7 @@ def _enriched_prompt(base, task, subagent_type, original_prompt):
 
 def _workflow_dispatch_blocker(base, task_id, subagent_type):
     """Reject expensive workflow dispatches that cannot consume current state."""
-    if subagent_type not in {"aiwf-executor", "aiwf-tester", "aiwf-reviewer"}:
+    if subagent_type not in WORKFLOW_ROLES:
         return ""
 
     record = load_task_record(base, task_id)
@@ -170,10 +167,10 @@ def main():
             "Run 'aiwf status --prompt' and dispatch the named AIWF role. "
             "Use aiwf-explorer for separate read-only exploration."
         )
-    if subagent_type not in AGENT_SKILL_MAP:
+    if subagent_type not in ROLE_REQUIRED_SKILL:
         allow()
 
-    required_skill = AGENT_SKILL_MAP[subagent_type]
+    required_skill = ROLE_REQUIRED_SKILL[subagent_type]
     # Check if the matching role skill was loaded in this session.
     log_path = base / ".aiwf" / "runtime" / "internal" / "skill-loads.jsonl"
     loaded = False

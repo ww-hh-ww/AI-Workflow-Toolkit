@@ -141,9 +141,9 @@ aiwf doctor
 - `scripts/aiwf_*.py`。
 - `.aiwf/` 治理工作区。
 
-安装产生的 Claude 集成文件属于项目变更。开始第一个 Task 前，先根据项目的版本控制策略提交或处理这些改动，确保项目工作树干净。AIWF 不会替你修改 `.gitignore`。
+安装产生的 Claude 集成文件属于项目变更。开始第一个 Task 前，先根据项目的版本控制策略提交或处理这些改动，确保项目工作树干净。AIWF 会在 `.gitignore` 中维护一个很小的区块，使本机 runtime 不进入 Git。
 
-通常应保留 `CLAUDE.md`、`.claude/` 和 `scripts/`。如果团队决定提交 `.aiwf/`，不要把 `.aiwf/runtime/internal/` 当作稳定项目文档；那里保存本机路径、hook 日志和临时路由信息。
+通常应保留 `CLAUDE.md`、`.claude/` 和 `scripts/`。`.aiwf/config/write-policy.json` 的 `governance_git_tracking` 可设为 `tracked`（默认，AIWF 在关键 Git 边界聚合 checkpoint）或 `local`（治理文档和状态只保留在本机，config 仍进入 Git）。使用 `aiwf governance status` 查看，使用 `aiwf governance tracking tracked|local` 切换。`.aiwf/runtime/` 始终只属于本机。
 
 ### 3. 进入交互工作模式
 
@@ -668,6 +668,10 @@ commit。AI 不要在此期间运行 `git add` 或 `git commit`；AIWF snapshots
 
 `aiwf task close` 会确认当前工作树与 `reviewed_ref` 完全一致，然后只为这份已审结果创建正式 Task commit。提交标题包含 Task ID，并附带 Plan/Goal trailers。
 
+Integration Task 只运行 `git merge --no-ff --no-commit <integration_base_ref>`。
+Executor 解决文件内容后保持 merge open；不要运行 `git add`、`git merge --continue`
+或 `git commit`，最终 merge commit 仍由 `aiwf task close` 创建。
+
 AIWF 不自动 push，也不会在用户选择前 merge Plan branch。用户选择合并后，
 `aiwf plan integrate` 负责精确候选、验证记录和 merge commit。
 
@@ -1040,6 +1044,7 @@ sync 检查，并在上下文压缩时写入最新路由。OpenCode 当前没有
   "project_writes_require_active_task": true,
   "freeze_active_task_md": true,
   "first_implementation_requires_executor": true,
+  "governance_git_tracking": "tracked",
   "tester_project_writes": "test_assets_only",
   "architect_project_writes": "reports_only",
   "explorer_project_writes": "deny",
@@ -1054,6 +1059,7 @@ sync 检查，并在上下文压缩时写入最新路由。OpenCode 当前没有
 | `project_writes_require_active_task` | `true`, `false` | 项目文件是否必须在 active Task 中写 |
 | `freeze_active_task_md` | `true`, `false` | 执行时是否冻结当前 Task.md |
 | `first_implementation_requires_executor` | `true`, `false` | 当 Task 要求 Executor 时，首次实现是否机械强制子代理 |
+| `governance_git_tracking` | `tracked`, `local` | 治理层由 Git 聚合追踪，或只保留在本机；使用 `aiwf governance tracking` 切换 |
 | `tester_project_writes` | `deny`, `test_assets_only`, `allow_all` | Tester 可写范围 |
 | `architect_project_writes` | `deny`, `reports_only`, `allow` | Architect 可写范围 |
 | `explorer_project_writes` | `deny`, `allow` | Explorer 是否可写项目文件 |

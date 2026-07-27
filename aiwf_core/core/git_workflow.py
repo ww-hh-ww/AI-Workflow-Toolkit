@@ -83,6 +83,25 @@ def changed_project_files(base_dir: str) -> List[str]:
     return sorted(filter_internal(paths, cwd=base))
 
 
+def abort_open_task_merge(base_dir: str) -> bool:
+    """Abort an open merge when a human ends the owning Task."""
+    from .plan_integration_git import git_operation
+
+    operation = git_operation(Path(base_dir))
+    if not operation:
+        return False
+    if operation != "merge":
+        raise ValueError(f"worktree has an unfinished Git {operation}")
+    result = _run(Path(base_dir), "merge", "--abort")
+    if result.returncode != 0:
+        raise ValueError(
+            result.stderr.strip()
+            or result.stdout.strip()
+            or "cannot abort the open Task merge"
+        )
+    return True
+
+
 def task_activation_git_blockers(
     base_dir: str,
     plan: Optional[Dict[str, Any]] = None,
@@ -215,6 +234,14 @@ def create_task_commit(
             ref_tree(base_dir, info["head"]) == ref_tree(base_dir, reviewed_ref)
             and worktree_matches_ref(base_dir, reviewed_ref)
         ):
+            if integration_task:
+                parents = _required(base, "show", "-s", "--format=%P", info["head"]).split()
+                expected_base = str(task.get("integration_base_ref") or "")
+                if parents != [origin_ref, expected_base]:
+                    raise ValueError(
+                        "existing integration commit does not have the recorded Plan and "
+                        "base refs as its two parents"
+                    )
             return info["head"]
         raise ValueError(
             "Git HEAD changed since Task activation; " + SNAPSHOT_GUIDANCE +

@@ -21,6 +21,7 @@ Ask the agent, run `aiwf status`, or read narrative docs when you need a human e
 
 - `aiwf status` — default control panel.
 - `aiwf doctor` — installation health check.
+- `aiwf governance status` — governance Git mode and pending checkpoint.
 - `aiwf status --debug` — full state dump for debugging.
 - `aiwf fixloop continue --task-id TASK-ID` — human-only continuation after repeated failures.
 - Narrative docs in `goals/`, `plans/`, `tasks/`, `milestones/` — human-readable project structure.
@@ -36,3 +37,5 @@ Ask the agent, run `aiwf status`, or read narrative docs when you need a human e
   returns, then keeps it, changes it, deletes it, or adds to it only when durable
   planning facts require that.
 - `runtime/` can be inspected for debugging but should not drive planning by itself.
+- `governance_git_tracking` in `config/write-policy.json` chooses tracked
+  checkpoints or local-only governance. Use `aiwf governance tracking` to switch.

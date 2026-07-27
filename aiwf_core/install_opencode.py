@@ -233,7 +233,11 @@ def install_opencode(force: bool = False) -> Dict[str, List[str]]:
             config_dir = ".opencode"
         for path in _remove_retired_skills(Target()):
             results["updated"].append(rel(path))
-    for path in [*_write_state_files(), *_write_scripts()]:
+    state_paths = _write_state_files()
+    from .core.governance_git import ensure_governance_gitignore
+
+    ensure_governance_gitignore(_root())
+    for path in [*state_paths, *_write_scripts()]:
         results["created"].append(rel(path))
     toolkit = _aiwf_dir() / "runtime" / "internal" / "toolkit-path.txt"
     toolkit.parent.mkdir(parents=True, exist_ok=True)

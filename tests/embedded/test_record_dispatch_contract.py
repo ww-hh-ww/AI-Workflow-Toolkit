@@ -133,14 +133,16 @@ class TestRecordDispatchContract(unittest.TestCase):
         skill_session_id="",
         event_cwd="",
         prompt="",
+        record_skill=True,
     ):
-        log = self.tmp / ".aiwf" / "runtime" / "internal" / "skill-loads.jsonl"
-        log.parent.mkdir(parents=True, exist_ok=True)
-        log.write_text(json.dumps({
-            "skill": skill,
-            "task_id": "TASK-001",
-            "session_id": skill_session_id or session_id,
-        }) + "\n")
+        if record_skill:
+            log = self.tmp / ".aiwf" / "runtime" / "internal" / "skill-loads.jsonl"
+            log.parent.mkdir(parents=True, exist_ok=True)
+            log.write_text(json.dumps({
+                "skill": skill,
+                "task_id": "TASK-001",
+                "session_id": skill_session_id or session_id,
+            }) + "\n")
         tool_input = {
             "subagent_type": subagent_type,
             "prompt": prompt or "TASK-001",
@@ -154,6 +156,23 @@ class TestRecordDispatchContract(unittest.TestCase):
         })
         return subprocess.run(
             [sys.executable, str(self.tmp / "scripts" / "aiwf_agent_gate.py")],
+            cwd=self.tmp,
+            env=self.env,
+            input=payload,
+            capture_output=True,
+            text=True,
+        )
+
+    def _load_skill(self, skill, session_id="test"):
+        payload = json.dumps({
+            "hook_event_name": "PostToolUse",
+            "tool_name": "Skill",
+            "tool_input": {"skill": skill},
+            "cwd": str(self.tmp),
+            "session_id": session_id,
+        })
+        return subprocess.run(
+            [sys.executable, str(self.tmp / "scripts" / "aiwf_skill_log.py")],
             cwd=self.tmp,
             env=self.env,
             input=payload,
@@ -269,6 +288,8 @@ class TestRecordDispatchContract(unittest.TestCase):
         (self.tmp / ".aiwf/state/tasks.json").write_text(
             json.dumps({"tasks": []}) + "\n", encoding="utf-8",
         )
+        loaded = self._load_skill("aiwf-architect")
+        self.assertEqual(loaded.returncode, 0, loaded.stderr)
         result = self._dispatch(
             "aiwf-architect", "aiwf-architect",
             prompt=(
@@ -278,12 +299,33 @@ class TestRecordDispatchContract(unittest.TestCase):
                 "External comparison: none\n"
                 "Output directory: docs/architect/ARCH-20260720/code-reality"
             ),
+            record_skill=False,
         )
 
         updated = self._allowed_input(result)
         self.assertIn("AIWF Architect review", updated["prompt"])
         self.assertIn("Review slice: full project", updated["prompt"])
         self.assertNotIn("Task contract:", updated["prompt"])
+
+    def test_skill_log_covers_every_skill_gated_agent_role(self):
+        from aiwf_core.core.agent_runtime import ROLE_REQUIRED_SKILL
+
+        log = self.tmp / ".aiwf/runtime/internal/skill-loads.jsonl"
+        if log.exists():
+            log.unlink()
+        for skill in ROLE_REQUIRED_SKILL.values():
+            with self.subTest(skill=skill):
+                loaded = self._load_skill(skill)
+                self.assertEqual(loaded.returncode, 0, loaded.stderr)
+
+        entries = [
+            json.loads(line)
+            for line in log.read_text(encoding="utf-8").splitlines()
+        ]
+        self.assertEqual(
+            {entry["skill"] for entry in entries},
+            set(ROLE_REQUIRED_SKILL.values()),
+        )
 
     def test_dispatch_adds_assignment_without_deleting_planner_context(self):
         result = self._dispatch(

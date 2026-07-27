@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any, Dict, List, NamedTuple
 
 from .constants import VERSION
+from .core.agent_runtime import TRACKED_ROLE_MATCHER
 from .core.state_schema import MVP_STATE_FILES
 from .core.paths import ALL_DIRS
 from .io import read_json, rel, write_json, write_text
@@ -212,10 +213,10 @@ def _build_settings_json(target: EmbedTarget | None = None) -> Dict[str, Any]:
                 {"matcher": "Agent|Task",                           **_h(q_agent_log)},
             ],
             "SubagentStart": [
-                {"matcher": "aiwf-executor|aiwf-tester|aiwf-reviewer|aiwf-architect", **_h(q_agent_log)},
+                {"matcher": TRACKED_ROLE_MATCHER, **_h(q_agent_log)},
             ],
             "SubagentStop": [
-                {"matcher": "aiwf-executor|aiwf-tester|aiwf-reviewer|aiwf-architect", **_h(q_agent_log)},
+                {"matcher": TRACKED_ROLE_MATCHER, **_h(q_agent_log)},
             ],
             "Stop": [_h(q_review_gate)],
         },
@@ -580,6 +581,7 @@ def _write_state_files() -> List[Path]:
                 "Human entry points:",
                 "- `aiwf status`",
                 "- `aiwf doctor`",
+                "- `aiwf governance status` — governance Git tracking and pending checkpoint.",
                 "- Narrative docs in `goals/`, `plans/`, `tasks/`, `milestones/`",
                 "- `memory/project-facts.md` — tiny Planner memory; keep only durable planning facts.",
             ]),
@@ -990,6 +992,9 @@ def install_embedded(mode: str = "claude", force: bool = False) -> Dict[str, Any
                 results["updated"].append(rel(old_agent))
     for p in _write_state_files():
         results["created"].append(rel(p))
+    from .core.governance_git import ensure_governance_gitignore
+
+    ensure_governance_gitignore(_project_root())
     for p in _write_scripts():
         results["created"].append(rel(p))
 

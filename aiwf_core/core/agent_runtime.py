@@ -10,8 +10,17 @@ from .state._common import _exclusive_operation_lock
 from .worktree_context import resolve_control_root
 
 
-WORKFLOW_ROLES = frozenset({"aiwf-executor", "aiwf-tester", "aiwf-reviewer"})
-TRACKED_ROLES = WORKFLOW_ROLES | {"aiwf-architect"}
+ROLE_REQUIRED_SKILL = {
+    "aiwf-executor": "aiwf-implement",
+    "aiwf-tester": "aiwf-test",
+    "aiwf-reviewer": "aiwf-review",
+    "aiwf-architect": "aiwf-architect",
+}
+WORKFLOW_ROLES = frozenset(
+    {"aiwf-executor", "aiwf-tester", "aiwf-reviewer"}
+)
+TRACKED_ROLES = frozenset(ROLE_REQUIRED_SKILL)
+TRACKED_ROLE_MATCHER = "|".join(ROLE_REQUIRED_SKILL)
 TERMINAL = frozenset({"completed", "cancelled"})
 
 

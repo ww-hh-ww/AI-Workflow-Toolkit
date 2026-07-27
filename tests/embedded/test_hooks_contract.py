@@ -844,6 +844,46 @@ class TestHooks(unittest.TestCase):
                 result = self._bash(command)
                 self.assertIn("deny", result.stdout)
                 self.assertIn("Do not stage files", result.stdout)
+                self.assertIn("Do not force-close", result.stdout)
+
+    def test_active_task_cannot_merge_and_change_head(self):
+        self._set_active_task("implementing")
+
+        result = self._bash("git merge main")
+
+        self.assertIn("deny", result.stdout)
+        self.assertIn("cannot change Git HEAD", result.stdout)
+
+    def test_integration_task_only_allows_open_merge_of_recorded_base(self):
+        self._set_active_task("implementing")
+        tasks = json.loads((self.tmp / ".aiwf/state/tasks.json").read_text())
+        tasks["tasks"][0].update({
+            "kind": "integration",
+            "integration_base_ref": "0123456789abcdef",
+        })
+        self._write_state("state/tasks.json", tasks)
+
+        allowed = self._bash("git merge --no-ff --no-commit 0123456789abcdef")
+        self.assertNotIn("deny", allowed.stdout)
+
+        for command in (
+            "git merge 0123456789abcdef",
+            "git merge --no-commit main",
+            "git merge --no-commit 0123456789abcdef",
+            "git merge --continue",
+            "git merge --abort",
+            "git merge --no-ff --no-commit 0123456789abcdef && git merge --continue",
+        ):
+            with self.subTest(command=command):
+                denied = self._bash(command)
+                self.assertIn("deny", denied.stdout)
+                self.assertIn("leave the merge open", denied.stdout)
+                self.assertIn("aiwf task close", denied.stdout)
+
+        staged = self._bash("git add resolved.txt")
+        self.assertIn("deny", staged.stdout)
+        self.assertIn("separate snapshot index", staged.stdout)
+        self.assertIn("creates the merge commit", staged.stdout)
 
     def test_bash_write_to_fix_loop_blocked(self):
         r = self._bash("echo '{}' > .aiwf/state/fix-loop.json")
@@ -938,6 +978,7 @@ class TestHooks(unittest.TestCase):
                 "aiwf task force-close",
                 "aiwf task interrupt",
                 "aiwf fixloop continue",
+                "aiwf governance tracking local",
             ):
                 result = self._bash(command)
                 self.assertIn("deny", result.stdout)

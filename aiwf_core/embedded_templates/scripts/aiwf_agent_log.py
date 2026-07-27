@@ -4,6 +4,8 @@ from pathlib import Path
 from aiwf_core.adapters.claude.normalize_event import parse_claude_stdin, normalize
 from aiwf_core.core.agent_worktree import AgentWorktreeError, resolve_agent_assignment
 from aiwf_core.core.agent_runtime import (
+    TRACKED_ROLES,
+    WORKFLOW_ROLES,
     bind_dispatch_agent,
     cancel_agent_dispatch,
     finish_dispatch,
@@ -14,7 +16,7 @@ from aiwf_core.core.agent_runtime import (
 from aiwf_core.core.worktree_context import resolve_control_root
 
 RETURN_MARKER = re.compile(r"(?m)^\s*(RETURN_TO_PLANNER|EXTERNAL_FINDING)\b\s*:?")
-TASK_ROLES = {"aiwf-executor", "aiwf-tester", "aiwf-reviewer"}
+TASK_ROLES = WORKFLOW_ROLES
 ROLE_LABELS = {
     "aiwf-executor": "Executor",
     "aiwf-tester": "Tester",
@@ -221,9 +223,7 @@ def main():
         event = normalize(data)
         agent_type = str(event.agent_type or "")
         agent_id = str(event.agent_id or "")
-        if agent_type not in {
-            "aiwf-executor", "aiwf-tester", "aiwf-reviewer", "aiwf-architect",
-        }:
+        if agent_type not in TRACKED_ROLES:
             sys.exit(0)
         resumed_task = start_resumed_dispatch(
             base, agent_type, agent_id, str(data.get("session_id") or ""),
@@ -249,9 +249,7 @@ def main():
     if data.get("hook_event_name") == "SubagentStop":
         event = normalize(data)
         agent_type = str(event.agent_type or "")
-        if agent_type not in {
-            "aiwf-executor", "aiwf-tester", "aiwf-reviewer", "aiwf-architect",
-        }:
+        if agent_type not in TRACKED_ROLES:
             sys.exit(0)
         task_id = ""
         if agent_type != "aiwf-architect":

@@ -8,6 +8,62 @@ from pathlib import Path
 
 
 class TestTaskCloseSyncContract(unittest.TestCase):
+    def test_sync_reports_active_contract_changes_without_overwriting_runtime(self):
+        from aiwf_core.core.index_ops import sync_index, write_narrative_doc
+
+        base = Path(tempfile.mkdtemp(prefix="awactive_sync_"))
+        for rel in (".aiwf/state", ".aiwf/tasks"):
+            (base / rel).mkdir(parents=True, exist_ok=True)
+        task_doc = base / ".aiwf/tasks/TASK-001.md"
+        write_narrative_doc(task_doc, {
+            "id": "TASK-001",
+            "type": "task",
+            "title": "Frozen task",
+            "contract_status": "ready",
+            "goal_id": "GOAL-001",
+            "plan_id": "PLAN-001",
+            "kind": "implementation",
+            "executor_required": False,
+            "tester_required": False,
+            "reviewer_required": False,
+            "rollback_required": False,
+            "tester_write": [],
+            "dependencies": [],
+        }, "# TASK-001\n")
+        tasks_path = base / ".aiwf/state/tasks.json"
+        tasks_path.write_text(json.dumps({
+            "schema_version": 1,
+            "tasks": [{
+                "id": "TASK-001",
+                "title": "Frozen task",
+                "status": "active",
+                "goal_id": "GOAL-001",
+                "plan_id": "PLAN-001",
+                "kind": "implementation",
+                "doc_path": ".aiwf/tasks/TASK-001.md",
+                "requirements": {
+                    "executor_required": True,
+                    "tester_required": True,
+                    "reviewer_required": True,
+                    "rollback_required": False,
+                    "tester_write": [],
+                },
+                "dependencies": [],
+            }],
+        }), encoding="utf-8")
+
+        result = sync_index(str(base))
+
+        self.assertTrue(any(
+            "active Task contract is frozen" in error
+            and "executor_required" in error
+            for error in result["errors"]
+        ))
+        task = json.loads(tasks_path.read_text(encoding="utf-8"))["tasks"][0]
+        self.assertTrue(task["requirements"]["executor_required"])
+        self.assertTrue(task["requirements"]["tester_required"])
+        self.assertTrue(task["requirements"]["reviewer_required"])
+
     def test_close_updates_task_md_contract_status_before_sync(self):
         from aiwf_core.core.index_ops import parse_md, sync_index, write_narrative_doc
         from aiwf_core.core.task_ledger import close_task

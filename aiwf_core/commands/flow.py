@@ -143,6 +143,31 @@ def _task_next(
     implementation = record.get("implementation", {}) or {}
     testing = record.get("testing", {}) or {}
     review = record.get("review", {}) or {}
+    reviewed_ref = str(review.get("reviewed_ref") or "")
+    if review.get("result") == "accepted" and reviewed_ref and control:
+        try:
+            from ..core.git_snapshots import (
+                ref_tree,
+                worktree_changes_from_ref,
+                worktree_matches_ref,
+            )
+
+            worktree = str(task.get("worktree_path") or control)
+            review_stale = bool(ref_tree(worktree, reviewed_ref)) and (
+                bool(worktree_changes_from_ref(worktree, reviewed_ref))
+                if task.get("kind") == "integration"
+                else not worktree_matches_ref(worktree, reviewed_ref)
+            )
+            if review_stale:
+                return (
+                    "Implementation repair",
+                    f"load /aiwf-implement for {task_id}; project files changed after review. "
+                    "Inspect the current diff, record the intended current implementation, "
+                    "then rerun only the affected testing and review. Do not interrupt only "
+                    "because Git HEAD changed",
+                )
+        except Exception:
+            pass
     if not implementation.get("implementation_ref"):
         if requirements.get("executor_required", True):
             previous = (
@@ -301,7 +326,16 @@ def _active_rows(control: Path, host: str = "") -> List[Dict[str, Any]]:
         if suspended:
             fix_loop = record.get("fix_loop", {}) or {}
             next_role = "Planner decision"
-            if fix_loop.get("status") == "open":
+            if task.get("kind") == "integration":
+                plan_id = str(task.get("plan_id") or task.get("parent_plan") or "")
+                action = (
+                    f"load /aiwf-planner; refresh the stale integration preflight with "
+                    f"'aiwf plan integrate {plan_id}'. If it reports new Plan commits, "
+                    "inspect them with the user before accepting them. When the recorded "
+                    "refs change, update Task.md if needed, repeat both activation critiques, "
+                    f"then reactivate {task_id}"
+                )
+            elif fix_loop.get("status") == "open":
                 action = (
                     f"load /aiwf-planner; inspect the open fix-loop for suspended {task_id}, "
                     "run any required activation critique, then reactivate this same Task and "

@@ -1,13 +1,12 @@
 import json, sys
 from pathlib import Path
 from aiwf_core.adapters.claude.normalize_event import parse_claude_stdin, normalize
+from aiwf_core.core.agent_runtime import ROLE_REQUIRED_SKILL
 from aiwf_core.core.state._common import _exclusive_operation_lock
 from aiwf_core.core.worktree_context import resolve_control_root
 
 SKILL_AGENT_MAP = {
-    "aiwf-implement": "aiwf-executor",
-    "aiwf-test": "aiwf-tester",
-    "aiwf-review": "aiwf-reviewer",
+    skill: role for role, skill in ROLE_REQUIRED_SKILL.items()
 }
 
 def main():

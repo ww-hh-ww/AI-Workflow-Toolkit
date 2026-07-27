@@ -300,7 +300,14 @@ class TestPlanIntegration(unittest.TestCase):
 
         prepared = prepare_plan_integration(str(self.control), "PLAN-001")
         self.assertTrue(prepared["already_merged"])
-        self.assertEqual(prepared["candidate_ref"], merged_head)
+        self.assertTrue(prepared["governance_checkpoint"]["committed"])
+        self.assertNotEqual(prepared["candidate_ref"], merged_head)
+        self.assertTrue(
+            self._git(
+                self.control, "merge-base", "--is-ancestor",
+                merged_head, prepared["candidate_ref"],
+            ) == ""
+        )
         self.assertEqual(Path(prepared["candidate_worktree"]).resolve(), self.control.resolve())
         plan = load_plans(str(self.control))["plans"][0]
         self.assertEqual(plan_integration_state(str(self.control), plan), "integration_ready")
@@ -314,7 +321,7 @@ class TestPlanIntegration(unittest.TestCase):
             }],
             summary="adopted merged result verified",
         )
-        self.assertEqual(result["integration"]["merge_commit"], merged_head)
+        self.assertEqual(result["integration"]["merge_commit"], prepared["candidate_ref"])
         plan = load_plans(str(self.control))["plans"][0]
         self.assertEqual(plan_integration_state(str(self.control), plan), "merged_pending_close")
 
@@ -341,7 +348,13 @@ class TestPlanIntegration(unittest.TestCase):
         plan_before = self._git(self.worktree, "rev-parse", "HEAD")
         result = prepare_plan_integration(str(self.control), "PLAN-001")
         self.assertTrue(result["conflict"])
-        self.assertEqual(self._git(self.control, "rev-parse", "HEAD"), base_before)
+        self.assertTrue(result["governance_checkpoint"]["committed"])
+        checkpoint_head = self._git(self.control, "rev-parse", "HEAD")
+        self.assertNotEqual(checkpoint_head, base_before)
+        self.assertEqual(
+            self._git(self.control, "diff", "--name-only", f"{base_before}..{checkpoint_head}"),
+            ".aiwf/state/plans.json",
+        )
         self.assertEqual(self._git(self.worktree, "rev-parse", "HEAD"), plan_before)
         self.assertEqual(subprocess.run(
             ["git", "rev-parse", "-q", "--verify", "MERGE_HEAD"], cwd=self.control,
@@ -369,6 +382,206 @@ class TestPlanIntegration(unittest.TestCase):
         )
         self.assertEqual(task["integration_base_ref"], result["base_ref"])
         self.assertEqual(task["integration_plan_ref"], result["plan_ref"])
+
+    def test_pending_integration_task_can_refresh_governance_only_head_change(self):
+        from aiwf_core.core.plan_integration import prepare_plan_integration
+        from aiwf_core.core.state.plan_ops import load_plans, save_plans
+        from aiwf_core.core.task_ledger import (
+            load_ledger,
+            record_task_activation_critique,
+            upsert_task,
+        )
+
+        (self.worktree / "app.txt").write_text("plan\n", encoding="utf-8")
+        subprocess.run(["git", "add", "app.txt"], cwd=self.worktree, check=True)
+        subprocess.run(
+            ["git", "commit", "-m", "TASK-002: overlap"],
+            cwd=self.worktree, check=True, capture_output=True,
+        )
+        data = load_plans(str(self.control))
+        data["plans"][0]["git_head_ref"] = self._git(
+            self.worktree, "rev-parse", "HEAD",
+        )
+        data["plans"][0]["task_status"]["TASK-002"] = "closed"
+        save_plans(str(self.control), data)
+        (self.control / "app.txt").write_text("main\n", encoding="utf-8")
+        subprocess.run(["git", "add", "app.txt"], cwd=self.control, check=True)
+        subprocess.run(
+            ["git", "commit", "-m", "main overlap"],
+            cwd=self.control, check=True, capture_output=True,
+        )
+        first = prepare_plan_integration(str(self.control), "PLAN-001")
+        self.assertTrue(first["conflict"])
+
+        upsert_task(
+            str(self.control), "TASK-INTEGRATE", status="ready",
+            plan_id="PLAN-001", kind="integration",
+        )
+        _write_valid_task_contract(self.control, "TASK-INTEGRATE")
+        record_task_activation_critique(str(self.control), "TASK-INTEGRATE")
+        record_task_activation_critique(str(self.control), "TASK-INTEGRATE")
+
+        note = self.worktree / ".aiwf/notes/preflight.md"
+        note.parent.mkdir(parents=True, exist_ok=True)
+        note.write_text("updated contract context\n", encoding="utf-8")
+        subprocess.run(
+            ["git", "add", ".aiwf/notes/preflight.md"],
+            cwd=self.worktree, check=True,
+        )
+        subprocess.run(
+            ["git", "commit", "-m", "update integration governance"],
+            cwd=self.worktree, check=True, capture_output=True,
+        )
+        new_head = self._git(self.worktree, "rev-parse", "HEAD")
+
+        refreshed = prepare_plan_integration(str(self.control), "PLAN-001")
+
+        self.assertTrue(refreshed["conflict"])
+        self.assertTrue(refreshed["head_refreshed"])
+        self.assertEqual(refreshed["plan_ref"], new_head)
+        self.assertEqual(refreshed["integration_task_id"], "TASK-INTEGRATE")
+        self.assertEqual(
+            refreshed["critique_reset_task_ids"], ["TASK-INTEGRATE"],
+        )
+        task = next(
+            item for item in load_ledger(str(self.control))["tasks"]
+            if item["id"] == "TASK-INTEGRATE"
+        )
+        self.assertEqual(task["activation_critique_count"], 0)
+        plan = load_plans(str(self.control))["plans"][0]
+        self.assertEqual(plan["git_head_ref"], new_head)
+        self.assertEqual(plan["integration"]["plan_ref"], new_head)
+
+    def test_pending_integration_task_requires_acceptance_for_project_head_change(self):
+        from aiwf_core.core.plan_integration import prepare_plan_integration
+        from aiwf_core.core.state.plan_ops import load_plans, save_plans
+        from aiwf_core.core.task_ledger import upsert_task
+
+        (self.worktree / "app.txt").write_text("plan\n", encoding="utf-8")
+        subprocess.run(["git", "add", "app.txt"], cwd=self.worktree, check=True)
+        subprocess.run(
+            ["git", "commit", "-m", "TASK-002: overlap"],
+            cwd=self.worktree, check=True, capture_output=True,
+        )
+        data = load_plans(str(self.control))
+        data["plans"][0]["git_head_ref"] = self._git(
+            self.worktree, "rev-parse", "HEAD",
+        )
+        data["plans"][0]["task_status"]["TASK-002"] = "closed"
+        save_plans(str(self.control), data)
+        (self.control / "app.txt").write_text("main\n", encoding="utf-8")
+        subprocess.run(["git", "add", "app.txt"], cwd=self.control, check=True)
+        subprocess.run(
+            ["git", "commit", "-m", "main overlap"],
+            cwd=self.control, check=True, capture_output=True,
+        )
+        first = prepare_plan_integration(str(self.control), "PLAN-001")
+        self.assertTrue(first["conflict"])
+        upsert_task(
+            str(self.control), "TASK-INTEGRATE", status="ready",
+            plan_id="PLAN-001", kind="integration",
+        )
+        _write_valid_task_contract(self.control, "TASK-INTEGRATE")
+
+        (self.worktree / "external.txt").write_text("external\n", encoding="utf-8")
+        subprocess.run(["git", "add", "external.txt"], cwd=self.worktree, check=True)
+        subprocess.run(
+            ["git", "commit", "-m", "external project change"],
+            cwd=self.worktree, check=True, capture_output=True,
+        )
+
+        with self.assertRaisesRegex(ValueError, "--accept-head-change"):
+            prepare_plan_integration(str(self.control), "PLAN-001")
+
+        accepted = prepare_plan_integration(
+            str(self.control), "PLAN-001", accept_head_change=True,
+        )
+        self.assertTrue(accepted["conflict"])
+        self.assertTrue(accepted["head_refreshed"])
+
+    def test_suspended_integration_task_can_refresh_stale_preflight(self):
+        from aiwf_core.core.plan_integration import prepare_plan_integration
+        from aiwf_core.core.state.plan_ops import load_plans, save_plans
+        from aiwf_core.core.task_ledger import (
+            load_ledger,
+            record_task_activation_critique,
+            upsert_task,
+        )
+
+        (self.worktree / "app.txt").write_text("plan\n", encoding="utf-8")
+        subprocess.run(["git", "add", "app.txt"], cwd=self.worktree, check=True)
+        subprocess.run(
+            ["git", "commit", "-m", "TASK-002: overlap"],
+            cwd=self.worktree, check=True, capture_output=True,
+        )
+        data = load_plans(str(self.control))
+        data["plans"][0]["git_head_ref"] = self._git(
+            self.worktree, "rev-parse", "HEAD",
+        )
+        data["plans"][0]["task_status"]["TASK-002"] = "closed"
+        save_plans(str(self.control), data)
+        (self.control / "app.txt").write_text("main\n", encoding="utf-8")
+        subprocess.run(["git", "add", "app.txt"], cwd=self.control, check=True)
+        subprocess.run(
+            ["git", "commit", "-m", "main overlap"],
+            cwd=self.control, check=True, capture_output=True,
+        )
+        first = prepare_plan_integration(str(self.control), "PLAN-001")
+        self.assertTrue(first["conflict"])
+
+        upsert_task(
+            str(self.control), "TASK-INTEGRATE", status="suspended",
+            plan_id="PLAN-001", kind="integration",
+        )
+        _write_valid_task_contract(self.control, "TASK-INTEGRATE")
+        record_task_activation_critique(str(self.control), "TASK-INTEGRATE")
+        record_task_activation_critique(str(self.control), "TASK-INTEGRATE")
+
+        (self.worktree / "fix.txt").write_text("resolved\n", encoding="utf-8")
+        subprocess.run(["git", "add", "fix.txt"], cwd=self.worktree, check=True)
+        subprocess.run(
+            ["git", "commit", "-m", "TASK-INTEGRATE: partial resolution"],
+            cwd=self.worktree, check=True, capture_output=True,
+        )
+        new_head = self._git(self.worktree, "rev-parse", "HEAD")
+
+        refreshed = prepare_plan_integration(
+            str(self.control), "PLAN-001", accept_head_change=True,
+        )
+
+        self.assertEqual(refreshed["integration_task_id"], "TASK-INTEGRATE")
+        self.assertTrue(refreshed["head_refreshed"])
+        self.assertEqual(refreshed["plan_ref"], new_head)
+        task = next(
+            item for item in load_ledger(str(self.control))["tasks"]
+            if item["id"] == "TASK-INTEGRATE"
+        )
+        self.assertEqual(task["activation_critique_count"], 0)
+
+    def test_prepare_ignores_dirty_base_but_finish_requires_clean_base(self):
+        from aiwf_core.core.plan_integration import (
+            finish_plan_integration,
+            prepare_plan_integration,
+        )
+
+        (self.control / "local.txt").write_text("uncommitted\n", encoding="utf-8")
+        prepared = prepare_plan_integration(str(self.control), "PLAN-001")
+        self.assertTrue(prepared["prepared"])
+
+        with self.assertRaisesRegex(
+            ValueError, "base worktree has uncommitted project changes",
+        ):
+            finish_plan_integration(
+                str(self.control), "PLAN-001", status="passed",
+                commands=["test -f feature.txt"],
+                verification_results=[{
+                    "command": "test -f feature.txt",
+                    "expected": "exit 0",
+                    "observed": "exit 0",
+                    "matched": True,
+                }],
+                summary="candidate verified",
+            )
 
     def test_integration_task_close_creates_the_reviewed_merge_commit(self):
         from aiwf_core.core.plan_integration import prepare_plan_integration

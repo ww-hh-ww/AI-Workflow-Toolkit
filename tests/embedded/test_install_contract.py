@@ -168,6 +168,7 @@ Ship the product safely.
             self.assertTrue(denied["aiwf task force-close"]["human_only"])
             self.assertTrue(denied["aiwf task interrupt"]["human_only"])
             self.assertTrue(denied["aiwf fixloop continue"]["human_only"])
+            self.assertTrue(denied["aiwf governance tracking"]["human_only"])
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
@@ -177,12 +178,14 @@ Ship the product safely.
         self.assertTrue(policy["project_writes_require_active_task"])
         self.assertTrue(policy["freeze_active_task_md"])
         self.assertTrue(policy["first_implementation_requires_executor"])
+        self.assertEqual(policy["governance_git_tracking"], "tracked")
         self.assertEqual(policy["tester_project_writes"], "test_assets_only")
         self.assertNotIn("reviewer_project_writes", policy)
         self.assertEqual(policy["architect_project_writes"], "reports_only")
         self.assertEqual(policy["explorer_project_writes"], "deny")
         self.assertEqual(policy["critic_project_writes"], "deny")
         allowed = policy["allowed_values"]
+        self.assertEqual(allowed["governance_git_tracking"], ["tracked", "local"])
         self.assertEqual(allowed["tester_project_writes"], ["deny", "test_assets_only", "allow_all"])
         self.assertNotIn("reviewer_project_writes", allowed)
         self.assertEqual(allowed["architect_project_writes"], ["deny", "reports_only", "allow"])

@@ -274,6 +274,26 @@ class TestStateCliOps(unittest.TestCase):
         self.assertIn("do not resolve an unfixed problem", status.stdout)
         self.assertIn("--accept-head-change", status.stdout)
 
+    def test_status_routes_suspended_integration_task_through_preflight(self):
+        self._set_active_task()
+        tasks = json.loads((self.tmp / ".aiwf/state/tasks.json").read_text())
+        tasks["tasks"][0].update({
+            "status": "suspended",
+            "phase": "suspended",
+            "suspended_phase": "implementing",
+            "kind": "integration",
+            "plan_id": "PLAN-005",
+        })
+        self._write_json("state/tasks.json", tasks)
+
+        status = self._run("status", "--prompt")
+
+        self.assertEqual(status.returncode, 0, status.stderr)
+        self.assertIn("aiwf plan integrate PLAN-005", status.stdout)
+        self.assertIn("inspect them with the user", status.stdout)
+        self.assertIn("repeat both activation critiques", status.stdout)
+        self.assertIn("reactivate TASK-ACTIVE", status.stdout)
+
     def test_planner_prompt_includes_control_root_memory_snapshot(self):
         status = self._run("status", "--prompt")
         self.assertEqual(status.returncode, 0, status.stderr)

@@ -114,6 +114,11 @@ def _cmd_task_activate(args: argparse.Namespace) -> None:
         raise SystemExit(1)
     else:
         print("  Execution window updated.")
+        checkpoint = result.get("governance_checkpoint", {}) or {}
+        if checkpoint.get("committed"):
+            print(f"  Governance checkpoint: {checkpoint['commit'][:12]}")
+        if result.get("governance_checkpoint_warning"):
+            print(f"  Governance checkpoint pending: {result['governance_checkpoint_warning']}")
         if result.get("adopted_head_ref"):
             print(
                 "  Current Git HEAD adopted as the resumed Task baseline; "
@@ -340,6 +345,18 @@ def _cmd_task_cancel(args: argparse.Namespace) -> None:
             if t.get("status") == "active":
                 print(f"Cannot cancel active task: {task_id}. Use interrupt first, then cancel if the task is no longer wanted.", file=sys.stderr)
                 raise SystemExit(1)
+            if t.get("status") == "suspended":
+                from ..core.git_workflow import abort_open_task_merge
+
+                worktree = Path(str(t.get("worktree_path") or Path.cwd()))
+                try:
+                    abort_open_task_merge(str(worktree))
+                except ValueError as exc:
+                    print(
+                        f"Cannot cancel task: {exc}.",
+                        file=sys.stderr,
+                    )
+                    raise SystemExit(1)
             t["status"] = "cancelled"
             t["cancel_reason"] = reason
             if replaced_by:

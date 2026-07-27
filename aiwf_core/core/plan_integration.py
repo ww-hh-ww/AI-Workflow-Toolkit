@@ -19,6 +19,12 @@ from .plan_integration_git import (
     run_git,
     unmerged_paths,
 )
+from .plan_integration_refresh import (
+    changed_paths,
+    governance_only_head_change,
+    refreshable_integration_task,
+    reset_integration_task_critiques,
+)
 from .state._common import _governance_state_lock
 from .state.plan_ops import load_plans, save_plans
 from .worktree_context import resolve_control_root
@@ -39,11 +45,19 @@ def _find_plan(data: Dict[str, Any], plan_id: str) -> Optional[Dict[str, Any]]:
     )
 
 
-def _basic_blockers(control: Path, plan: Dict[str, Any]) -> List[str]:
+def _basic_blockers(
+    control: Path,
+    plan: Dict[str, Any],
+    *,
+    refresh_task: Optional[Dict[str, Any]] = None,
+    accept_head_change: bool = False,
+    require_clean_base: bool = False,
+) -> List[str]:
     blockers: List[str] = []
     statuses = plan.get("task_status", {}) or {}
     unfinished = [tid for tid, status in statuses.items() if status not in ("closed", "cancelled")]
-    if unfinished:
+    refresh_task_id = str((refresh_task or {}).get("id") or "")
+    if unfinished and set(map(str, unfinished)) != {refresh_task_id}:
         blockers.append("Plan still has unfinished Tasks: " + ", ".join(unfinished[:8]))
     if not any(status == "closed" for status in statuses.values()):
         blockers.append("Plan has no completed Task result to integrate")
@@ -62,10 +76,16 @@ def _basic_blockers(control: Path, plan: Dict[str, Any]) -> List[str]:
         blockers.append(
             f"Plan worktree is on '{plan_info.get('branch') or '(detached)'}', expected '{branch}'"
         )
-    if plan_info.get("head") != recorded_head:
+    current_head = str(plan_info.get("head") or "")
+    if current_head != recorded_head and not governance_only_head_change(
+        worktree, recorded_head, current_head,
+    ) and not accept_head_change:
+        changed = changed_paths(worktree, recorded_head, current_head)
+        detail = ", ".join(changed[:6]) if changed else "unknown files"
         blockers.append(
-            "Plan branch HEAD changed after the last governed Task. Inspect the commit and "
-            "bring it into AIWF through a Task before integration"
+            "Plan branch contains project changes after the last governed Task: "
+            f"{detail}. Inspect them with the user, then either bring them through a "
+            "Task or rerun Plan integration with --accept-head-change"
         )
     if not base_branch:
         blockers.append("Plan base branch is unknown")
@@ -73,7 +93,7 @@ def _basic_blockers(control: Path, plan: Dict[str, Any]) -> List[str]:
         blockers.append(
             f"run Plan integration from the control root on base branch '{base_branch}'"
         )
-    if changed_project_files(str(control)):
+    if require_clean_base and changed_project_files(str(control)):
         blockers.append("base worktree has uncommitted project changes")
     if changed_project_files(str(worktree)):
         blockers.append("Plan worktree has uncommitted project changes")
@@ -103,9 +123,19 @@ def _basic_blockers(control: Path, plan: Dict[str, Any]) -> List[str]:
     return blockers
 
 
-def prepare_plan_integration(base_dir: str, plan_id: str) -> Dict[str, Any]:
+def prepare_plan_integration(
+    base_dir: str,
+    plan_id: str,
+    *,
+    accept_head_change: bool = False,
+) -> Dict[str, Any]:
     """Bring the Plan branch up to the current base when the merge is conflict-free."""
     control = resolve_control_root(base_dir)
+    from .governance_git import checkpoint_governance
+
+    checkpoint = checkpoint_governance(
+        control, reason=f"before Plan integration: {plan_id}",
+    )
     with _governance_state_lock(str(control)):
         data = load_plans(str(control))
         plan = _find_plan(data, plan_id)
@@ -113,7 +143,13 @@ def prepare_plan_integration(base_dir: str, plan_id: str) -> Dict[str, Any]:
             raise ValueError(f"Plan not found: {plan_id}")
         if str(plan.get("status") or "open") != "open":
             raise ValueError(f"Plan is {plan.get('status')}; only an open Plan can be integrated")
-        blockers = _basic_blockers(control, plan)
+        refresh_task = refreshable_integration_task(control, plan)
+        blockers = _basic_blockers(
+            control,
+            plan,
+            refresh_task=refresh_task,
+            accept_head_change=accept_head_change,
+        )
         if blockers:
             raise ValueError("; ".join(blockers))
 
@@ -121,8 +157,13 @@ def prepare_plan_integration(base_dir: str, plan_id: str) -> Dict[str, Any]:
         base_branch = str(plan["git_base_branch"])
         base_ref = resolve_ref(control, base_branch)
         plan_ref = resolve_ref(worktree, str(plan["git_branch"]))
+        old_integration = dict(plan.get("integration", {}) or {})
+        old_recorded_head = str(plan.get("git_head_ref") or "")
         if not base_ref or not plan_ref:
             raise ValueError("cannot resolve the Plan and base commits")
+        head_refreshed = bool(old_recorded_head and old_recorded_head != plan_ref)
+        if head_refreshed:
+            plan["git_head_ref"] = plan_ref
 
         # A legacy/manual merge may already contain the recorded Plan result.
         already_merged = is_ancestor(control, plan_ref, base_ref)
@@ -153,6 +194,9 @@ def prepare_plan_integration(base_dir: str, plan_id: str) -> Dict[str, Any]:
                         "conflicts": (project_conflicts or conflicts)[:20],
                         "prepared_at": _now(),
                     }
+                    reset_tasks = reset_integration_task_critiques(
+                        control, plan_id, old_integration, base_ref, plan_ref,
+                    )
                     plan.pop("integration_hold_ref", None)
                     plan["updated_at"] = _now()
                     save_plans(str(control), data)
@@ -163,6 +207,12 @@ def prepare_plan_integration(base_dir: str, plan_id: str) -> Dict[str, Any]:
                         "conflicts": project_conflicts or conflicts,
                         "base_ref": base_ref,
                         "plan_ref": plan_ref,
+                        "head_refreshed": head_refreshed,
+                        "critique_reset_task_ids": reset_tasks,
+                        "integration_task_id": str(
+                            (refresh_task or {}).get("id") or ""
+                        ),
+                        "governance_checkpoint": checkpoint,
                     }
             merge = run_git(
                 worktree, "merge", "--no-edit", base_ref,
@@ -207,6 +257,9 @@ def prepare_plan_integration(base_dir: str, plan_id: str) -> Dict[str, Any]:
             "summary": "",
             "prepared_at": _now(),
         }
+        reset_tasks = reset_integration_task_critiques(
+            control, plan_id, old_integration, base_ref, plan_ref,
+        )
         plan.pop("integration_hold_ref", None)
         plan["updated_at"] = _now()
         save_plans(str(control), data)
@@ -219,6 +272,11 @@ def prepare_plan_integration(base_dir: str, plan_id: str) -> Dict[str, Any]:
             "plan_ref": plan_ref,
             "candidate_ref": candidate_ref,
             "candidate_worktree": str(control if already_merged else worktree),
+            "head_refreshed": head_refreshed,
+            "critique_reset_task_ids": reset_tasks,
+            "integration_task_no_longer_needed": bool(refresh_task),
+            "integration_task_id": str((refresh_task or {}).get("id") or ""),
+            "governance_checkpoint": checkpoint,
         }
 
 
@@ -254,7 +312,7 @@ def finish_plan_integration(
         plan = _find_plan(data, plan_id)
         if not plan:
             raise ValueError(f"Plan not found: {plan_id}")
-        blockers = _basic_blockers(control, plan)
+        blockers = _basic_blockers(control, plan, require_clean_base=True)
         if blockers:
             raise ValueError("; ".join(blockers))
         integration = plan.get("integration", {}) or {}
