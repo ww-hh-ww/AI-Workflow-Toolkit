@@ -199,6 +199,7 @@ GOVERNANCE_ALLOWED_PREFIXES = [
     ".aiwf/tasks/",
     ".aiwf/milestones/",
     ".aiwf/memory/",
+    ".aiwf/reports/",
     ".aiwf/config/",
 ]
 

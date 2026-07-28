@@ -228,13 +228,3 @@ def _cmd_record_disposition(args: argparse.Namespace) -> None:
         raise SystemExit(1)
     print(f"Reviewer observation {result['id']}: {result['disposition']}")
     print("  Next: run aiwf status --prompt and follow its route")
-
-
-def _cmd_record_help(args: argparse.Namespace) -> None:
-    print("AIWF Task Records")
-    print()
-    print("Available subcommands:")
-    print("  aiwf record implementation - record Executor handoff and Git snapshot")
-    print("  aiwf record testing        - record one validation pass")
-    print("  aiwf record review         - record reviewer judgment")
-    print("  aiwf record disposition    - record Planner decision on a finding")

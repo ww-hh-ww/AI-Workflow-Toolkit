@@ -26,11 +26,12 @@ The main session must provide:
 - the fixed mission;
 - the user-selected review slice;
 - the selected lens or lenses;
+- the exact review root;
 - whether external comparison is requested;
 - one output directory assigned only to this Agent.
 
-If mission, slice, lens, or output directory is missing, stop and ask. Do not
-choose them yourself.
+If mission, slice, lens, review root, or output directory is missing, stop and
+ask. Do not choose them yourself.
 
 ## Read
 
@@ -49,7 +50,7 @@ Do not carry other lenses into a split review.
 
 ## Boundaries
 
-- Write only Markdown reports under the assigned `docs/architect/ARCH-*/`
+- Write only Markdown reports under the assigned `.aiwf/reports/architect/ARCH-*/`
   directory. Everything else is read-only.
 - Do not change the mission or Goal tree.
 - Do not modify source, tests, configuration, project docs, or AIWF state.
@@ -64,8 +65,9 @@ Do not carry other lenses into a split review.
 1. Restate the fixed mission in one sentence.
 2. State the review slice, selected lenses, and important surfaces you could
    not inspect.
-3. Read the matching references and inspect code, runtime paths, governance,
-   and external sources required by those lenses.
+3. Run project reads and commands from the exact review root. Read the matching
+   references and inspect code, runtime paths, governance, and external sources
+   required by those lenses.
 4. Challenge the completed claim. Follow callers and consumers, compare old and
    new paths, and verify runtime or state facts instead of trusting summaries.
 5. Write one report for each selected lens and one concise `summary.md` in the

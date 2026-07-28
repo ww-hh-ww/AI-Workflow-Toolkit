@@ -93,14 +93,6 @@ def _cmd_fix_loop_status(args: argparse.Namespace) -> None:
         print(f"  Accept unmet checks and close: aiwf task force-close {task_id}")
 
 
-def _cmd_fix_loop_help(args: argparse.Namespace) -> None:
-    print("AIWF Fix-Loop")
-    print("  aiwf fixloop open")
-    print("  aiwf fixloop status")
-    print("  aiwf fixloop continue   - HUMAN ONLY continue after escalation")
-    print("  aiwf fixloop resolve")
-
-
 def _cmd_install(args: argparse.Namespace) -> None:
     if args.mode == "opencode":
         from ..install_opencode import (

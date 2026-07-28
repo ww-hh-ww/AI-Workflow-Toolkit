@@ -296,8 +296,9 @@ class TestRecordDispatchContract(unittest.TestCase):
                 "Mission: preserve the fixed mission\n"
                 "Review slice: full project\n"
                 "Selected lenses: code-reality\n"
+                f"Review root: {self.tmp}\n"
                 "External comparison: none\n"
-                "Output directory: docs/architect/ARCH-20260720/code-reality"
+                "Output directory: .aiwf/reports/architect/ARCH-20260720/code-reality"
             ),
             record_skill=False,
         )
@@ -305,6 +306,7 @@ class TestRecordDispatchContract(unittest.TestCase):
         updated = self._allowed_input(result)
         self.assertIn("AIWF Architect review", updated["prompt"])
         self.assertIn("Review slice: full project", updated["prompt"])
+        self.assertIn(f"Review root: {self.tmp}", updated["prompt"])
         self.assertNotIn("Task contract:", updated["prompt"])
 
     def test_skill_log_covers_every_skill_gated_agent_role(self):

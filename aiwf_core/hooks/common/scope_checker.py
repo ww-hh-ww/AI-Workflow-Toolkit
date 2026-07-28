@@ -105,10 +105,9 @@ def _is_architect_report_path(path: str) -> bool:
     """Return whether path is an Architect-owned Markdown report."""
     parts = Path(path).parts
     return (
-        len(parts) >= 4
-        and parts[0] == "docs"
-        and parts[1] == "architect"
-        and parts[2].startswith("ARCH-")
+        len(parts) >= 5
+        and parts[:3] == (".aiwf", "reports", "architect")
+        and parts[3].startswith("ARCH-")
         and ".." not in parts
         and parts[-1].lower().endswith(".md")
     )
@@ -531,6 +530,16 @@ def check_file_write(event: NormalizedEvent) -> ScopeResult:
 
     # ── Governance files ──
     if _is_governance_file(normalized):
+        if normalized.startswith(".aiwf/reports/"):
+            return ScopeResult(
+                file_path=normalized,
+                allowed=False,
+                active_context_id=state.get("active_context_id") or "(none)",
+                reason=(
+                    "AIWF reports are read-only except for an aiwf-architect writing "
+                    "Markdown under its assigned .aiwf/reports/architect/ARCH-*/ directory."
+                ),
+            )
         if normalized == ".aiwf/config/command-policy.json":
             return ScopeResult(
                 file_path=normalized,

@@ -384,53 +384,32 @@ def plan_integration_state(base_dir: str, plan: Dict[str, Any]) -> str:
         current_base = _run(Path(base_dir), "rev-parse", f"{base_branch}^{{commit}}")
         if current_base.returncode != 0:
             return "git_incomplete"
-        if current_base.stdout.strip() != str(integration.get("base_ref") or ""):
+        current_base_ref = current_base.stdout.strip()
+        prepared_base_ref = str(integration.get("base_ref") or "")
+        if current_base_ref != prepared_base_ref:
+            parents = _run(
+                Path(base_dir), "show", "-s", "--format=%P", current_base_ref,
+            )
+            tree = _run(
+                Path(base_dir), "show", "-s", "--format=%T", current_base_ref,
+            )
+            if (
+                parents.returncode == 0
+                and parents.stdout.split()
+                == [prepared_base_ref, str(integration.get("candidate_ref") or "")]
+                and tree.returncode == 0
+                and tree.stdout.strip() == str(integration.get("candidate_tree") or "")
+            ):
+                return "closure_recovery"
             return "base_changed"
         return "integration_ready"
     merge_state = plan_merge_state(base_dir, plan)
     if merge_state == "merged":
         if integration_status != "merged":
             return "merged_unverified"
-        return "merged_pending_close"
+        return "closure_recovery"
     if merge_state == "unknown":
         return "git_incomplete"
     if head_ref and str(plan.get("integration_hold_ref") or "") == head_ref:
         return "held"
     return "awaiting_decision"
-
-
-def plan_close_blockers(base_dir: str, plan: Dict[str, Any]) -> List[str]:
-    blockers: List[str] = []
-    statuses = plan.get("task_status", {}) or {}
-    unfinished = [tid for tid, status in statuses.items() if status not in ("closed", "cancelled")]
-    if unfinished:
-        blockers.append("Plan still has unfinished Tasks: " + ", ".join(unfinished[:8]))
-    if changed_project_files(base_dir):
-        blockers.append("Plan close requires a clean project worktree")
-    branch = str(plan.get("git_branch") or "")
-    head_ref = str(plan.get("git_head_ref") or "")
-    base_branch = str(plan.get("git_base_branch") or "")
-    info = repository_info(base_dir)
-    if not branch or not head_ref:
-        blockers.append("Plan has no Git branch history; close its Tasks through the Git-backed workflow")
-    elif not base_branch:
-        blockers.append("Plan base branch is unknown; merge the Plan branch and record a standard base branch")
-    elif info["branch"] != base_branch:
-        blockers.append(
-            f"merge '{branch}' into '{base_branch}', switch to '{base_branch}', then close the Plan"
-        )
-    elif not plan_merged_into_base(base_dir, plan):
-        blockers.append(f"Plan branch '{branch}' is not merged into '{base_branch}'")
-    integration = plan.get("integration", {}) or {}
-    if str(integration.get("status") or "") != "merged":
-        blockers.append(
-            "Plan has no passing integration record for the merged result; run "
-            f"'aiwf plan integrate {plan.get('plan_id') or plan.get('id')}' and record proof"
-        )
-    else:
-        merge_commit = str(integration.get("merge_commit") or "")
-        if not merge_commit or _run(
-            Path(base_dir), "merge-base", "--is-ancestor", merge_commit, base_branch,
-        ).returncode != 0:
-            blockers.append("recorded Plan merge commit is not present on the base branch")
-    return blockers

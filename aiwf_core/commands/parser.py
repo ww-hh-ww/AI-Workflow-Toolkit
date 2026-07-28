@@ -5,35 +5,85 @@ import argparse
 from pathlib import Path
 
 from .flow import cmd_status
-from .ops_commands import _cmd_doctor, _cmd_fix_loop_continue, _cmd_fix_loop_help, _cmd_fix_loop_open, _cmd_fix_loop_resolve, _cmd_fix_loop_status, _cmd_install
+from .ops_commands import (
+    _cmd_doctor,
+    _cmd_fix_loop_continue,
+    _cmd_fix_loop_open,
+    _cmd_fix_loop_resolve,
+    _cmd_fix_loop_status,
+    _cmd_install,
+)
 from .plan_commands import (
     _cmd_plan_attach,
     _cmd_plan_bind_worktree,
     _cmd_plan_cancel,
-    _cmd_plan_close,
     _cmd_plan_create,
     _cmd_plan_dep_add,
     _cmd_plan_dep_remove,
     _cmd_plan_dep_show,
     _cmd_plan_detach,
-    _cmd_plan_help,
     _cmd_plan_hold,
     _cmd_plan_integrate,
     _cmd_plan_list,
     _cmd_plan_show,
 )
-from .state_commands import _cmd_record_disposition, _cmd_record_help, _cmd_record_implementation, _cmd_record_review, _cmd_record_testing
-from .goal_tree_commands import _cmd_goal_cancel, _cmd_goal_close, _cmd_goal_create, _cmd_goal_help, _cmd_goal_tree_list, _cmd_goal_tree_show, _cmd_relation_add, _cmd_relation_remove
-from .milestone_commands import _cmd_milestone_arch_review, _cmd_milestone_assess, _cmd_milestone_cancel, _cmd_milestone_close, _cmd_milestone_confirm, _cmd_milestone_create, _cmd_milestone_help, _cmd_milestone_integration_test, _cmd_milestone_link_plan, _cmd_milestone_link_task, _cmd_milestone_list, _cmd_milestone_show, _cmd_milestone_unlink_plan, _cmd_milestone_unlink_task
+from .state_commands import (
+    _cmd_record_disposition,
+    _cmd_record_implementation,
+    _cmd_record_review,
+    _cmd_record_testing,
+)
+from .goal_tree_commands import (
+    _cmd_goal_cancel,
+    _cmd_goal_close,
+    _cmd_goal_create,
+    _cmd_goal_tree_list,
+    _cmd_goal_tree_show,
+    _cmd_relation_add,
+    _cmd_relation_remove,
+)
+from .milestone_commands import (
+    _cmd_milestone_arch_review,
+    _cmd_milestone_assess,
+    _cmd_milestone_cancel,
+    _cmd_milestone_close,
+    _cmd_milestone_confirm,
+    _cmd_milestone_create,
+    _cmd_milestone_integration_test,
+    _cmd_milestone_link_plan,
+    _cmd_milestone_link_task,
+    _cmd_milestone_list,
+    _cmd_milestone_show,
+    _cmd_milestone_unlink_plan,
+    _cmd_milestone_unlink_task,
+)
 from .mission_commands import _cmd_mission_show
 from .governance_commands import (
     _cmd_governance_checkpoint,
-    _cmd_governance_help,
     _cmd_governance_status,
     _cmd_governance_tracking,
 )
-from .task_commands import _cmd_task_activate, _cmd_task_calibrate, _cmd_task_cancel, _cmd_task_close, _cmd_task_critique, _cmd_task_force_close, _cmd_task_help, _cmd_task_interrupt, _cmd_task_plan, _cmd_task_proof, _cmd_task_show, _cmd_task_status
+from .task_commands import (
+    _cmd_task_activate,
+    _cmd_task_calibrate,
+    _cmd_task_cancel,
+    _cmd_task_close,
+    _cmd_task_critique,
+    _cmd_task_force_close,
+    _cmd_task_interrupt,
+    _cmd_task_plan,
+    _cmd_task_proof,
+    _cmd_task_show,
+    _cmd_task_status,
+)
 from ..constants import VERSION
+
+
+def _show_help(parser: argparse.ArgumentParser):
+    def show(_args: argparse.Namespace) -> None:
+        parser.print_help()
+
+    return show
 
 
 def _cmd_ui(args: argparse.Namespace) -> None:
@@ -109,7 +159,7 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
     )
     p_gov_tracking.add_argument("mode", choices=["tracked", "local"])
     p_gov_tracking.set_defaults(func=_cmd_governance_tracking)
-    p_gov.set_defaults(func=_cmd_governance_help)
+    p_gov.set_defaults(func=_show_help(p_gov))
 
     # ── fixloop ──
     p_fixloop = sub.add_parser("fixloop", help="fix-loop recovery")
@@ -135,7 +185,7 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
     p_fl_resolve.add_argument("--source", default="reviewer")
     p_fl_resolve.add_argument("--task-id", default="", help="Task ID (defaults to current worktree)")
     p_fl_resolve.set_defaults(func=_cmd_fix_loop_resolve)
-    p_fixloop.set_defaults(func=_cmd_fix_loop_help)
+    p_fixloop.set_defaults(func=_show_help(p_fixloop))
 
     # ── mission ──
     p_mis = sub.add_parser("mission", help="project mission")
@@ -172,7 +222,7 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
     p_gul.add_argument("source_id", help="source goal ID")
     p_gul.add_argument("target_id", help="target goal ID")
     p_gul.set_defaults(func=_cmd_relation_remove)
-    p_goal.set_defaults(func=_cmd_goal_help)
+    p_goal.set_defaults(func=_show_help(p_goal))
 
     # ── plan ──
     p_plan = sub.add_parser("plan", help="Plan node CRUD and task linking")
@@ -199,26 +249,27 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
     p_plh = p_plan_sub.add_parser("hold", help="leave a completed Plan open without repeated merge prompts")
     p_plh.add_argument("plan_id", help="Plan ID")
     p_plh.set_defaults(func=_cmd_plan_hold)
-    p_pli = p_plan_sub.add_parser("integrate", help="prepare or finish one Plan integration")
+    p_pli = p_plan_sub.add_parser(
+        "integrate", help="prepare a Plan candidate or verify, merge, and close it",
+    )
     p_pli.add_argument("plan_id", help="Plan ID")
     p_pli.add_argument("--status", choices=["passed", "failed"], default="",
-                       help="record proof for the prepared candidate and merge only when passed")
+                       help="record proof; passing proof merges the candidate and closes the Plan")
     p_pli.add_argument("--command", action="append", default=[], dest="commands",
                        help="exact integration verification command")
     p_pli.add_argument("--verification-result", action="append", default=[],
                        dest="verification_results",
                        help="command:::expected:::observed:::matched|mismatched")
-    p_pli.add_argument("--summary", default="", help="concise integration result")
+    p_pli.add_argument(
+        "--summary", default="",
+        help="failure summary for --status failed; passing closure reads Plan.md",
+    )
     p_pli.add_argument(
         "--accept-head-change",
         action="store_true",
         help="adopt inspected project commits before refreshing Plan integration",
     )
     p_pli.set_defaults(func=_cmd_plan_integrate)
-    p_plcl = p_plan_sub.add_parser("close", help="close a plan")
-    p_plcl.add_argument("plan_id", help="plan ID")
-    p_plcl.add_argument("--summary", default="", help="closure summary")
-    p_plcl.set_defaults(func=_cmd_plan_close)
     p_plca = p_plan_sub.add_parser("cancel", help="cancel a plan")
     p_plca.add_argument("plan_id", help="plan ID")
     p_plca.add_argument("--reason", default="", help="why this plan is cancelled")
@@ -245,7 +296,7 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
     p_pldep_show = p_pldep_sub.add_parser("show", help="show Plan dependency readiness")
     p_pldep_show.add_argument("plan_id")
     p_pldep_show.set_defaults(func=_cmd_plan_dep_show)
-    p_plan.set_defaults(func=_cmd_plan_help)
+    p_plan.set_defaults(func=_show_help(p_plan))
 
     # ── task ──
     p_task = sub.add_parser("task", help="Task node CRUD and runtime")
@@ -296,7 +347,7 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
     p_ti.add_argument("task_id", nargs="?", default="", help="Task ID (defaults to the current worktree)")
     p_ti.add_argument("--reason", default="", help="why interruption is necessary")
     p_ti.set_defaults(func=_cmd_task_interrupt)
-    p_task.set_defaults(func=_cmd_task_help)
+    p_task.set_defaults(func=_show_help(p_task))
 
     # ── record ──
     p_rec = sub.add_parser("record", help="Record implementation, testing, review")
@@ -330,7 +381,7 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
     p_re_disp.add_argument("--reason", required=True, help="short reason for the decision")
     p_re_disp.add_argument("--task-id", default="", help="Task ID (defaults to the current worktree)")
     p_re_disp.set_defaults(func=_cmd_record_disposition)
-    p_rec.set_defaults(func=_cmd_record_help)
+    p_rec.set_defaults(func=_show_help(p_rec))
 
     # ── milestone ──
     p_ms = sub.add_parser("milestone", help="Milestone node and acceptance")
@@ -394,6 +445,6 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
     p_msl = p_ms_sub.add_parser("close", help="close milestone after acceptance")
     p_msl.add_argument("milestone_id", help="milestone ID")
     p_msl.set_defaults(func=_cmd_milestone_close)
-    p_ms.set_defaults(func=_cmd_milestone_help)
+    p_ms.set_defaults(func=_show_help(p_ms))
 
     return parser

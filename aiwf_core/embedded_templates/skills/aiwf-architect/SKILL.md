@@ -38,12 +38,18 @@ For several Plans, ask whether to review each Plan separately or review their
 combined capability path. Separate reviews judge independent results. A unified
 review judges their shared structure, interactions, and combined main path.
 
+When reviewing before Plan merge, review the exact prepared candidate after it
+has incorporated the latest main. Only include other Plans whose results are
+present in that candidate. Use the candidate worktree printed by
+`aiwf plan integrate` as the review root. Do not combine unrelated branch tips
+in prose.
+
 For a full project, all lenses, or substantial external comparison, ask
 whether to split. If the user agrees, dispatch one Agent per lens. Give every
 parallel Agent a unique directory:
 
 ```text
-docs/architect/ARCH-{YYYYMMDD}/<lens>/
+.aiwf/reports/architect/ARCH-{YYYYMMDD}/<lens>/
 ```
 
 Each prompt must include:
@@ -52,6 +58,7 @@ Each prompt must include:
 Mission: <fixed mission>
 Review slice: <user choice>
 Selected lenses: <user choice>
+Review root: <absolute project or prepared candidate worktree>
 External comparison: <none or user choice>
 Output directory: <unique directory>
 Relevant AIWF docs: <paths>

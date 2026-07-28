@@ -198,12 +198,6 @@ Tell the user what the Plan now delivers and any remaining gap. Ask whether to
 add another Task, leave the Plan open, or merge it. Do not merge before the user
 chooses.
 
-Before merge, offer `/aiwf-architect` once. For one Plan, review that Plan. For
-several independent Plans, they may be reviewed one by one. When several Plans
-form one capability path or change the same structure, review them together as
-one slice. The user chooses; Architect remains optional and does not replace
-integration proof.
-
 If the user leaves it open, run:
 
 ```text
@@ -213,10 +207,30 @@ aiwf plan hold <PLAN-ID>
 Do not ask again while the Plan result is unchanged. If the user chooses to
 merge, run `aiwf plan integrate <PLAN-ID>`. It prepares a candidate against the
 latest base without changing the base branch. Run the Plan's integration checks
-against that exact candidate, then record the expected and observed results with
-the same command using `--status passed`. AIWF merges only that passing
-candidate. If it reports a conflict, create a `kind=integration` Task and use the
-normal Executor, Tester, Reviewer, and close chain.
+against that exact candidate.
+
+Before `--status passed`, ask whether the user wants `/aiwf-architect`. The user
+chooses the slice and lenses. For several Plans, only include results already
+present in this candidate through main. Architect reviews the exact candidate,
+not separate branch tips. It reports; Planner presents the findings and the
+user decides what to do. If the candidate must change, add a Task to an
+appropriate open Plan and prepare a fresh candidate. Architect remains optional
+and does not replace integration proof.
+
+After the user declines Architect, or its report is handled, record the expected
+and observed results. Write `## Closure Calibration` in Plan.md with what the
+Plan actually delivers. Add only a difference from the original Plan or a
+remaining gap that future work must know. Keep it concise. Do not checkpoint
+this edit separately.
+
+Then run `--status passed`. The command reads the Calibration, records its first
+paragraph as the machine summary, immediately merges the passing candidate,
+closes the Plan, and checkpoints governance. If the command was interrupted
+after the project merge, rerun the same command; it finishes governance closure
+without merging again. If the user changes their mind, use
+`aiwf plan hold <PLAN-ID>` instead. If preparation reports a conflict, create a
+`kind=integration` Task and use the normal Executor, Tester, Reviewer, and close
+chain.
 
 If that preflight becomes stale before the integration Task activates, run
 `aiwf plan integrate <PLAN-ID>` again. It may refresh around one pending or
@@ -226,12 +240,7 @@ only after approval rerun with `--accept-head-change`. Recheck Task.md and
 repeat both critique passes when the recorded refs change.
 
 For several Plans, follow dependencies and integrate one at a time against the
-moving base. Close each Plan after its own passing candidate is merged. If the
-Plans only work as a combination, run the combined proof before closing them.
-Then run:
-
-```text
-aiwf plan close <PLAN-ID> --summary "<what the Plan delivered>"
-```
+moving base. Each next Plan candidate includes the latest main. The user may
+choose Architect for any candidate. Passing integration closes each Plan.
 
 Do not modify a closed Plan or link new work to it. Create a new Plan instead.

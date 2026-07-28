@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "description": "AIWF project write and governance Git policy. Machine truth JSON under .aiwf/state/ and .aiwf/records/ is always protected. architect reports_only permits Markdown under docs/architect/ARCH-*/ only.",
+  "description": "AIWF project write and governance Git policy. Machine truth JSON under .aiwf/state/ and .aiwf/records/ is always protected. architect reports_only permits Markdown under .aiwf/reports/architect/ARCH-*/ only.",
   "allowed_values": {
     "project_writes_require_active_task": [true, false],
     "freeze_active_task_md": [true, false],

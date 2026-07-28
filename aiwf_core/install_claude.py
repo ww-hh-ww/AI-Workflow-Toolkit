@@ -570,6 +570,7 @@ def _write_state_files() -> List[Path]:
                 "- `state/` — machine truth (JSON): registries, canonical state, gate inputs.",
                 "- `records/tasks/` — implementation, testing, review, and fix-loop records by Task.",
                 "- `records/events.json` — concise workflow events.",
+                "- `reports/architect/` — user-requested Architect review reports.",
                 "- `goals/` — goal narrative docs (Markdown).",
                 "- `plans/` — plan narrative docs (Markdown).",
                 "- `tasks/` — task narrative docs (Markdown, execution contract).",

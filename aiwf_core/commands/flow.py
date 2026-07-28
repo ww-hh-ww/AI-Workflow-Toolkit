@@ -517,12 +517,12 @@ def _print_human(
     for plan in plans_closeout:
         plan_id = plan.get("plan_id") or plan.get("id")
         state = plan.get("_integration_state")
-        if state == "merged_pending_close":
-            print(f"Plan merged; ready to verify and close: {plan_id}")
+        if state == "closure_recovery":
+            print(f"Plan merge needs governance closure recovery: {plan_id}")
         elif state == "merged_unverified":
             print(f"Plan merged without an integration record: {plan_id}")
         elif state == "git_incomplete":
-            print(f"Plan Git history needs attention before close: {plan_id}")
+            print(f"Plan Git history needs attention before integration: {plan_id}")
         elif state == "held":
             print(f"Plan intentionally left open: {plan_id}")
         elif state == "no_completed_work":
@@ -626,31 +626,22 @@ def _print_prompt(
 
     if plans_closeout:
         print("Do now: handle each open Plan at its current closeout point:")
-        awaiting = [
-            plan for plan in plans_closeout
-            if plan.get("_integration_state") == "awaiting_decision"
-        ]
-        if awaiting:
-            print(
-                "Before merge, ask whether the user wants /aiwf-architect. Review one Plan "
-                "alone; review independent Plans one by one; or review several Plans as one "
-                "slice when they form one capability path. Architect reports; it does not "
-                "replace integration proof or merge the branches."
-            )
         for plan in plans_closeout:
             plan_id = str(plan.get("plan_id") or plan.get("id"))
             branch = str(plan.get("git_branch") or "(unknown branch)")
             base = str(plan.get("git_base_branch") or "(unknown base)")
             integration_state = plan.get("_integration_state")
-            if integration_state == "merged_pending_close":
+            if integration_state == "closure_recovery":
                 print(
-                    f"- {plan_id} | verified candidate merged into {base} | close this Plan now."
+                    f"- {plan_id} | project merge completed but governance closure was interrupted | "
+                    f"rerun the same aiwf plan integrate {plan_id} --status passed ... command. "
+                    "It will not merge the candidate again."
                 )
             elif integration_state == "merged_unverified":
                 print(
                     f"- {plan_id} | already merged without integration proof | run "
                     f"aiwf plan integrate {plan_id}, verify the adopted candidate, and record "
-                    "the exact results before close."
+                    "the exact results to finish the Plan."
                 )
             elif integration_state == "awaiting_decision":
                 print(
@@ -659,15 +650,39 @@ def _print_prompt(
                     f"If they choose to leave it open, run aiwf plan hold {plan_id}."
                 )
             elif integration_state == "integration_ready":
+                from ..core.git_workflow import changed_project_files
+
                 candidate_path = str(
                     ((plan.get("integration") or {}).get("candidate_worktree"))
                     or plan.get("git_worktree_path") or "(candidate worktree missing)"
                 )
-                print(
-                    f"- {plan_id} | candidate prepared at {candidate_path} | run its integration "
-                    "checks there, then record "
-                    f"the exact results with aiwf plan integrate {plan_id} --status passed ..."
+                dirty = (
+                    changed_project_files(candidate_path)
+                    if Path(candidate_path).exists()
+                    else []
                 )
+                if dirty:
+                    print(
+                        f"- {plan_id} | candidate worktree changed after preparation: "
+                        f"{', '.join(dirty[:6])} | inspect before proof. Bring real result "
+                        "changes through a Task and prepare again. Restore generated noise only "
+                        "after the user confirms. Do not run --status passed while it is dirty."
+                    )
+                else:
+                    print(
+                        f"- {plan_id} | candidate prepared at {candidate_path} | run its integration "
+                        "checks there. Before merge, ask whether the user wants /aiwf-architect "
+                        "on this exact candidate; the user chooses one or several Plans whose "
+                        "results are present in it. If a finding requires a candidate change, "
+                        "add a Task and prepare again. Otherwise, after the user declines or "
+                        "decides the findings, write Plan.md '## Closure Calibration' with "
+                        "the actual outcome and only any difference or remaining gap that "
+                        "matters. Then run "
+                        f"aiwf plan integrate {plan_id} --status passed ...; it records the exact "
+                        "results, immediately merges the passing candidate, and closes the Plan. "
+                        "If the user "
+                        f"wants to keep it open instead, run aiwf plan hold {plan_id}."
+                    )
             elif integration_state == "integration_conflict":
                 print(
                     f"- {plan_id} | base and Plan conflict | create a kind=integration Task under "
@@ -698,7 +713,7 @@ def _print_prompt(
             else:
                 print(
                     f"- {plan_id} | Git history incomplete | run aiwf plan show {plan_id} "
-                    "and repair its branch/base/head record before close."
+                    "and repair its branch/base/head record before integration."
                 )
         if rows:
             print("Other active Tasks:")
@@ -794,10 +809,10 @@ def _print_debug(
         "plans_at_closeout": [
             plan.get("plan_id") or plan.get("id") for plan in plans_closeout
         ],
-        "plans_merged_ready_to_close": [
+        "plans_needing_closure_recovery": [
             plan.get("plan_id") or plan.get("id")
             for plan in plans_closeout
-            if plan.get("_integration_state") == "merged_pending_close"
+            if plan.get("_integration_state") == "closure_recovery"
         ],
         "plans_awaiting_integration_decision": [
             plan.get("plan_id") or plan.get("id")

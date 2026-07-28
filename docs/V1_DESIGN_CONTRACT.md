@@ -314,7 +314,7 @@ install → init → doctor → sync --check →
 goal create → plan create → task create → milestone create →
 task activate → active Task.md frozen (frozen_contract_hash) →
 record evidence → record testing → record review → record architecture-review →
-task close → plan close → milestone assess/confirm/close →
+task close → plan integration proof/merge/close → milestone assess/confirm/close →
 non-whitelist command rejection → doc command scan
 ```
 

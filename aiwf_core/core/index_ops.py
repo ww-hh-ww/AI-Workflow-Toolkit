@@ -108,6 +108,11 @@ def replace_markdown_section(body: str, heading: str, content: str) -> str:
         ).rstrip() + "\n"
     return body.rstrip() + "\n\n" + section
 
+def read_markdown_section(body: str, heading: str) -> str:
+    pattern = rf"^## {re.escape(heading)}\n(.*?)(?=^## |\Z)"
+    match = re.search(pattern, body, flags=re.MULTILINE | re.DOTALL)
+    return match.group(1).strip() if match else ""
+
 def remove_narrative_section(path: Path, heading: str) -> bool:
     """Remove one generated narrative section without changing frontmatter."""
     fm, body = parse_md(path)

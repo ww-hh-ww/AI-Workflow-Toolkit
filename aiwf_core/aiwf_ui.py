@@ -76,8 +76,8 @@ _PLAN_CLOSEOUT_LABELS = {
     "integration_conflict": "Integration conflict; create an integration Task",
     "integration_failed": "Integration proof failed; repair or add a Task",
     "base_changed": "Base changed; prepare the integration candidate again",
-    "merged_unverified": "Merged without integration proof; verify before close",
-    "merged_pending_close": "Merged and verified; close the Plan",
+    "merged_unverified": "Merged without integration proof; verify to finish the Plan",
+    "closure_recovery": "Project merged; rerun integration to finish governance closure",
     "git_incomplete": "Git history incomplete",
     "no_completed_work": "No completed result; add a Task or cancel the Plan",
 }
@@ -334,7 +334,7 @@ def status_icon(status):
             "integration_ready": "◇", "integration_conflict": "!",
             "integration_failed": "!", "base_changed": "↻",
             "merged_unverified": "!",
-            "merged_pending_close": "◆", "git_incomplete": "!",
+            "closure_recovery": "↻", "git_incomplete": "!",
             "no_completed_work": "?"}.get(status, "○")
 
 
@@ -933,7 +933,7 @@ def _build_status_bar(data):
         1 for plan in plans
         if isinstance(plan, dict) and _plan_display_status(plan) in {
             "integration_ready", "integration_conflict", "integration_failed", "base_changed",
-            "merged_unverified",
+            "merged_unverified", "closure_recovery",
         }
     )
     blocked = "阻塞" if state.get("blocked") else "正常"

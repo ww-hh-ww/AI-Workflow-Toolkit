@@ -49,10 +49,3 @@ def _cmd_governance_tracking(args) -> None:
         print(f"  Commit: {result['commit'][:12]}")
     if result["mode"] == "local":
         print("  .aiwf state and documents stay on this machine; .aiwf/config remains tracked.")
-
-
-def _cmd_governance_help(args) -> None:
-    print("AIWF Governance Git")
-    print("  aiwf governance status")
-    print("  aiwf governance checkpoint")
-    print("  aiwf governance tracking tracked|local  - HUMAN ONLY")

@@ -4,6 +4,7 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 def _write_valid_task_contract(base: Path, task_id: str) -> None:
@@ -73,6 +74,23 @@ class TestPlanIntegration(unittest.TestCase):
                 "git_head_ref": self.plan_head,
             }],
         }, indent=2) + "\n", encoding="utf-8")
+        plan_doc = self.control / ".aiwf/plans/PLAN-001.md"
+        plan_doc.parent.mkdir(parents=True, exist_ok=True)
+        plan_doc.write_text(
+            "---\nid: PLAN-001\ntype: plan\nstatus: open\n---\n\n"
+            "# Feature plan\n\n"
+            "## Closure Calibration\n\n"
+            "Feature integrated from Plan.md.\n",
+            encoding="utf-8",
+        )
+        subprocess.run(
+            ["git", "add", ".aiwf/plans/PLAN-001.md"],
+            cwd=self.control, check=True,
+        )
+        subprocess.run(
+            ["git", "commit", "-m", "add Plan narrative"],
+            cwd=self.control, check=True, capture_output=True,
+        )
 
     def tearDown(self):
         subprocess.run(["git", "worktree", "remove", "--force", str(self.worktree)],
@@ -87,7 +105,7 @@ class TestPlanIntegration(unittest.TestCase):
 
     def test_prepare_prove_merge_and_close_uses_exact_candidate(self):
         from aiwf_core.core.git_snapshots import ref_tree
-        from aiwf_core.core.git_workflow import plan_close_blockers, plan_integration_state
+        from aiwf_core.core.git_workflow import plan_integration_state
         from aiwf_core.core.plan_integration import finish_plan_integration, prepare_plan_integration
         from aiwf_core.core.state.plan_ops import load_plans
 
@@ -112,13 +130,22 @@ class TestPlanIntegration(unittest.TestCase):
             summary="feature and current base work together",
         )
         self.assertTrue(result["merged"])
+        self.assertTrue(result["closed"])
         plan = load_plans(str(self.control))["plans"][0]
         merge_commit = plan["integration"]["merge_commit"]
-        self.assertEqual(self._git(self.control, "rev-parse", "HEAD"), merge_commit)
+        self.assertEqual(plan["status"], "closed")
+        self.assertEqual(plan["closure"]["merged_commit"], merge_commit)
+        self.assertEqual(plan["closure"]["summary"], "Feature integrated from Plan.md.")
+        self.assertEqual(
+            self._git(self.control, "merge-base", "--is-ancestor", merge_commit, "main"),
+            "",
+        )
         self.assertEqual(ref_tree(str(self.control), merge_commit),
                          plan["integration"]["candidate_tree"])
-        self.assertEqual(plan_integration_state(str(self.control), plan), "merged_pending_close")
-        self.assertEqual(plan_close_blockers(str(self.control), plan), [])
+        self.assertEqual(plan_integration_state(str(self.control), plan), "closed")
+        checkpoint = result["governance_checkpoint"]
+        self.assertTrue(checkpoint["committed"])
+        self.assertNotEqual(checkpoint["commit"], merge_commit)
 
     def test_base_change_invalidates_prepared_candidate(self):
         from aiwf_core.core.git_workflow import plan_integration_state
@@ -142,6 +169,206 @@ class TestPlanIntegration(unittest.TestCase):
                 }],
                 summary="stale proof",
             )
+
+    def test_rerun_finishes_closure_without_repeating_the_merge(self):
+        from aiwf_core.core.git_workflow import plan_integration_state
+        from aiwf_core.core.plan_integration import finish_plan_integration, prepare_plan_integration
+        from aiwf_core.core.state.plan_ops import load_plans
+
+        prepare_plan_integration(str(self.control), "PLAN-001")
+        proof = [{
+            "command": "test -f feature.txt",
+            "expected": "exit 0",
+            "observed": "exit 0",
+            "matched": True,
+        }]
+        with patch(
+            "aiwf_core.core.plan_integration._write_plan_closure_doc",
+            side_effect=OSError("simulated closure interruption"),
+        ):
+            with self.assertRaisesRegex(ValueError, "governance closure is incomplete"):
+                finish_plan_integration(
+                    str(self.control), "PLAN-001", status="passed",
+                    commands=["test -f feature.txt"],
+                    verification_results=proof,
+                    summary="feature integrated",
+                )
+
+        merge_commit = self._git(self.control, "rev-parse", "HEAD")
+        interrupted = load_plans(str(self.control))["plans"][0]
+        self.assertEqual(interrupted["status"], "open")
+        self.assertEqual(interrupted["integration"]["merge_commit"], merge_commit)
+        self.assertEqual(
+            plan_integration_state(str(self.control), interrupted),
+            "closure_recovery",
+        )
+
+        recovered = finish_plan_integration(
+            str(self.control), "PLAN-001", status="passed",
+            commands=["test -f feature.txt"],
+            verification_results=proof,
+            summary="feature integrated",
+        )
+        self.assertTrue(recovered["closed"])
+        self.assertEqual(recovered["integration"]["merge_commit"], merge_commit)
+        self.assertEqual(load_plans(str(self.control))["plans"][0]["status"], "closed")
+        self.assertEqual(
+            self._git(self.control, "merge-base", "--is-ancestor", merge_commit, "main"),
+            "",
+        )
+
+    def test_state_derives_recovery_if_process_stops_after_exact_merge(self):
+        from aiwf_core.core.git_workflow import plan_integration_state
+        from aiwf_core.core.plan_integration import finish_plan_integration, prepare_plan_integration
+        from aiwf_core.core.state.plan_ops import load_plans
+
+        prepared = prepare_plan_integration(str(self.control), "PLAN-001")
+        subprocess.run(
+            [
+                "git", "merge", "--no-ff", prepared["candidate_ref"],
+                "-m", "Merge PLAN-001: interrupted integration",
+            ],
+            cwd=self.control, check=True, capture_output=True,
+        )
+        merge_commit = self._git(self.control, "rev-parse", "HEAD")
+        interrupted = load_plans(str(self.control))["plans"][0]
+        self.assertEqual(
+            plan_integration_state(str(self.control), interrupted),
+            "closure_recovery",
+        )
+
+        result = finish_plan_integration(
+            str(self.control), "PLAN-001", status="passed",
+            commands=["test -f feature.txt"],
+            verification_results=[{
+                "command": "test -f feature.txt",
+                "expected": "exit 0",
+                "observed": "exit 0",
+                "matched": True,
+            }],
+            summary="feature integrated after interruption",
+        )
+        self.assertTrue(result["closed"])
+        self.assertEqual(result["integration"]["merge_commit"], merge_commit)
+
+    def test_rerun_after_full_close_is_idempotent(self):
+        from aiwf_core.core.plan_integration import finish_plan_integration, prepare_plan_integration
+
+        prepare_plan_integration(str(self.control), "PLAN-001")
+        arguments = {
+            "status": "passed",
+            "commands": ["test -f feature.txt"],
+            "verification_results": [{
+                "command": "test -f feature.txt",
+                "expected": "exit 0",
+                "observed": "exit 0",
+                "matched": True,
+            }],
+            "summary": "feature integrated",
+        }
+        first = finish_plan_integration(
+            str(self.control), "PLAN-001", **arguments,
+        )
+        head_after_first = self._git(self.control, "rev-parse", "HEAD")
+        second = finish_plan_integration(
+            str(self.control), "PLAN-001", **arguments,
+        )
+
+        self.assertEqual(
+            second["integration"]["merge_commit"],
+            first["integration"]["merge_commit"],
+        )
+        self.assertEqual(self._git(self.control, "rev-parse", "HEAD"), head_after_first)
+        self.assertFalse(second["governance_checkpoint"]["committed"])
+
+    def test_passing_integration_closes_plan_markdown(self):
+        from aiwf_core.core.index_ops import parse_md
+        from aiwf_core.core.plan_integration import finish_plan_integration, prepare_plan_integration
+        from aiwf_core.core.state.plan_ops import load_plans
+
+        prepare_plan_integration(str(self.control), "PLAN-001")
+        doc = self.control / ".aiwf/plans/PLAN-001.md"
+        doc.write_text(
+            "---\nid: PLAN-001\nstatus: open\n---\n\n"
+            "# Feature plan\n\n"
+            "## Closure Calibration\n\n"
+            "Feature integrated from the verified candidate.\n\n"
+            "- Remaining: follow-up belongs to a new Plan.\n",
+            encoding="utf-8",
+        )
+        finish_plan_integration(
+            str(self.control), "PLAN-001", status="passed",
+            commands=["test -f feature.txt"],
+            verification_results=[{
+                "command": "test -f feature.txt",
+                "expected": "exit 0",
+                "observed": "exit 0",
+                "matched": True,
+            }],
+            summary="this command-line text must not replace Plan.md",
+        )
+        frontmatter, body = parse_md(doc)
+        self.assertEqual(frontmatter["status"], "closed")
+        self.assertEqual(
+            frontmatter["closure_summary"],
+            "Feature integrated from the verified candidate.",
+        )
+        self.assertIn("Remaining: follow-up belongs to a new Plan.", body)
+        plan = load_plans(str(self.control))["plans"][0]
+        self.assertEqual(
+            plan["closure"]["summary"],
+            "Feature integrated from the verified candidate.",
+        )
+
+    def test_passing_integration_requires_plan_closure_calibration(self):
+        from aiwf_core.core.plan_integration import finish_plan_integration, prepare_plan_integration
+
+        prepare_plan_integration(str(self.control), "PLAN-001")
+        doc = self.control / ".aiwf/plans/PLAN-001.md"
+        doc.write_text(
+            "---\nid: PLAN-001\nstatus: open\n---\n\n# Feature plan\n",
+            encoding="utf-8",
+        )
+        head_before = self._git(self.control, "rev-parse", "HEAD")
+        with self.assertRaisesRegex(ValueError, "Closure Calibration"):
+            finish_plan_integration(
+                str(self.control), "PLAN-001", status="passed",
+                commands=["test -f feature.txt"],
+                verification_results=[{
+                    "command": "test -f feature.txt",
+                    "expected": "exit 0",
+                    "observed": "exit 0",
+                    "matched": True,
+                }],
+                summary="command-line text cannot replace Plan.md",
+            )
+        self.assertEqual(self._git(self.control, "rev-parse", "HEAD"), head_before)
+
+    def test_failed_integration_uses_failure_summary_without_calibration(self):
+        from aiwf_core.core.plan_integration import finish_plan_integration, prepare_plan_integration
+
+        prepare_plan_integration(str(self.control), "PLAN-001")
+        doc = self.control / ".aiwf/plans/PLAN-001.md"
+        doc.write_text(
+            "---\nid: PLAN-001\nstatus: open\n---\n\n# Feature plan\n",
+            encoding="utf-8",
+        )
+        result = finish_plan_integration(
+            str(self.control), "PLAN-001", status="failed",
+            commands=["test -f missing.txt"],
+            verification_results=[{
+                "command": "test -f missing.txt",
+                "expected": "exit 0",
+                "observed": "exit 1",
+                "matched": False,
+            }],
+            summary="candidate is missing the required file",
+        )
+        self.assertFalse(result["merged"])
+        self.assertEqual(
+            result["integration"]["summary"],
+            "candidate is missing the required file",
+        )
 
     def test_merge_preserves_dirty_control_governance_and_ignores_plan_copy(self):
         from aiwf_core.core.plan_integration import (
@@ -193,10 +420,17 @@ class TestPlanIntegration(unittest.TestCase):
             '{"updated_at":"current-control"}\n',
         )
         committed = subprocess.run(
-            ["git", "cat-file", "-e", "HEAD:.aiwf/state/milestones.json"],
+            [
+                "git", "cat-file", "-e",
+                f"{result['integration']['merge_commit']}:.aiwf/state/milestones.json",
+            ],
             cwd=self.control, capture_output=True,
         )
         self.assertNotEqual(committed.returncode, 0)
+        self.assertEqual(
+            self._git(self.control, "show", "HEAD:.aiwf/state/milestones.json"),
+            '{"updated_at":"current-control"}',
+        )
 
     def test_merge_preserves_tracked_control_governance_change(self):
         from aiwf_core.core.plan_integration import (
@@ -235,10 +469,16 @@ class TestPlanIntegration(unittest.TestCase):
             control_state.read_text(encoding="utf-8"),
             '{"updated_at":"runtime-change"}\n',
         )
-        committed = self._git(
-            self.control, "show", "HEAD:.aiwf/state/milestones.json",
+        merged_governance = self._git(
+            self.control,
+            "show",
+            f"{result['integration']['merge_commit']}:.aiwf/state/milestones.json",
         )
-        self.assertEqual(committed, '{"updated_at":"committed"}')
+        self.assertEqual(merged_governance, '{"updated_at":"committed"}')
+        self.assertEqual(
+            self._git(self.control, "show", "HEAD:.aiwf/state/milestones.json"),
+            '{"updated_at":"runtime-change"}',
+        )
 
     def test_governance_only_merge_conflict_uses_control_state(self):
         from aiwf_core.core.plan_integration import prepare_plan_integration
@@ -323,7 +563,7 @@ class TestPlanIntegration(unittest.TestCase):
         )
         self.assertEqual(result["integration"]["merge_commit"], prepared["candidate_ref"])
         plan = load_plans(str(self.control))["plans"][0]
-        self.assertEqual(plan_integration_state(str(self.control), plan), "merged_pending_close")
+        self.assertEqual(plan_integration_state(str(self.control), plan), "closed")
 
     def test_conflict_preflight_does_not_dirty_either_worktree(self):
         from aiwf_core.core.plan_integration import prepare_plan_integration

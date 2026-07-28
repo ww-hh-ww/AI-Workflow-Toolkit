@@ -484,24 +484,6 @@ def _cmd_task_status(args: argparse.Namespace) -> None:
         if counts.get(status):
             print(f"  {status}: {counts[status]}")
 
-def _cmd_task_help(args: argparse.Namespace) -> None:
-    print("AIWF Task — node CRUD and runtime")
-    print()
-    print("Node:")
-    print("  aiwf task create TASK-001 --title '...'      — create a task")
-    print("  aiwf task show [TASK-ID]                     — show task (defaults to active)")
-    print("  aiwf task proof [TASK-ID]                    — show Git, implementation, test, and review truth")
-    print("  aiwf task list                               — list all tasks")
-    print("  aiwf task cancel TASK-001 --reason '...'     — cancel a non-active task")
-    print()
-    print("Runtime:")
-    print("  aiwf task activate TASK-001                  — activate for execution")
-    print("  aiwf task critique TASK-001                  — record one activation critique pass")
-    print("  aiwf task calibrate [TASK-001] --summary '...' — write Closure Calibration")
-    print("  aiwf task close                              — close the active task")
-    print("  aiwf task interrupt [--reason '...']         — HUMAN ONLY interrupt active task")
-    print("  aiwf task force-close [--reason '...']       — HUMAN ONLY emergency close")
-
 def _write_task_narrative(cwd: Path, task: dict) -> None:
     from ..core.index_ops import create_narrative_for_entity
     from ..core.task_ledger import load_ledger, save_ledger

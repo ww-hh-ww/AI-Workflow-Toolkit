@@ -70,6 +70,7 @@ WORKSPACE_DRIFT_JSON = ".aiwf/runtime/internal/workspace-drift.json"
 ALL_DIRS = [
     "state",
     "records", "records/tasks",
+    "reports", "reports/architect",
     "goals", "plans", "tasks", "milestones",
     "memory", "memory/notes",
     "config",

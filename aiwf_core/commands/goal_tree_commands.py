@@ -234,15 +234,3 @@ def _cmd_goal_close(args: argparse.Namespace) -> None:
     save_goal_tree(str(Path.cwd()), tree)
     _update_md_status("goal", getattr(args, "goal_id", ""), "closed", summary)
     print(f"Goal closed: {getattr(args, 'goal_id', '')}")
-
-def _cmd_goal_help(args: argparse.Namespace) -> None:
-    print("AIWF Goal — node CRUD and linking")
-    print()
-    print("  aiwf goal create GOAL-001 --title '...'         — create a root goal")
-    print("  aiwf goal create GOAL-002 --parent GOAL-001     — create a child goal")
-    print("  aiwf goal show [GOAL-ID]                        — show goal or full tree")
-    print("  aiwf goal list                                  — list all goals")
-    print("  aiwf goal close GOAL-001 --summary '...'        — close a goal")
-    print("  aiwf goal cancel GOAL-001 --reason '...'        — cancel a goal")
-    print("  aiwf goal link GOAL-A GOAL-B --type supports    — add a relation")
-    print("  aiwf goal unlink GOAL-A GOAL-B                  — remove a relation")

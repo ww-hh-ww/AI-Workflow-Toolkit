@@ -111,13 +111,17 @@ class TestConfigurableWritePolicy(unittest.TestCase):
         state["active_task_id"] = ""
         state_path.write_text(json.dumps(state))
         allowed = check_file_write(self._event(
-            "docs/architect/ARCH-20260711/code-reality.md", "aiwf-architect"
+            ".aiwf/reports/architect/ARCH-20260711/code-reality.md", "aiwf-architect"
         ))
         denied = check_file_write(self._event(
-            "docs/architect/ARCH-20260711/code-reality.json", "aiwf-architect"
+            ".aiwf/reports/architect/ARCH-20260711/code-reality.json", "aiwf-architect"
         ))
         self.assertTrue(allowed.allowed, allowed.reason)
         self.assertFalse(denied.allowed)
+        other_role = check_file_write(self._event(
+            ".aiwf/reports/architect/ARCH-20260711/code-reality.md", "aiwf-executor"
+        ))
+        self.assertFalse(other_role.allowed)
 
     def test_machine_truth_stays_protected_under_permissive_policy(self):
         from aiwf_core.hooks.common.scope_checker import check_file_write

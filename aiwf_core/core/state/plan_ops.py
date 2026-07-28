@@ -477,8 +477,10 @@ def hold_plan_integration(base_dir: str, plan_id: str) -> Dict[str, Any]:
         raise ValueError("Plan still has unfinished Tasks")
     if state == "no_completed_work":
         raise ValueError("Plan has no completed Task result to hold; add work or cancel the Plan")
-    if state in ("merged_pending_close", "merged_unverified"):
-        raise ValueError("Plan is already merged; verify the integrated result and close it")
+    if state in ("closure_recovery", "merged_unverified"):
+        raise ValueError(
+            "Plan is already merged; rerun its passing integration command to finish closure"
+        )
     if state == "git_incomplete":
         raise ValueError("Plan Git history is incomplete; repair its branch, base, and head first")
     head_ref = str(plan.get("git_head_ref") or "")
@@ -533,7 +535,7 @@ def reconcile_task_to_plan(base_dir: str, task: Dict[str, Any]) -> Dict[str, Any
         if str(plan.get("git_head_ref") or "") != commit:
             plan.pop("integration", None)
         plan["git_head_ref"] = commit
-    # V1: task close updates rollup only; plan close must be explicit
+    # Task close updates rollup only; passing Plan integration closes the Plan.
     plan["updated_at"] = _now()
     save_plans(base_dir, plans)
 

@@ -232,7 +232,7 @@ def _cmd_plan_attach(args: argparse.Namespace) -> None:
     plan_id = getattr(args, "plan_id", "") or ""
     task_id = getattr(args, "task_id", "") or ""
     if not plan_id or not task_id:
-        print("Usage: aiwf plan attach <PLAN-ID> --task <TASK-ID>")
+        print("Usage: aiwf plan link-task <PLAN-ID> <TASK-ID>")
         raise SystemExit(1)
     try:
         result = attach_task_to_plan(str(Path.cwd()), plan_id, task_id)
@@ -261,7 +261,7 @@ def _cmd_plan_detach(args: argparse.Namespace) -> None:
     plan_id = getattr(args, "plan_id", "") or ""
     task_id = getattr(args, "task_id", "") or ""
     if not plan_id or not task_id:
-        print("Usage: aiwf plan detach <PLAN-ID> --task <TASK-ID>")
+        print("Usage: aiwf plan unlink-task <PLAN-ID> <TASK-ID>")
         raise SystemExit(1)
     try:
         result = detach_task_from_plan(str(Path.cwd()), plan_id, task_id)
@@ -280,21 +280,6 @@ def _cmd_plan_detach(args: argparse.Namespace) -> None:
     else:
         print(f"Failed: {result.get('reason', 'unknown')}")
         raise SystemExit(1)
-
-def _cmd_plan_help(args: argparse.Namespace) -> None:
-    print("AIWF Plan — node CRUD and task linking")
-    print()
-    print("  aiwf plan create PLAN-001 --goal GOAL-001 --title '...'")
-    print("  aiwf plan show PLAN-001")
-    print("  aiwf plan list")
-    print("  aiwf plan hold PLAN-001")
-    print("  aiwf plan integrate PLAN-001")
-    print("  aiwf plan close PLAN-001 --summary '...'")
-    print("  aiwf plan cancel PLAN-001 --reason '...'")
-    print("  aiwf plan link-task PLAN-001 TASK-001")
-    print("  aiwf plan unlink-task PLAN-001 TASK-001")
-    print("  aiwf plan dep add/remove/show")
-
 
 def _cmd_plan_hold(args: argparse.Namespace) -> None:
     from ..core.state.plan_ops import hold_plan_integration
@@ -351,7 +336,7 @@ def _cmd_plan_integrate(args: argparse.Namespace) -> None:
             print(f"  Candidate ref: {result['candidate_ref'][:12]}")
             print(f"  Run checks in: {result['candidate_worktree']}")
             if result.get("already_merged"):
-                print("  Existing merged result adopted as the candidate; verify it before close.")
+                print("  Existing merged result adopted as the candidate; verify it to finish the Plan.")
             if result.get("integration_task_no_longer_needed"):
                 print(
                     "  The refreshed preflight has no project conflict. Integration Task "
@@ -360,10 +345,25 @@ def _cmd_plan_integrate(args: argparse.Namespace) -> None:
                 )
             print("  Run the Plan's integration checks against this exact candidate.")
             print(
-                f"  Then run: aiwf plan integrate {args.plan_id} --status passed "
-                "--command '<exact command>' --verification-result "
-                "'<command>:::<expected>:::<observed>:::matched' --summary '<result>'"
+                "  Before merge, ask whether the user wants /aiwf-architect on this exact "
+                "candidate. The user chooses the review slice. If a finding requires a "
+                "candidate change, add a Task and prepare again."
             )
+            print(
+                "  Only if the user already chose merge, run the command below. It records "
+                "the exact results, merges the passing candidate, and closes the Plan."
+            )
+            print(
+                "  First write a concise '## Closure Calibration' in Plan.md with the actual "
+                "outcome. Add only a difference or remaining gap that matters. Do not "
+                "checkpoint it separately; the passing command checkpoints it after merge."
+            )
+            print(
+                f"  Merge: aiwf plan integrate {args.plan_id} --status passed "
+                "--command '<exact command>' --verification-result "
+                "'<command>:::<expected>:::<observed>:::matched'"
+            )
+            print(f"  Keep open instead: aiwf plan hold {args.plan_id}")
             return
 
         verification_results = _parse_verification_results(
@@ -386,10 +386,14 @@ def _cmd_plan_integrate(args: argparse.Namespace) -> None:
         print("  Keep the Plan open, inspect the failure, and add or repair a Task.")
         return
     integration = result.get("integration", {}) or {}
-    print(f"Plan merged into its base: {args.plan_id}")
+    checkpoint = result.get("governance_checkpoint", {}) or {}
+    print(f"Plan merged and closed: {args.plan_id}")
     print(f"  Verified candidate: {str(integration.get('candidate_ref') or '')[:12]}")
     print(f"  Merge commit: {str(integration.get('merge_commit') or '')[:12]}")
-    print(f"  Next: aiwf plan close {args.plan_id} --summary '<what the Plan delivers>'")
+    if checkpoint.get("committed"):
+        print(f"  Governance checkpoint: {str(checkpoint.get('commit') or '')[:12]}")
+    elif checkpoint.get("warning"):
+        print(f"  Governance checkpoint pending: {checkpoint['warning']}")
 
 def _update_md_status(entity_type: str, entity_id: str, status: str,
                       summary: str = "") -> None:
@@ -411,51 +415,6 @@ def _update_md_status(entity_type: str, entity_id: str, status: str,
         fm.setdefault("closure_summary", summary)
     write_narrative_doc(doc, fm, body)
     sync_index(str(_P.cwd()))
-
-def _cmd_plan_close(args: argparse.Namespace) -> None:
-    from ..core.state.plan_ops import load_plans, save_plans
-    from ..core.git_workflow import plan_close_blockers, repository_info
-    from datetime import datetime, timezone
-    plan_id = getattr(args, "plan_id", "")
-    summary = getattr(args, "summary", "") or ""
-    data = load_plans(str(Path.cwd()))
-    for p in data.get("plans", []) or []:
-        if p.get("plan_id") == plan_id or p.get("id") == plan_id:
-            if p.get("status") == "closed":
-                print(f"Plan already closed: {plan_id}")
-                return
-            blockers = plan_close_blockers(str(Path.cwd()), p)
-            if blockers:
-                print(f"Plan close blocked: {plan_id}", file=sys.stderr)
-                for blocker in blockers[:8]:
-                    print(f"  - {blocker}", file=sys.stderr)
-                raise SystemExit(1)
-            p["status"] = "closed"
-            p.pop("integration_hold_ref", None)
-            p["closure"] = {
-                "mode": "normal",
-                "accepted": True,
-                "summary": summary,
-                "merged_commit": str(
-                    ((p.get("integration") or {}).get("merge_commit"))
-                    or repository_info(str(Path.cwd()))["head"]
-                ),
-            }
-            p["updated_at"] = datetime.now(timezone.utc).isoformat()
-            save_plans(str(Path.cwd()), data)
-            _update_md_status("plan", plan_id, "closed", summary)
-            try:
-                from ..core.governance_git import checkpoint_governance
-
-                checkpoint_governance(
-                    Path.cwd(), reason=f"after Plan close: {plan_id}",
-                )
-            except ValueError as exc:
-                print(f"  Governance checkpoint pending: {exc}")
-            print(f"Plan closed: {plan_id}")
-            return
-    print(f"Plan not found: {plan_id}", file=sys.stderr)
-    raise SystemExit(1)
 
 def _cmd_plan_cancel(args: argparse.Namespace) -> None:
     from ..core.state.plan_ops import load_plans, save_plans

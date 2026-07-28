@@ -28,7 +28,7 @@ owners, old paths, and proof. Mark important unverified facts Unknown.
 3. Read the relevant Goal, Plan, Task, Milestone, and their matching JSON state.
 4. Use the Planner memory snapshot printed by status. Open a note from the
    listed memory root only when its index entry matches the work.
-5. Read relevant user-requested `docs/architect/ARCH-*` reports.
+5. Read relevant user-requested `.aiwf/reports/architect/ARCH-*` reports.
 6. Inspect the code and runtime surfaces needed for the current decision.
 
 If the mission Statement is Unknown, discuss and write it before creating

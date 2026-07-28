@@ -812,10 +812,9 @@ Verification Commands:
         subprocess.run(["git", "switch", "main"], cwd=self.tmp, check=True, capture_output=True)
         self.assertIn("protected branch", " ".join(task_activation_git_blockers(str(self.tmp))))
 
-    def test_plan_closes_only_after_feature_branch_is_merged(self):
+    def test_plan_merge_state_requires_integration_proof(self):
         from aiwf_core.core.git_workflow import (
             bind_plan_branch,
-            plan_close_blockers,
             plan_integration_state,
             plan_merged_into_base,
         )
@@ -856,7 +855,6 @@ Verification Commands:
         self.assertIn(" Next: Intentionally left open", detail)
         self.assertIn("保留Plan=1", _build_status_bar(ui_data))
 
-        self.assertIn("switch to 'main'", " ".join(plan_close_blockers(str(self.tmp), plan)))
         subprocess.run(["git", "switch", "main"], cwd=self.tmp, check=True, capture_output=True)
         subprocess.run(
             ["git", "merge", "--no-ff", "feature/test", "-m", "merge plan"],
@@ -869,7 +867,7 @@ Verification Commands:
             capture_output=True, text=True,
         ).stdout.strip()
         plan["integration"] = {"status": "merged", "merge_commit": merge_commit}
-        self.assertEqual(plan_close_blockers(str(self.tmp), plan), [])
+        self.assertEqual(plan_integration_state(str(self.tmp), plan), "closure_recovery")
 
     def test_new_task_clears_a_held_plan_decision(self):
         from aiwf_core.core.state.plan_ops import (

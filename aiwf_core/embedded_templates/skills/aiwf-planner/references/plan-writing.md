@@ -67,6 +67,13 @@ changes the design.
 Decide public behavior, support boundaries, shared interfaces, and Task order
 here. Leave local and reversible code choices to Executor.
 
+## At Close
+
+After the exact integration candidate is verified and the user chooses merge,
+write `## Closure Calibration` in Plan.md. Start with one concise paragraph
+stating what the Plan actually delivers. Add only an important difference from
+the original Plan or a remaining gap that future work must know.
+
 ## Quality Check
 
 - Does the Plan explain a mechanism, not just list work?

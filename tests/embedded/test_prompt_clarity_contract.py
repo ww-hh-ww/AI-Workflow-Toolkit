@@ -60,8 +60,10 @@ class TestPromptClarityContract(unittest.TestCase):
             "aiwf task interrupt <TASK-ID>",
             "aiwf task force-close <TASK-ID>",
             "These commands are human-only",
+            "Write `## Closure Calibration` in Plan.md",
         ]:
             self.assertIn(required, lifecycle)
+        self.assertIn("Do not checkpoint this edit separately", lifecycle_text)
         for required in [
             "current session or the resumed original session",
             "try `SendMessage` once",
@@ -285,6 +287,10 @@ class TestPromptClarityContract(unittest.TestCase):
         self.assertIn("one or several completed Plans", skill)
         self.assertIn("review each Plan separately", skill)
         self.assertIn("combined capability path", skill)
+        self.assertIn("exact prepared candidate", skill)
+        self.assertIn("Review root:", skill)
+        self.assertIn("exact review root", agent)
+        self.assertIn("Do not combine unrelated branch tips", skill)
 
     def test_architect_references_preserve_all_review_capabilities(self):
         combined = "\n".join([

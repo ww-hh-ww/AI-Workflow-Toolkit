@@ -7,6 +7,7 @@ import unittest
 from contextlib import redirect_stdout
 from io import StringIO
 from pathlib import Path
+from unittest.mock import patch
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -30,7 +31,7 @@ class TestPlannerFirstFlow(unittest.TestCase):
         self.assertIn("Discussion is the default", text)
         self.assertIn("Write governance only after the user clearly asks", text)
 
-    def test_status_does_not_ask_to_merge_an_already_merged_plan(self):
+    def test_status_recovers_an_interrupted_plan_closure(self):
         from aiwf_core.commands.flow import _print_prompt
 
         output = StringIO()
@@ -44,21 +45,21 @@ class TestPlannerFirstFlow(unittest.TestCase):
                     {
                         "plan_id": "PLAN-001",
                         "git_base_branch": "main",
-                        "_integration_state": "merged_pending_close",
+                        "_integration_state": "closure_recovery",
                     },
                     {
                         "plan_id": "PLAN-004",
                         "git_base_branch": "main",
-                        "_integration_state": "merged_pending_close",
+                        "_integration_state": "closure_recovery",
                     },
                 ],
                 [],
             )
         prompt = output.getvalue()
         self.assertIn("handle each open Plan at its current closeout point", prompt)
-        self.assertIn("- PLAN-001 | verified candidate merged into main", prompt)
-        self.assertIn("- PLAN-004 | verified candidate merged into main", prompt)
-        self.assertIn("close this Plan now", prompt)
+        self.assertIn("project merge completed but governance closure was interrupted", prompt)
+        self.assertIn("rerun the same aiwf plan integrate PLAN-001 --status passed", prompt)
+        self.assertIn("It will not merge the candidate again", prompt)
         self.assertNotIn("merge in the planned order", prompt)
         self.assertNotIn("combined result", prompt)
         self.assertNotIn("Before starting another Plan", prompt)
@@ -83,8 +84,7 @@ class TestPlannerFirstFlow(unittest.TestCase):
         self.assertIn("add another Task, leave", prompt)
         self.assertIn("Do not merge before the user chooses", prompt)
         self.assertIn("aiwf plan hold PLAN-001", prompt)
-        self.assertIn("ask whether the user wants /aiwf-architect", prompt)
-        self.assertIn("review several Plans as one slice", prompt)
+        self.assertNotIn("/aiwf-architect", prompt)
 
         output = StringIO()
         with redirect_stdout(output):
@@ -101,6 +101,56 @@ class TestPlannerFirstFlow(unittest.TestCase):
         self.assertIn("intentionally left open at 1234567890ab", held_prompt)
         self.assertIn("do not ask again or merge", held_prompt)
         self.assertNotIn("awaiting user decision", held_prompt)
+
+    def test_status_makes_passing_integration_merge_explicit(self):
+        from aiwf_core.commands.flow import _print_prompt
+
+        output = StringIO()
+        with redirect_stdout(output):
+            _print_prompt(
+                Path("/tmp/control"), Path("/tmp/control"), [], None,
+                [{
+                    "plan_id": "PLAN-001",
+                    "git_worktree_path": "/tmp/plan-001",
+                    "_integration_state": "integration_ready",
+                    "integration": {
+                        "candidate_worktree": "/tmp/plan-001",
+                    },
+                }],
+                [],
+            )
+        prompt = output.getvalue()
+        self.assertIn("ask whether the user wants /aiwf-architect", prompt)
+        self.assertIn("on this exact candidate", prompt)
+        self.assertIn("one or several Plans whose results are present", prompt)
+        self.assertIn("If a finding requires a candidate change", prompt)
+        self.assertIn("after the user declines or decides the findings", prompt)
+        self.assertIn("write Plan.md '## Closure Calibration'", prompt)
+        self.assertIn("immediately merges the passing candidate", prompt)
+        self.assertIn("aiwf plan hold PLAN-001", prompt)
+
+    def test_status_routes_dirty_candidate_to_inspection(self):
+        from aiwf_core.commands.flow import _print_prompt
+
+        output = StringIO()
+        with patch(
+            "aiwf_core.core.git_workflow.changed_project_files",
+            return_value=["generated/manifest.json"],
+        ), redirect_stdout(output):
+            _print_prompt(
+                Path("/tmp/control"), Path("/tmp/control"), [], None,
+                [{
+                    "plan_id": "PLAN-001",
+                    "_integration_state": "integration_ready",
+                    "integration": {"candidate_worktree": str(PROJECT_ROOT)},
+                }],
+                [],
+            )
+        prompt = output.getvalue()
+        self.assertIn("candidate worktree changed after preparation", prompt)
+        self.assertIn("Bring real result changes through a Task", prompt)
+        self.assertIn("Restore generated noise only after the user confirms", prompt)
+        self.assertIn("Do not run --status passed while it is dirty", prompt)
 
 
 if __name__ == "__main__":

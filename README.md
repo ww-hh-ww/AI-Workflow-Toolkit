@@ -413,23 +413,19 @@ Plan 的全部 Task 关闭后：
 1. 检查累计 diff 和真实集成行为。
 2. 向用户说明实际结果，询问是继续增加 Task、暂时保留，还是合并收口。
 3. 如果暂时保留，运行 `aiwf plan hold PLAN-001`。结果不变时不会反复询问。
-4. 合并前询问是否使用 `/aiwf-architect`。一个 Plan 可以单独审；多个独立 Plan
-   可以逐个审；共同形成一条能力路径的 Plans 可以作为一个 slice 统一审。
-5. 如果选择合并，准备与最新 base 组合后的候选：
+4. 如果选择合并，准备与最新 base 组合后的候选：
 
 ```bash
 aiwf plan integrate PLAN-001
 ```
 
-运行命令提示的集成验证，再把实际 expected/observed 结果交回同一命令。只有
-passing candidate 会进入 base。若预检发现冲突，先创建 `kind=integration` Task，走正常
-Executor、Tester、Reviewer 和 close 链。
-
-6. 合并成功后关闭 Plan：
-
-```bash
-aiwf plan close PLAN-001 --summary "该 Plan 实际交付的机制和能力"
-```
+5. 在 Plan worktree 中运行命令提示的集成验证。形成精确候选后，再询问用户是否使用
+   `/aiwf-architect`。用户决定是否审查、审查一个或多个已经出现在候选中的 Plan，以及
+   使用哪些 lenses。
+6. 用户不审查，或 Architect 报告已经由 Planner 处理后，把实际 expected/observed
+   结果交回 `--status passed`。该命令会把 passing candidate 合入 base，并同时关闭
+   Plan、更新 Plan.md 和 checkpoint 治理状态。若预检发现冲突，先创建
+   `kind=integration` Task，走正常 Executor、Tester、Reviewer 和 Task close 链。
 
 关闭后的 Plan 是完成记录，不再修改，也不能再链接新 Task。新工作创建新 Plan。
 
@@ -956,7 +952,7 @@ Architect 是用户手动触发的独立结构审查。普通 Task Review 不替
 小切片可以由一个 Architect 完成。全项目、多 lens 或大量外部比较应先问用户是否拆成多个并行 Architect。每个 Agent 写入独立的：
 
 ```text
-docs/architect/ARCH-YYYYMMDD/<lens>/
+.aiwf/reports/architect/ARCH-YYYYMMDD/<lens>/
 ```
 
 Architect 只报告，不创建 Task，不实现，也不替 Planner 决定后续。
@@ -1019,7 +1015,7 @@ aiwf status --prompt
 - Mission、Goal、Plan、非活动 Task、Milestone 和 Memory 是 Planner 治理文档，不依赖 active Task。
 - Task 第一次实现可强制要求 Executor。
 - Tester 默认只能写明显的测试或验证资产。
-- Architect 默认只能写 `docs/architect/ARCH-*/` 下的 Markdown 报告。
+- Architect 默认只能写 `.aiwf/reports/architect/ARCH-*/` 下的 Markdown 报告。
 - Explorer 和 Critic 默认只读。
 - Reviewer 按角色合同只读。
 
@@ -1247,7 +1243,9 @@ aiwf plan dep remove PLAN-002 PLAN-001 --reason "..."
 aiwf plan dep show PLAN-002
 aiwf plan hold PLAN-001
 aiwf plan integrate PLAN-001
-aiwf plan close PLAN-001 --summary "..."
+aiwf plan integrate PLAN-001 --status passed \
+  --command "..." \
+  --verification-result "...:::...:::...:::matched"
 aiwf plan cancel PLAN-001 --reason "..."
 ```
 
@@ -1686,9 +1684,9 @@ aiwf task proof TASK-001
 
 完成缺失的 Planner disposition、Calibration 或 Close。如果人要暂停，使用终端中的 human-only `aiwf task interrupt`。
 
-### Plan close 被拒绝
+### Plan 合并收口被阻止
 
-Plan close 要求：
+Plan 合并并关闭要求：
 
 - 全部 Task 已 closed 或 cancelled。
 - 项目工作树干净。
@@ -1711,12 +1709,18 @@ Plan 保持 open；只有结果变化或用户重新要求处理时才需要再�
 ```bash
 aiwf plan integrate PLAN-001
 # 按提示在精确 candidate 上运行组合验证
+# 在 Plan.md 写入简短的 ## Closure Calibration
 aiwf plan integrate PLAN-001 --status passed \
   --command "<exact command>" \
-  --verification-result "<command>:::<expected>:::<observed>:::matched" \
-  --summary "<what the integrated result proved>"
-aiwf plan close PLAN-001 --summary "..."
+  --verification-result "<command>:::<expected>:::<observed>:::matched"
 ```
+
+`Closure Calibration` 由 Planner 根据实际结果写入 Plan.md 正文。第一段说明 Plan
+实际交付了什么；只补充重要偏差和后续必须知道的剩余问题。`--status passed` 读取这段
+内容，将第一段保存为机器摘要，然后立即合并通过的候选并关闭 Plan。只有用户已经选择
+合并时才运行。合并成功会用独立 governance checkpoint 保存治理状态。如果命令在项目
+merge 后中断，原样重跑即可补完治理收口，不会重复合并。如果用户改为暂时保留，运行
+`aiwf plan hold PLAN-001`。
 
 `plan integrate` 先用 Git 做无副作用冲突预检。发生冲突时 main 保持干净；Planner 创建
 `kind=integration` Task，Executor 合入命令记录的 base ref 并解决组合行为，Task close
