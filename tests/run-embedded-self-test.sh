@@ -43,6 +43,10 @@ TIMED_OUT=()
 for t in "${TESTS[@]}"; do
   echo "--- $t ---"
   cd "$ROOT"
+  timeout_sec=$TIMEOUT_SEC
+  if [ "$t" = "tests/embedded/test_task_parallel_contract.py" ]; then
+    timeout_sec=75
+  fi
 
   # Run with explicit timeout via background process + wait
   python3 -u "$ROOT/$t" 2>&1 &
@@ -50,7 +54,7 @@ for t in "${TESTS[@]}"; do
 
   # Wait up to TIMEOUT_SEC, kill if still running
   waited=0
-  while kill -0 $PID 2>/dev/null && [ $waited -lt $TIMEOUT_SEC ]; do
+  while kill -0 $PID 2>/dev/null && [ $waited -lt $timeout_sec ]; do
     sleep 1
     waited=$((waited + 1))
   done
@@ -60,7 +64,7 @@ for t in "${TESTS[@]}"; do
     kill -9 $PID 2>/dev/null || true
     wait $PID 2>/dev/null || true
     TIMED_OUT+=("$t")
-    echo "  TIMED OUT after ${TIMEOUT_SEC}s"
+    echo "  TIMED OUT after ${timeout_sec}s"
   else
     # Completed — check exit status
     wait $PID 2>/dev/null

@@ -64,6 +64,30 @@ class TestPlannerFirstFlow(unittest.TestCase):
         self.assertNotIn("combined result", prompt)
         self.assertNotIn("Before starting another Plan", prompt)
 
+        output = StringIO()
+        with redirect_stdout(output):
+            _print_prompt(
+                Path("/tmp/control"),
+                Path("/tmp/control"),
+                [],
+                None,
+                [{
+                    "plan_id": "PLAN-GAPS",
+                    "git_base_branch": "main",
+                    "integration": {
+                        "verification_status": "accepted_with_gaps",
+                    },
+                    "_integration_state": "closure_recovery",
+                }],
+                [],
+            )
+        gap_prompt = output.getvalue()
+        self.assertIn(
+            "aiwf plan integrate PLAN-GAPS --status accepted_with_gaps",
+            gap_prompt,
+        )
+        self.assertIn("same proof and gap arguments", gap_prompt)
+
     def test_status_asks_once_before_merging_or_holding_a_plan(self):
         from aiwf_core.commands.flow import _print_prompt
 
@@ -123,13 +147,19 @@ class TestPlannerFirstFlow(unittest.TestCase):
         self.assertIn("ask whether the user wants /aiwf-architect", prompt)
         self.assertIn("on this exact candidate", prompt)
         self.assertIn("one or several Plans whose results are present", prompt)
-        self.assertIn("If a finding requires a candidate change", prompt)
+        self.assertIn("If a finding changes the candidate", prompt)
+        self.assertIn("resolve environment, generated, or non-semantic work directly", prompt)
+        self.assertIn("use a Task only for semantic project work", prompt)
         self.assertIn("after the user declines or decides the findings", prompt)
         self.assertIn("write Plan.md '## Closure Calibration'", prompt)
         self.assertIn("immediately merges the passing candidate", prompt)
+        self.assertIn("do not call it passed", prompt)
+        self.assertIn("--status accepted_with_gaps", prompt)
+        self.assertIn("--known-gap", prompt)
+        self.assertIn("--acceptance-reason", prompt)
         self.assertIn("aiwf plan hold PLAN-001", prompt)
 
-    def test_status_routes_dirty_candidate_to_inspection(self):
+    def test_status_marks_dirty_candidate_stale_without_forcing_a_task(self):
         from aiwf_core.commands.flow import _print_prompt
 
         output = StringIO()
@@ -148,9 +178,10 @@ class TestPlannerFirstFlow(unittest.TestCase):
             )
         prompt = output.getvalue()
         self.assertIn("candidate worktree changed after preparation", prompt)
-        self.assertIn("Bring real result changes through a Task", prompt)
-        self.assertIn("Restore generated noise only after the user confirms", prompt)
-        self.assertIn("Do not run --status passed while it is dirty", prompt)
+        self.assertIn("the old candidate is stale", prompt)
+        self.assertIn("resolve local, generated, or non-semantic integration work directly", prompt)
+        self.assertIn("use a Task only for semantic project work", prompt)
+        self.assertIn("rerun the same plan integrate command", prompt)
 
 
 if __name__ == "__main__":

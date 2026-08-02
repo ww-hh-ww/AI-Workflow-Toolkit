@@ -12,7 +12,7 @@ from .commands.flow import cmd_status
 from .commands.parser import build_parser
 from .constants import VERSION
 from .core.state_schema import MVP_STATE_FILES
-from .core.project_root import resolve_aiwf_project_root
+from .core.project_root import has_opencode_adapter, resolve_aiwf_project_root
 from .core.state._common import StateFileError
 
 
@@ -22,9 +22,8 @@ def _show_planner_facade() -> None:
     aiwf_state_path = root / ".aiwf" / "state" / "state.json"
     claude_settings = root / ".claude" / "settings.json"
     reasonix_settings = root / ".reasonix" / "settings.json"
-    opencode_plugin = root / ".opencode" / "plugins" / "aiwf.js"
     if aiwf_state_path.exists() and (
-        reasonix_settings.exists() or claude_settings.exists() or opencode_plugin.exists()
+        reasonix_settings.exists() or claude_settings.exists() or has_opencode_adapter(root)
     ):
         cmd_status(argparse.Namespace())
         return

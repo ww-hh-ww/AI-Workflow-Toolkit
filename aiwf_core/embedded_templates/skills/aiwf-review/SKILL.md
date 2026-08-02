@@ -16,7 +16,9 @@ false.
 Start Reviewer only after Tester has returned and recorded the tested snapshot.
 Do not run it in parallel with Executor or Tester.
 
-1. Read the Task.md and run `aiwf task proof <TASK-ID>`.
+1. Read the Task.md and run `aiwf task proof <TASK-ID>`. If proof and
+   `aiwf status --prompt` disagree about the next role, stop and rerun status;
+   do not continue from memory.
 2. When `reviewer_required` is true, dispatch `aiwf-reviewer` with:
    - the Task ID;
    - the current `USER_DELTA`, if one exists.
@@ -41,6 +43,10 @@ proceed to close.
 If `reviewer_required` is false, do not dispatch Reviewer. Read
 `inline-execution.md`, follow its Review section in this session, and produce
 the same task-specific report and record.
+
+Ask the user before accepting material unverified behavior, deferring a
+main-path risk, downgrading a required role, bypassing a gate, or changing the
+Task contract.
 
 ## Required Handoff
 

@@ -206,6 +206,114 @@ class TestGitTaskRecords(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "two parents"):
             create_task_commit(str(self.tmp), task, self.origin, reviewed_ref)
 
+    def test_premature_integration_merge_is_completed_from_reviewed_index(self):
+        from aiwf_core.commands.flow import _task_next
+        from aiwf_core.core.git_snapshots import create_task_snapshot, tree_changes
+        from aiwf_core.core.git_workflow import (
+            changed_project_files,
+            integration_close_readiness,
+        )
+        from aiwf_core.core.task_ledger import close_task
+        from aiwf_core.core.task_records import (
+            default_task_record,
+            save_task_record,
+        )
+
+        subprocess.run(["git", "switch", "main"], cwd=self.tmp, check=True, capture_output=True)
+        (self.tmp / "base.txt").write_text("new base\n", encoding="utf-8")
+        governance = self.tmp / ".aiwf/state/base-only.json"
+        governance.write_text('{"base": true}\n', encoding="utf-8")
+        subprocess.run(
+            ["git", "add", "base.txt", ".aiwf/state/base-only.json"],
+            cwd=self.tmp, check=True,
+        )
+        subprocess.run(
+            ["git", "commit", "-m", "advance base"],
+            cwd=self.tmp, check=True, capture_output=True,
+        )
+        base_ref = subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=self.tmp, check=True,
+            capture_output=True, text=True,
+        ).stdout.strip()
+        subprocess.run(
+            ["git", "switch", "feature/test"],
+            cwd=self.tmp, check=True, capture_output=True,
+        )
+        subprocess.run(
+            ["git", "merge", "--no-ff", "--no-commit", base_ref],
+            cwd=self.tmp, check=True, capture_output=True,
+        )
+        subprocess.run(
+            ["git", "commit", "-m", "premature integration"],
+            cwd=self.tmp, check=True, capture_output=True,
+        )
+        premature_ref = subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=self.tmp, check=True,
+            capture_output=True, text=True,
+        ).stdout.strip()
+        (self.tmp / "src").mkdir(exist_ok=True)
+        (self.tmp / "src/feature.py").write_text("VALUE = 2\n", encoding="utf-8")
+        subprocess.run(["git", "add", "src/feature.py"], cwd=self.tmp, check=True)
+        reviewed_ref = create_task_snapshot(
+            str(self.tmp), "TASK-001", "review", self.origin,
+            summary="reviewed the merged product tree",
+        )["ref"]
+        task = {
+            "id": "TASK-001",
+            "title": "integrate base",
+            "status": "active",
+            "phase": "closing",
+            "kind": "integration",
+            "git_branch": "feature/test",
+            "git_origin_ref": self.origin,
+            "integration_base_ref": base_ref,
+            "worktree_path": str(self.tmp),
+            "requirements": {
+                "executor_required": False,
+                "tester_required": False,
+                "reviewer_required": False,
+            },
+        }
+        tasks_path = self.tmp / ".aiwf/state/tasks.json"
+        tasks_path.write_text(
+            json.dumps({"schema_version": 1, "tasks": [task]}, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        record = {
+            "implementation": {"implementation_ref": reviewed_ref},
+            "testing": {"status": "passed", "tested_ref": reviewed_ref},
+            "review": {
+                "result": "accepted",
+                "closure_allowed": True,
+                "reviewed_ref": reviewed_ref,
+            },
+        }
+
+        readiness = integration_close_readiness(
+            str(self.tmp), task, self.origin, reviewed_ref,
+        )
+        self.assertEqual(readiness, {"status": "ready", "mode": "amend_merge"})
+        role, action = _task_next(task, record, self.tmp)
+        self.assertEqual(role, "Close")
+        self.assertIn("existing correct merge commit", action)
+
+        stored_record = default_task_record("TASK-001")
+        stored_record.update(record)
+        save_task_record(self.tmp, stored_record)
+        result = close_task(str(self.tmp), "TASK-001")
+        self.assertTrue(result["closed"], result["blockers"])
+        completed_ref = result["task"]["closure"]["git_commit"]
+
+        self.assertNotEqual(completed_ref, premature_ref)
+        parents = subprocess.run(
+            ["git", "show", "-s", "--format=%P", completed_ref],
+            cwd=self.tmp, check=True, capture_output=True, text=True,
+        ).stdout.strip().split()
+        self.assertEqual(parents, [self.origin, base_ref])
+        self.assertEqual(tree_changes(str(self.tmp), reviewed_ref, completed_ref), [])
+        self.assertTrue(governance.exists())
+        self.assertEqual(changed_project_files(str(self.tmp)), [])
+
     def test_integration_task_requires_current_test_and_review_snapshots(self):
         from aiwf_core.core.task_ledger import close_task
 

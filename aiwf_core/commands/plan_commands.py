@@ -75,6 +75,8 @@ def _cmd_plan_show(args: argparse.Namespace) -> None:
         if integration:
             print("Plan integration:")
             print(f"  Status: {integration.get('status') or '(unknown)'}")
+            if integration.get("verification_status"):
+                print(f"  Verification disposition: {integration['verification_status']}")
             print(f"  Base ref: {integration.get('base_ref') or '(none)'}")
             print(f"  Candidate: {integration.get('candidate_ref') or '(none)'}")
             if integration.get("candidate_worktree"):
@@ -83,6 +85,16 @@ def _cmd_plan_show(args: argparse.Namespace) -> None:
                 print(f"  Merge commit: {integration['merge_commit']}")
             if integration.get("conflicts"):
                 print(f"  Conflicts: {', '.join(integration['conflicts'][:8])}")
+            for gap in integration.get("known_gaps", []) or []:
+                print(f"  Accepted gap: {gap}")
+            if integration.get("acceptance_reason"):
+                print(f"  Acceptance reason: {integration['acceptance_reason']}")
+        closure = plan.get("closure", {}) or {}
+        if closure.get("merged_to_branch"):
+            print("Plan delivery:")
+            print(f"  Merged to: {closure['merged_to_branch']}")
+        if closure.get("resolved_conflicts"):
+            print(f"  Resolved conflicts: {', '.join(closure['resolved_conflicts'])}")
         integration_state = plan_integration_state(str(Path.cwd()), plan)
         if integration_state not in ("working", "open", "closed", "cancelled"):
             print(f"Plan closeout: {integration_state}")
@@ -158,7 +170,12 @@ def _cmd_plan_list(args: argparse.Namespace) -> None:
         readiness = "unregistered"
         if state:
             if pstatus in ("cancelled", "closed"):
-                readiness = pstatus
+                closure_mode = str((plan.get("closure", {}) or {}).get("mode") or "")
+                readiness = (
+                    "closed: accepted gaps"
+                    if pstatus == "closed" and closure_mode == "accepted_with_gaps"
+                    else pstatus
+                )
             elif state["ready"]:
                 readiness = "ready"
             else:
@@ -296,7 +313,11 @@ def _cmd_plan_hold(args: argparse.Namespace) -> None:
 
 
 def _cmd_plan_integrate(args: argparse.Namespace) -> None:
-    from .state_commands import _parse_verification_results
+    from .state_commands import (
+        _parse_paired_verification_results,
+        _parse_verification_results,
+    )
+    from ..core.plan_integration_audit import audit_lines
     from ..core.plan_integration import finish_plan_integration, prepare_plan_integration
 
     try:
@@ -304,37 +325,59 @@ def _cmd_plan_integrate(args: argparse.Namespace) -> None:
             result = prepare_plan_integration(
                 str(Path.cwd()),
                 args.plan_id,
-                accept_head_change=bool(
-                    getattr(args, "accept_head_change", False)
-                ),
             )
             checkpoint = result.get("governance_checkpoint", {}) or {}
             if checkpoint.get("committed"):
                 print(f"Governance checkpoint: {checkpoint['commit'][:12]}")
+            if result.get("audit_required"):
+                print(f"Plan integration audit: {args.plan_id}")
+                print("  No candidate was prepared and nothing was merged.")
+                for line in audit_lines(result.get("audit", {}) or {}):
+                    print(f"  {line}")
+                print(
+                    "  Planner: classify these as local residue, deliverable assets, "
+                    "reproducible output, or unknown risk. Resolve them with normal editing "
+                    "and Git, then rerun this same command. No repair workflow is required."
+                )
+                return
             if result.get("conflict"):
-                print(f"Plan integration needs an integration Task: {args.plan_id}")
                 task_id = str(result.get("integration_task_id") or "")
+                print(f"Plan integration stage 1/2: conflict found for {args.plan_id}")
+                print("  Planner: inspect the diff and choose the lightest honest path.")
+                if task_id:
+                    print(
+                        f"  Existing integration Task: {task_id}. Continue it only if the "
+                        "resolution is still semantic. If it was created unnecessarily and has "
+                        "not produced governed work, explain that and ask the user before cancelling it."
+                    )
                 if result.get("conflicts"):
                     print("  Conflicts: " + ", ".join(result["conflicts"][:8]))
-                if task_id:
-                    print(f"  Existing integration Task: {task_id}")
-                else:
-                    print(
-                        "  Create a Task under this Plan with kind=integration. Its contract must "
-                        "merge the recorded base ref into the Plan branch, resolve the combined "
-                        "behavior, and run the normal Executor, Tester, Reviewer, and close chain."
-                    )
+                print(
+                    "  A small Git, generated-file, or environment conflict may be resolved "
+                    "directly in the Plan worktree with normal Git; no Task or role dispatch "
+                    "is needed. Then rerun this same command."
+                )
+                print(
+                    "  If resolution changes project behavior, interfaces, dependencies, or "
+                    "product meaning, create or continue one kind=integration Task instead."
+                )
                 if result.get("critique_reset_task_ids"):
                     print(
                         "  Preflight inputs changed. Recheck Task.md and run both "
                         "activation critique passes again before activation."
                     )
-                print("  After that Task closes, run this command again.")
+                print("  Record any meaningful resolution and remaining consequence in Plan Closure Calibration.")
                 return
-            print(f"Plan integration prepared: {args.plan_id}")
+            print(f"Plan integration stage 1/2 prepared: {args.plan_id}")
+            print("  Nothing has been merged into the base branch yet.")
             print(f"  Base ref: {result['base_ref'][:12]}")
             print(f"  Candidate ref: {result['candidate_ref'][:12]}")
             print(f"  Run checks in: {result['candidate_worktree']}")
+            advisory = audit_lines(result.get("audit", {}) or {})
+            if advisory:
+                print("  Environment advisory (not an automatic blocker):")
+                for line in advisory:
+                    print(f"    {line}")
             if result.get("already_merged"):
                 print("  Existing merged result adopted as the candidate; verify it to finish the Plan.")
             if result.get("integration_task_no_longer_needed"):
@@ -346,28 +389,40 @@ def _cmd_plan_integrate(args: argparse.Namespace) -> None:
             print("  Run the Plan's integration checks against this exact candidate.")
             print(
                 "  Before merge, ask whether the user wants /aiwf-architect on this exact "
-                "candidate. The user chooses the review slice. If a finding requires a "
-                "candidate change, add a Task and prepare again."
+                "candidate. The user chooses the review slice. If a finding changes the "
+                "candidate, resolve environment, generated, or non-semantic work directly; "
+                "create a Task only for semantic project work. Then prepare again."
             )
-            print(
-                "  Only if the user already chose merge, run the command below. It records "
-                "the exact results, merges the passing candidate, and closes the Plan."
-            )
+            print("  Stage 2/2 runs only after the user chooses to merge this verified candidate.")
             print(
                 "  First write a concise '## Closure Calibration' in Plan.md with the actual "
                 "outcome. Add only a difference or remaining gap that matters. Do not "
                 "checkpoint it separately; the passing command checkpoints it after merge."
             )
             print(
-                f"  Merge: aiwf plan integrate {args.plan_id} --status passed "
-                "--command '<exact command>' --verification-result "
-                "'<command>:::<expected>:::<observed>:::matched'"
+                f"  Stage 2/2, verify + merge + close: aiwf plan integrate {args.plan_id} --status passed "
+                "--command '<exact command>' --result "
+                "'<expected>:::<observed>:::matched'"
+            )
+            print(
+                "  If the user explicitly accepts unmet Plan outcomes, use "
+                f"aiwf plan integrate {args.plan_id} --status accepted_with_gaps "
+                "--command '<exact command>' --result "
+                "'<expected>:::<observed>:::<matched|mismatched>' "
+                "--known-gap '<unmet outcome and consequence>' "
+                "--acceptance-reason '<why the user accepts it now>'. "
+                "Do not call an unmet outcome passed."
             )
             print(f"  Keep open instead: aiwf plan hold {args.plan_id}")
             return
 
-        verification_results = _parse_verification_results(
-            getattr(args, "verification_results", []) or [],
+        raw_results = getattr(args, "verification_results", []) or []
+        paired_results = getattr(args, "paired_results", []) or []
+        if raw_results and paired_results:
+            raise ValueError("use either --result or --verification-result, not both")
+        verification_results = _parse_verification_results(raw_results)
+        verification_results = verification_results or _parse_paired_verification_results(
+            getattr(args, "commands", []) or [], paired_results,
         )
         result = finish_plan_integration(
             str(Path.cwd()),
@@ -376,6 +431,8 @@ def _cmd_plan_integrate(args: argparse.Namespace) -> None:
             commands=getattr(args, "commands", []) or [],
             verification_results=verification_results,
             summary=getattr(args, "summary", "") or "",
+            known_gaps=getattr(args, "known_gaps", []) or [],
+            acceptance_reason=getattr(args, "acceptance_reason", "") or "",
         )
     except ValueError as exc:
         print(f"Plan integration blocked: {exc}", file=sys.stderr)
@@ -387,9 +444,19 @@ def _cmd_plan_integrate(args: argparse.Namespace) -> None:
         return
     integration = result.get("integration", {}) or {}
     checkpoint = result.get("governance_checkpoint", {}) or {}
-    print(f"Plan merged and closed: {args.plan_id}")
+    if args.status == "accepted_with_gaps":
+        print(f"Plan merged and closed with accepted gaps: {args.plan_id}")
+    else:
+        print(f"Plan merged and closed: {args.plan_id}")
     print(f"  Verified candidate: {str(integration.get('candidate_ref') or '')[:12]}")
     print(f"  Merge commit: {str(integration.get('merge_commit') or '')[:12]}")
+    closure = result.get("plan", {}).get("closure", {}) or {}
+    if closure.get("merged_to_branch"):
+        print(f"  Merged to user-selected base: {closure.get('merged_to_branch')}")
+    for gap in integration.get("known_gaps", []) or []:
+        print(f"  Accepted gap: {gap}")
+    if integration.get("acceptance_reason"):
+        print(f"  Acceptance reason: {integration['acceptance_reason']}")
     if checkpoint.get("committed"):
         print(f"  Governance checkpoint: {str(checkpoint.get('commit') or '')[:12]}")
     elif checkpoint.get("warning"):

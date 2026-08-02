@@ -221,7 +221,18 @@ def resolve_planner_assignment(
         if str(task.get("worktree_path") or "").strip()
     ]
     if not tasks:
-        return None
+        from .plan_integration_context import integration_stage_for_path
+
+        stage = integration_stage_for_path(control)
+        if not stage or not str(stage.get("worktree") or ""):
+            return None
+        declared = Path(str(stage["worktree"])).expanduser()
+        return AgentAssignment(
+            task_id=str(stage.get("plan_id") or "integration"),
+            worktree=declared.resolve(),
+            declared_worktree=declared,
+            control_root=control,
+        )
 
     try:
         current = Path(event.cwd).expanduser().resolve()

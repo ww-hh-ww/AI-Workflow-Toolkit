@@ -7,6 +7,17 @@ from typing import Union
 
 PathLike = Union[str, Path]
 
+OPENCODE_PLUGIN_PATH = Path("scripts/aiwf_opencode_plugin.js")
+LEGACY_OPENCODE_PLUGIN_PATH = Path(".opencode/plugins/aiwf.js")
+
+
+def has_opencode_adapter(path: PathLike) -> bool:
+    root = Path(path).expanduser().resolve()
+    return (
+        (root / OPENCODE_PLUGIN_PATH).exists()
+        or (root / LEGACY_OPENCODE_PLUGIN_PATH).exists()
+    )
+
 
 def is_installed_aiwf_root(path: PathLike) -> bool:
     root = Path(path).expanduser().resolve()
@@ -14,7 +25,7 @@ def is_installed_aiwf_root(path: PathLike) -> bool:
     integration = (
         (root / ".claude" / "settings.json").exists()
         or (root / ".reasonix" / "settings.json").exists()
-        or (root / ".opencode" / "plugins" / "aiwf.js").exists()
+        or has_opencode_adapter(root)
     )
     return state.exists() and integration
 

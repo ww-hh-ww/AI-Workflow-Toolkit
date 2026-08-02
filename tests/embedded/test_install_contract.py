@@ -2,6 +2,8 @@
 import json, os, shutil, subprocess, sys, tempfile, unittest
 from pathlib import Path
 
+from aiwf_core.core.yaml_compat import yaml
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 TIMEOUT = 15
 
@@ -28,6 +30,18 @@ class TestInstall(unittest.TestCase):
 
     def _j(self, rel):
         return json.loads((self.tmp / rel).read_text())
+
+    def test_frontmatter_yaml_preserves_empty_scalars_and_block_lists(self):
+        frontmatter = yaml.safe_load(
+            "milestone_id:\n"
+            "dependencies: []\n"
+            "tester_write:\n"
+            "  - tests/example.py\n"
+        )
+
+        self.assertIsNone(frontmatter["milestone_id"])
+        self.assertEqual(frontmatter["dependencies"], [])
+        self.assertEqual(frontmatter["tester_write"], ["tests/example.py"])
 
     def test_v2_state_files_created_without_flat_runtime_state(self):
         expected = [

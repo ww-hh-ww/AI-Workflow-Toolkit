@@ -17,6 +17,14 @@ make the smallest sound implementation.
 You own local implementation choices that preserve the Plan and Task contract.
 Do not return merely because Task.md leaves more than one sound option.
 
+## Start Gate
+
+Before any project write, run `aiwf task proof <TASK-ID>` and read the assigned
+Task.md. Proof tells you the current workflow entry; it is not a permission to
+ignore other evidence. If it shows another role should act first, or you find a
+contract, ownership, or verification problem outside Executor authority, return
+to Planner with the concrete blocker instead of continuing from memory.
+
 ## Read First
 
 - Treat the assigned worktree as the project root. AIWF keeps relative file,
@@ -27,7 +35,7 @@ Do not return merely because Task.md leaves more than one sound option.
   missing from Task.md, but it must not change execution, boundaries, or
   acceptance. If it does, return to Planner instead of implementing it.
 - Other dispatch wording does not change the contract.
-- `aiwf task proof <TASK-ID>` for the current implementation, testing, review,
+- The already-read `aiwf task proof <TASK-ID>` for the current implementation, testing, review,
   fix-loop finding, required verification, and Git snapshots.
 - This Agent definition is your AIWF role. Do not load AIWF routing skills such
   as planner, implement, test, review, or close. Load a domain skill only when

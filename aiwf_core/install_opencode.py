@@ -22,11 +22,16 @@ from .install_claude import (
     _write_state_files,
 )
 from .io import rel, write_text
+from .core.project_root import (
+    LEGACY_OPENCODE_PLUGIN_PATH,
+    OPENCODE_PLUGIN_PATH,
+)
 
 
 PRODUCT_NAME = "OpenCode"
 COMMAND_NAME = "opencode --agent aiwf-planner"
 ENTRY_COMMAND = "/aiwf-planner"
+PLUGIN_SPEC = "./scripts/aiwf_opencode_plugin.js"
 
 
 def _root() -> Path:
@@ -73,15 +78,17 @@ user to interrupt. Revise and critique the contract before dispatching again.
         converted,
         flags=re.DOTALL,
     )
-    converted = converted.replace(
-        "When `aiwf status --prompt` names a previous Executor ID, resume that Agent for\n"
-        "a non-trivial repair only if it is available in the current session or the\n"
-        "resumed original session. Try `SendMessage` once. Send only the Task ID and\n"
-        "tell it to read `aiwf task proof`. If resume is unavailable or fails, dispatch\n"
-        "a new Executor with the Task ID and current finding. Do not retry the resume.",
-        "When a previous Executor child session is still available, continue it once "
-        "with the Task ID and tell it to read `aiwf task proof`. If continuation is "
-        "unavailable, dispatch a new Executor with the Task ID and current finding.",
+    converted = (
+        converted
+        .replace("current session or the resumed original session", "current OpenCode session")
+        .replace("resume that Agent", "continue that child")
+        .replace("resume that Agent only", "continue that child only")
+        .replace("resume is unavailable or fails", "continuation is unavailable")
+        .replace("Do not retry the resume", "Do not retry continuation")
+        .replace("with `SendMessage`", "through child continuation")
+        .replace("with SendMessage", "through child continuation")
+        .replace("`SendMessage`", "child continuation")
+        .replace("SendMessage", "child continuation")
     )
     converted = converted.replace(
         "Planner does not switch worktrees to manage Task roles. Use the exact Task ID\n"
@@ -170,6 +177,11 @@ def _write_config() -> Path:
             raise ValueError("opencode.json must be valid JSON before AIWF can install")
     data.setdefault("$schema", "https://opencode.ai/config.json")
     data.setdefault("default_agent", "aiwf-planner")
+    plugins = data.setdefault("plugin", [])
+    if not isinstance(plugins, list):
+        raise ValueError("opencode.json 'plugin' must be a list before AIWF can install")
+    if PLUGIN_SPEC not in plugins:
+        plugins.append(PLUGIN_SPEC)
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return path
 
@@ -212,9 +224,12 @@ Do not implement project code while acting as Planner.
 def _write_opencode_assets() -> List[Path]:
     paths: List[Path] = []
     plugin = _template_text("opencode/aiwf.js")
-    plugin_path = _root() / ".opencode" / "plugins" / "aiwf.js"
+    plugin_path = _root() / OPENCODE_PLUGIN_PATH
     write_text(plugin_path, plugin)
     paths.append(plugin_path)
+    legacy_plugin = _root() / LEGACY_OPENCODE_PLUGIN_PATH
+    if legacy_plugin.exists():
+        legacy_plugin.unlink()
     command_path = _root() / ".opencode" / "commands" / "aiwf-planner.md"
     write_text(command_path, _template_text("opencode/commands/aiwf-planner.md"))
     paths.append(command_path)
@@ -283,7 +298,7 @@ def doctor_opencode() -> Dict[str, object]:
             "exists": path.exists(),
             "has_frontmatter": path.exists() and path.read_text(encoding="utf-8").startswith("---"),
         }
-    plugin = root / ".opencode" / "plugins" / "aiwf.js"
+    plugin = root / OPENCODE_PLUGIN_PATH
     plugin_text = plugin.read_text(encoding="utf-8") if plugin.exists() else ""
     hooks = {
         "chat.message": {

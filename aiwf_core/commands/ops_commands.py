@@ -138,10 +138,12 @@ def _cmd_install(args: argparse.Namespace) -> None:
 
 
 def _cmd_doctor(args: argparse.Namespace) -> None:
+    from ..core.project_root import has_opencode_adapter
+
     requested_host = getattr(args, "host", None)
     if requested_host == "opencode" or (
         requested_host is None
-        and (Path.cwd() / ".opencode" / "plugins" / "aiwf.js").exists()
+        and has_opencode_adapter(Path.cwd())
         and not (
             (Path.cwd() / ".claude" / "settings.json").exists()
             or (Path.cwd() / ".reasonix" / "settings.json").exists()

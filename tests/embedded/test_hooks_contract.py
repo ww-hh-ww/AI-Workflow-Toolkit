@@ -259,6 +259,24 @@ class TestHooks(unittest.TestCase):
         self.assertIn("TASK-001 is suspended", context)
         self.assertIn("aiwf status --prompt", context)
 
+    def test_status_hook_emits_actionable_resume_packet(self):
+        self._set_active_task("testing", {
+            "task_id": "TASK-001",
+            "implementation": {"task_id": "TASK-001", "implementation_ref": "abc"},
+            "testing": {"task_id": "TASK-001", "status": "missing"},
+            "review": {"task_id": "TASK-001", "result": "unknown"},
+            "fix_loop": {"status": "none"},
+        })
+
+        result = self._status()
+
+        context = json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("Resume: task=TASK-001", context)
+        self.assertIn("Evidence: impl=recorded, test=missing, review=unknown", context)
+        self.assertIn("Decision: Tester - dispatch or resume aiwf-tester", context)
+        self.assertIn("Guardrail: use the native Agent/Task tool", context)
+        self.assertIn("do not role-play or self-fill", context)
+
     def test_status_hook_names_the_parallel_task_that_changed(self):
         other = self.tmp / "plan-b"
         self._write_state("state/tasks.json", {"tasks": [
@@ -813,6 +831,15 @@ class TestHooks(unittest.TestCase):
 
     def test_git_reset_hard_blocked(self):
         self.assertIn("deny", self._bash("git reset --hard HEAD").stdout)
+
+    def test_stash_recovery_is_kept_until_human_disposition(self):
+        for command in ("git stash push", "git stash apply"):
+            self.assertNotIn("deny", self._bash(command).stdout)
+            self.assertNotIn("ask", self._bash(command).stdout)
+        for command in ("git stash pop", "git stash drop", "git stash clear"):
+            result = self._bash(command)
+            self.assertIn("deny", result.stdout)
+            self.assertIn("recovery copy", result.stdout)
 
     def test_npm_test_allowed(self):
         r = self._bash("npm test")

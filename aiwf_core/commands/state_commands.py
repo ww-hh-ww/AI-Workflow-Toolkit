@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -87,12 +88,115 @@ def _parse_verification_results(raw_results: list[str]) -> list[dict]:
     return results
 
 
+def _parse_paired_verification_results(
+    commands: list[str], raw_results: list[str],
+) -> list[dict]:
+    if not raw_results:
+        return []
+    if len(commands) != len(raw_results):
+        raise ValueError("--result must appear once for each --command")
+    results = []
+    for command, raw in zip(commands, raw_results):
+        parts = [part.strip() for part in str(raw).split(":::", 2)]
+        if len(parts) != 3:
+            raise ValueError(
+                "--result must be 'expected:::observed:::matched|mismatched'"
+            )
+        match_token = parts[2].lower()
+        if match_token not in ("matched", "mismatched"):
+            raise ValueError("--result must end with matched or mismatched")
+        results.append({
+            "command": command,
+            "expected": parts[0],
+            "observed": parts[1],
+            "matched": match_token == "matched",
+        })
+    return results
+
+
+def _task_verification_results(
+    base: Path,
+    task_id: str,
+    commands: list[str],
+    observed_results: list[str],
+    status: str,
+) -> list[dict]:
+    """Build ordinary verification results from the Task contract.
+
+    The Task already owns expected observables. Repeating them in a four-part
+    shell argument adds noise without adding evidence.
+    """
+    if not observed_results:
+        return []
+    if len(observed_results) != len(commands):
+        raise ValueError("--observed must appear once for each --command")
+    if status != "passed":
+        raise ValueError(
+            "--observed is available only with --status passed; use "
+            "--verification-result for failed or mixed results"
+        )
+
+    from ..core.task_ledger import load_ledger
+    from ..core.task_proof import read_task_proof_contract
+
+    task = next(
+        (
+            item for item in load_ledger(str(base)).get("tasks", []) or []
+            if isinstance(item, dict) and str(item.get("id") or "") == task_id
+        ),
+        None,
+    )
+    if not task:
+        raise ValueError(f"active Task not found: {task_id}")
+    contract = read_task_proof_contract(str(base), task)
+    if not contract or not contract.schema_recognized:
+        raise ValueError("--observed requires a recognized Task.md proof contract")
+
+    def normalize(command: str) -> str:
+        return re.sub(r"\s+", " ", command.strip()).strip("` ")
+
+    expected_by_command = {
+        normalize(item.command): item
+        for item in contract.verification_commands
+    }
+    results = []
+    positional = len(commands) == len(contract.verification_commands)
+    for index, (command, observed) in enumerate(zip(commands, observed_results)):
+        contract_item = expected_by_command.get(normalize(command))
+        if contract_item is None and positional:
+            contract_item = contract.verification_commands[index]
+        if contract_item is None:
+            raise ValueError(
+                "--observed only records a Task.md Verification Command; "
+                "use --verification-result for an extra probe"
+            )
+        if not str(observed).strip():
+            raise ValueError("--observed must not be empty")
+        results.append({
+            "command": contract_item.command,
+            "expected": contract_item.expected,
+            "observed": observed,
+            "matched": True,
+        })
+    return results
+
+
 def _cmd_record_testing(args: argparse.Namespace) -> None:
     from ..core.state_ops import record_testing
 
     try:
         task_id = _require_role_dispatch(Path.cwd(), "tester", args.task_id)
+        if args.observed_results and args.verification_results:
+            raise ValueError("use either --observed or --verification-result, not both")
         verification_results = _parse_verification_results(args.verification_results or [])
+        verification_results = verification_results or _task_verification_results(
+            Path.cwd(), task_id, args.commands or [], args.observed_results or [], args.status,
+        )
+        recorded_commands = (
+            [item["command"] for item in verification_results]
+            if args.observed_results
+            else (args.commands or [])
+        )
         if args.status == "passed" and not args.commands:
             raise ValueError("passed testing requires at least one exact --command")
         if args.status == "failed" and not args.summary:
@@ -100,7 +204,7 @@ def _cmd_record_testing(args: argparse.Namespace) -> None:
         testing = record_testing(
             str(Path.cwd()),
             status=args.status,
-            commands=args.commands or None,
+            commands=recorded_commands or None,
             coverage_summary=args.summary or "",
             failure_summary=args.summary if args.status == "failed" else "",
             failed_commands=args.commands if args.status == "failed" else None,

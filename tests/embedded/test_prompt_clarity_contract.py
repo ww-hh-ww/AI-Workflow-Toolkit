@@ -32,6 +32,8 @@ class TestPromptClarityContract(unittest.TestCase):
             "changes execution, boundaries, interfaces, or",
             "Do not record the critique or activate the Task",
             "Run `aiwf status --prompt` when Planner starts work",
+            "The narrow exception is a user-approved Plan Integration Stage",
+            "environment hygiene and non-semantic conflict resolution",
             "Closure Calibration",
             "Add, correct, or delete",
         ]:
@@ -43,6 +45,8 @@ class TestPromptClarityContract(unittest.TestCase):
             "new verified information",
             "Do not repeat",
             "real return",
+            "concise repair or verification brief",
+            "Keep `USER_DELTA` separate",
             "Compare the actual result",
             "Do not modify a closed Plan",
             "shared files",
@@ -61,12 +65,23 @@ class TestPromptClarityContract(unittest.TestCase):
             "aiwf task force-close <TASK-ID>",
             "These commands are human-only",
             "Write `## Closure Calibration` in Plan.md",
+            "`--status accepted_with_gaps`",
+            "`--known-gap`",
+            "`--acceptance-reason`",
+            "`closure.mode=accepted_with_gaps`",
+            "native editing and Git",
+            "without dispatching roles or creating a repair workflow",
+            "Only semantic conflicts become a",
+            "does not choose",
         ]:
             self.assertIn(required, lifecycle)
+        self.assertIn("do not relabel it passed", lifecycle_text)
         self.assertIn("Do not checkpoint this edit separately", lifecycle_text)
+        self.assertIn("classify the repair by the same Integration Stage rule", lifecycle_text)
+        self.assertIn("create a Task in an appropriate open Plan only", lifecycle_text)
         for required in [
             "current session or the resumed original session",
-            "try `SendMessage` once",
+            "with `SendMessage` once",
             "dispatch a new Agent",
         ]:
             self.assertIn(required, lifecycle_text)
@@ -75,9 +90,12 @@ class TestPromptClarityContract(unittest.TestCase):
         implement_text = " ".join(implement.split())
         for required in [
             "current session or the resumed original session",
-            "Try `SendMessage` once",
+            "with `SendMessage` once",
             "If resume is unavailable or fails",
             "Do not retry the resume",
+            "concise repair brief",
+            "Keep any valid `USER_DELTA` separate",
+            "without prescribing the implementation",
         ]:
             self.assertIn(required, implement_text)
 
@@ -90,8 +108,24 @@ class TestPromptClarityContract(unittest.TestCase):
             "Retest inline",
             "Dispatch Tester again",
             "record a fresh testing snapshot",
+            "concise verification brief",
+            "which results remain valid",
+            "Keep `USER_DELTA` separate",
         ]:
             self.assertIn(required, test_skill)
+
+    def test_workflow_agents_use_proof_without_scope_shirking(self):
+        for relative in [
+            "agents/aiwf-executor.md",
+            "agents/aiwf-tester.md",
+            "agents/aiwf-reviewer.md",
+        ]:
+            text = " ".join(read(relative).split())
+            self.assertIn("## Start Gate", text)
+            self.assertIn("run `aiwf task proof <TASK-ID>`", text)
+            self.assertIn("Proof tells you the current workflow entry", text)
+            self.assertIn("not a permission to ignore other evidence", text)
+            self.assertIn("continuing from memory", text)
 
     def test_planner_and_guides_preserve_design_and_consistency_judgment(self):
         combined = "\n".join([
@@ -454,6 +488,22 @@ class TestPromptClarityContract(unittest.TestCase):
         testing = read("skills/aiwf-test/SKILL.md")
         self.assertIn("Do not run `aiwf task test`", testing)
         self.assertIn("`aiwf record testing`", testing)
+
+    def test_integration_roles_use_the_plan_worktree_stage(self):
+        tester = read("agents/aiwf-tester.md")
+        reviewer = read("agents/aiwf-reviewer.md")
+        inline = read("shared/inline-execution.md")
+        testing = read("skills/aiwf-test/SKILL.md")
+        lifecycle = read("skills/aiwf-planner/references/lifecycle.md")
+
+        for text in (tester, reviewer, inline):
+            self.assertIn("integration_base_ref", text)
+            self.assertIn("MERGE_HEAD", text)
+            self.assertIn("main", text)
+        self.assertIn("Do not dispatch Executor for that", testing)
+        self.assertIn("record the narrow testing correction inline", testing)
+        self.assertIn("record the narrow", lifecycle)
+        self.assertIn("testing correction inline", lifecycle)
 
     def test_optional_agents_keep_the_full_inline_record_chain(self):
         implement = read("skills/aiwf-implement/SKILL.md")

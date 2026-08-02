@@ -23,6 +23,8 @@ Tester.
 1. Run `aiwf task proof <TASK-ID>` and note its assigned worktree. For first
    implementation, read the entire Task.md. For a fix loop, read the current
    finding, latest records and diff, and only the affected Task clauses.
+   If proof and `aiwf status --prompt` disagree about the next role, stop and
+   rerun status; do not continue from memory.
 2. If this is the first implementation and `executor_required` is true,
    dispatch `aiwf-executor` with the Task ID. Add `USER_DELTA: <requirement>`
    only for an explicit user clarification that Task.md does not contain. AIWF
@@ -68,6 +70,9 @@ If Executor returns `RETURN_TO_PLANNER`, stop normal progress and surface the
 verified conflict. The hook opens a Planner fix-loop. Run `aiwf status --prompt`
 and load `aiwf-planner`; do not dispatch Tester.
 
+Ask the user before changing the Task contract, widening scope, downgrading a
+required role, bypassing a gate, or accepting a material unverified risk.
+
 ## Follow-Up Repairs
 
 After the Task has an Executor implementation record, choose the cheapest honest route:
@@ -81,16 +86,20 @@ After the Task has an Executor implementation record, choose the cheapest honest
 
 When `aiwf status --prompt` names a previous Executor ID, resume that Agent for
 a non-trivial repair only if it is available in the current session or the
-resumed original session. Try `SendMessage` once. Send only the Task ID and
-tell it to read `aiwf task proof`. If resume is unavailable or fails, dispatch
-a new Executor with the Task ID and current finding. Do not retry the resume.
+resumed original session. Read the fix-loop facts and current diff, then write
+a concise repair brief that names the confirmed finding and source, affected
+expected behavior, what remains valid, and the focused proof. Be concrete
+about the problem and outcome without prescribing the implementation. Send the
+Task ID and this brief with `SendMessage` once. If resume is unavailable or
+fails, dispatch a new Executor with the same brief. Do not retry the resume.
 
 The hook enforces the first Executor. Planner remains responsible for deciding
 whether later inline repair is actually simpler and safe.
 
-When dispatching a repair Executor, still send only the Task ID and any valid
-`USER_DELTA`. The Agent gets the current finding and records from `task proof`;
-do not paste the original Task or rewrite the finding in the prompt.
+Keep any valid `USER_DELTA` separate from the repair brief. It is only an
+explicit user clarification missing from Task.md, not a label for fix-loop
+evidence. The Agent confirms current records with `task proof`; do not paste
+the original Task, complete proof, or earlier report into the prompt.
 
 ## Boundaries
 

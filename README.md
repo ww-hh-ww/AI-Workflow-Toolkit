@@ -206,7 +206,7 @@ opencode --agent aiwf-planner
 
 - `AGENTS.md` 中的 AIWF 托管区块；
 - `.opencode/agents/`、`.opencode/skills/` 和 `.opencode/commands/`；
-- `.opencode/plugins/aiwf.js`，负责阶段提醒、写入检查、命令检查、角色顺序、自动 sync 和压缩上下文续接；
+- `scripts/aiwf_opencode_plugin.js`，由 `opencode.json` 显式加载，负责阶段提醒、写入检查、命令检查、角色顺序、自动 sync 和压缩上下文续接；
 - 与 Claude Code 版相同的 `.aiwf/` 状态和 records。
 
 OpenCode 当前没有可阻止会话结束的 Stop Plugin 事件，因此最终关闭由
@@ -421,11 +421,20 @@ aiwf plan integrate PLAN-001
 
 5. 在 Plan worktree 中运行命令提示的集成验证。形成精确候选后，再询问用户是否使用
    `/aiwf-architect`。用户决定是否审查、审查一个或多个已经出现在候选中的 Plan，以及
-   使用哪些 lenses。
+   使用哪些 lenses。若报告要求修改候选，环境、生成物和非语义修复由 Planner 直接处理；
+   只有改变行为、接口、依赖或产品含义的修复才新增 Task。修改后重新 Prepare 和验证。
 6. 用户不审查，或 Architect 报告已经由 Planner 处理后，把实际 expected/observed
    结果交回 `--status passed`。该命令会把 passing candidate 合入 base，并同时关闭
-   Plan、更新 Plan.md 和 checkpoint 治理状态。若预检发现冲突，先创建
-   `kind=integration` Task，走正常 Executor、Tester、Reviewer 和 Task close 链。
+   Plan、更新 Plan.md 和 checkpoint 治理状态。若预检发现冲突，先分类：非逻辑冲突
+   使用 Plan 级快速修复，不创建 Task；只有改变项目行为、接口、依赖或产品含义的语义
+   冲突才创建 `kind=integration` Task。
+
+如果候选已经完成真实验证，但原 Plan 的某个结果仍未达到，不能把它写成 `passed`。
+Planner 先向用户说明观测结果、后果和可选路径。用户明确接受该限制并决定合并关闭时，
+使用 `--status accepted_with_gaps`，逐条传入 `--known-gap` 和
+`--acceptance-reason`。AIWF 会合入同一个精确候选并关闭 Plan，同时在 JSON closure
+中保留机器可读的问题和接受理由。若仍要在当前 Plan 继续工作，则保持 open，而不是使用
+这个出口。
 
 关闭后的 Plan 是完成记录，不再修改，也不能再链接新 Task。新工作创建新 Plan。
 
@@ -800,14 +809,16 @@ Tester：
 ```bash
 aiwf record testing --task-id TASK-001 --status passed \
   --command "pytest -q tests/test_index.py" \
-  --verification-result "pytest -q tests/test_index.py:::exit 0 and restart case passes:::12 passed:::matched" \
+  --observed "12 passed" \
   --summary "验证了重启恢复和增量更新"
 ```
 
 没有 `aiwf task test` 命令。`/aiwf-test` 负责派发测试工作，Tester 完成后用
 `aiwf record testing` 保存测试结果和 Git snapshot。
 
-一次完整验证应尽量一次记录全部命令。若漏了一条，只运行并补录缺失项；仅当
+对于 Task.md 已声明的命令，`--observed` 会自动读取其 expected 并按 `passed` 或
+`failed` 记录匹配结果。`--verification-result` 保留给额外探针或需要显式覆盖结果
+的场景。一次完整验证应尽量一次记录全部命令。若漏了一条，只运行并补录缺失项；仅当
 `implementation_ref` 和工作树内容都未变化时，AIWF 才保留同一 `tested_ref` 上已有的有效结果。
 
 Reviewer：
@@ -1245,7 +1256,7 @@ aiwf plan hold PLAN-001
 aiwf plan integrate PLAN-001
 aiwf plan integrate PLAN-001 --status passed \
   --command "..." \
-  --verification-result "...:::...:::...:::matched"
+  --result "...:::...:::matched"
 aiwf plan cancel PLAN-001 --reason "..."
 ```
 
@@ -1371,8 +1382,8 @@ opencode.json
 .opencode/
 ├── agents/
 ├── skills/
-├── commands/aiwf-planner.md
-└── plugins/aiwf.js
+└── commands/aiwf-planner.md
+scripts/aiwf_opencode_plugin.js  # OpenCode Plugin
 ```
 
 Toolkit 自身源码：
@@ -1595,7 +1606,7 @@ Reviewer 只审查 Tester 的最终 snapshot。先完成 Testing。若 Testing �
 严格 Task 的每条 Verification Command 都需要：
 
 - 完整的 `--command`。
-- 对应的 `--verification-result`。
+- passed 主链路对应的 `--observed`，或 failed/mixed 主链路的 `--verification-result`。
 - expected。
 - 非空 observed。
 - `matched`。
@@ -1712,7 +1723,7 @@ aiwf plan integrate PLAN-001
 # 在 Plan.md 写入简短的 ## Closure Calibration
 aiwf plan integrate PLAN-001 --status passed \
   --command "<exact command>" \
-  --verification-result "<command>:::<expected>:::<observed>:::matched"
+  --result "<expected>:::<observed>:::matched"
 ```
 
 `Closure Calibration` 由 Planner 根据实际结果写入 Plan.md 正文。第一段说明 Plan
@@ -1722,9 +1733,34 @@ aiwf plan integrate PLAN-001 --status passed \
 merge 后中断，原样重跑即可补完治理收口，不会重复合并。如果用户改为暂时保留，运行
 `aiwf plan hold PLAN-001`。
 
-`plan integrate` 先用 Git 做无副作用冲突预检。发生冲突时 main 保持干净；Planner 创建
-`kind=integration` Task，Executor 合入命令记录的 base ref 并解决组合行为，Task close
-负责生成经过测试和 Review 的 merge commit。
+用户明确接受未达结果时，使用：
+
+```bash
+aiwf plan integrate PLAN-001 --status accepted_with_gaps \
+  --command "<exact command>" \
+  --result "<expected>:::<observed>:::mismatched" \
+  --known-gap "<未达结果及其后果>" \
+  --acceptance-reason "<用户为什么接受现在合并关闭>"
+```
+
+每个验证命令仍必须有真实 observed 结果；`accepted_with_gaps` 不是跳过验证。它与
+`passed` 的区别是允许用户在看见具体偏差后接受限制。Plan 的
+`closure.mode=accepted_with_gaps`，`known_gaps` 和 `acceptance_reason` 会进入机器状态。
+后续修复应创建新 Plan，不能继续修改已经关闭的 Plan。
+
+`plan integrate` 第一次运行进入 Integration Stage：先审计 base 与 Plan worktree，再准备
+候选，不会合入 base。脏文件、未完成 Git 操作会作为可处理事实返回，而不是把 Planner
+锁在流程外；ignored 文件和空目录会作为环境完整性提示。Planner 可直接使用原生编辑和
+Git 处理本地残留、应交付资产、可重建产物或未知风险，然后重新运行同一个命令。候选形成
+后，任何修改只会令候选失效并要求重新 Prepare，不会被写入 guard 阻止。
+
+发生冲突时，Planner 先看真实 diff。Git、生成文件或环境类的小冲突直接解决，不创建 Task，
+也不派角色。只有解决方案会改变行为、接口、依赖或产品含义时，才创建 `kind=integration`
+Task。重要取舍和后果写入 Plan Closure Calibration。验证后带 `--status` 的第二次运行才会
+合并并关闭 Plan。
+
+Plan 总是合入其创建时记录的 base branch。AIWF 不规定 `develop` 或 `main`，也不根据分支名
+推断“开发完成”或“已经发布”；选择 base 以及之后是否把一个分支合到另一个分支都由用户决定。
 
 ### MD 与 JSON 不同步
 
@@ -1755,8 +1791,9 @@ aiwf doctor
 ### 两个并行 Plan 发生冲突
 
 停止后续合并，回到 Planner 检查共享责任、接口和顺序。运行 `aiwf plan integrate`
-取得冲突事实，再为该 Plan 创建 `kind=integration` Task。Plan dependency 只能表达先后，
-不能自动解决同一机制被同时重写；设计本身不成立时应修改 Plan，而不是机械解决文本冲突。
+取得冲突事实。小型 Git、生成文件或环境冲突由 Planner 在 Plan worktree 直接解决，并在
+Plan Closure 记录重要取舍；同一机制、行为或接口被同时重写时才创建 `kind=integration` Task。Plan dependency 只能表达
+先后，不能自动修复设计冲突；设计本身不成立时应修改 Plan，而不是机械解决文本冲突。
 
 ### TUI 无法启动
 

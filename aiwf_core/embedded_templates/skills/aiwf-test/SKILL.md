@@ -22,6 +22,8 @@ by Tester and recorded with `aiwf record testing`.
 1. Run `aiwf task proof <TASK-ID>`. For first validation, read the entire
    Task.md. For follow-up verification, read the earlier finding, repaired
    implementation and diff, required verification, and affected Task clauses.
+   If proof and `aiwf status --prompt` disagree about the next role, stop and
+   rerun status; do not continue from memory.
 2. For the first validation, when `tester_required` is true, dispatch
    `aiwf-tester` with the Task ID and current `USER_DELTA`, if one exists. AIWF
    adds the current contract path and assigned worktree without removing your
@@ -47,6 +49,12 @@ Failed testing opens an implementation repair loop. `EXTERNAL_FINDING` and
 `RETURN_TO_PLANNER` open a Planner fix-loop. In either case, run
 `aiwf status --prompt` and follow its route; do not dispatch Reviewer.
 
+For an integration Task, a finding is invalid if it only says the Plan has not
+yet been merged into main. Do not dispatch Executor for that. On the unchanged
+implementation snapshot, verify the recorded base merge and combined behavior,
+record the narrow testing correction inline, then resolve the fix-loop. A
+missing or wrong `MERGE_HEAD` is a real implementation failure.
+
 When testing verifies a recorded repair, the testing record resolves that
 fix-loop automatically. Run `aiwf status --prompt`; it will route to Reviewer or
 show any verification still missing.
@@ -66,12 +74,25 @@ Either route must run the required regression checks and record a fresh testing
 snapshot after the repaired implementation is recorded. Inline follow-up is
 not permission to reuse results from the earlier implementation.
 
+When `aiwf status --prompt` names a previous Tester ID, resume that Agent only
+if it is available in the current session or the resumed original session.
+Read the fix-loop and proof gaps, then write a concise verification brief that
+names the missing or mismatched proof, its source, and which results remain
+valid on the unchanged snapshot. Send the Task ID and this brief with
+`SendMessage` once. If resume is unavailable or fails, dispatch a new Tester
+with the same brief. Keep `USER_DELTA` separate; it is only an explicit user
+clarification, not a label for verification evidence.
+
 Do not paste or reread the whole Task for follow-up verification unless the
 repair changed a wider contract path or the test method itself.
 
 If `tester_required` is false, do not dispatch Tester. Read
 `inline-execution.md`, follow its Test section in this session, and record each
 command's expected result, actual result, and whether they matched.
+
+Ask the user before weakening expected behavior, accepting an environment limit
+as adequate for a main path, widening scope, bypassing a gate, or skipping a
+required independent Tester.
 
 ## Boundaries
 

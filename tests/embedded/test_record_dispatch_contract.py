@@ -500,6 +500,106 @@ Verification Commands:
         )
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_inline_testing_reads_expected_output_from_task_contract(self):
+        tasks_path = self.tmp / ".aiwf" / "state" / "tasks.json"
+        tasks = json.loads(tasks_path.read_text(encoding="utf-8"))
+        tasks["tasks"][0]["requirements"]["tester_required"] = False
+        tasks_path.write_text(json.dumps(tasks, indent=2) + "\n", encoding="utf-8")
+        task_doc = self.tmp / ".aiwf" / "tasks" / "TASK-001.md"
+        task_doc.write_text(
+            VALID_TASK_CONTRACT + """
+| Verification Commands | Expected |
+| --- | --- |
+| pytest -q | all tests pass |
+""",
+            encoding="utf-8",
+        )
+
+        result = self._cli(
+            "record", "testing", "--status", "passed",
+            "--command", "pytest -q", "--observed", "12 passed",
+            "--summary", "inline validation passed",
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        testing = self._read_record()["testing"]
+        self.assertEqual(testing["status"], "passed")
+        self.assertEqual(testing["verification_results"], [{
+            "command": "pytest -q",
+            "expected": "all tests pass",
+            "observed": "12 passed",
+            "matched": True,
+        }])
+
+    def test_observed_shortcut_uses_contract_order_when_shell_quotes_differ(self):
+        tasks_path = self.tmp / ".aiwf" / "state" / "tasks.json"
+        tasks = json.loads(tasks_path.read_text(encoding="utf-8"))
+        tasks["tasks"][0]["requirements"]["tester_required"] = False
+        tasks_path.write_text(json.dumps(tasks, indent=2) + "\n", encoding="utf-8")
+        task_doc = self.tmp / ".aiwf" / "tasks" / "TASK-001.md"
+        task_doc.write_text(
+            VALID_TASK_CONTRACT + """
+| Verification Commands | Expected |
+| --- | --- |
+| printf \"%s\\n\" \"ready\" | ready |
+""",
+            encoding="utf-8",
+        )
+
+        result = self._cli(
+            "record", "testing", "--status", "passed",
+            "--command", "printf '%s\\n' 'ready'", "--observed", "ready",
+            "--summary", "inline validation passed",
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        testing = self._read_record()["testing"]
+        self.assertIn('printf "%s\\n" "ready"', testing["commands"])
+        self.assertNotIn("printf '%s\\n' 'ready'", testing["commands"])
+        self.assertEqual(
+            testing["verification_results"][-1]["command"],
+            'printf "%s\\n" "ready"',
+        )
+
+    def test_observed_shortcut_rejects_failed_or_mixed_results(self):
+        tasks_path = self.tmp / ".aiwf" / "state" / "tasks.json"
+        tasks = json.loads(tasks_path.read_text(encoding="utf-8"))
+        tasks["tasks"][0]["requirements"]["tester_required"] = False
+        tasks_path.write_text(json.dumps(tasks, indent=2) + "\n", encoding="utf-8")
+        task_doc = self.tmp / ".aiwf" / "tasks" / "TASK-001.md"
+        task_doc.write_text(
+            VALID_TASK_CONTRACT + """
+| Verification Commands | Expected |
+| --- | --- |
+| pytest -q | all tests pass |
+""",
+            encoding="utf-8",
+        )
+
+        result = self._cli(
+            "record", "testing", "--status", "failed",
+            "--command", "pytest -q", "--observed", "1 failed",
+            "--summary", "test failed",
+        )
+
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("only with --status passed", result.stderr)
+
+    def test_observed_shortcut_does_not_mix_with_explicit_results(self):
+        tasks_path = self.tmp / ".aiwf" / "state" / "tasks.json"
+        tasks = json.loads(tasks_path.read_text(encoding="utf-8"))
+        tasks["tasks"][0]["requirements"]["tester_required"] = False
+        tasks_path.write_text(json.dumps(tasks, indent=2) + "\n", encoding="utf-8")
+
+        result = self._cli(
+            "record", "testing", "--status", "passed",
+            "--command", "pytest -q", "--observed", "12 passed",
+            "--verification-result", "probe:::expected:::observed:::matched",
+        )
+
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("either --observed or --verification-result", result.stderr)
+
     def test_tester_dispatch_is_blocked_before_executor_record(self):
         record = self._read_record()
         record["implementation"] = {"task_id": "TASK-001"}
@@ -663,7 +763,16 @@ Verification Commands:
         self._fresh_implementation_record()
         self._complete("aiwf-executor", agent_id="executor-123")
         record = self._read_record()
-        record["fix_loop"] = {"status": "open", "route": "executor"}
+        record["fix_loop"] = {
+            "status": "open",
+            "route": "executor",
+            "source": "reviewer",
+            "reason": "The production loader still bypasses signature verification.",
+            "required_fixes": ["Connect the verified loader to the production path."],
+            "required_verification": ["Run the Windows loader smoke test."],
+            "attempt_count": 1,
+            "max_attempts": 2,
+        }
         self._write_record(record)
 
         status = self._cli("status", "--prompt")
@@ -671,8 +780,75 @@ Verification Commands:
         self.assertEqual(status.returncode, 0, status.stderr)
         self.assertIn("SendMessage", status.stdout)
         self.assertIn("executor-123", status.stdout)
-        self.assertIn("aiwf task proof TASK-001", status.stdout)
+        self.assertIn("repair and record inline if tiny and clear", status.stdout)
+        self.assertIn("source=reviewer, route=executor, attempt=1/2", status.stdout)
+        self.assertIn(
+            "Finding: The production loader still bypasses signature verification.",
+            status.stdout,
+        )
+        self.assertIn(
+            "Required fixes: Connect the verified loader to the production path.",
+            status.stdout,
+        )
+        self.assertIn(
+            "Required verification: Run the Windows loader smoke test.",
+            status.stdout,
+        )
+        self.assertIn("concise repair brief", status.stdout)
+        self.assertIn("Keep USER_DELTA separate", status.stdout)
+        self.assertNotIn("fix the current finding, record implementation", status.stdout)
         self.assertIn("dispatch a new aiwf-executor", status.stdout)
+
+    def test_fix_loop_tester_resume_keeps_inline_choice_and_uses_verification_brief(self):
+        from aiwf_core.commands.flow import _task_next
+        from aiwf_core.core.agent_runtime import (
+            bind_dispatch_agent,
+            finish_dispatch,
+            start_dispatch,
+        )
+
+        self.assertFalse(start_dispatch(
+            self.tmp, "TASK-001", "aiwf-tester", "tester-session",
+            "PLAN-001", str(self.tmp),
+        ))
+        self.assertTrue(bind_dispatch_agent(
+            self.tmp, "aiwf-tester", "tester-123",
+            task_id="TASK-001", session_id="tester-session",
+        ))
+        self.assertTrue(finish_dispatch(
+            self.tmp, "aiwf-tester",
+            task_id="TASK-001", session_id="tester-session",
+            source="subagent_stop", agent_id="tester-123",
+        ))
+        task = {
+            "id": "TASK-001",
+            "requirements": {
+                "executor_required": True,
+                "tester_required": True,
+                "reviewer_required": True,
+            },
+        }
+        record = {
+            "implementation": {"implementation_ref": "implementation-ref"},
+            "testing": {"status": "partial", "tested_ref": "tested-ref"},
+            "review": {},
+            "fix_loop": {
+                "status": "open",
+                "route": "tester",
+                "source": "planner",
+                "reason": "Only the Windows runtime proof is missing.",
+                "required_verification": ["Run the Windows smoke test."],
+            },
+        }
+
+        role, action = _task_next(task, record, self.tmp)
+
+        self.assertEqual(role, "Verification follow-up")
+        self.assertIn("retest inline if narrow and exact", action)
+        self.assertIn("resume aiwf-tester tester-123", action)
+        self.assertIn("concise verification brief", action)
+        self.assertIn("which results remain valid", action)
+        self.assertIn("new aiwf-tester with the same brief", action)
 
     def test_resumed_executor_reopens_the_dispatch_window(self):
         first = self._dispatch("aiwf-executor", "aiwf-implement")

@@ -147,7 +147,7 @@ def _get_active_task_requirements(cwd: Path, task_id: str) -> Optional[Dict[str,
         end_idx = text.find("\n---\n", 4)
         if end_idx == -1:
             return None
-        import yaml
+        from ...core.yaml_compat import yaml
         fm = yaml.safe_load(text[4:end_idx]) or {}
         reqs = {}
         for key in ("executor_required", "tester_required", "reviewer_required"):
@@ -164,6 +164,20 @@ def _get_active_task_requirements(cwd: Path, task_id: str) -> Optional[Dict[str,
         return None
 
 
+def _requirements_for_active_task(control: Path, active_task: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """Merge synced ledger requirements with Task.md frontmatter overrides."""
+    if not active_task:
+        return {}
+    reqs: Dict[str, Any] = {}
+    ledger_reqs = active_task.get("requirements", {}) or {}
+    if isinstance(ledger_reqs, dict):
+        reqs.update(ledger_reqs)
+    task_id = str(active_task.get("id") or "")
+    md_reqs = _get_active_task_requirements(control, task_id) or {}
+    reqs.update(md_reqs)
+    return reqs
+
+
 def _get_task_forbidden_write(cwd: Path, task_id: str) -> list:
     """Read forbidden_write from active Task.md frontmatter."""
     task_md = resolve_control_root(cwd) / ".aiwf" / "tasks" / f"{task_id}.md"
@@ -176,7 +190,7 @@ def _get_task_forbidden_write(cwd: Path, task_id: str) -> list:
         end_idx = text.find("\n---\n", 4)
         if end_idx == -1:
             return []
-        import yaml
+        from ...core.yaml_compat import yaml
         fm = yaml.safe_load(text[4:end_idx]) or {}
         fw = fm.get("forbidden_write", [])
         if isinstance(fw, list):
@@ -369,9 +383,15 @@ def check_file_write(event: NormalizedEvent) -> ScopeResult:
 
     cwd = Path(event.cwd) if event.cwd else Path.cwd()
     control = resolve_control_root(cwd)
-    active_task = task_for_worktree(str(cwd))
-    active_task_id = str((active_task or {}).get("id") or "")
     state = _read_json(control / ".aiwf" / "state" / "state.json", {})
+    active_task = task_for_worktree(str(cwd))
+    if not active_task and state.get("active_task_id"):
+        candidate_id = str(state.get("active_task_id") or "")
+        for task in active_tasks(str(control)):
+            if str(task.get("id") or "") == candidate_id:
+                active_task = task
+                break
+    active_task_id = str((active_task or {}).get("id") or "")
     write_policy = _read_write_policy(control)
     from ...core.scope_policy import _is_governance_file, _normalize_path
     normalized = _normalize_path(file_path, str(cwd))
@@ -456,7 +476,7 @@ def check_file_write(event: NormalizedEvent) -> ScopeResult:
                         not _is_governance_file(normalized)
                         and active_task_id
                     ):
-                        reqs = _get_active_task_requirements(control, active_task_id) or {}
+                        reqs = _requirements_for_active_task(control, active_task)
                         tester_test_write = (
                             "tester" in role
                             and reqs.get("tester_required")
@@ -612,6 +632,30 @@ def check_file_write(event: NormalizedEvent) -> ScopeResult:
                           reason="governance file — always allowed")
 
     # ── Project files: require active task ──
+    from ...core.plan_integration_context import integration_stage_for_path
+
+    integration_stage = integration_stage_for_path(cwd)
+    if integration_stage and not active_task_id:
+        if _is_planner_inline_role(role):
+            return ScopeResult(
+                file_path=normalized,
+                allowed=True,
+                active_context_id=str(integration_stage.get("plan_id") or "integration"),
+                reason=(
+                    "Planner may inspect and repair this integration-ready Plan directly; "
+                    "candidate freshness is checked at merge"
+                ),
+            )
+        return ScopeResult(
+            file_path=normalized,
+            allowed=False,
+            active_context_id=str(integration_stage.get("plan_id") or "integration"),
+            reason=(
+                "Plan integration is owned by Planner. This role may inspect it but may "
+                "not repair it inline."
+            ),
+        )
+
     if not active_task_id and write_policy.get("project_writes_require_active_task"):
         if _temporary_project_writes_allowed(control, role, write_policy):
             return ScopeResult(
@@ -647,7 +691,7 @@ def check_file_write(event: NormalizedEvent) -> ScopeResult:
         )
 
     # ── Role write boundaries ──
-    reqs = _get_active_task_requirements(control, active_task_id) or {}
+    reqs = _requirements_for_active_task(control, active_task)
     if _role_project_write_mode(role, write_policy) != "allow":
         role_name = _role_read_only_name(role)
         return ScopeResult(
@@ -831,6 +875,11 @@ def check_bash(event: NormalizedEvent) -> Dict:
         return base_result
 
     project_targets = _project_shell_write_targets(command, cwd, control)
+    from ...core.plan_integration_context import integration_stage_for_path
+
+    integration_stage = integration_stage_for_path(cwd) if not active_task_id else None
+    if integration_stage and _is_planner_inline_role(role):
+        return base_result
     if (
         project_targets
         and not active_task_id

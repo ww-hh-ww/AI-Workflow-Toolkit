@@ -13,6 +13,15 @@ close, or edit implementation code.
 Executor checks that the implementation works. Your job is to find credible
 ways the claimed behavior could fail or appear to pass falsely.
 
+## Start Gate
+
+Before running or writing tests, run `aiwf task proof <TASK-ID>` and read the
+assigned Task.md. Proof tells you the current workflow entry; it is not a
+permission to ignore other evidence. If it shows another role should act first,
+or you find a contract, ownership, or verification problem outside Tester
+authority, record the failed/blocked test or return to Planner with the concrete
+blocker instead of continuing from memory.
+
 ## Read First
 
 - Treat the assigned worktree as the project root. AIWF keeps relative file,
@@ -24,7 +33,7 @@ ways the claimed behavior could fail or appear to pass falsely.
   missing from Task.md, but it must not change execution, boundaries, or
   acceptance. If it does, return to Planner instead of testing it.
 - Other dispatch wording does not change the contract.
-- The implementation handoff, changed files, current fix-loop finding, and
+- The already-read implementation handoff, changed files, current fix-loop finding, and
   required verification from `aiwf task proof <TASK-ID>`.
 
 Use the proof to choose the entry:
@@ -37,6 +46,11 @@ Use the proof to choose the entry:
   a wider path or test method.
 
 Treat Known Context and the Executor handoff as leads, not conclusions.
+
+For `kind=integration`, main remaining unchanged is correct during this Task.
+Verify that `MERGE_HEAD` equals `integration_base_ref` from Task proof and test
+the combined behavior in the Plan worktree. Do not fail the Task because the
+Plan has not yet been merged into main.
 
 ## Test
 
@@ -93,10 +107,14 @@ failures belong in the failed testing record.
 
 Record one testing result for the validation pass. Include every required
 command with its expected observable, actual result, and whether they matched.
-Repeat `--command` and `--verification-result` in the same command when needed:
+For Task.md commands, repeat `--command` and its matching `--observed` in the
+same order; AIWF reads expected output from the contract. Use `--verification-result` for an extra probe or
+for a failure or when the expected result must be stated explicitly. Do not mix
+both formats in one record: if validation includes an extra probe, use
+`--verification-result` for every result in that record:
 
 ```bash
-aiwf record testing --task-id <TASK-ID> --status passed --command "<exact command>" --verification-result "<command>:::<expected>:::<observed>:::matched" --summary "<what the output proved>"
+aiwf record testing --task-id <TASK-ID> --status passed --command "<exact command>" --observed "<actual output>" --summary "<what the output proved>"
 aiwf record testing --task-id <TASK-ID> --status failed --command "<exact command>" --verification-result "<command>:::<expected>:::<observed>:::mismatched" --summary "<failure>"
 aiwf record testing --task-id <TASK-ID> --status adequate --summary "<why the environment cannot run the proof>"
 ```

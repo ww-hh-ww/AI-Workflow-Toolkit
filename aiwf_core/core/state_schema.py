@@ -51,6 +51,10 @@ VALID_MILESTONE_STATUSES = {"open", "closed", "cancelled"}
 
 # ── V2 Unified Closure ──
 # Normal close:    {"status":"closed","closure":{"mode":"normal","accepted":true,"summary":"..."}}
+# Accepted gaps:   {"status":"closed","closure":{"mode":"accepted_with_gaps","accepted":true,
+#                   "known_gaps":["..."],"acceptance_reason":"..."}}
+# Plan delivery:   closure.merged_to_branch records the user-selected base branch.
+# Resolved merge paths may be kept in closure.resolved_conflicts.
 # Force-close:     {"status":"closed","closure":{"mode":"human_force","reason":null,"unsatisfied_checks":[]}}
 # Interrupt:       {"status":"suspended","interruption":{"reason":null,"unsatisfied_checks":[]}}
 # Cancel:          {"status":"cancelled","cancel_reason":"...","replaced_by":null}

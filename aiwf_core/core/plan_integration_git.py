@@ -45,7 +45,8 @@ def git_operation(base: Path) -> str:
         path = base / path
     for marker, label in (
         ("MERGE_HEAD", "merge"),
-        ("REBASE_HEAD", "rebase"),
+        ("rebase-merge", "rebase"),
+        ("rebase-apply", "rebase"),
         ("CHERRY_PICK_HEAD", "cherry-pick"),
         ("REVERT_HEAD", "revert"),
     ):

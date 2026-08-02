@@ -150,5 +150,8 @@ def list_task_plans(base_dir: str) -> List[Dict[str, object]]:
         plan_id = path.stem
         entry = registry.get(plan_id, {})
         plans.append({"task_id": plan_id, "plan_id": plan_id, "path": str(path),
-                      "registry": bool(entry), "task_ids": entry.get("task_ids", []) if entry else []})
+                      "registry": bool(entry),
+                      "status": entry.get("status", entry.get("plan_status", "open")),
+                      "closure": dict(entry.get("closure", {}) or {}) if entry else {},
+                      "task_ids": entry.get("task_ids", []) if entry else []})
     return plans

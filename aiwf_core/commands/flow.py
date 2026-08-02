@@ -116,23 +116,55 @@ def _task_next(
                     agent_route = (
                         f"otherwise, if available in this or the resumed original Claude session, "
                         f"try once to resume aiwf-executor {previous['agent_id']} with "
-                        f"SendMessage: 'Resume {task_id} repair. Run aiwf task proof "
-                        f"{task_id}, fix the current finding, record implementation, and return'; "
-                        "if unavailable or resume fails, dispatch a new aiwf-executor with the "
-                        "Task ID and current finding"
+                        "SendMessage using the Task ID and a concise repair brief grounded in "
+                        "the fix-loop context below; name the confirmed finding and source, "
+                        "affected expected behavior, what remains valid, and focused proof, "
+                        "without prescribing the implementation; if unavailable or resume "
+                        "fails, dispatch a new aiwf-executor with the same repair brief"
                     )
             else:
-                agent_route = "otherwise dispatch aiwf-executor"
+                agent_route = (
+                    "otherwise dispatch aiwf-executor with the Task ID and a concise "
+                    "repair brief grounded in the fix-loop context below"
+                )
             return (
                 "Implementation repair",
                 f"load /aiwf-implement for {task_id}; repair and record inline if tiny "
                 f"and clear; {agent_route}",
             )
         if route == "tester":
+            previous = (
+                resumable_agent(
+                    control, task_id=task_id, subagent_type="aiwf-tester",
+                )
+                if control else None
+            )
+            if previous:
+                if host == "opencode":
+                    agent_route = (
+                        f"otherwise continue the previous aiwf-tester child once with "
+                        f"task_id {previous['agent_id']} and a concise verification brief "
+                        "grounded in the fix-loop context below; if continuation is unavailable, "
+                        "dispatch a new aiwf-tester with the same brief"
+                    )
+                else:
+                    agent_route = (
+                        f"otherwise, if available in this or the resumed original Claude session, "
+                        f"try once to resume aiwf-tester {previous['agent_id']} with SendMessage "
+                        "using the Task ID and a concise verification brief grounded in the "
+                        "fix-loop context below; name the missing or mismatched proof and which "
+                        "results remain valid; if unavailable or resume fails, dispatch a new "
+                        "aiwf-tester with the same brief"
+                    )
+            else:
+                agent_route = (
+                    "otherwise dispatch aiwf-tester with the Task ID and a concise "
+                    "verification brief grounded in the fix-loop context below"
+                )
             return (
                 "Verification follow-up",
                 f"load /aiwf-test for {task_id}; retest inline if narrow and exact, "
-                "otherwise dispatch aiwf-tester, then record testing",
+                f"{agent_route}, then record testing",
             )
         return (
             "Planner decision",
@@ -284,6 +316,31 @@ def _task_next(
                 )
             return "Reviewer", f"load /aiwf-review and dispatch aiwf-reviewer for {task_id}"
         return "Inline review", f"load /aiwf-review, review {task_id} inline, and record it"
+    integration_close_mode = ""
+    if task.get("kind") == "integration" and reviewed_ref and control:
+        try:
+            from ..core.git_workflow import integration_close_readiness
+
+            worktree = str(task.get("worktree_path") or control)
+            readiness = integration_close_readiness(
+                worktree,
+                task,
+                str(task.get("git_origin_ref") or ""),
+                reviewed_ref,
+            )
+            if readiness.get("status") != "ready":
+                return (
+                    "Planner decision",
+                    f"load /aiwf-planner; {task_id} cannot close because "
+                    f"{readiness.get('message')}. Inspect the Git state before changing "
+                    "history or rerunning work",
+                )
+            integration_close_mode = str(readiness.get("mode") or "")
+        except Exception as error:
+            return (
+                "Planner decision",
+                f"load /aiwf-planner; {task_id} integration close preflight failed: {error}",
+            )
     deferred = [
         item for item in review.get("adversarial_observations", []) or []
         if isinstance(item, dict) and item.get("disposition") == "deferred"
@@ -294,6 +351,12 @@ def _task_next(
             f"load /aiwf-close; confirm {len(deferred)} deferred Reviewer observation(s) "
             "are written in a downstream Task or .aiwf/memory/notes/deferred-findings.md, "
             f"calibrate Task.md if needed, then close {task_id}",
+        )
+    if integration_close_mode == "amend_merge":
+        return (
+            "Close",
+            f"load /aiwf-close, calibrate Task.md if needed, then close {task_id}; "
+            "close will add the reviewed staged project tree to the existing correct merge commit",
         )
     return "Close", f"load /aiwf-close, calibrate Task.md if needed, then close {task_id}"
 
@@ -402,11 +465,52 @@ def _active_rows(control: Path, host: str = "") -> List[Dict[str, Any]]:
             "testing_status": (record.get("testing", {}) or {}).get("status", "missing"),
             "review_result": (record.get("review", {}) or {}).get("result", "unknown"),
             "fix_loop": (record.get("fix_loop", {}) or {}).get("status", "none"),
+            "fix_loop_context": dict(record.get("fix_loop", {}) or {}),
             "calibration_missing": calibration_missing,
             "running_agent": running[0]["subagent_type"] if len(running) == 1 else "",
             "agent_started_at": running[0].get("started_at", "") if len(running) == 1 else "",
         })
     return rows
+
+
+def _print_fix_loop_context(row: Dict[str, Any]) -> None:
+    fix_loop = row.get("fix_loop_context", {}) or {}
+    if fix_loop.get("status") != "open":
+        return
+    source = str(fix_loop.get("source") or "unknown")
+    route = str(fix_loop.get("route") or "planner")
+    attempt = int(fix_loop.get("attempt_count", 0) or 0)
+    maximum = int(fix_loop.get("max_attempts", 0) or 0)
+    attempt_text = f"{attempt}/{maximum}" if maximum else str(attempt)
+    print(f"Fix-loop: source={source}, route={route}, attempt={attempt_text}")
+    reason = " ".join(str(fix_loop.get("reason") or "").split())
+    if reason:
+        print(f"Finding: {reason[:500]}")
+
+    def compact(items: List[str]) -> str:
+        visible = items[:3]
+        suffix = f"; (+{len(items) - 3} more in task proof)" if len(items) > 3 else ""
+        return "; ".join(visible) + suffix
+
+    required_fixes = [
+        " ".join(str(item).split())
+        for item in fix_loop.get("required_fixes", []) or []
+        if str(item).strip()
+    ]
+    if required_fixes:
+        print("Required fixes: " + compact(required_fixes))
+    required_verification = [
+        " ".join(str(item).split())
+        for item in fix_loop.get("required_verification", []) or []
+        if str(item).strip()
+    ]
+    if required_verification:
+        print("Required verification: " + compact(required_verification))
+    print(
+        "Repair brief: use these verified facts and project judgment to state the "
+        "specific problem, expected correction, preserved work, and focused proof. "
+        "Keep USER_DELTA separate and only for an explicit user clarification."
+    )
 
 
 def _plans_at_closeout(control: Path) -> List[Dict[str, Any]]:
@@ -436,12 +540,14 @@ def _plans_between_tasks(control: Path) -> List[Dict[str, Any]]:
 
 
 def _installed(control: Path) -> bool:
+    from ..core.project_root import has_opencode_adapter
+
     return (
         (control / ".aiwf/state/state.json").exists()
         and (
             (control / ".claude/settings.json").exists()
             or (control / ".reasonix/settings.json").exists()
-            or (control / ".opencode/plugins/aiwf.js").exists()
+            or has_opencode_adapter(control)
         )
     )
 
@@ -457,7 +563,9 @@ def cmd_status(args) -> None:
 
     host = os.environ.get("AIWF_HOST", "").lower()
     if not host:
-        if (control / ".opencode/plugins/aiwf.js").exists() and not (
+        from ..core.project_root import has_opencode_adapter
+
+        if has_opencode_adapter(control) and not (
             control / ".claude/settings.json"
         ).exists():
             host = "opencode"
@@ -486,8 +594,10 @@ def _print_human(
     plans_closeout: List[Dict[str, Any]],
     plans_between: List[Dict[str, Any]],
 ) -> None:
+    from ..core.project_root import has_opencode_adapter
+
     if os.environ.get("AIWF_HOST", "").lower() == "opencode" or (
-        (control / ".opencode/plugins/aiwf.js").exists()
+        has_opencode_adapter(control)
         and not (control / ".claude/settings.json").exists()
     ):
         product = "OpenCode"
@@ -620,6 +730,7 @@ def _print_prompt(
             f"State: phase={row['phase'] or '-'}, testing={row['testing_status']}, "
             f"review={row['review_result']}, fix-loop={row['fix_loop']}"
         )
+        _print_fix_loop_context(row)
         if _skill_for(row["next_role"]) == "/aiwf-planner":
             _print_planner_memory(memory_root)
         return
@@ -632,9 +743,14 @@ def _print_prompt(
             base = str(plan.get("git_base_branch") or "(unknown base)")
             integration_state = plan.get("_integration_state")
             if integration_state == "closure_recovery":
+                verification_status = str(
+                    ((plan.get("integration") or {}).get("verification_status"))
+                    or "passed"
+                )
                 print(
                     f"- {plan_id} | project merge completed but governance closure was interrupted | "
-                    f"rerun the same aiwf plan integrate {plan_id} --status passed ... command. "
+                    f"rerun the same aiwf plan integrate {plan_id} --status "
+                    f"{verification_status} ... command with the same proof and gap arguments. "
                     "It will not merge the candidate again."
                 )
             elif integration_state == "merged_unverified":
@@ -664,30 +780,49 @@ def _print_prompt(
                 if dirty:
                     print(
                         f"- {plan_id} | candidate worktree changed after preparation: "
-                        f"{', '.join(dirty[:6])} | inspect before proof. Bring real result "
-                        "changes through a Task and prepare again. Restore generated noise only "
-                        "after the user confirms. Do not run --status passed while it is dirty."
+                        f"{', '.join(dirty[:6])} | the old candidate is stale. Planner classifies "
+                        "the change: resolve local, generated, or non-semantic integration work "
+                        "directly; use a Task only for semantic project work. Then rerun the same "
+                        "plan integrate command before proof."
                     )
                 else:
                     print(
                         f"- {plan_id} | candidate prepared at {candidate_path} | run its integration "
                         "checks there. Before merge, ask whether the user wants /aiwf-architect "
                         "on this exact candidate; the user chooses one or several Plans whose "
-                        "results are present in it. If a finding requires a candidate change, "
-                        "add a Task and prepare again. Otherwise, after the user declines or "
+                        "results are present in it. If a finding changes the candidate, resolve "
+                        "environment, generated, or non-semantic work directly and use a Task "
+                        "only for semantic project work; then prepare again. Otherwise, after the user declines or "
                         "decides the findings, write Plan.md '## Closure Calibration' with "
                         "the actual outcome and only any difference or remaining gap that "
                         "matters. Then run "
                         f"aiwf plan integrate {plan_id} --status passed ...; it records the exact "
                         "results, immediately merges the passing candidate, and closes the Plan. "
-                        "If the user "
+                        "If an original Plan outcome remains unmet, do not call it passed: after "
+                        "showing the observed result and consequence, ask whether the user explicitly "
+                        "accepts closing with that gap. If they do, use --status accepted_with_gaps "
+                        "with machine-readable --known-gap and --acceptance-reason arguments. If the user "
                         f"wants to keep it open instead, run aiwf plan hold {plan_id}."
                     )
+            elif integration_state == "integration_audit":
+                integration = plan.get("integration", {}) or {}
+                audit = integration.get("audit", {}) or {}
+                blocking = "; ".join(audit.get("blocking", []) or [])
+                print(
+                    f"- {plan_id} | integration audit | {blocking or 'inspect advisory assets'}. "
+                    "No candidate has been prepared. Planner may use normal editing and Git "
+                    "to classify and resolve local residue, deliverable assets, reproducible "
+                    "output, or unknown risk; then rerun the same aiwf plan integrate command."
+                )
             elif integration_state == "integration_conflict":
                 print(
-                    f"- {plan_id} | base and Plan conflict | create a kind=integration Task under "
-                    "this Plan, resolve it through Executor, Tester, Reviewer, and close, then rerun "
-                    f"aiwf plan integrate {plan_id}."
+                    f"- {plan_id} | integration conflict\n"
+                    "  Planner inspects the actual diff and chooses the lightest honest path. "
+                    "Small Git, generated-file, or environment conflicts may be resolved directly "
+                    "in the Plan worktree with normal Git, without a Task or role dispatch; then "
+                    f"rerun aiwf plan integrate {plan_id}. If resolution changes behavior, "
+                    "interfaces, dependencies, or product meaning, create one kind=integration "
+                    "Task. Explain meaningful resolution choices in Plan Closure Calibration."
                 )
             elif integration_state == "integration_failed":
                 print(
@@ -780,6 +915,7 @@ def _print_prompt(
             f"do={row['action']} | next={row['next_role']} | "
             f"skill={_skill_for(row['next_role'])} | worktree={row['worktree_path']}"
         )
+        _print_fix_loop_context(row)
     if "/aiwf-planner" in required:
         _print_planner_memory(memory_root)
 

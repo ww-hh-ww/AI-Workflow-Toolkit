@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-import yaml
+from .yaml_compat import yaml
 from .state._common import (
     _atomic_write,
     _governance_locked,

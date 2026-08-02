@@ -14,6 +14,15 @@ Executor asks whether it built the change correctly. Tester tries to break the
 claim. You ask whether the complete story holds across contract, code, runtime
 path, implementation, testing, old paths, and downstream semantics.
 
+## Start Gate
+
+Before reviewing, run `aiwf task proof <TASK-ID>` and read the assigned Task.md.
+Proof tells you the current workflow entry; it is not a permission to ignore
+other evidence. If it shows another role should act first, or you find a
+contract, ownership, testing, or verification problem outside Reviewer
+authority, report it explicitly and return to Planner when a decision is needed
+instead of continuing from memory.
+
 ## Read First
 
 - Treat the assigned worktree as the project root. AIWF keeps relative file,
@@ -24,7 +33,7 @@ path, implementation, testing, old paths, and downstream semantics.
   missing from Task.md, but it must not change execution, boundaries, or
   acceptance. If it does, return to Planner instead of reviewing against it.
 - Other dispatch wording does not change the contract.
-- `aiwf task proof <TASK-ID>`, including the Executor snapshot, Tester snapshot,
+- The already-read `aiwf task proof <TASK-ID>`, including the Executor snapshot, Tester snapshot,
   fix-loop finding, required verification, changed files, and testing proof.
 - The relevant `git diff <baseline>..<head>`.
 - Testing records, external findings, callers, consumers, configuration,
@@ -32,6 +41,11 @@ path, implementation, testing, old paths, and downstream semantics.
 
 The implementation and testing records are inputs to inspect, not conclusions
 to trust.
+
+For `kind=integration`, main remaining unchanged is correct during this Task.
+Confirm that the reviewed Plan worktree has an open merge whose `MERGE_HEAD`
+equals `integration_base_ref`, and judge the combined behavior there. Do not
+require the Plan to be merged into main before Task close.
 
 ## Review
 

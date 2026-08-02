@@ -23,6 +23,96 @@ SNAPSHOT_GUIDANCE = (
 )
 
 
+def _integration_parents(base: Path, ref: str) -> List[str]:
+    return _required(base, "show", "-s", "--format=%P", ref).split()
+
+
+def integration_close_readiness(
+    base_dir: str,
+    task: Dict[str, Any],
+    origin_ref: str,
+    reviewed_ref: str,
+) -> Dict[str, str]:
+    """Classify an integration Task's Git state without changing it."""
+    base = Path(base_dir)
+    info = repository_info(base_dir)
+    expected_base = str(task.get("integration_base_ref") or "")
+    expected_parents = [origin_ref, expected_base]
+    if not origin_ref or not expected_base or not reviewed_ref:
+        return {
+            "status": "blocked",
+            "message": "integration Task is missing its recorded origin, base, or reviewed ref",
+        }
+    if worktree_changes_from_ref(base_dir, reviewed_ref):
+        return {
+            "status": "blocked",
+            "message": reviewed_snapshot_mismatch_message(base_dir, reviewed_ref),
+        }
+    merge_head = _run(base, "rev-parse", "-q", "--verify", "MERGE_HEAD")
+    open_merge_ref = merge_head.stdout.strip() if merge_head.returncode == 0 else ""
+    if info["head"] == origin_ref:
+        if not open_merge_ref:
+            return {
+                "status": "blocked",
+                "message": (
+                    "integration Task has not opened the recorded merge; run the merge "
+                    "from Task.md and resolve it before close"
+                ),
+            }
+        if open_merge_ref != expected_base:
+            return {
+                "status": "blocked",
+                "message": "integration Task is resolving a different base commit than it activated with",
+            }
+        return {"status": "ready", "mode": "open_merge"}
+    if open_merge_ref:
+        return {
+            "status": "blocked",
+            "message": "integration Task HEAD changed while another merge is still open",
+        }
+    if _integration_parents(base, info["head"]) != expected_parents:
+        return {
+            "status": "blocked",
+            "message": (
+                "existing integration commit does not have the recorded Plan and "
+                "base refs as its two parents"
+            ),
+        }
+    if not tree_changes(base_dir, reviewed_ref, info["head"]):
+        return {"status": "ready", "mode": "existing_merge"}
+    staged_tree = _required(base, "write-tree")
+    staged_changes = tree_changes(base_dir, reviewed_ref, staged_tree)
+    if staged_changes:
+        detail = format_tree_changes(staged_changes) or "tree content or file modes differ"
+        return {
+            "status": "blocked",
+            "message": (
+                "the current integration index does not match the reviewed project "
+                f"snapshot ({detail})"
+            ),
+        }
+    staged_result = _run(base, "diff", "--cached", "--name-only", "-z")
+    if staged_result.returncode != 0:
+        return {
+            "status": "blocked",
+            "message": staged_result.stderr.strip() or "cannot inspect the Git index",
+        }
+    staged_paths = parse_nul_paths(staged_result.stdout)
+    internal_staged = [
+        path for path in staged_paths
+        if path == ".aiwf" or path.startswith(".aiwf/")
+    ]
+    if internal_staged:
+        return {
+            "status": "blocked",
+            "message": (
+                "AIWF governance files are staged with the premature merge: "
+                + ", ".join(internal_staged[:8])
+            ),
+        }
+    return {"status": "ready", "mode": "amend_merge"}
+
+
 def reviewed_snapshot_mismatch_message(base_dir: str, reviewed_ref: str) -> str:
     changes = worktree_changes_from_ref(base_dir, reviewed_ref)
     detail = format_tree_changes(changes) or "tree content or file modes differ"
@@ -229,19 +319,21 @@ def create_task_commit(
         raise ValueError(
             f"Task is bound to Git branch '{expected_branch}', current branch is '{info['branch']}'"
         )
-    if info["head"] != origin_ref:
+    integration_mode = ""
+    if integration_task:
+        readiness = integration_close_readiness(
+            base_dir, task, origin_ref, reviewed_ref,
+        )
+        if readiness.get("status") != "ready":
+            raise ValueError(str(readiness.get("message") or "integration Task is not ready to close"))
+        integration_mode = str(readiness.get("mode") or "")
+        if integration_mode == "existing_merge":
+            return info["head"]
+    elif info["head"] != origin_ref:
         if (
             ref_tree(base_dir, info["head"]) == ref_tree(base_dir, reviewed_ref)
             and worktree_matches_ref(base_dir, reviewed_ref)
         ):
-            if integration_task:
-                parents = _required(base, "show", "-s", "--format=%P", info["head"]).split()
-                expected_base = str(task.get("integration_base_ref") or "")
-                if parents != [origin_ref, expected_base]:
-                    raise ValueError(
-                        "existing integration commit does not have the recorded Plan and "
-                        "base refs as its two parents"
-                    )
             return info["head"]
         raise ValueError(
             "Git HEAD changed since Task activation; " + SNAPSHOT_GUIDANCE +
@@ -271,16 +363,7 @@ def create_task_commit(
             f"Git index already contains staged files: {staged}; "
             "unstage them before Task close"
         )
-    if integration_task:
-        merge_head = _run(base, "rev-parse", "-q", "--verify", "MERGE_HEAD")
-        expected_parent = str(task.get("integration_base_ref") or "")
-        if merge_head.returncode != 0:
-            raise ValueError(
-                "integration Task has not merged its recorded base ref; run the merge from "
-                "Task.md and resolve it before close"
-            )
-        if expected_parent and merge_head.stdout.strip() != expected_parent:
-            raise ValueError("integration Task is resolving a different base commit than it activated with")
+    if integration_task and integration_mode == "open_merge":
         from .plan_integration_git import (
             is_governance_path,
             resolve_governance_from_ref,
@@ -321,9 +404,13 @@ def create_task_commit(
     if goal_id:
         trailers.append(f"Goal: {goal_id}")
     message_args = [arg for item in trailers for arg in ("-m", item)]
-    result = _run(base, "commit", "-m", subject, *message_args)
+    commit_args = ["commit"]
+    if integration_mode == "amend_merge":
+        commit_args.append("--amend")
+    result = _run(base, *commit_args, "-m", subject, *message_args)
     if result.returncode != 0:
-        _run(base, "reset", "-q", "HEAD", "--", ".")
+        if integration_mode != "amend_merge":
+            _run(base, "reset", "-q", "HEAD", "--", ".")
         raise ValueError(result.stderr.strip() or result.stdout.strip() or "git commit failed")
     commit = _required(base, "rev-parse", "HEAD")
     if integration_task:
@@ -367,18 +454,20 @@ def plan_integration_state(base_dir: str, plan: Dict[str, Any]) -> str:
         return "working"
     if not any(status == "closed" for status in statuses.values()):
         return "no_completed_work"
+    integration = plan.get("integration", {}) or {}
+    integration_status = str(integration.get("status") or "")
+    if integration_status == "auditing":
+        return "integration_audit"
+    if integration_status == "conflict":
+        return "integration_conflict"
+    if integration_status == "failed":
+        return "integration_failed"
     branch = str(plan.get("git_branch") or "")
     head_ref = str(plan.get("git_head_ref") or "")
     if branch and head_ref:
         actual = _run(Path(base_dir), "rev-parse", f"{branch}^{{commit}}")
         if actual.returncode != 0 or actual.stdout.strip() != head_ref:
             return "git_incomplete"
-    integration = plan.get("integration", {}) or {}
-    integration_status = str(integration.get("status") or "")
-    if integration_status == "conflict":
-        return "integration_conflict"
-    if integration_status == "failed":
-        return "integration_failed"
     if integration_status == "prepared":
         base_branch = str(plan.get("git_base_branch") or "")
         current_base = _run(Path(base_dir), "rev-parse", f"{base_branch}^{{commit}}")

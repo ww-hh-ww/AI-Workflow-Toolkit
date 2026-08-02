@@ -14,6 +14,12 @@ Inline does not mean casual. Before doing anything, read the active
 If Contract Responsibility, main-path consumer, invariant, or proof is unclear,
 stop and return to Planner instead of guessing.
 
+For `kind=integration`, main remains unchanged during the Task. Implementation
+merges the exact `integration_base_ref` from Task proof into the Plan worktree
+with `git merge --no-ff --no-commit <ref>` and leaves the merge open. Testing
+and review confirm `MERGE_HEAD`, the combined behavior, and the current
+snapshots there. They do not require the Plan to be in main before Task close.
+
 ## Implement
 
 - Trivial task: fix it correctly, check obvious impact.
@@ -35,9 +41,14 @@ stop and return to Planner instead of guessing.
 - Match testing mode to Task.md. Honest failed > lazy passed.
 - Record actual observable output, not just "passed".
 - Record one testing result for the validation pass. Repeat `--command` and
-  `--verification-result` inside that record for every required command:
+  its matching `--observed` in the same order for every required Task.md command. AIWF
+  reads expected output from Task.md. This shortcut is only for passed Task.md
+  commands. Use `--verification-result` for a failure, extra probe, or when the
+  expected result must be stated explicitly. Do not mix both formats in one
+  record: if this validation includes an extra probe, use `--verification-result`
+  for every result in that record:
   ```bash
-  aiwf record testing --task-id <TASK-ID> --status passed --command "<exact command>" --verification-result "<command>:::<expected>:::<observed>:::matched" --summary "<what the output proved>"
+  aiwf record testing --task-id <TASK-ID> --status passed --command "<exact command>" --observed "<actual output>" --summary "<what the output proved>"
   aiwf record testing --task-id <TASK-ID> --status failed --command "<exact command>" --verification-result "<command>:::<expected>:::<observed>:::mismatched" --summary "<failure>"
   ```
 

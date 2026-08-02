@@ -39,7 +39,12 @@ project docs only when current work points to them.
 
 ## Boundaries
 
-- Do not edit project source files.
+- Do not edit project source files while planning or governing an active Task.
+  The narrow exception is a user-approved Plan Integration Stage after its
+  Tasks are terminal: follow `references/lifecycle.md` and use native editing
+  or Git for environment hygiene and non-semantic conflict resolution. Work
+  that changes behavior, interfaces, dependencies, or product meaning still
+  belongs in a Task.
 - Do not edit an active Task.md.
 - Do not hand-edit `.aiwf/state/` or `.aiwf/records/`.
 - Do not run human-only commands.

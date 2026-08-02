@@ -74,6 +74,16 @@ write `## Closure Calibration` in Plan.md. Start with one concise paragraph
 stating what the Plan actually delivers. Add only an important difference from
 the original Plan or a remaining gap that future work must know.
 
+If an original Plan outcome is still unmet, never describe the integration as
+passed. The user may explicitly accept the disclosed limitation and close with
+`accepted_with_gaps`; keep each gap and the acceptance reason machine-readable.
+If the work should continue under the same Plan, hold it instead of merging.
+
+When integration needed conflict resolution, record only the choices and
+consequences future work needs: what conflicted, why direct repair was honest,
+and what was kept. AIWF records the actual base branch but does not interpret
+branch names as development or release status.
+
 ## Quality Check
 
 - Does the Plan explain a mechanism, not just list work?

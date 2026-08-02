@@ -45,7 +45,10 @@ class TestOpenCodeInstall(unittest.TestCase):
         self.assertIn("initialize Git and create the initial commit", result.stdout)
         self.assertTrue((self.root / "AGENTS.md").exists())
         self.assertTrue((self.root / "opencode.json").exists())
-        self.assertTrue((self.root / ".opencode/plugins/aiwf.js").exists())
+        self.assertTrue((self.root / "scripts/aiwf_opencode_plugin.js").exists())
+        self.assertFalse((self.root / ".opencode/plugins/aiwf.js").exists())
+        config = json.loads((self.root / "opencode.json").read_text(encoding="utf-8"))
+        self.assertIn("./scripts/aiwf_opencode_plugin.js", config["plugin"])
         self.assertTrue((self.root / ".opencode/agents/aiwf-planner.md").exists())
         self.assertTrue((self.root / ".opencode/agents/aiwf-executor.md").exists())
         self.assertTrue((self.root / ".opencode/skills/aiwf-planner/SKILL.md").exists())
@@ -82,7 +85,8 @@ class TestOpenCodeInstall(unittest.TestCase):
 
     def test_plugin_covers_native_tool_and_compaction_events(self):
         self.install()
-        plugin = (self.root / ".opencode/plugins/aiwf.js").read_text(encoding="utf-8")
+        plugin_path = self.root / "scripts/aiwf_opencode_plugin.js"
+        plugin = plugin_path.read_text(encoding="utf-8")
         self.assertNotIn(str(self.root), plugin)
         self.assertTrue((self.root / ".aiwf/runtime/internal/python-command.json").exists())
         self.assertIn('"chat.message"', plugin)
@@ -113,7 +117,7 @@ class TestOpenCodeInstall(unittest.TestCase):
         self.assertNotIn("Planner does not switch worktrees", lifecycle)
         node = shutil.which("node")
         if node:
-            checked = _run([node, "--check", str(self.root / ".opencode/plugins/aiwf.js")], self.root)
+            checked = _run([node, "--check", str(plugin_path)], self.root)
             self.assertEqual(checked.returncode, 0, checked.stderr)
 
     def test_open_code_events_keep_host_identity(self):
@@ -147,7 +151,7 @@ class TestOpenCodeInstall(unittest.TestCase):
             self.root,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertTrue((self.root / ".opencode/plugins/aiwf.js").exists())
+        self.assertTrue((self.root / "scripts/aiwf_opencode_plugin.js").exists())
         self.assertTrue((self.root / ".claude/settings.json").exists())
         self.assertTrue((self.root / "AGENTS.md").exists())
         self.assertTrue((self.root / "CLAUDE.md").exists())
@@ -157,6 +161,16 @@ class TestOpenCodeInstall(unittest.TestCase):
         )
         self.assertEqual(doctor.returncode, 0, doctor.stderr)
         self.assertIn("AIWF Doctor - OpenCode - healthy", doctor.stdout)
+
+    def test_reinstall_removes_legacy_autoload_plugin(self):
+        legacy = self.root / ".opencode/plugins/aiwf.js"
+        legacy.parent.mkdir(parents=True)
+        legacy.write_text("export const AIWFPlugin = async () => ({})\n", encoding="utf-8")
+
+        self.install()
+
+        self.assertFalse(legacy.exists())
+        self.assertTrue((self.root / "scripts/aiwf_opencode_plugin.js").exists())
 
     def test_doctor_recognizes_open_code_install(self):
         self.install()

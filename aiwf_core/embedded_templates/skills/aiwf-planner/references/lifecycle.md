@@ -50,10 +50,17 @@ path. State the fact, its source, and the needed adjustment. Do not repeat
 Task.md, ask for progress, or ask a working Agent to record early.
 
 Resume a completed Agent only when Claude Code can access it in the current
-session or the resumed original session. Name the specific omission or finding
-and try `SendMessage` once. If it is unavailable or fails, dispatch a new Agent
-with the Task ID and tell it to read `aiwf task proof`. Once resumed, wait for
-its real return before starting the Task's next role.
+session or the resumed original session. Read the current fix-loop facts, then
+write a concise repair or verification brief that names the confirmed finding
+and source, affected expected behavior, what remains valid, and the focused
+proof. Be specific about the problem and outcome while leaving implementation
+judgment to the role Agent. Send the Task ID and this brief with `SendMessage`
+once. If it is unavailable or fails, dispatch a new Agent with the same brief.
+Once resumed, wait for its real return before starting the Task's next role.
+
+Keep `USER_DELTA` separate from the brief. It is only an explicit user
+clarification missing from Task.md, not a label for fix-loop evidence. Do not
+repeat the full Task, proof, or earlier report in either message.
 
 If the message would change execution, boundaries, or acceptance, do not send
 it as an adjustment. Ask the user to interrupt, then revise and critique the
@@ -180,6 +187,12 @@ explicit approval, run `aiwf task activate <TASK-ID> --accept-head-change`.
   correct route and exact remaining work, then follow status.
 - If the Task contract must change, ask the user whether to interrupt it.
 
+For an integration Task, do not repair an unchanged implementation merely
+because Tester expected the Plan to already be in main. Verify the recorded
+base merge and combined behavior on the same snapshot, record the narrow
+testing correction inline, then resolve the loop. A missing or wrong
+`MERGE_HEAD` still routes to implementation repair.
+
 ## After A Task
 
 Before the next Task, read the Plan, completed Task Calibration, review, and
@@ -205,17 +218,38 @@ aiwf plan hold <PLAN-ID>
 ```
 
 Do not ask again while the Plan result is unchanged. If the user chooses to
-merge, run `aiwf plan integrate <PLAN-ID>`. It prepares a candidate against the
-latest base without changing the base branch. Run the Plan's integration checks
-against that exact candidate.
+merge, run `aiwf plan integrate <PLAN-ID>`. This is stage 1/2: it prepares a
+candidate against the latest base without merging into the base branch. Run the
+Plan's integration checks against that exact candidate. Stage 2/2 is the later
+`--status passed` or explicitly accepted `--status accepted_with_gaps` call.
+
+Once the Plan's Tasks are terminal, Planner owns its Integration Stage. Normal
+editing and Git remain available in the Plan worktree and, when needed for base
+hygiene, through an explicit base path. AIWF may first return a soft integration
+audit instead of a candidate. Classify tracked and untracked changes, ignored
+assets, empty directory skeletons, generated output, and open Git operations as
+local residue, deliverable assets, reproducible output, or unknown risk. Resolve
+what matters and rerun the same command. Do not create a repair workflow merely
+to clean the environment. Ignored and empty paths are advisory because Git
+cannot decide whether the project needs them in the next clean checkout.
+
+Planner may change files while resolving the audit or a conflict. That does not
+violate the workflow; it makes any older candidate stale. Prepare again before
+proof. Use ordinary merge, rebase, staging, and commits as the situation needs.
+Do not destroy recovery data with `git reset --hard`, `git clean -f`, or
+`git stash pop/drop/clear`; leave destructive disposition to the user and
+prefer `git stash apply` when a stash is needed.
 
 Before `--status passed`, ask whether the user wants `/aiwf-architect`. The user
 chooses the slice and lenses. For several Plans, only include results already
-present in this candidate through main. Architect reviews the exact candidate,
+present in this candidate through the integration branch. Architect reviews the exact candidate,
 not separate branch tips. It reports; Planner presents the findings and the
-user decides what to do. If the candidate must change, add a Task to an
-appropriate open Plan and prepare a fresh candidate. Architect remains optional
-and does not replace integration proof.
+user decides what to do. If a finding changes the candidate, classify the
+repair by the same Integration Stage rule: resolve environment, generated, and
+non-semantic work directly; create a Task in an appropriate open Plan only
+when the repair changes behavior, interfaces, dependencies, or product meaning.
+Then prepare and verify a fresh candidate. Architect remains optional and does
+not replace integration proof.
 
 After the user declines Architect, or its report is handled, record the expected
 and observed results. Write `## Closure Calibration` in Plan.md with what the
@@ -223,24 +257,56 @@ Plan actually delivers. Add only a difference from the original Plan or a
 remaining gap that future work must know. Keep it concise. Do not checkpoint
 this edit separately.
 
-Then run `--status passed`. The command reads the Calibration, records its first
-paragraph as the machine summary, immediately merges the passing candidate,
-closes the Plan, and checkpoints governance. If the command was interrupted
-after the project merge, rerun the same command; it finishes governance closure
-without merging again. If the user changes their mind, use
-`aiwf plan hold <PLAN-ID>` instead. If preparation reports a conflict, create a
-`kind=integration` Task and use the normal Executor, Tester, Reviewer, and close
-chain.
+When every promised outcome used for closure is met, run `--status passed`.
+The command reads the Calibration, records its first paragraph as the machine
+summary, immediately merges the passing candidate, closes the Plan, and
+checkpoints governance.
+
+When the candidate is verified but an original Plan outcome remains unmet, do
+not relabel it passed and do not merge manually. Explain the observed result,
+consequence, and alternatives. Only after the user explicitly accepts closing
+with the limitation, run `--status accepted_with_gaps` with at least one
+machine-readable `--known-gap` and an `--acceptance-reason` grounded in that
+decision. Record an observed verification result for every command, including
+mismatches. This merges the exact candidate and closes the Plan with
+`closure.mode=accepted_with_gaps`. A gap that needs continued work belongs in a
+new Plan after this one closes; otherwise keep this Plan open with
+`aiwf plan hold <PLAN-ID>`.
+
+If either accepted merge command is interrupted after the project merge, rerun
+the same command with the same status, proof, gaps, and reason; it finishes
+governance closure without merging again. If the user changes their mind, use
+`aiwf plan hold <PLAN-ID>` instead.
+
+Plan integration targets the Plan's recorded base branch. AIWF does not choose
+`develop`, `main`, or another branch for the user and does not infer release
+status from a branch name. The user decides which branch is the Plan base and
+whether any later branch-to-branch merge should happen.
+
+If preparation reports a conflict, classify it before creating a Task. When
+resolution does not change project behavior, interfaces, dependencies, or
+product meaning, resolve it directly in the Plan worktree with native editing and Git,
+without dispatching roles or creating a repair workflow. Then rerun
+the same `aiwf plan integrate <PLAN-ID>` command; AIWF recognizes the resolved
+merge and prepares the candidate. Explain any meaningful choice or consequence
+under Plan.md Closure Calibration. Only semantic conflicts become a
+`kind=integration` Task. This classification is Planner judgment grounded in
+the actual diff, not a filename or command-driven gate.
+
+If an integration Task already exists, recheck the classification instead of
+continuing mechanically. Keep it only for a semantic resolution. If it was
+created before the diff was understood and has produced no governed work,
+explain that and ask the user before cancelling it; then use the direct path.
 
 If that preflight becomes stale before the integration Task activates, run
 `aiwf plan integrate <PLAN-ID>` again. It may refresh around one pending or
 suspended integration Task. Governance-only commits are adopted
-automatically. For other Plan-branch commits, inspect the diff with the user;
-only after approval rerun with `--accept-head-change`. Recheck Task.md and
-repeat both critique passes when the recorded refs change.
+automatically. Other Plan-branch commits appear in the integration audit;
+inspect and disposition them, then rerun the same command. Recheck Task.md and
+repeat both critique passes when a semantic integration Task's inputs change.
 
 For several Plans, follow dependencies and integrate one at a time against the
-moving base. Each next Plan candidate includes the latest main. The user may
+moving base. Each next Plan candidate includes the latest integration branch. The user may
 choose Architect for any candidate. Passing integration closes each Plan.
 
 Do not modify a closed Plan or link new work to it. Create a new Plan instead.

@@ -423,6 +423,66 @@ class TestStateCliOps(unittest.TestCase):
         self.assertIn("aiwf plan show PLAN-CLOSE-OUT", result.stdout)
         self.assertIn("Required skills: /aiwf-planner", result.stdout)
 
+    def test_status_routes_plan_conflict_without_ambiguous_merge_advice(self):
+        state_path = self.tmp / ".aiwf/state/state.json"
+        state = json.loads(state_path.read_text())
+        state.update({
+            "phase": "planning", "active_task_id": None,
+            "active_plan_id": "PLAN-CONFLICT",
+        })
+        state_path.write_text(json.dumps(state))
+        self._write_json("state/plans.json", {
+            "active_plan_id": "PLAN-CONFLICT",
+            "plans": [{
+                "plan_id": "PLAN-CONFLICT", "status": "open",
+                "task_ids": ["TASK-DONE"],
+                "task_status": {"TASK-DONE": "closed"},
+                "integration": {
+                    "status": "conflict",
+                    "base_ref": "base-ref",
+                    "plan_ref": "plan-ref",
+                },
+            }],
+        })
+        self._write_json("state/tasks.json", {
+            "tasks": [{"id": "TASK-DONE", "status": "closed"}],
+        })
+
+        result = self._run("status", "--prompt")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("lightest honest path", result.stdout)
+        self.assertIn("normal Git", result.stdout)
+        self.assertIn("without a Task or role dispatch", result.stdout)
+        self.assertIn("create one kind=integration Task", result.stdout)
+        self.assertNotIn("--resolve-nonlogic", result.stdout)
+
+    def test_status_routes_integration_audit_back_to_planner(self):
+        self._write_json("state/plans.json", {
+            "active_plan_id": "PLAN-AUDIT",
+            "plans": [{
+                "plan_id": "PLAN-AUDIT", "status": "open",
+                "task_ids": ["TASK-DONE"],
+                "task_status": {"TASK-DONE": "closed"},
+                "integration": {
+                    "status": "auditing",
+                    "audit": {
+                        "blocking": ["Plan worktree has project changes: .DS_Store"],
+                    },
+                },
+            }],
+        })
+        self._write_json("state/tasks.json", {
+            "tasks": [{"id": "TASK-DONE", "status": "closed"}],
+        })
+
+        result = self._run("status", "--prompt")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("integration audit", result.stdout)
+        self.assertIn("normal editing and Git", result.stdout)
+        self.assertIn("rerun the same aiwf plan integrate command", result.stdout)
+
     def test_sync_clears_plan_hold_when_task_set_changes(self):
         self._write_json("state/plans.json", {
             "plans": [{

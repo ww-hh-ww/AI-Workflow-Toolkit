@@ -253,21 +253,39 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
         "integrate", help="prepare a Plan candidate or verify, merge, and close it",
     )
     p_pli.add_argument("plan_id", help="Plan ID")
-    p_pli.add_argument("--status", choices=["passed", "failed"], default="",
-                       help="record proof; passing proof merges the candidate and closes the Plan")
+    p_pli.add_argument(
+        "--status",
+        choices=["passed", "failed", "accepted_with_gaps"],
+        default="",
+        help=(
+            "record proof; passed or explicitly accepted_with_gaps merges the "
+            "candidate and closes the Plan"
+        ),
+    )
     p_pli.add_argument("--command", action="append", default=[], dest="commands",
                        help="exact integration verification command")
     p_pli.add_argument("--verification-result", action="append", default=[],
                        dest="verification_results",
                        help="command:::expected:::observed:::matched|mismatched")
     p_pli.add_argument(
+        "--result", action="append", default=[], dest="paired_results",
+        help="expected:::observed:::matched|mismatched, paired in --command order",
+    )
+    p_pli.add_argument(
         "--summary", default="",
         help="failure summary for --status failed; passing closure reads Plan.md",
     )
     p_pli.add_argument(
-        "--accept-head-change",
-        action="store_true",
-        help="adopt inspected project commits before refreshing Plan integration",
+        "--known-gap",
+        action="append",
+        default=[],
+        dest="known_gaps",
+        help="known unmet Plan outcome accepted for this merge; repeat for each gap",
+    )
+    p_pli.add_argument(
+        "--acceptance-reason",
+        default="",
+        help="why the user explicitly accepts closing and merging with the recorded gaps",
     )
     p_pli.set_defaults(func=_cmd_plan_integrate)
     p_plca = p_plan_sub.add_parser("cancel", help="cancel a plan")
@@ -361,6 +379,10 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
     p_re_te = p_rec_sub.add_parser("testing", help="record testing results")
     p_re_te.add_argument("--status", required=True, choices=["missing","partial","adequate","passed","failed"])
     p_re_te.add_argument("--command", action="append", default=[], dest="commands")
+    p_re_te.add_argument(
+        "--observed", action="append", default=[], dest="observed_results",
+        help="actual passing output paired in order with --command; Task.md only, do not combine with --verification-result",
+    )
     p_re_te.add_argument("--verification-result", action="append", default=[], dest="verification_results",
                          help="structured command result: command:::expected:::observed:::matched|mismatched")
     p_re_te.add_argument("--summary", default="", help="testing summary")

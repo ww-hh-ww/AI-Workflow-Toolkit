@@ -181,8 +181,8 @@ class TestTaskParallelContract(unittest.TestCase):
         self.assertNotIn(".aiwf/", status)
 
     def test_opencode_session_uses_its_own_worktree_directory_when_hosts_coexist(self):
-        plugin = self.tmp / ".opencode/plugins/aiwf.js"
-        plugin.parent.mkdir(parents=True)
+        plugin = self.tmp / "scripts/aiwf_opencode_plugin.js"
+        plugin.parent.mkdir(parents=True, exist_ok=True)
         plugin.write_text("export const AIWFPlugin = async () => ({})\n", encoding="utf-8")
         subprocess.run(["git", "add", str(plugin)], cwd=self.tmp, check=True)
         subprocess.run(

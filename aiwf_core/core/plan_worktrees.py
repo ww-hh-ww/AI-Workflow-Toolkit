@@ -57,15 +57,16 @@ def create_plan_worktree(
         raise ValueError("Plan worktree creation requires an initial Git commit")
     if not info["branch"]:
         raise ValueError("control root must be on a named base branch")
-
     relative_parent: Path | None = None
     if not worktree_path:
+        from .project_root import has_opencode_adapter
+
         host = os.environ.get("AIWF_HOST", "").strip().lower()
-        if host == "opencode" and (control / ".opencode/plugins/aiwf.js").exists():
+        if host == "opencode" and has_opencode_adapter(control):
             config_dir = ".opencode"
         elif (control / ".claude/settings.json").exists():
             config_dir = ".claude"
-        elif (control / ".opencode/plugins/aiwf.js").exists():
+        elif has_opencode_adapter(control):
             config_dir = ".opencode"
         else:
             config_dir = ".reasonix"
@@ -73,7 +74,7 @@ def create_plan_worktree(
         managed_worktree_roots = {relative_parent}
         if (control / ".claude/settings.json").exists():
             managed_worktree_roots.add(Path(".claude/worktrees"))
-        if (control / ".opencode/plugins/aiwf.js").exists():
+        if has_opencode_adapter(control):
             managed_worktree_roots.add(Path(".opencode/worktrees"))
         if (control / ".reasonix/settings.json").exists():
             managed_worktree_roots.add(Path(".reasonix/worktrees"))
@@ -102,6 +103,11 @@ def create_plan_worktree(
         )
 
     branch = str(plan.get("git_branch") or f"aiwf/{slug}")
+    # A Plan returns to the branch the user chose as its base at creation time.
+    if not str(plan.get("git_base_branch") or ""):
+        plan["git_base_branch"] = info["branch"]
+    if not str(plan.get("git_base_ref") or ""):
+        plan["git_base_ref"] = info["head"]
     created = False
     if target.exists():
         target_info = repository_info(str(target))
