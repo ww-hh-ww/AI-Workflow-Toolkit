@@ -7,7 +7,9 @@ export PYTHONPYCACHEPREFIX="${PYTHONPYCACHEPREFIX:-${TMPDIR:-/tmp}/aiwf-pycache}
 
 [[ -f "$ROOT/bin/aiwf" ]] && chmod +x "$ROOT/bin/aiwf" 2>/dev/null || true
 
-TIMEOUT_SEC=45
+# Contract files intentionally exercise installed CLIs and temporary Git repos.
+# Keep hang protection, but leave enough room for slower local filesystems.
+TIMEOUT_SEC="${AIWF_TEST_TIMEOUT_SEC:-180}"
 
 # Each file runs in its own process. If it hangs, it is killed.
 # Explicit per-file execution replaces unittest discovery (quarantined due to hangs).
@@ -44,10 +46,6 @@ for t in "${TESTS[@]}"; do
   echo "--- $t ---"
   cd "$ROOT"
   timeout_sec=$TIMEOUT_SEC
-  if [ "$t" = "tests/embedded/test_task_parallel_contract.py" ]; then
-    timeout_sec=75
-  fi
-
   # Run with explicit timeout via background process + wait
   python3 -u "$ROOT/$t" 2>&1 &
   PID=$!

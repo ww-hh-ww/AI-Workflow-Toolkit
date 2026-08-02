@@ -25,8 +25,8 @@ snapshots there. They do not require the Plan to be in main before Task close.
 - Trivial task: fix it correctly, check obvious impact.
 - Simple task: trace callers/imports/config enough to prove the change is
   consumed where the contract says it matters.
-- Run every Verification Command and compare expected observable output to
-  actual output.
+- Run every Verification Command and judge the actual observable against the
+  contract. Expected may describe a semantic condition, not literal stdout.
 - Record the implementation. Git refs carry the full change;
   keep the summary short and use the strongest exact self-check:
   ```bash
@@ -41,15 +41,15 @@ snapshots there. They do not require the Plan to be in main before Task close.
 - Match testing mode to Task.md. Honest failed > lazy passed.
 - Record actual observable output, not just "passed".
 - Record one testing result for the validation pass. Repeat `--command` and
-  its matching `--observed` in the same order for every required Task.md command. AIWF
-  reads expected output from Task.md. This shortcut is only for passed Task.md
-  commands. Use `--verification-result` for a failure, extra probe, or when the
-  expected result must be stated explicitly. Do not mix both formats in one
-  record: if this validation includes an extra probe, use `--verification-result`
-  for every result in that record:
+  its matching `--observed` in the same order for every required Task.md command.
+  This shortcut is only for passed Task.md commands. Use `--verification-result`
+  for a failure, extra probe, or explicit mismatch. It already contains the
+  command, so do not repeat that command with `--command`. Mark `matched` only
+  when the actual evidence supports the contract; if the contract is unclear,
+  return to Planner:
   ```bash
   aiwf record testing --task-id <TASK-ID> --status passed --command "<exact command>" --observed "<actual output>" --summary "<what the output proved>"
-  aiwf record testing --task-id <TASK-ID> --status failed --command "<exact command>" --verification-result "<command>:::<expected>:::<observed>:::mismatched" --summary "<failure>"
+  aiwf record testing --task-id <TASK-ID> --status failed --verification-result "<command>:::<expected>:::<observed>:::mismatched" --summary "<failure>"
   ```
 
 ## Review

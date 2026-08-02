@@ -57,8 +57,9 @@ Plan has not yet been merged into main.
 1. Build a failure model before running commands. Consider only risks that fit
    the task and code reality: boundary values, errors, state transitions,
    lifecycle, concurrency, permissions, migration, integration, or bypasses.
-2. For first validation, run every Verification Command exactly enough to
-   compare expected with actual output. For follow-up verification, run the
+2. For first validation, run every Verification Command exactly enough to judge
+   the actual observable against the contract. Expected may describe a
+   semantic condition rather than literal stdout. For follow-up verification, run the
    failed reproducer, required verification from the proof, and regressions
    affected by the repair; do not repeat the whole Task by default.
 3. Add independent probes that could expose a false pass. Check whether mocks,
@@ -107,15 +108,16 @@ failures belong in the failed testing record.
 
 Record one testing result for the validation pass. Include every required
 command with its expected observable, actual result, and whether they matched.
-For Task.md commands, repeat `--command` and its matching `--observed` in the
-same order; AIWF reads expected output from the contract. Use `--verification-result` for an extra probe or
-for a failure or when the expected result must be stated explicitly. Do not mix
-both formats in one record: if validation includes an extra probe, use
-`--verification-result` for every result in that record:
+For a passing Task.md command, copy the contract command into `--command` and
+put the actual observable in its matching `--observed`, in the same order. Use
+`--verification-result` for a failure, extra probe, or explicit mismatch; it is
+self-contained, so do not repeat its command with `--command`. Mark `matched`
+only when the actual evidence supports the contract. If the contract is not
+honestly testable, return to Planner instead of changing it during testing:
 
 ```bash
 aiwf record testing --task-id <TASK-ID> --status passed --command "<exact command>" --observed "<actual output>" --summary "<what the output proved>"
-aiwf record testing --task-id <TASK-ID> --status failed --command "<exact command>" --verification-result "<command>:::<expected>:::<observed>:::mismatched" --summary "<failure>"
+aiwf record testing --task-id <TASK-ID> --status failed --verification-result "<command>:::<expected>:::<observed>:::mismatched" --summary "<failure>"
 aiwf record testing --task-id <TASK-ID> --status adequate --summary "<why the environment cannot run the proof>"
 ```
 

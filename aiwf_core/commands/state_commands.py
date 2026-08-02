@@ -192,13 +192,19 @@ def _cmd_record_testing(args: argparse.Namespace) -> None:
         verification_results = verification_results or _task_verification_results(
             Path.cwd(), task_id, args.commands or [], args.observed_results or [], args.status,
         )
+        # A structured result already identifies its command. Treat that as the
+        # single identity source so a separately repeated --command cannot turn
+        # equivalent evidence into two proof keys through quoting differences.
         recorded_commands = (
             [item["command"] for item in verification_results]
-            if args.observed_results
+            if verification_results
             else (args.commands or [])
         )
-        if args.status == "passed" and not args.commands:
-            raise ValueError("passed testing requires at least one exact --command")
+        if args.status == "passed" and not recorded_commands:
+            raise ValueError(
+                "passed testing requires at least one --command/--observed pair "
+                "or --verification-result"
+            )
         if args.status == "failed" and not args.summary:
             raise ValueError("failed testing requires a concise --summary")
         testing = record_testing(
@@ -207,7 +213,7 @@ def _cmd_record_testing(args: argparse.Namespace) -> None:
             commands=recorded_commands or None,
             coverage_summary=args.summary or "",
             failure_summary=args.summary if args.status == "failed" else "",
-            failed_commands=args.commands if args.status == "failed" else None,
+            failed_commands=recorded_commands if args.status == "failed" else None,
             verification_results=verification_results or None,
             task_id=task_id,
         )

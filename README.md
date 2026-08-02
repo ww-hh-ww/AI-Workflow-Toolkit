@@ -816,9 +816,12 @@ aiwf record testing --task-id TASK-001 --status passed \
 没有 `aiwf task test` 命令。`/aiwf-test` 负责派发测试工作，Tester 完成后用
 `aiwf record testing` 保存测试结果和 Git snapshot。
 
-对于 Task.md 已声明的命令，`--observed` 会自动读取其 expected 并按 `passed` 或
-`failed` 记录匹配结果。`--verification-result` 保留给额外探针或需要显式覆盖结果
-的场景。一次完整验证应尽量一次记录全部命令。若漏了一条，只运行并补录缺失项；仅当
+对于 Task.md 已声明且 Tester 判断通过的命令，`--observed` 会自动读取其 expected，
+并记录实际输出和 `matched`。`--verification-result` 保留给失败、额外探针或需要显式
+陈述判断的场景；它本身已经包含 command，不要再用 `--command` 重复声明。expected
+描述成功的可观察含义，不要求逐字等于 stdout。是否满足由 Tester 明确记录，Reviewer
+复核；AIWF 只机械检查命令覆盖、非空证据、match 决定和 snapshot 新鲜度，不替代这个
+判断。一次完整验证应尽量一次记录全部命令。若漏了一条，只运行并补录缺失项；仅当
 `implementation_ref` 和工作树内容都未变化时，AIWF 才保留同一 `tested_ref` 上已有的有效结果。
 
 Reviewer：

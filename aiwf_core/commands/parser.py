@@ -384,7 +384,7 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
         help="actual passing output paired in order with --command; Task.md only, do not combine with --verification-result",
     )
     p_re_te.add_argument("--verification-result", action="append", default=[], dest="verification_results",
-                         help="structured command result: command:::expected:::observed:::matched|mismatched")
+                         help="self-contained result: command:::expected:::observed:::matched|mismatched; do not repeat its command with --command")
     p_re_te.add_argument("--summary", default="", help="testing summary")
     p_re_te.add_argument("--task-id", default="", help="Task ID (defaults to the current worktree)")
     p_re_te.set_defaults(func=_cmd_record_testing)

@@ -104,6 +104,7 @@ class TestPromptClarityContract(unittest.TestCase):
         for required in [
             "For the first validation",
             "when `tester_required` is true",
+            "Wait for Executor to return when `executor_required=true`",
             "## Follow-Up Verification",
             "Retest inline",
             "Dispatch Tester again",
@@ -111,6 +112,8 @@ class TestPromptClarityContract(unittest.TestCase):
             "concise verification brief",
             "which results remain valid",
             "Keep `USER_DELTA` separate",
+            "The testing role must judge each actual observable against the contract",
+            "Do not rewrite Task.md merely to make a record pass",
         ]:
             self.assertIn(required, test_skill)
 

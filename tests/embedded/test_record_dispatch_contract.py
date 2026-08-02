@@ -500,6 +500,64 @@ Verification Commands:
         )
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_explicit_result_is_self_contained_for_passed_testing(self):
+        tasks_path = self.tmp / ".aiwf" / "state" / "tasks.json"
+        tasks = json.loads(tasks_path.read_text(encoding="utf-8"))
+        tasks["tasks"][0]["requirements"]["tester_required"] = False
+        tasks_path.write_text(json.dumps(tasks, indent=2) + "\n", encoding="utf-8")
+        task_doc = self.tmp / ".aiwf/tasks/TASK-001.md"
+        task_doc.write_text(
+            VALID_TASK_CONTRACT + """
+| Verification Commands | Expected |
+| --- | --- |
+| grep -rn "class.*Node" src/*/ | at least 5 Node classes |
+""",
+            encoding="utf-8",
+        )
+
+        result = self._cli(
+            "record", "testing", "--status", "passed",
+            "--verification-result",
+            'grep -rn "class.*Node" src/*/:::at least 5 Node classes:::9 class definitions:::matched',
+            "--summary", "node inventory satisfies the contract",
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        testing = self._read_record()["testing"]
+        self.assertEqual(testing["status"], "passed")
+        self.assertIn('grep -rn "class.*Node" src/*/', testing["commands"])
+        self.assertEqual(testing["proof_validation"]["missing_commands"], [])
+
+    def test_explicit_result_command_wins_over_repeated_quote_variant(self):
+        tasks_path = self.tmp / ".aiwf" / "state" / "tasks.json"
+        tasks = json.loads(tasks_path.read_text(encoding="utf-8"))
+        tasks["tasks"][0]["requirements"]["tester_required"] = False
+        tasks_path.write_text(json.dumps(tasks, indent=2) + "\n", encoding="utf-8")
+        task_doc = self.tmp / ".aiwf/tasks/TASK-001.md"
+        task_doc.write_text(
+            VALID_TASK_CONTRACT + """
+| Verification Commands | Expected |
+| --- | --- |
+| grep -rn "class.*Node" src/*/ | at least 5 Node classes |
+""",
+            encoding="utf-8",
+        )
+
+        result = self._cli(
+            "record", "testing", "--status", "passed",
+            "--command", "grep -rn 'class.*Node' src/*/",
+            "--verification-result",
+            'grep -rn "class.*Node" src/*/:::at least 5 Node classes:::9 class definitions:::matched',
+            "--summary", "node inventory satisfies the contract",
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        testing = self._read_record()["testing"]
+        self.assertEqual(testing["status"], "passed")
+        self.assertIn('grep -rn "class.*Node" src/*/', testing["commands"])
+        self.assertNotIn("grep -rn 'class.*Node' src/*/", testing["commands"])
+        self.assertEqual(testing["proof_validation"]["missing_commands"], [])
+
     def test_inline_testing_reads_expected_output_from_task_contract(self):
         tasks_path = self.tmp / ".aiwf" / "state" / "tasks.json"
         tasks = json.loads(tasks_path.read_text(encoding="utf-8"))

@@ -15,7 +15,8 @@ verification Task uses `kind=milestone_verification` and `milestone_id` instead.
 Use `kind=integration` only after `aiwf plan integrate <PLAN-ID>` reports a Git
 conflict and Planner confirms that resolving it changes project behavior,
 interfaces, dependencies, or product meaning. Non-semantic conflicts use the
-Plan worktree and native Git directly and never create a Task or repair workflow. For a semantic Task, state
+Plan worktree and native Git directly and never create a Task or repair
+workflow. For a semantic Task, state
 the combined behavior that must survive, conflict surfaces, and integration
 checks. Do not prescribe a line-by-line resolution.
 
@@ -150,6 +151,12 @@ Executor leaves one concise implementation evidence record with git refs and a
 strong self-check. Tester records one validation result containing every exact
 required command, expected result, observed result, and match decision.
 Reviewer judges the contract, diff, callers, evidence, testing, and old paths.
+
+Expected output should describe the observable meaning of success, not prescribe
+a transcript. Tester decides whether the actual result satisfies it and records
+`matched` or `mismatched`; Reviewer checks that judgment against the evidence.
+The machine gate only needs the contract to be covered by non-empty, explicit
+results from the current snapshot.
 
 ## Dispatch
 
