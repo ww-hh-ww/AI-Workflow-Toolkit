@@ -378,13 +378,31 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
     p_re_ev.set_defaults(func=_cmd_record_implementation)
     p_re_te = p_rec_sub.add_parser("testing", help="record testing results")
     p_re_te.add_argument("--status", required=True, choices=["missing","partial","adequate","passed","failed"])
-    p_re_te.add_argument("--command", action="append", default=[], dest="commands")
+    p_re_te.add_argument(
+        "--check", action="append", default=[], dest="checks",
+        help="stable Task.md verification ID, for example V-001",
+    )
     p_re_te.add_argument(
         "--observed", action="append", default=[], dest="observed_results",
-        help="actual passing output paired in order with --command; Task.md only, do not combine with --verification-result",
+        help="actual output paired with --check; requires --verdict",
     )
-    p_re_te.add_argument("--verification-result", action="append", default=[], dest="verification_results",
-                         help="self-contained result: command:::expected:::observed:::matched|mismatched; do not repeat its command with --command")
+    p_re_te.add_argument(
+        "--observed-file", action="append", default=[], dest="observed_files",
+        help="file containing actual output, paired with --check",
+    )
+    p_re_te.add_argument(
+        "--verdict", action="append", default=[], dest="verdicts",
+        choices=["matched", "mismatched", "blocked"],
+        help="Tester judgment paired with --check",
+    )
+    p_re_te.add_argument(
+        "--basis", action="append", default=[], dest="bases",
+        help="short Tester basis, paired with --check",
+    )
+    p_re_te.add_argument(
+        "--proof-file", default="", dest="proof_file",
+        help="JSON proof array with check, observed, verdict, and basis",
+    )
     p_re_te.add_argument("--summary", default="", help="testing summary")
     p_re_te.add_argument("--task-id", default="", help="Task ID (defaults to the current worktree)")
     p_re_te.set_defaults(func=_cmd_record_testing)

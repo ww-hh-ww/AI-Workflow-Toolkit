@@ -40,16 +40,14 @@ snapshots there. They do not require the Plan to be in main before Task close.
   path, bypass, fixture/mock, boundary/error case, or integration consumer.
 - Match testing mode to Task.md. Honest failed > lazy passed.
 - Record actual observable output, not just "passed".
-- Record one testing result for the validation pass. Repeat `--command` and
-  its matching `--observed` in the same order for every required Task.md command.
-  This shortcut is only for passed Task.md commands. Use `--verification-result`
-  for a failure, extra probe, or explicit mismatch. It already contains the
-  command, so do not repeat that command with `--command`. Mark `matched` only
-  when the actual evidence supports the contract; if the contract is unclear,
-  return to Planner:
+- Record one testing result for every stable Verification Command ID in Task.md.
+  Use `--check`, `--observed` (or `--observed-file`), and an explicit
+  `--verdict`; use `--basis` when the judgment needs explanation. The Task owns
+  the command and expected observable. Do not record by command text or infer a
+  pass from non-empty output; if the contract is unclear, return to Planner:
   ```bash
-  aiwf record testing --task-id <TASK-ID> --status passed --command "<exact command>" --observed "<actual output>" --summary "<what the output proved>"
-  aiwf record testing --task-id <TASK-ID> --status failed --verification-result "<command>:::<expected>:::<observed>:::mismatched" --summary "<failure>"
+  aiwf record testing --task-id <TASK-ID> --status passed --check V-001 --observed "<actual output>" --verdict matched --basis "<why it satisfies the contract>" --summary "<what the output proved>"
+  aiwf record testing --task-id <TASK-ID> --status failed --check V-001 --observed "<actual output>" --verdict mismatched --basis "<verified failure>" --summary "<failure>"
   ```
 
 ## Review

@@ -57,8 +57,8 @@ The Agent prompt must name exactly one active Task ID. AIWF adds the current
 contract path and worktree, then routes project tools there. Do not use `EnterWorktree`,
 `isolation: worktree`, or copy Task changes between worktrees.
 
-Read `.aiwf` governance from the control root. The Plan worktree owns project
-code, not a separate copy of the Task contract.
+Read `.aiwf` governance from the control root. A Plan worktree owns project
+code, not an independent `.aiwf` directory or copy of the Task contract.
 
 For `kind=integration`, Executor merges the exact base ref shown by
 `aiwf task proof` with `git merge --no-ff --no-commit <ref>`, resolves the Task

@@ -18,6 +18,59 @@ def _write_task(base: Path, task_id: str, body: str) -> dict:
 
 
 class TestTaskProofContract(unittest.TestCase):
+    def test_verification_id_is_identity_not_natural_language_output(self):
+        from aiwf_core.core.task_proof import validate_testing_against_task
+
+        base = Path(tempfile.mkdtemp(prefix="awproof_ids_"))
+        task = _write_task(
+            base,
+            "TASK-IDS",
+            """# TASK-IDS
+
+## Fixed Contract
+
+### Structural Home
+
+Goal and Plan.
+
+### Objective
+
+Two distinct claims use the same command.
+
+### Contract Responsibility
+
+Own both claims.
+
+### Proof Standard
+
+Done When:
+
+- [Running] both claims are verified.
+
+Verification Commands:
+
+| ID | Command | Expected Observable Output |
+|----|---------|----------------------------|
+| V-001 | printf ready | output means the route is ready |
+| V-002 | printf ready | output means the consumer is ready |
+""",
+        )
+
+        proof = validate_testing_against_task(str(base), task, {
+            "status": "passed",
+            "commands": ["printf ready", "printf ready"],
+            "verification_results": [
+                {"verification_id": "V-001", "command": "printf ready",
+                 "observed": "route token", "matched": True, "verdict": "matched"},
+                {"verification_id": "V-002", "command": "printf ready",
+                 "observed": "consumer token", "matched": True, "verdict": "matched"},
+            ],
+        })
+
+        self.assertEqual(proof["missing_verification_results"], [])
+        self.assertEqual(proof["mismatched_results"], [])
+        self.assertEqual(proof["required_verification_ids"], ["V-001", "V-002"])
+
     def test_missing_task_document_blocks_activation_and_testing_proof(self):
         from aiwf_core.core.task_proof import (
             activation_proof_blockers,
@@ -116,10 +169,10 @@ GOAL-001 / PLAN-001。
 
 验证命令：
 
-| 命令 | 预期可观察结果 |
-|------|----------------|
-| `pnpm test` | 测试通过。 |
-| `pnpm build` | 构建通过。 |
+| ID | 命令 | 预期可观察结果 |
+|----|------|----------------|
+| V-001 | `pnpm test` | 测试通过。 |
+| V-002 | `pnpm build` | 构建通过。 |
 """,
         )
 
@@ -181,8 +234,8 @@ GOAL-001 / PLAN-001。
             "### Proof Standard\n\n"
             "Done When:\n\n- Running: command prints hello.\n\n"
             "Verification Commands:\n\n"
-            "| Command | Expected Observable Output |\n"
-            "|---|---|\n| python3 app.py | hello |\n",
+            "| ID | Command | Expected Observable Output |\n"
+            "|---|---|---|\n| V-001 | python3 app.py | hello |\n",
             encoding="utf-8",
         )
         task = {"id": "TASK-OPTIONAL", "doc_path": ".aiwf/tasks/TASK-OPTIONAL.md"}
@@ -223,9 +276,9 @@ Done When:
 
 Verification Commands:
 
-| Command | Expected Observable Output |
-|---------|----------------------------|
-| (fill) | (fill) |
+| ID | Command | Expected Observable Output |
+|----|----------------------------|
+| V-001 | (fill) | (fill) |
 """,
         )
 
@@ -272,9 +325,9 @@ Done When:
 
 Verification Commands:
 
-| Command | Expected Observable Output |
-|---------|----------------------------|
-| python3 -m aiwf_core.cli status --prompt | lists required skill routing |
+| ID | Command | Expected Observable Output |
+|----|----------------------------|
+| V-001 | python3 -m aiwf_core.cli status --prompt | lists required skill routing |
 """,
         )
 
@@ -434,9 +487,9 @@ Done When:
 
 Verification Commands:
 
-| Command | Expected Observable Output |
-|---------|----------------------------|
-| pytest tests/test_route.py | 1 passed |
+| ID | Command | Expected Observable Output |
+|----|----------------------------|
+| V-001 | pytest tests/test_route.py | 1 passed |
 """,
         )
         proof = validate_testing_against_task(str(base), task, {

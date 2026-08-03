@@ -197,7 +197,7 @@ def _completion_blocker(base, task_id, agent_type, agent_id="", session_id=""):
             return (
                 f"The testing record for {task_id} is fresh, but it does not prove the "
                 f"complete Verification Commands contract: {named}. Run only the missing "
-                "or mismatched proof, then record each exact command, expected result, "
+                "or mismatched proof, then record each Verification Command ID, verdict, "
                 "and observed result. Existing valid results are preserved while the "
                 "tested worktree stays unchanged."
             )

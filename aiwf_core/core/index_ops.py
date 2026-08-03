@@ -898,9 +898,9 @@ Use distinct final proof commands. Target specific tests first and run each
 necessary full regression once at the end. Do not list several commands that
 rerun the same suite under different labels.
 
-| Command | Expected Observable Output |
-|---------|----------------------------|
-| Unknown — blocks: | Unknown — blocks: |
+| ID | Command | Expected Observable Output |
+|----|---------|----------------------------|
+| V-001 | Unknown — blocks: | Unknown — blocks: |
 
 ### Dispatch Decisions
 
@@ -957,9 +957,9 @@ Done When:
 
 Verification Commands:
 
-| Command | Expected Observable Output |
-|---------|----------------------------|
-| Unknown — blocks: | Unknown — blocks: |
+| ID | Command | Expected Observable Output |
+|----|---------|----------------------------|
+| V-001 | Unknown — blocks: | Unknown — blocks: |
 
 ## Milestone Reference
 

@@ -33,8 +33,9 @@ Critic use their own prompts.
   removing Planner context, then routes every project tool call to that worktree.
 - Do not use `isolation: worktree`, call `EnterWorktree`, or copy changes
   between worktrees. The Task roles share the Plan worktree.
-- `.aiwf` governance always comes from the control root. Project code and tests
-  come from the assigned Plan worktree.
+- `.aiwf` governance always comes from the control root. Plan worktrees do not
+  carry an independent `.aiwf` working-tree copy; project code and tests come
+  from the assigned Plan worktree.
 - Task.md is the baseline. Add `USER_DELTA` only for an explicit user
   clarification Task.md does not contain. It must not change execution,
   boundaries, or acceptance. A material change requires human interrupt,

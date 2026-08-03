@@ -47,6 +47,11 @@ Use the proof to choose the entry:
 
 Treat Known Context and the Executor handoff as leads, not conclusions.
 
+After grounding in the Task contract and Known Context, use the Tester
+questions in Open Judgment as failure hypotheses or false-pass probes. Test
+the relevant ones or explain why they are not applicable; keep the Task
+contract, constraints, and expected observables as the authority.
+
 For `kind=integration`, main remaining unchanged is correct during this Task.
 Verify that `MERGE_HEAD` equals `integration_base_ref` from Task proof and test
 the combined behavior in the Plan worktree. Do not fail the Task because the
@@ -106,20 +111,24 @@ failures belong in the failed testing record.
 
 ## Record And Report
 
-Record one testing result for the validation pass. Include every required
-command with its expected observable, actual result, and whether they matched.
-For a passing Task.md command, copy the contract command into `--command` and
-put the actual observable in its matching `--observed`, in the same order. Use
-`--verification-result` for a failure, extra probe, or explicit mismatch; it is
-self-contained, so do not repeat its command with `--command`. Mark `matched`
-only when the actual evidence supports the contract. If the contract is not
-honestly testable, return to Planner instead of changing it during testing:
+Record one testing result for every required Verification Command ID. The Task
+owns the command and expected observable; the Tester supplies actual evidence,
+a verdict, and a short basis. Use an observed file for multiline or shell-heavy
+output. Mark `matched` only when the evidence supports the contract. If the
+contract is not honestly testable, return to Planner instead of changing it
+during testing:
 
 ```bash
-aiwf record testing --task-id <TASK-ID> --status passed --command "<exact command>" --observed "<actual output>" --summary "<what the output proved>"
-aiwf record testing --task-id <TASK-ID> --status failed --verification-result "<command>:::<expected>:::<observed>:::mismatched" --summary "<failure>"
+aiwf record testing --task-id <TASK-ID> --status passed --check V-001 --observed "<actual output>" --verdict matched --basis "<why it satisfies the expected observable>" --summary "<what the output proved>"
+aiwf record testing --task-id <TASK-ID> --status failed --check V-001 --observed "<actual output>" --verdict mismatched --basis "<verified failure>" --summary "<failure>"
+aiwf record testing --task-id <TASK-ID> --status adequate --proof-file /tmp/task-proof.json --summary "<environment block and impact>"
 aiwf record testing --task-id <TASK-ID> --status adequate --summary "<why the environment cannot run the proof>"
 ```
+
+`/tmp/task-proof.json` is an array of `{ "check": "V-001", "observed":
+"...", "verdict": "matched|mismatched|blocked", "basis": "..." }` objects.
+Use `verdict: blocked` with a concrete environment reason; do not turn an
+unclear result into `matched`.
 
 Before recording, briefly scan the proof requirements and your results for a
 missing command, observable, or finding. Do not repeat testing merely for this

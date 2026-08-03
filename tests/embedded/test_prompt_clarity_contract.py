@@ -357,24 +357,35 @@ class TestPromptClarityContract(unittest.TestCase):
         executor = read("agents/aiwf-executor.md")
         tester = read("agents/aiwf-tester.md")
         reviewer = read("agents/aiwf-reviewer.md")
+        executor_text = " ".join(executor.split())
+        tester_text = " ".join(tester.split())
         reviewer_text = " ".join(reviewer.split())
         for required in [
             "follow the real main path",
             "Trace before editing",
+            "work through Task.md",
+            "use the Executor questions in Open Judgment",
+            "code-based choices that answer them",
             "RETURN_TO_PLANNER:",
             "aiwf record implementation",
         ]:
-            self.assertIn(required, executor)
+            self.assertIn(required, executor_text)
         for required in [
             "Build a failure model",
             "false pass",
+            "grounding in the Task contract and Known Context",
+            "use the Tester questions in Open Judgment",
+            "as failure hypotheses or false-pass probes",
             "EXTERNAL_FINDING:",
-            "expected observable, actual result",
+            "expected observable; the Tester supplies actual evidence",
         ]:
-            self.assertIn(required, tester)
+            self.assertIn(required, tester_text)
         for required in [
             "complete story holds",
             "Trace callers and consumers",
+            "reading the Task contract, context, and proof",
+            "use the Reviewer questions in Open Judgment",
+            "adversarial lenses",
             "REVIEW_REPORT",
             "what Executor actually changed",
             "what Tester ran and proved",

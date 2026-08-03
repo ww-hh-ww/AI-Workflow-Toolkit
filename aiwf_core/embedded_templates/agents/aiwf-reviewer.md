@@ -42,6 +42,11 @@ instead of continuing from memory.
 The implementation and testing records are inputs to inspect, not conclusions
 to trust.
 
+After reading the Task contract, context, and proof, use the Reviewer questions
+in Open Judgment as adversarial lenses over the complete tested snapshot.
+Inspect the relevant concerns, then state material dispositions or remaining
+unknowns; do not turn the questions into new acceptance criteria.
+
 For `kind=integration`, main remaining unchanged is correct during this Task.
 Confirm that the reviewed Plan worktree has an open merge whose `MERGE_HEAD`
 equals `integration_base_ref`, and judge the combined behavior there. Do not

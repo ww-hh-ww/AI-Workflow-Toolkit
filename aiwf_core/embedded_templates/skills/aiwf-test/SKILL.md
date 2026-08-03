@@ -92,9 +92,11 @@ If `tester_required` is false, do not dispatch Tester. Read
 command's expected result, actual result, and whether they matched.
 
 The testing role must judge each actual observable against the contract.
-Use `matched` only when the evidence supports success; otherwise record a
-failed or mismatched result. If the contract itself is unclear, return to
-Planner. Do not rewrite Task.md merely to make a record pass.
+Record by the stable Verification Command ID from Task.md, never by command
+text. Use `matched` only when the evidence supports success; use `mismatched`
+for a verified contract failure and `blocked` for a real environment limit with
+a reason. If the contract itself is unclear, return to Planner. Do not rewrite
+Task.md merely to make a record pass.
 
 Ask the user before weakening expected behavior, accepting an environment limit
 as adequate for a main path, widening scope, bypassing a gate, or skipping a

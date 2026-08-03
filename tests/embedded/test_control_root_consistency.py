@@ -44,12 +44,48 @@ class TestControlRootConsistency(unittest.TestCase):
         )
 
     def tearDown(self):
+        hidden = getattr(self, "hidden_worktree", None)
+        if hidden:
+            subprocess.run(
+                ["git", "worktree", "remove", "--force", str(hidden)],
+                cwd=self.control, capture_output=True,
+            )
         subprocess.run(
             ["git", "worktree", "remove", "--force", str(self.worktree)],
             cwd=self.control, capture_output=True,
         )
         shutil.rmtree(self.worktree, ignore_errors=True)
         shutil.rmtree(self.control, ignore_errors=True)
+
+    def test_plan_worktree_hides_tracked_governance_and_keeps_control_authoritative(self):
+        from aiwf_core.core.plan_worktrees import create_plan_worktree
+        from aiwf_core.core.worktree_context import resolve_control_root
+
+        subprocess.run(
+            ["git", "add", ".aiwf"], cwd=self.control, check=True,
+            capture_output=True,
+        )
+        subprocess.run(
+            ["git", "commit", "-m", "track governance"], cwd=self.control,
+            check=True, capture_output=True,
+        )
+        self.hidden_worktree = self.control.parent / f"{self.control.name}_hidden"
+        subprocess.run(
+            ["git", "worktree", "add", "-b", "aiwf/hidden",
+             str(self.hidden_worktree), "HEAD"],
+            cwd=self.control, check=True, capture_output=True,
+        )
+
+        plan = {"plan_id": "PLAN-HIDDEN", "git_branch": "aiwf/hidden"}
+        result = create_plan_worktree(
+            str(self.control), plan, self.hidden_worktree,
+        )
+
+        self.assertFalse(result["created"])
+        self.assertFalse((self.hidden_worktree / ".aiwf").exists())
+        self.assertEqual(
+            resolve_control_root(self.hidden_worktree), self.control.resolve(),
+        )
 
     def test_narrative_created_from_plan_worktree_uses_control_root(self):
         from aiwf_core.core.index_ops import create_narrative_for_entity

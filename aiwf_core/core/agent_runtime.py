@@ -175,7 +175,48 @@ def bind_dispatch_agent(
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(entry) + "\n")
+        _remember_task_agent(control, target, agent_id, status="running")
     return True
+
+
+def _remember_task_agent(
+    base_dir: str | Path,
+    dispatch: Dict[str, Any],
+    agent_id: str,
+    *,
+    status: str,
+) -> None:
+    """Keep a durable role-to-Agent pointer for fix-loop recovery.
+
+    The dispatch log is the detailed runtime history. This small pointer keeps
+    recovery useful when a host did not preserve every hook event, while the
+    role and Task association remain explicit and auditable.
+    """
+    task_id = str(dispatch.get("task_id") or "")
+    role = str(dispatch.get("subagent_type") or "")
+    if not task_id or not role or not agent_id:
+        return
+    try:
+        from .task_records import update_task_record
+
+        update_task_record(
+            base_dir,
+            task_id,
+            lambda record: record.setdefault("role_agents", {}).__setitem__(
+                role,
+                {
+                    "agent_id": agent_id,
+                    "session_id": str(dispatch.get("session_id") or ""),
+                    "plan_id": str(dispatch.get("plan_id") or ""),
+                    "worktree_path": str(dispatch.get("worktree_path") or ""),
+                    "status": status,
+                    "updated_at": _now(),
+                },
+            ),
+        )
+    except Exception:
+        # Runtime bookkeeping must never prevent the role Agent from running.
+        return
 
 
 def resumable_agent(
@@ -184,15 +225,20 @@ def resumable_agent(
     subagent_type: str = "aiwf-executor",
     agent_id: str = "",
 ) -> Optional[Dict[str, str]]:
-    """Return the latest successfully completed Agent that Claude may resume."""
+    """Return the latest completed role Agent that Claude may resume.
+
+    Older installations may not have a complete dispatch log, so the
+    task-scoped role pointer is a fallback. A later cancellation wins over an
+    earlier successful run; never resurrect a role the user just stopped.
+    """
     running_agent_ids = {
         str(item.get("agent_id") or "")
         for item in running_dispatches(base_dir)
         if item.get("agent_id")
     }
-    latest_by_agent: Dict[str, Optional[Dict[str, str]]] = {}
-    order: Dict[str, int] = {}
-    for index, entry in enumerate(_entries(base_dir)):
+    latest: Optional[Dict[str, str]] = None
+    terminal_seen = False
+    for entry in _entries(base_dir):
         current_agent = str(entry.get("agent_id") or "")
         current_task = str(entry.get("task_id") or "")
         current_role = str(entry.get("subagent_type") or "")
@@ -205,11 +251,11 @@ def resumable_agent(
         status = str(entry.get("status") or "")
         if status not in TERMINAL:
             continue
-        order[current_agent] = index
+        terminal_seen = True
         if status == "cancelled":
-            latest_by_agent[current_agent] = None
+            latest = None
             continue
-        latest_by_agent[current_agent] = {
+        latest = {
             "task_id": current_task,
             "subagent_type": current_role,
             "session_id": str(entry.get("session_id") or ""),
@@ -218,12 +264,40 @@ def resumable_agent(
             "worktree_path": str(entry.get("worktree_path") or ""),
             "completed_at": str(entry.get("timestamp") or ""),
         }
-    candidates = [
-        (order[current_agent], value)
-        for current_agent, value in latest_by_agent.items()
-        if value is not None and current_agent not in running_agent_ids
-    ]
-    return max(candidates, default=(-1, None), key=lambda item: item[0])[1]
+    if latest and latest["agent_id"] not in running_agent_ids:
+        return latest
+    if terminal_seen:
+        return None
+
+    # The pointer is intentionally only a fallback: a complete dispatch log
+    # remains authoritative for newer hosts.
+    if task_id and not agent_id:
+        try:
+            from .task_records import load_task_record
+
+            pointer = (
+                load_task_record(base_dir, task_id)
+                .get("role_agents", {})
+                .get(subagent_type, {})
+            )
+        except Exception:
+            pointer = {}
+        if (
+            isinstance(pointer, dict)
+            and pointer.get("status") == "completed"
+            and pointer.get("agent_id")
+            and str(pointer["agent_id"]) not in running_agent_ids
+        ):
+            return {
+                "task_id": task_id,
+                "subagent_type": subagent_type,
+                "session_id": str(pointer.get("session_id") or ""),
+                "agent_id": str(pointer["agent_id"]),
+                "plan_id": str(pointer.get("plan_id") or ""),
+                "worktree_path": str(pointer.get("worktree_path") or ""),
+                "completed_at": str(pointer.get("updated_at") or ""),
+            }
+    return None
 
 
 def start_resumed_dispatch(
@@ -361,6 +435,7 @@ def finish_dispatch(
             entry["agent_id"] = effective_agent_id
         with path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(entry) + "\n")
+        _remember_task_agent(control, target, effective_agent_id, status=status)
     return True
 
 

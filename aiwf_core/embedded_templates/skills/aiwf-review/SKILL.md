@@ -48,6 +48,21 @@ Ask the user before accepting material unverified behavior, deferring a
 main-path risk, downgrading a required role, bypassing a gate, or changing the
 Task contract.
 
+## Follow-Up Review
+
+After an implementation or testing repair, review the new tested snapshot and
+the affected contract path. Do not replay the whole review by default when the
+repair is narrow; expand when the changed path, test method, or risk surface
+requires it.
+
+When `aiwf status --prompt` names a previous Reviewer ID, resume that Reviewer
+only if it is available in the current session or the resumed original
+session. Read the current proof, repair finding, tested snapshot, and changed
+diff, then send the Task ID and a concise review brief with `SendMessage` once.
+If resume is unavailable or fails, dispatch a new Reviewer with the same brief.
+Do not reuse an Executor or Tester as Reviewer, and do not retry a failed
+resume.
+
 ## Required Handoff
 
 The report must tell Planner what Executor changed, what Tester proved, what

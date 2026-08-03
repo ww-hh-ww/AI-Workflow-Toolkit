@@ -35,6 +35,7 @@ def default_task_record(task_id: str) -> Dict[str, Any]:
         "testing": default_testing(task_id),
         "review": default_review(task_id),
         "fix_loop": default_fix_loop(),
+        "role_agents": {},
         "updated_at": "",
     }
 
@@ -76,6 +77,8 @@ def load_task_record(base_dir: str | Path, task_id: str) -> Dict[str, Any]:
     for key in ("implementation", "testing", "review", "fix_loop"):
         if not isinstance(record.get(key), dict):
             record[key] = defaults[key]
+    if not isinstance(record.get("role_agents"), dict):
+        record["role_agents"] = {}
     record["schema_version"] = 1
     record["task_id"] = task_id
     record.setdefault("updated_at", "")

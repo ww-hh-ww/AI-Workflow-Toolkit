@@ -491,11 +491,19 @@ Verification Commands:
         tasks = json.loads(tasks_path.read_text(encoding="utf-8"))
         tasks["tasks"][0]["requirements"]["tester_required"] = False
         tasks_path.write_text(json.dumps(tasks, indent=2) + "\n", encoding="utf-8")
+        (self.tmp / ".aiwf/tasks/TASK-001.md").write_text(
+            VALID_TASK_CONTRACT + """
+Verification Commands:
+
+| ID | Command | Expected |
+| --- | --- | --- |
+| V-001 | pytest -q | all pass |
+""", encoding="utf-8")
 
         result = self._cli(
             "record", "testing", "--status", "passed",
-            "--command", "pytest -q",
-            "--verification-result", "pytest -q:::all pass:::all pass:::matched",
+            "--check", "V-001", "--observed", "all pass",
+            "--verdict", "matched", "--basis", "12 tests passed",
             "--summary", "inline validation passed",
         )
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -508,17 +516,19 @@ Verification Commands:
         task_doc = self.tmp / ".aiwf/tasks/TASK-001.md"
         task_doc.write_text(
             VALID_TASK_CONTRACT + """
-| Verification Commands | Expected |
-| --- | --- |
-| grep -rn "class.*Node" src/*/ | at least 5 Node classes |
+Verification Commands:
+
+| ID | Command | Expected |
+| --- | --- | --- |
+| V-001 | grep -rn "class.*Node" src/*/ | at least 5 Node classes |
 """,
             encoding="utf-8",
         )
 
         result = self._cli(
             "record", "testing", "--status", "passed",
-            "--verification-result",
-            'grep -rn "class.*Node" src/*/:::at least 5 Node classes:::9 class definitions:::matched',
+            "--check", "V-001", "--observed", "9 class definitions",
+            "--verdict", "matched", "--basis", "9 exceeds the minimum of 5",
             "--summary", "node inventory satisfies the contract",
         )
 
@@ -528,7 +538,7 @@ Verification Commands:
         self.assertIn('grep -rn "class.*Node" src/*/', testing["commands"])
         self.assertEqual(testing["proof_validation"]["missing_commands"], [])
 
-    def test_explicit_result_command_wins_over_repeated_quote_variant(self):
+    def test_check_id_avoids_repeated_quote_variant(self):
         tasks_path = self.tmp / ".aiwf" / "state" / "tasks.json"
         tasks = json.loads(tasks_path.read_text(encoding="utf-8"))
         tasks["tasks"][0]["requirements"]["tester_required"] = False
@@ -536,18 +546,19 @@ Verification Commands:
         task_doc = self.tmp / ".aiwf/tasks/TASK-001.md"
         task_doc.write_text(
             VALID_TASK_CONTRACT + """
-| Verification Commands | Expected |
-| --- | --- |
-| grep -rn "class.*Node" src/*/ | at least 5 Node classes |
+Verification Commands:
+
+| ID | Command | Expected |
+| --- | --- | --- |
+| V-001 | grep -rn "class.*Node" src/*/ | at least 5 Node classes |
 """,
             encoding="utf-8",
         )
 
         result = self._cli(
             "record", "testing", "--status", "passed",
-            "--command", "grep -rn 'class.*Node' src/*/",
-            "--verification-result",
-            'grep -rn "class.*Node" src/*/:::at least 5 Node classes:::9 class definitions:::matched',
+            "--check", "V-001", "--observed", "9 class definitions",
+            "--verdict", "matched", "--basis", "command is resolved from Task.md",
             "--summary", "node inventory satisfies the contract",
         )
 
@@ -555,7 +566,6 @@ Verification Commands:
         testing = self._read_record()["testing"]
         self.assertEqual(testing["status"], "passed")
         self.assertIn('grep -rn "class.*Node" src/*/', testing["commands"])
-        self.assertNotIn("grep -rn 'class.*Node' src/*/", testing["commands"])
         self.assertEqual(testing["proof_validation"]["missing_commands"], [])
 
     def test_inline_testing_reads_expected_output_from_task_contract(self):
@@ -566,16 +576,19 @@ Verification Commands:
         task_doc = self.tmp / ".aiwf" / "tasks" / "TASK-001.md"
         task_doc.write_text(
             VALID_TASK_CONTRACT + """
-| Verification Commands | Expected |
-| --- | --- |
-| pytest -q | all tests pass |
+Verification Commands:
+
+| ID | Command | Expected |
+| --- | --- | --- |
+| V-001 | pytest -q | all tests pass |
 """,
             encoding="utf-8",
         )
 
         result = self._cli(
             "record", "testing", "--status", "passed",
-            "--command", "pytest -q", "--observed", "12 passed",
+            "--check", "V-001", "--observed", "12 passed",
+            "--verdict", "matched", "--basis", "all tests passed",
             "--summary", "inline validation passed",
         )
 
@@ -583,13 +596,16 @@ Verification Commands:
         testing = self._read_record()["testing"]
         self.assertEqual(testing["status"], "passed")
         self.assertEqual(testing["verification_results"], [{
+            "verification_id": "V-001",
             "command": "pytest -q",
             "expected": "all tests pass",
             "observed": "12 passed",
             "matched": True,
+            "verdict": "matched",
+            "basis": "all tests passed",
         }])
 
-    def test_observed_shortcut_uses_contract_order_when_shell_quotes_differ(self):
+    def test_observed_file_handles_multiline_output(self):
         tasks_path = self.tmp / ".aiwf" / "state" / "tasks.json"
         tasks = json.loads(tasks_path.read_text(encoding="utf-8"))
         tasks["tasks"][0]["requirements"]["tester_required"] = False
@@ -597,29 +613,30 @@ Verification Commands:
         task_doc = self.tmp / ".aiwf" / "tasks" / "TASK-001.md"
         task_doc.write_text(
             VALID_TASK_CONTRACT + """
-| Verification Commands | Expected |
-| --- | --- |
-| printf \"%s\\n\" \"ready\" | ready |
+Verification Commands:
+
+| ID | Command | Expected |
+| --- | --- | --- |
+| V-001 | printf \"%s\\n\" \"ready\" | ready |
 """,
             encoding="utf-8",
         )
+        observed = self.tmp / "observed.txt"
+        observed.write_text("ready\nsecond line\n", encoding="utf-8")
 
         result = self._cli(
             "record", "testing", "--status", "passed",
-            "--command", "printf '%s\\n' 'ready'", "--observed", "ready",
+            "--check", "V-001", "--observed-file", str(observed),
+            "--verdict", "matched", "--basis", "first line is ready",
             "--summary", "inline validation passed",
         )
 
         self.assertEqual(result.returncode, 0, result.stderr)
         testing = self._read_record()["testing"]
-        self.assertIn('printf "%s\\n" "ready"', testing["commands"])
-        self.assertNotIn("printf '%s\\n' 'ready'", testing["commands"])
-        self.assertEqual(
-            testing["verification_results"][-1]["command"],
-            'printf "%s\\n" "ready"',
-        )
+        self.assertEqual(testing["verification_results"][-1]["verification_id"], "V-001")
+        self.assertEqual(testing["verification_results"][-1]["observed"], "ready\nsecond line\n")
 
-    def test_observed_shortcut_rejects_failed_or_mixed_results(self):
+    def test_recording_requires_explicit_verdict(self):
         tasks_path = self.tmp / ".aiwf" / "state" / "tasks.json"
         tasks = json.loads(tasks_path.read_text(encoding="utf-8"))
         tasks["tasks"][0]["requirements"]["tester_required"] = False
@@ -627,23 +644,25 @@ Verification Commands:
         task_doc = self.tmp / ".aiwf" / "tasks" / "TASK-001.md"
         task_doc.write_text(
             VALID_TASK_CONTRACT + """
-| Verification Commands | Expected |
-| --- | --- |
-| pytest -q | all tests pass |
+Verification Commands:
+
+| ID | Command | Expected |
+| --- | --- | --- |
+| V-001 | pytest -q | all tests pass |
 """,
             encoding="utf-8",
         )
 
         result = self._cli(
-            "record", "testing", "--status", "failed",
-            "--command", "pytest -q", "--observed", "1 failed",
+            "record", "testing", "--status", "passed",
+            "--check", "V-001", "--observed", "1 failed",
             "--summary", "test failed",
         )
 
         self.assertEqual(result.returncode, 1)
-        self.assertIn("only with --status passed", result.stderr)
+        self.assertIn("explicit --verdict", result.stderr)
 
-    def test_observed_shortcut_does_not_mix_with_explicit_results(self):
+    def test_proof_file_cannot_mix_with_inline_results(self):
         tasks_path = self.tmp / ".aiwf" / "state" / "tasks.json"
         tasks = json.loads(tasks_path.read_text(encoding="utf-8"))
         tasks["tasks"][0]["requirements"]["tester_required"] = False
@@ -651,12 +670,44 @@ Verification Commands:
 
         result = self._cli(
             "record", "testing", "--status", "passed",
-            "--command", "pytest -q", "--observed", "12 passed",
-            "--verification-result", "probe:::expected:::observed:::matched",
+            "--proof-file", str(self.tmp / "proof.json"),
+            "--check", "V-001", "--observed", "12 passed",
         )
 
         self.assertEqual(result.returncode, 1)
-        self.assertIn("either --observed or --verification-result", result.stderr)
+        self.assertIn("cannot be combined", result.stderr)
+
+    def test_same_check_id_can_be_rerecorded_without_duplicate_rows(self):
+        tasks_path = self.tmp / ".aiwf" / "state" / "tasks.json"
+        tasks = json.loads(tasks_path.read_text(encoding="utf-8"))
+        tasks["tasks"][0]["requirements"]["tester_required"] = False
+        tasks_path.write_text(json.dumps(tasks, indent=2) + "\n", encoding="utf-8")
+        (self.tmp / ".aiwf/tasks/TASK-001.md").write_text(
+            VALID_TASK_CONTRACT + """
+Verification Commands:
+
+| ID | Command | Expected |
+| --- | --- | --- |
+| V-001 | pytest -q | all pass |
+""", encoding="utf-8")
+
+        first = self._cli(
+            "record", "testing", "--status", "passed", "--check", "V-001",
+            "--observed", "all pass", "--verdict", "matched",
+            "--basis", "first run", "--summary", "first run",
+        )
+        self.assertEqual(first.returncode, 0, first.stderr)
+        second = self._cli(
+            "record", "testing", "--status", "failed", "--check", "V-001",
+            "--observed", "1 failed", "--verdict", "mismatched",
+            "--basis", "verified regression", "--summary", "second run failed",
+        )
+        self.assertEqual(second.returncode, 0, second.stderr)
+        testing = self._read_record()["testing"]
+        self.assertEqual(testing["status"], "failed")
+        self.assertEqual(len(testing["verification_results"]), 1)
+        self.assertEqual(testing["verification_results"][0]["verification_id"], "V-001")
+        self.assertEqual(testing["verification_results"][0]["verdict"], "mismatched")
 
     def test_tester_dispatch_is_blocked_before_executor_record(self):
         record = self._read_record()
@@ -813,6 +864,117 @@ Verification Commands:
         self.assertNotIn("return_check", [entry["status"] for entry in entries])
         self.assertEqual(entries[-1]["status"], "completed")
         self.assertEqual(entries[-1]["agent_id"], "executor-123")
+        record = self._read_record()
+        self.assertEqual(
+            record["role_agents"]["aiwf-executor"]["agent_id"],
+            "executor-123",
+        )
+        self.assertEqual(
+            record["role_agents"]["aiwf-executor"]["status"],
+            "completed",
+        )
+
+    def test_fix_loop_resume_uses_task_pointer_when_dispatch_history_is_incomplete(self):
+        from aiwf_core.commands.flow import _task_next
+
+        task = {
+            "id": "TASK-001",
+            "requirements": {
+                "executor_required": True,
+                "tester_required": True,
+                "reviewer_required": True,
+            },
+        }
+        for expected_role, role, agent_id, record in (
+            (
+                "Executor", "aiwf-executor", "durable-executor",
+                {"implementation": {}, "testing": {}, "review": {}},
+            ),
+            (
+                "Tester", "aiwf-tester", "durable-tester",
+                {"implementation": {"implementation_ref": "impl"},
+                 "testing": {}, "review": {}},
+            ),
+            (
+                "Reviewer", "aiwf-reviewer", "durable-reviewer",
+                {"implementation": {"implementation_ref": "impl"},
+                 "testing": {"status": "passed", "tested_ref": "test"},
+                 "review": {}},
+            ),
+        ):
+            with self.subTest(role=role):
+                record = {
+                    **record,
+                    "role_agents": {
+                        role: {
+                            "agent_id": agent_id,
+                            "session_id": "old-session",
+                            "status": "completed",
+                        },
+                    },
+                }
+                self._write_record(record)
+                selected, action = _task_next(task, record, self.tmp)
+                self.assertEqual(selected, expected_role)
+                self.assertIn(agent_id, action)
+                self.assertIn("try once", action)
+
+        record = self._read_record()
+        record["fix_loop"] = {
+            "status": "open",
+            "route": "executor",
+            "source": "reviewer",
+            "reason": "The production loader still bypasses verification.",
+        }
+        record["role_agents"] = {
+            "aiwf-executor": {
+                "agent_id": "durable-executor",
+                "session_id": "old-session",
+                "status": "completed",
+            },
+        }
+        self._write_record(record)
+        status = self._cli("status", "--prompt")
+        self.assertEqual(status.returncode, 0, status.stderr)
+        self.assertIn("durable-executor", status.stdout)
+
+    def test_latest_cancelled_role_agent_does_not_resurrect_an_older_agent(self):
+        from aiwf_core.core.agent_runtime import (
+            bind_dispatch_agent,
+            finish_dispatch,
+            start_dispatch,
+            resumable_agent,
+        )
+
+        self.assertFalse(start_dispatch(
+            self.tmp, "TASK-001", "aiwf-executor", "session-old",
+            "PLAN-001", str(self.tmp),
+        ))
+        self.assertTrue(bind_dispatch_agent(
+            self.tmp, "aiwf-executor", "executor-old",
+            task_id="TASK-001", session_id="session-old",
+        ))
+        self.assertTrue(finish_dispatch(
+            self.tmp, "aiwf-executor", task_id="TASK-001",
+            session_id="session-old", agent_id="executor-old",
+        ))
+        self.assertFalse(start_dispatch(
+            self.tmp, "TASK-001", "aiwf-executor", "session-new",
+            "PLAN-001", str(self.tmp),
+        ))
+        self.assertTrue(bind_dispatch_agent(
+            self.tmp, "aiwf-executor", "executor-new",
+            task_id="TASK-001", session_id="session-new",
+        ))
+        self.assertTrue(finish_dispatch(
+            self.tmp, "aiwf-executor", task_id="TASK-001",
+            session_id="session-new", agent_id="executor-new",
+            status="cancelled", source="task_stop",
+        ))
+
+        self.assertIsNone(resumable_agent(
+            self.tmp, task_id="TASK-001", subagent_type="aiwf-executor",
+        ))
 
     def test_fix_loop_prompt_prefers_original_executor_and_has_fallback(self):
         first = self._dispatch("aiwf-executor", "aiwf-implement")

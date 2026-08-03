@@ -26,8 +26,10 @@ PLACEHOLDERS = {"", "fill", "(fill)", "tbd", "todo", "n/a"}
 
 @dataclass
 class VerificationCommand:
+    verification_id: str
     command: str
     expected: str
+    explicit_id: bool = True
 
 
 @dataclass
@@ -102,15 +104,51 @@ def _extract_verification_commands(section: str) -> List[VerificationCommand]:
         token in cell for cell in header for token in ("command", "命令")
     )
     body = rows[1:] if is_header else rows
+    id_index = next(
+        (
+            index for index, cell in enumerate(header)
+            if cell in {"id", "check", "检查项", "检查 id"}
+            or any(token in cell for token in ("verification id", "check id"))
+        ),
+        None,
+    ) if is_header else None
+    command_index = next(
+        (
+            index for index, cell in enumerate(header)
+            if "command" in cell or "命令" in cell
+        ),
+        0,
+    ) if is_header else 0
+    expected_index = next(
+        (
+            index for index, cell in enumerate(header)
+            if any(token in cell for token in ("expected", "observable", "预期", "可观察"))
+        ),
+        1,
+    ) if is_header else 1
     commands: List[VerificationCommand] = []
-    for row in body:
-        if len(row) < 2:
+    for row_index, row in enumerate(body, start=1):
+        if len(row) <= max(command_index, expected_index):
             continue
-        command = _norm_command(row[0])
-        expected = _norm(row[1])
+        command = _norm_command(row[command_index])
+        expected = _norm(row[expected_index])
         if not command or _is_placeholder(command):
             continue
-        commands.append(VerificationCommand(command=command, expected=expected))
+        explicit_id = id_index is not None and id_index < len(row)
+        verification_id = (
+            _norm(row[id_index])
+            if id_index is not None and id_index < len(row)
+            else f"V-{row_index:03d}"
+        )
+        if not verification_id or _is_placeholder(verification_id):
+            verification_id = f"V-{row_index:03d}"
+            explicit_id = False
+        commands.append(VerificationCommand(
+            verification_id=verification_id,
+            command=command,
+            expected=expected,
+            explicit_id=explicit_id,
+        ))
     return commands
 
 
@@ -211,6 +249,10 @@ def activation_proof_blockers(base_dir: str, task: Dict[str, Any]) -> List[str]:
             "Task Packet has Wired/Running proof but no concrete Verification Commands"
         )
     for cmd in contract.verification_commands:
+        if not cmd.explicit_id:
+            blockers.append(
+                f"Verification command lacks stable ID: {cmd.command}"
+            )
         if _is_placeholder(cmd.expected):
             blockers.append(
                 f"Verification command lacks expected observable output: {cmd.command}"
@@ -239,7 +281,9 @@ def validate_testing_against_task(
             "required_commands": [],
             "missing_commands": [],
         }
-    required = [cmd.command for cmd in contract.verification_commands]
+    required_items = contract.verification_commands
+    required = [cmd.command for cmd in required_items]
+    required_ids = [cmd.verification_id for cmd in required_items]
     recorded = [
         _norm_command(cmd) for cmd in (testing.get("commands", []) or [])
         if _norm_command(cmd)
@@ -248,32 +292,60 @@ def validate_testing_against_task(
         item for item in (testing.get("verification_results", []) or [])
         if isinstance(item, dict)
     ]
-    result_by_command = {
-        _norm_command(item.get("command", "")): item
+    result_by_id = {
+        str(item.get("verification_id") or "").strip(): item
         for item in verification_results
-        if _norm_command(item.get("command", ""))
+        if str(item.get("verification_id") or "").strip()
     }
+    command_to_id = {
+        _norm_command(item.command): item.verification_id
+        for item in required_items
+    }
+    for item in verification_results:
+        if str(item.get("verification_id") or "").strip():
+            continue
+        command = _norm_command(item.get("command", ""))
+        if command in command_to_id:
+            result_by_id[command_to_id[command]] = item
+    unknown_ids = [
+        str(item.get("verification_id"))
+        for item in verification_results
+        if str(item.get("verification_id") or "").strip()
+        and str(item.get("verification_id")) not in required_ids
+    ]
     recorded_set = set(recorded)
     missing = [cmd for cmd in required if _norm_command(cmd) not in recorded_set]
-    missing_results = [cmd for cmd in required if _norm_command(cmd) not in result_by_command]
+    missing_results = [
+        item.command for item in required_items
+        if item.verification_id not in result_by_id
+    ]
     mismatched = [
-        cmd for cmd in required
-        if _norm_command(cmd) in result_by_command
-        and not bool(result_by_command[_norm_command(cmd)].get("matched", False))
+        item.command for item in required_items
+        if item.verification_id in result_by_id
+        and result_by_id[item.verification_id].get("matched") is False
+    ]
+    blocked = [
+        item.command for item in required_items
+        if item.verification_id in result_by_id
+        and str(result_by_id[item.verification_id].get("verdict") or "").lower() == "blocked"
     ]
     empty_observed = [
-        cmd for cmd in required
-        if _norm_command(cmd) in result_by_command
-        and not _norm(result_by_command[_norm_command(cmd)].get("observed", ""))
+        item.command for item in required_items
+        if item.verification_id in result_by_id
+        and str(result_by_id[item.verification_id].get("verdict") or "").lower() != "blocked"
+        and not _norm(result_by_id[item.verification_id].get("observed", ""))
     ]
     return {
         "schema_recognized": True,
         "contract_errors": [],
         "required_commands": required,
+        "required_verification_ids": required_ids,
         "recorded_commands": recorded,
         "missing_commands": missing,
         "missing_verification_results": missing_results,
         "mismatched_results": mismatched,
+        "blocked_results": blocked,
+        "unknown_verification_ids": unknown_ids,
         "empty_observed_results": empty_observed,
     }
 
@@ -285,6 +357,8 @@ def testing_proof_gaps(proof: Dict[str, Any]) -> List[str]:
         "missing_commands",
         "missing_verification_results",
         "mismatched_results",
+        "blocked_results",
+        "unknown_verification_ids",
         "empty_observed_results",
     ):
         gaps.extend(str(value) for value in (proof.get(key, []) or []))

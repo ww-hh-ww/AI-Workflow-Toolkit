@@ -60,6 +60,13 @@ doubt it. Otherwise reuse its source-backed conclusion instead of reproducing
 Planner's exploration. Open Judgment names decisions left to you. Do not turn
 either section into an implementation script.
 
+As you work through Task.md, use the Executor questions in Open Judgment when
+you reach them: carry them into the relevant code exploration and make the
+smallest code-based choices that answer them. Revisit a question when code
+reality changes the choice; mention material decisions or remaining unknowns in
+the implementation handoff. Do not treat Open Judgment as extra acceptance
+criteria.
+
 ## Work
 
 1. For first implementation, establish the objective, main path, consumer,

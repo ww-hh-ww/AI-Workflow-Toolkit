@@ -27,9 +27,15 @@ def _merge_verification_results(
     for result in [*previous, *current]:
         if not isinstance(result, dict):
             continue
+        verification_id = str(result.get("verification_id") or "").strip()
         normalized = _normalized_command(result.get("command"))
-        if normalized:
-            merged[normalized] = dict(result)
+        key = f"id:{verification_id}" if verification_id else f"command:{normalized}"
+        if verification_id or normalized:
+            if verification_id and normalized:
+                # A new ID-based record upgrades an old command-keyed record
+                # for the same check instead of leaving two proof rows.
+                merged.pop(f"command:{normalized}", None)
+            merged[key] = dict(result)
     return list(merged.values())
 
 
@@ -117,25 +123,32 @@ def record_testing(
         for command in previous.get("failed_commands", []) or []:
             normalized = _normalized_command(command)
             if normalized:
-                unresolved_failed[normalized] = str(command)
+                unresolved_failed[f"command:{normalized}"] = str(command)
     for result in verification_results or []:
+        verification_id = str(result.get("verification_id") or "").strip()
         normalized = _normalized_command(result.get("command"))
-        if not normalized:
+        key = f"id:{verification_id}" if verification_id else f"command:{normalized}"
+        if not verification_id and not normalized:
             continue
-        if result.get("matched") is True:
-            unresolved_failed.pop(normalized, None)
-        elif result.get("matched") is False:
-            unresolved_failed[normalized] = str(result.get("command"))
+        verdict = str(result.get("verdict") or "").lower()
+        if result.get("matched") is True or verdict == "matched":
+            unresolved_failed.pop(key, None)
+            if normalized:
+                unresolved_failed.pop(f"command:{normalized}", None)
+        elif result.get("matched") is False and verdict != "blocked":
+            unresolved_failed[key] = str(result.get("command") or verification_id)
     if status == "failed":
         for command in failed_commands or commands or []:
             normalized = _normalized_command(command)
             if normalized:
-                unresolved_failed[normalized] = str(command)
+                unresolved_failed[f"command:{normalized}"] = str(command)
     for result in merged_results:
-        if result.get("matched") is False:
+        if result.get("matched") is False and str(result.get("verdict") or "").lower() != "blocked":
             normalized = _normalized_command(result.get("command"))
             if normalized:
-                unresolved_failed[normalized] = str(result.get("command"))
+                verification_id = str(result.get("verification_id") or "").strip()
+                key = f"id:{verification_id}" if verification_id else f"command:{normalized}"
+                unresolved_failed[key] = str(result.get("command") or verification_id)
 
     effective_status = "failed" if unresolved_failed else status
     testing: Dict[str, Any] = {

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 from pathlib import Path
 from typing import Any, Dict
 
@@ -36,6 +37,27 @@ def _ensure_local_ignore(control: Path, relative_parent: Path) -> None:
         handle.write(f"{prefix}{pattern}\n")
 
 
+def _hide_worktree_governance(worktree: Path) -> None:
+    """Keep the Plan worktree free of an independent `.aiwf` directory.
+
+    Tracked governance remains in Git history for the selected tracking mode,
+    but its working-tree files are marked skip-worktree and removed. All AIWF
+    reads and writes already resolve through the primary worktree.
+    """
+    if not worktree.exists():
+        return
+    raw = _required(worktree, "ls-files", "-z", "--", ".aiwf")
+    tracked = [item for item in raw.split("\0") if item]
+    if tracked:
+        _required(worktree, "update-index", "--skip-worktree", "--", *tracked)
+
+    path = worktree / ".aiwf"
+    if path.is_symlink() or path.is_file():
+        path.unlink()
+    elif path.is_dir():
+        shutil.rmtree(path)
+
+
 def create_plan_worktree(
     base_dir: str,
     plan: Dict[str, Any],
@@ -48,6 +70,7 @@ def create_plan_worktree(
         if worktree_path and not same_path(bound_path, worktree_path):
             raise ValueError(f"Plan is already bound to worktree '{bound_path}'")
         binding = bind_plan_worktree(str(control), plan, bound_path)
+        _hide_worktree_governance(Path(binding["worktree_path"]))
         return {**binding, "created": False}
 
     info = repository_info(str(control))
@@ -131,4 +154,5 @@ def create_plan_worktree(
         created = True
 
     binding = bind_plan_worktree(str(control), plan, target)
+    _hide_worktree_governance(target)
     return {**binding, "created": created}

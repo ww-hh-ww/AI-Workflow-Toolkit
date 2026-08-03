@@ -50,8 +50,8 @@ Every Task must say:
 - Objective: the outcome, not a file-edit recipe.
 - Contract Responsibility: the result this Task owns and must prove.
 - Done When: observable criteria marked Built, Wired, or Running.
-- Verification Commands: exact commands and expected observable results for
-  Wired and Running claims.
+- Verification Commands: stable IDs plus exact commands and expected observable
+  results for Wired and Running claims.
 - Dispatch Decisions: which independent roles are worth using.
 
 State each requirement once. Carry into Task.md the chosen direction and
@@ -131,7 +131,9 @@ script the answer.
 One easy case does not prove a broad support claim. Verification must cover the
 representative cases named by the Plan and the Task.
 
-Verification Commands are final proof, not a log of the development loop.
+Verification Commands are final proof, not a log of the development loop. Every
+row must have a stable ID (`V-001`, `V-002`, ...). The ID is the machine identity
+of the check; the command text is only the command to execute and display.
 Before activation, check them against the project's real test runner and
 scripts:
 
@@ -148,15 +150,19 @@ production entry, and runtime it must execute. Do not pretend an unbuilt command
 already exists.
 
 Executor leaves one concise implementation evidence record with git refs and a
-strong self-check. Tester records one validation result containing every exact
-required command, expected result, observed result, and match decision.
+strong self-check. Tester records one validation result for every required check
+ID, containing the Task-owned expected result, observed result, verdict, and a
+short basis.
 Reviewer judges the contract, diff, callers, evidence, testing, and old paths.
 
 Expected output should describe the observable meaning of success, not prescribe
 a transcript. Tester decides whether the actual result satisfies it and records
 `matched` or `mismatched`; Reviewer checks that judgment against the evidence.
-The machine gate only needs the contract to be covered by non-empty, explicit
-results from the current snapshot.
+The machine gate only checks check-ID coverage, current-snapshot ownership,
+non-empty evidence or an explicit environment block, and valid verdict values.
+It does not compare natural-language expected and observed text or infer a
+semantic pass from non-empty output. Reviewer independently checks the Tester
+verdict.
 
 ## Dispatch
 
