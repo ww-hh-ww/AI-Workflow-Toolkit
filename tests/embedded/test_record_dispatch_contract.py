@@ -569,6 +569,36 @@ Verification Commands:
         self.assertIn('grep -rn "class.*Node" src/*/', testing["commands"])
         self.assertEqual(testing["proof_validation"]["missing_commands"], [])
 
+    def test_executed_command_is_optional_provenance(self):
+        tasks_path = self.tmp / ".aiwf" / "state" / "tasks.json"
+        tasks = json.loads(tasks_path.read_text(encoding="utf-8"))
+        tasks["tasks"][0]["requirements"]["tester_required"] = False
+        tasks_path.write_text(json.dumps(tasks, indent=2) + "\n", encoding="utf-8")
+        task_doc = self.tmp / ".aiwf/tasks/TASK-001.md"
+        task_doc.write_text(
+            VALID_TASK_CONTRACT + """
+Verification Commands:
+
+| ID | Command | Expected |
+| --- | --- | --- |
+| V-001 | xacro ... nav_base.xacro | xacro succeeds |
+""",
+            encoding="utf-8",
+        )
+
+        result = self._cli(
+            "record", "testing", "--status", "passed",
+            "--check", "V-001", "--observed", "xacro completed",
+            "--executed-command", "xacro params/nav_base.xacro",
+            "--verdict", "matched", "--basis", "the resolved command completed",
+            "--summary", "concrete xacro validation passed",
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        verification = self._read_record()["testing"]["verification_results"][0]
+        self.assertEqual(verification["command"], "xacro ... nav_base.xacro")
+        self.assertEqual(verification["executed_command"], "xacro params/nav_base.xacro")
+
     def test_inline_testing_reads_expected_output_from_task_contract(self):
         tasks_path = self.tmp / ".aiwf" / "state" / "tasks.json"
         tasks = json.loads(tasks_path.read_text(encoding="utf-8"))

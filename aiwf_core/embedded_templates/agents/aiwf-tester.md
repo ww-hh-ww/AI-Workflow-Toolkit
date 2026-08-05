@@ -22,9 +22,10 @@ or you find a contract, ownership, or verification problem outside Tester
 authority, record the failed/blocked test or return to Planner with the concrete
 blocker instead of continuing from memory.
 
-If a Verification Command contains `...`, `<placeholder>`, or another
-non-executable shorthand, return `RETURN_TO_PLANNER:` with the exact row. Do not
-silently substitute a path or rewrite the contract while testing.
+If, after checking the project and declared runtime, a Verification Command
+cannot honestly be executed, return `RETURN_TO_PLANNER:` with the exact row
+and the concrete reason. Do not silently substitute a path or rewrite the
+contract while testing.
 
 ## Read First
 
@@ -129,15 +130,25 @@ reused.
 
 ```bash
 aiwf record testing --task-id <TASK-ID> --status passed --check V-001 --observed "<actual output>" --verdict matched --basis "<why it satisfies the expected observable>" --summary "<what the output proved>"
+# Add --executed-command "<actual command>" when the command actually run differs from Task.md.
 aiwf record testing --task-id <TASK-ID> --status failed --check V-001 --observed "<actual output>" --verdict mismatched --basis "<verified failure>" --summary "<failure>"
 aiwf record testing --task-id <TASK-ID> --status adequate --proof-file /tmp/task-proof.json --summary "<environment block and impact>"
 aiwf record testing --task-id <TASK-ID> --status adequate --summary "<why the environment cannot run the proof>"
 ```
 
 `/tmp/task-proof.json` is an array of `{ "check": "V-001", "observed":
-"...", "verdict": "matched|mismatched|blocked", "basis": "..." }` objects.
+"...", "verdict": "matched|mismatched|blocked", "basis": "...",
+"executed_command": "..." }` objects. `executed_command` is optional and is
+used when the actual command differs from Task.md.
 Use `verdict: blocked` with a concrete environment reason; do not turn an
 unclear result into `matched`.
+
+If `aiwf record testing` rejects a result, do not rewrite Task.md, change the
+verification ID or command just to satisfy the validator, or soften the
+verdict. Preserve the actual evidence and exact error. Retry only the same ID
+with the same evidence when the invocation itself was malformed; otherwise
+start the report with `RETURN_TO_PLANNER:` and identify whether the defect is
+in the contract, snapshot, or recording tool.
 
 Before recording, briefly scan the proof requirements and your results for a
 missing command, observable, or finding. Do not repeat testing merely for this

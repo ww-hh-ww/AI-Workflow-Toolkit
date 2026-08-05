@@ -63,8 +63,8 @@ def _gitignored_files(cwd: Path, files: List[str]) -> Set[str]:
     try:
         r = subprocess.run(
             ["git", "check-ignore", "--stdin", "-z"],
-            input="\0".join(files),
-            capture_output=True, text=True, cwd=str(cwd), timeout=15,
+            input="\0".join(files), capture_output=True, text=True,
+            encoding="utf-8", errors="surrogateescape", cwd=str(cwd), timeout=15,
         )
         # git check-ignore with -z outputs matched paths null-terminated
         ignored = set(r.stdout.split("\0"))
@@ -89,7 +89,8 @@ def git_changed_files(cwd: Path) -> Optional[List[str]]:
     try:
         r = subprocess.run(
             ["git", "diff", "--name-only", "-z", "HEAD"],
-            capture_output=True, text=True, cwd=str(cwd), timeout=10,
+            capture_output=True, text=True, encoding="utf-8", errors="surrogateescape",
+            cwd=str(cwd), timeout=10,
         )
         if r.returncode != 0:
             return None
@@ -103,7 +104,8 @@ def git_untracked_files(cwd: Path) -> Optional[List[str]]:
     try:
         r = subprocess.run(
             ["git", "ls-files", "--others", "--exclude-standard", "-z"],
-            capture_output=True, text=True, cwd=str(cwd), timeout=10,
+            capture_output=True, text=True, encoding="utf-8", errors="surrogateescape",
+            cwd=str(cwd), timeout=10,
         )
         if r.returncode != 0:
             return None
@@ -145,13 +147,15 @@ def write_install_baseline(cwd: Path) -> Optional[str]:
     try:
         r = subprocess.run(
             ["git", "rev-parse", "HEAD"],
-            capture_output=True, text=True, cwd=str(cwd), timeout=10,
+            capture_output=True, text=True, encoding="utf-8", errors="surrogateescape",
+            cwd=str(cwd), timeout=10,
         )
         if r.returncode != 0:
             # No commits yet — record current tree hash instead
             r2 = subprocess.run(
                 ["git", "write-tree"],
-                capture_output=True, text=True, cwd=str(cwd), timeout=10,
+                capture_output=True, text=True, encoding="utf-8", errors="surrogateescape",
+                cwd=str(cwd), timeout=10,
             )
             if r2.returncode != 0:
                 return None
@@ -201,7 +205,8 @@ def baseline_diff_files(cwd: Path) -> Optional[List[str]]:
     try:
         r = subprocess.run(
             ["git", "diff", "--name-only", "-z", baseline_ref],
-            capture_output=True, text=True, cwd=str(cwd), timeout=10,
+            capture_output=True, text=True, encoding="utf-8", errors="surrogateescape",
+            cwd=str(cwd), timeout=10,
         )
         tracked = []
         if r.returncode == 0:

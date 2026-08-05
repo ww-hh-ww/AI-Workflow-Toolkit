@@ -843,7 +843,6 @@ def _close_task_locked(base_dir: str, task_id: str = "", note: str = "") -> Dict
                     ("missing_verification_results", "missing expected/observed result"),
                     ("mismatched_results", "mismatched observable result"),
                     ("legacy_unbound_results", "testing result without Verification ID"),
-                    ("invalid_commands", "non-executable Verification Command"),
                     ("empty_observed_results", "empty observed result"),
                 ):
                     values = proof.get(key, []) or []

@@ -14,6 +14,17 @@ ROLE_SUBAGENTS = {
 }
 
 
+def _invocation_root() -> Path:
+    from ..core.project_root import resolve_invocation_root
+
+    return resolve_invocation_root()
+
+
+def _invocation_file(raw_path: str, root: Path) -> Path:
+    path = Path(raw_path).expanduser()
+    return path if path.is_absolute() else root / path
+
+
 def _print_record_handoff() -> None:
     print(
         "  Next: return the report you already prepared to the main session. "
@@ -155,6 +166,7 @@ def _load_testing_proof_file(path: str) -> list[dict]:
             "observed": str(observed),
             "verdict": verdict,
             "basis": str(item.get("basis") or item.get("reason") or "").strip(),
+            "executed_command": str(item.get("executed_command") or "").strip(),
         })
     return results
 
@@ -167,23 +179,27 @@ def _task_verification_results(
     checks: list[str] | None = None,
     verdicts: list[str] | None = None,
     bases: list[str] | None = None,
+    executed_commands: list[str] | None = None,
 ) -> list[dict]:
     """Build ordinary verification results from the Task contract.
 
     The Task already owns expected observables. Repeating them in a four-part
     shell argument adds noise without adding evidence.
     """
-    if not observed_results and not checks:
+    if not observed_results and not checks and not executed_commands:
         return []
     checks = list(checks or [])
     verdicts = list(verdicts or [])
     bases = list(bases or [])
+    executed_commands = list(executed_commands or [])
     if not checks:
         raise ValueError("Task proof recording requires at least one --check ID")
     if len(set(checks)) != len(checks):
         raise ValueError("each Task proof --check ID may appear only once per record")
     if len(observed_results) != len(checks):
         raise ValueError("--observed/--observed-file must appear once for each --check")
+    if executed_commands and len(executed_commands) != len(checks):
+        raise ValueError("--executed-command must appear once for each --check")
     if not verdicts:
         raise ValueError(
             "recorded observations need an explicit --verdict; Tester must judge "
@@ -243,6 +259,9 @@ def _task_verification_results(
             "matched": verdict == "matched",
             "verdict": verdict,
         }
+        executed_command = executed_commands[index].strip() if executed_commands else ""
+        if executed_command:
+            result["executed_command"] = executed_command
         if str(basis).strip():
             result["basis"] = str(basis).strip()
         results.append(result)
@@ -253,22 +272,27 @@ def _cmd_record_testing(args: argparse.Namespace) -> None:
     from ..core.state_ops import record_testing
 
     try:
-        task_id = _require_role_dispatch(Path.cwd(), "tester", args.task_id)
+        root = _invocation_root()
+        executed_commands = list(getattr(args, "executed_commands", []) or [])
+        task_id = _require_role_dispatch(root, "tester", args.task_id)
         if args.proof_file and (
             args.observed_results or args.observed_files or args.checks
-            or args.verdicts or args.bases
+            or args.verdicts or args.bases or executed_commands
         ):
             raise ValueError("--proof-file cannot be combined with inline verification arguments")
         if args.observed_results and args.observed_files:
             raise ValueError("use either --observed or --observed-file, not both")
         if args.proof_file:
-            proof_entries = _load_testing_proof_file(args.proof_file)
+            proof_entries = _load_testing_proof_file(
+                str(_invocation_file(args.proof_file, root))
+            )
             verification_results = _task_verification_results(
-                Path.cwd(), task_id,
+                root, task_id,
                 [item["observed"] for item in proof_entries], args.status,
                 checks=[item["verification_id"] for item in proof_entries],
                 verdicts=[item["verdict"] for item in proof_entries],
                 bases=[item.get("basis", "") for item in proof_entries],
+                executed_commands=[item.get("executed_command", "") for item in proof_entries],
             )
         else:
             if not args.checks:
@@ -281,14 +305,13 @@ def _cmd_record_testing(args: argparse.Namespace) -> None:
                 observed_results = []
                 for observed_file in args.observed_files:
                     try:
-                        observed_results.append(
-                            Path(observed_file).expanduser().read_text(encoding="utf-8")
-                        )
+                        observed_results.append(_invocation_file(observed_file, root).read_text(encoding="utf-8"))
                     except OSError as exc:
                         raise ValueError(f"cannot read observed file {observed_file}: {exc}") from exc
             verification_results = _task_verification_results(
-                Path.cwd(), task_id, observed_results, args.status,
+                root, task_id, observed_results, args.status,
                 checks=args.checks, verdicts=args.verdicts or [], bases=args.bases or [],
+                executed_commands=executed_commands,
             )
         recorded_commands = [item["command"] for item in verification_results]
         if args.status == "passed" and not recorded_commands:
@@ -298,7 +321,7 @@ def _cmd_record_testing(args: argparse.Namespace) -> None:
         if args.status == "failed" and not args.summary:
             raise ValueError("failed testing requires a concise --summary")
         testing = record_testing(
-            str(Path.cwd()),
+            str(root),
             status=args.status,
             commands=recorded_commands or None,
             coverage_summary=args.summary or "",
@@ -357,7 +380,8 @@ def _cmd_record_review(args: argparse.Namespace) -> None:
     from ..core.state_ops import record_review
 
     try:
-        task_id = _require_role_dispatch(Path.cwd(), "reviewer", args.task_id)
+        root = _invocation_root()
+        task_id = _require_role_dispatch(root, "reviewer", args.task_id)
         observations = _parse_observations(args.adversarial_observations or [])
         if args.result == "accepted" and any(
             item["severity"] in ("critical", "high") for item in observations
@@ -366,7 +390,7 @@ def _cmd_record_review(args: argparse.Namespace) -> None:
         if args.result in ("needs_fix", "rejected") and not args.blockers:
             raise ValueError("a blocking review requires at least one --blocker")
         review = record_review(
-            str(Path.cwd()),
+            str(root),
             result=args.result,
             closure_allowed=args.result == "accepted" and not args.blockers,
             blockers=args.blockers or None,
@@ -393,9 +417,10 @@ def _cmd_record_implementation(args: argparse.Namespace) -> None:
     from ..core.state_ops import record_implementation
 
     try:
-        task_id = _require_role_dispatch(Path.cwd(), "executor", args.task_id)
+        root = _invocation_root()
+        task_id = _require_role_dispatch(root, "executor", args.task_id)
         implementation = record_implementation(
-            str(Path.cwd()),
+            str(root),
             summary=args.summary,
             command=args.command,
             exit_code=args.exit_code,

@@ -123,13 +123,16 @@ def _cmd_install(args: argparse.Namespace) -> None:
         print(f"Updated ({len(results['updated'])}):")
         for path in results["updated"]:
             print(f"  ~ {path}")
-    git = subprocess.run(
-        ["git", "rev-parse", "--verify", "HEAD"],
-        cwd=str(Path.cwd()),
-        capture_output=True,
-        text=True,
-    )
-    if git.returncode != 0:
+    try:
+        git = subprocess.run(
+            ["git", "rev-parse", "--verify", "HEAD"],
+            cwd=str(Path.cwd()),
+            capture_output=True,
+            text=True,
+        )
+    except OSError:
+        git = None
+    if git is None or git.returncode != 0:
         print("Before starting AIWF work: initialize Git and create the initial commit.")
     print("Next:")
     print(f"  1. Start {product_name}: {command_name}")

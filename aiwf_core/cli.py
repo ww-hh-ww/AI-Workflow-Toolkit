@@ -12,7 +12,11 @@ from .commands.flow import cmd_status
 from .commands.parser import build_parser
 from .constants import VERSION
 from .core.state_schema import MVP_STATE_FILES
-from .core.project_root import has_opencode_adapter, resolve_aiwf_project_root
+from .core.project_root import (
+    INVOCATION_CWD_ENV,
+    has_opencode_adapter,
+    resolve_aiwf_project_root,
+)
 from .core.state._common import StateFileError
 
 
@@ -43,8 +47,10 @@ def _show_planner_facade() -> None:
 
 def main(argv: Optional[List[str]] = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
+    invocation_cwd = Path.cwd().expanduser().resolve()
     if not argv or argv[0] not in {"install", "--version", "version", "--help", "-h", "help"}:
-        os.chdir(resolve_aiwf_project_root(Path.cwd()))
+        os.environ[INVOCATION_CWD_ENV] = str(invocation_cwd)
+        os.chdir(resolve_aiwf_project_root(invocation_cwd))
     if not argv:
         try:
             _show_planner_facade()

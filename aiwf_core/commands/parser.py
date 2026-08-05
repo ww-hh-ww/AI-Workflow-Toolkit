@@ -400,6 +400,10 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
         help="short Tester basis, paired with --check",
     )
     p_re_te.add_argument(
+        "--executed-command", action="append", default=[], dest="executed_commands",
+        help="actual command run when it differs from the Task.md command, paired with --check",
+    )
+    p_re_te.add_argument(
         "--proof-file", default="", dest="proof_file",
         help="JSON proof array with check, observed, verdict, and basis",
     )

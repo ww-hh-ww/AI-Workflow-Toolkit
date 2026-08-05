@@ -117,8 +117,19 @@ class TestPromptClarityContract(unittest.TestCase):
             "Keep `USER_DELTA` separate",
             "The testing role must judge each actual observable against the contract",
             "Do not rewrite Task.md merely to make a record pass",
+            "If `aiwf record testing` rejects a result",
+            "return `RETURN_TO_PLANNER:` when it is a contract, snapshot, or tool problem",
         ]:
             self.assertIn(required, test_skill)
+
+        tester_agent = " ".join(read("agents/aiwf-tester.md").split())
+        for required in [
+            "If `aiwf record testing` rejects a result",
+            "do not rewrite Task.md",
+            "start the report with `RETURN_TO_PLANNER:`",
+            "contract, snapshot, or recording tool",
+        ]:
+            self.assertIn(required, tester_agent)
 
     def test_workflow_agents_use_proof_without_scope_shirking(self):
         for relative in [
@@ -511,6 +522,8 @@ class TestPromptClarityContract(unittest.TestCase):
         testing = read("skills/aiwf-test/SKILL.md")
         self.assertIn("Do not run `aiwf task test`", testing)
         self.assertIn("`aiwf record testing`", testing)
+        self.assertIn("--executed-command", testing)
+        self.assertIn("actual command", testing)
 
     def test_integration_roles_use_the_plan_worktree_stage(self):
         tester = read("agents/aiwf-tester.md")

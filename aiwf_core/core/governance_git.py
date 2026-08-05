@@ -17,14 +17,15 @@ _POLICY_PATH = ".aiwf/config/write-policy.json"
 
 
 def _run(base: Path, *args: str, env: Dict[str, str] | None = None) -> subprocess.CompletedProcess:
-    return subprocess.run(
-        ["git", *args],
-        cwd=str(base),
-        env=env,
-        capture_output=True,
-        text=True,
-        timeout=30,
-    )
+    try:
+        return subprocess.run(
+            ["git", *args], cwd=str(base), env=env, capture_output=True,
+            text=True, encoding="utf-8", errors="surrogateescape", timeout=30,
+        )
+    except OSError as exc:
+        return subprocess.CompletedProcess(
+            ["git", *args], 127, stdout="", stderr=str(exc),
+        )
 
 
 def _required(base: Path, *args: str, env: Dict[str, str] | None = None) -> str:

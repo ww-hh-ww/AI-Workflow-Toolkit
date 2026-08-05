@@ -85,6 +85,132 @@ class TestProjectRootResolution(unittest.TestCase):
         self.assertTrue((nested_root / ".aiwf" / "state" / "state.json").exists())
         self.assertTrue((nested_root / ".claude" / "settings.json").exists())
 
+    def test_install_without_git_on_path_still_creates_a_project(self):
+        root = self.tmp / "no-git"
+        root.mkdir()
+        env = os.environ.copy()
+        env["PATH"] = ""
+        env["PYTHONPATH"] = str(PROJECT_ROOT)
+        result = subprocess.run(
+            [sys.executable, "-m", "aiwf_core.cli", "install", "claude", "--force"],
+            cwd=str(root), env=env, capture_output=True, text=True, timeout=TIMEOUT,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue((root / ".aiwf" / "state" / "state.json").exists())
+
+    def test_record_commands_keep_nested_plan_worktree_context(self):
+        from aiwf_core.core.plan_worktrees import _hide_worktree_governance
+
+        subprocess.run(["git", "init", "-b", "main"], cwd=self.tmp, check=True, capture_output=True)
+        subprocess.run(
+            ["git", "config", "user.email", "test@example.com"],
+            cwd=self.tmp, check=True,
+        )
+        subprocess.run(
+            ["git", "config", "user.name", "AIWF Test"],
+            cwd=self.tmp, check=True,
+        )
+        (self.tmp / "seed.txt").write_text("seed\n", encoding="utf-8")
+        subprocess.run(["git", "add", "-A"], cwd=self.tmp, check=True)
+        subprocess.run(
+            ["git", "commit", "-m", "seed"],
+            cwd=self.tmp, check=True, capture_output=True,
+        )
+        origin = subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=self.tmp, check=True,
+            capture_output=True, text=True,
+        ).stdout.strip()
+        worktree = self.tmp / ".claude" / "worktrees" / "plan-005"
+        subprocess.run(
+            ["git", "worktree", "add", "-b", "plan-005", str(worktree)],
+            cwd=self.tmp, check=True, capture_output=True,
+        )
+        _hide_worktree_governance(worktree)
+
+        task_doc = self.tmp / ".aiwf" / "tasks" / "TASK-004.md"
+        task_doc.write_text(
+            """# TASK-004
+
+## Fixed Contract
+
+### Structural Home
+
+GOAL-001 / PLAN-005.
+
+### Objective
+
+Record work from the Plan worktree.
+
+### Contract Responsibility
+
+Keep role records bound to the assigned worktree.
+
+### Proof Standard
+
+- [Running] The assigned worktree records the result.
+
+Verification Commands:
+
+| ID | Command | Expected |
+| --- | --- | --- |
+| V-001 | test -f src/feature.txt | feature file exists |
+""",
+            encoding="utf-8",
+        )
+        tasks = json.loads((self.tmp / ".aiwf" / "state" / "tasks.json").read_text())
+        tasks["tasks"] = [{
+            "id": "TASK-004",
+            "status": "active",
+            "phase": "implementing",
+            "doc_path": ".aiwf/tasks/TASK-004.md",
+            "worktree_path": str(worktree.resolve()),
+            "git_origin_ref": origin,
+            "git_branch": "plan-005",
+            "requirements": {
+                "executor_required": False,
+                "tester_required": False,
+                "reviewer_required": False,
+            },
+        }]
+        (self.tmp / ".aiwf" / "state" / "tasks.json").write_text(
+            json.dumps(tasks, indent=2) + "\n", encoding="utf-8",
+        )
+        state = json.loads((self.tmp / ".aiwf" / "state" / "state.json").read_text())
+        state["active_task_id"] = "TASK-004"
+        (self.tmp / ".aiwf" / "state" / "state.json").write_text(
+            json.dumps(state, indent=2) + "\n", encoding="utf-8",
+        )
+        (worktree / "src").mkdir()
+        (worktree / "src" / "feature.txt").write_text("ready\n", encoding="utf-8")
+
+        def run_record(*args):
+            return subprocess.run(
+                [sys.executable, "-m", "aiwf_core.cli", *args],
+                cwd=worktree,
+                env={**os.environ, "PYTHONPATH": str(PROJECT_ROOT)},
+                capture_output=True,
+                text=True,
+                timeout=TIMEOUT,
+            )
+
+        implementation = run_record(
+            "record", "implementation", "--task-id", "TASK-004",
+            "--summary", "created the feature file",
+        )
+        self.assertEqual(implementation.returncode, 0, implementation.stderr)
+        testing = run_record(
+            "record", "testing", "--task-id", "TASK-004", "--status", "passed",
+            "--check", "V-001", "--observed", "feature exists",
+            "--verdict", "matched", "--basis", "the assigned worktree contains the file",
+        )
+        self.assertEqual(testing.returncode, 0, testing.stderr)
+        review = run_record(
+            "record", "review", "--task-id", "TASK-004", "--result", "accepted",
+            "--summary", "records and evidence use the assigned worktree",
+        )
+        self.assertEqual(review.returncode, 0, review.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()

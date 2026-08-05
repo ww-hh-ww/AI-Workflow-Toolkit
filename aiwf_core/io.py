@@ -12,9 +12,9 @@ def project_root() -> Path:
 
 def rel(path: Path) -> str:
     try:
-        return str(path.resolve().relative_to(project_root()))
+        return path.resolve().relative_to(project_root()).as_posix()
     except Exception:
-        return str(path)
+        return path.as_posix()
 
 
 def read_json(path: Path, default: Dict[str, Any]) -> Dict[str, Any]:
@@ -35,4 +35,3 @@ def write_json(path: Path, data: Dict[str, Any]) -> None:
 def write_text(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
-

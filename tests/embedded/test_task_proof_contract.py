@@ -18,7 +18,7 @@ def _write_task(base: Path, task_id: str, body: str) -> dict:
 
 
 class TestTaskProofContract(unittest.TestCase):
-    def test_activation_rejects_non_executable_verification_shorthand(self):
+    def test_activation_does_not_guess_command_executability(self):
         from aiwf_core.core.task_proof import activation_proof_blockers
 
         base = Path(tempfile.mkdtemp(prefix="awproof_command_"))
@@ -57,10 +57,7 @@ Verification Commands:
         )
 
         blockers = activation_proof_blockers(str(base), task)
-        joined = "\n".join(blockers)
-        self.assertIn("V-002", joined)
-        self.assertIn("V-005", joined)
-        self.assertIn("not executable", joined)
+        self.assertEqual(blockers, [])
 
     def test_verification_id_is_identity_not_natural_language_output(self):
         from aiwf_core.core.task_proof import validate_testing_against_task

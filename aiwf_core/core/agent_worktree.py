@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import shlex
 from dataclasses import dataclass
@@ -68,6 +69,16 @@ def _task_id_in_text(task_id: str, text: str) -> bool:
 def _normalise_path_text(value: str) -> str:
     """Compare paths across native and JSON-escaped Windows spellings."""
     return re.sub(r"[\\/]+", "/", str(value or "")).casefold().rstrip("/")
+
+
+def _shell_quote(value: str) -> str:
+    """Quote a path for the shell that will execute the routed command."""
+    raw = str(value or "")
+    if os.name != "nt":
+        return shlex.quote(raw)
+    if not raw or any(char.isspace() or char in '&()[]{}^=;!\'",`~' for char in raw):
+        return '"' + raw.replace('"', '\\"') + '"'
+    return raw
 
 
 def _matching_tasks(tasks: Iterable[Dict[str, Any]], text: str) -> List[Dict[str, Any]]:
@@ -326,7 +337,7 @@ def _route_bash_governance(command: str, assignment: AgentAssignment) -> str:
         routed = routed.replace(worktree_aiwf, control_aiwf)
     return re.sub(
         r"(?<![A-Za-z0-9_./-])(?:\./)?\.aiwf(?=/|\b)",
-        lambda _match: shlex.quote(control_aiwf),
+        lambda _match: _shell_quote(control_aiwf),
         routed,
     )
 
@@ -381,7 +392,7 @@ def route_agent_tool(
             command = governed
             updated["command"] = command
             changed = True
-        prefix = f"cd {shlex.quote(str(assignment.worktree))} &&"
+        prefix = f"cd {_shell_quote(str(assignment.worktree))} &&"
         if (
             command.strip()
             and (route_from_parent or not already_in_worktree)

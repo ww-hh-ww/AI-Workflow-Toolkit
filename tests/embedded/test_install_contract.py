@@ -352,20 +352,22 @@ Ship the product safely.
 
             installed = json.loads(settings_path.read_text(encoding="utf-8"))
             commands = []
+            arguments = []
             for entries in installed["hooks"].values():
                 for entry in entries:
-                    commands.extend(
-                        handler.get("command", "")
-                        for handler in entry.get("hooks", [])
-                        if isinstance(handler, dict)
-                    )
+                    for handler in entry.get("hooks", []):
+                        if not isinstance(handler, dict):
+                            continue
+                        commands.append(handler.get("command", ""))
+                        arguments.extend(handler.get("args", []) or [])
 
             self.assertIn("./custom-security-hook.sh", commands)
             self.assertIn("./custom-session-hook.sh", commands)
             self.assertFalse(any("aiwf_old.py" in command for command in commands))
-            self.assertEqual(sum("aiwf_scope_check.py" in command for command in commands), 1)
-            self.assertEqual(sum("aiwf_worktree_route.py" in command for command in commands), 1)
-            self.assertEqual(sum("aiwf_status.py" in command for command in commands), 1)
+            managed_text = commands + arguments
+            self.assertEqual(sum("aiwf_scope_check.py" in item for item in managed_text), 1)
+            self.assertEqual(sum("aiwf_worktree_route.py" in item for item in managed_text), 1)
+            self.assertEqual(sum("aiwf_status.py" in item for item in managed_text), 1)
             self.assertEqual(installed["permissions"]["deny"], ["Bash(rm:*)"])
             self.assertEqual(installed["customSetting"], "keep-me")
             self.assertEqual(installed["env"]["CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS"], "0")

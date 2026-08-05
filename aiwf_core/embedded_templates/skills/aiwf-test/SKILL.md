@@ -99,6 +99,19 @@ for a verified contract failure and `blocked` for a real environment limit with
 a reason. If the contract itself is unclear, return to Planner. Do not rewrite
 Task.md merely to make a record pass.
 
+The Task command is the proof target. If the command actually run differs
+because the project or environment requires a concrete path or wrapper, keep
+the Task contract unchanged and record the real command with
+`--executed-command` (or `executed_command` in a proof file). Do not add it
+when the recorded command is the one that ran. Reviewer checks whether the
+actual command still proves the same claim.
+
+If `aiwf record testing` rejects a result, do not rewrite Task.md, change the
+verification ID or command just to make the record pass, or soften the verdict.
+Keep the actual evidence, inspect the exact error, and return
+`RETURN_TO_PLANNER:` when it is a contract, snapshot, or tool problem rather
+than a simple retry with the same ID and evidence.
+
 Ask the user before weakening expected behavior, accepting an environment limit
 as adequate for a main path, widening scope, bypassing a gate, or skipping a
 required independent Tester.

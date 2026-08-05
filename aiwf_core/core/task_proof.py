@@ -24,7 +24,6 @@ HEADING_ALIASES = {
 }
 VERIFICATION_LABELS = ("Verification Commands", "验证命令")
 PLACEHOLDERS = {"", "fill", "(fill)", "tbd", "todo", "n/a"}
-_COMMAND_PLACEHOLDER_RE = re.compile(r"(?<!\.)\.\.\.|<[A-Za-z_][A-Za-z0-9_./-]*>")
 
 
 @dataclass
@@ -62,13 +61,6 @@ def _is_placeholder(value: str) -> bool:
         or "(fill" in cleaned
         or "<fill" in cleaned
     )
-
-
-def _verification_command_issue(command: str) -> str:
-    """Return a small, obvious contract error without trying to parse a shell."""
-    if _COMMAND_PLACEHOLDER_RE.search(str(command or "")):
-        return "contains an ellipsis or angle-bracket placeholder"
-    return ""
 
 
 def _heading_aliases(heading: str) -> tuple[str, ...]:
@@ -292,11 +284,6 @@ def activation_proof_blockers(base_dir: str, task: Dict[str, Any]) -> List[str]:
             )
         else:
             seen_ids[cmd.verification_id] = cmd.command
-        issue = _verification_command_issue(cmd.command)
-        if issue:
-            blockers.append(
-                f"Verification command is not executable ({issue}): {cmd.verification_id}"
-            )
         if _is_placeholder(cmd.expected):
             blockers.append(
                 f"Verification command lacks expected observable output: {cmd.command}"
@@ -373,10 +360,6 @@ def validate_testing_against_task(
         and str(result_by_id[item.verification_id].get("verdict") or "").lower() != "blocked"
         and not _norm(result_by_id[item.verification_id].get("observed", ""))
     ]
-    invalid_commands = [
-        item.command for item in required_items
-        if _verification_command_issue(item.command)
-    ]
     return {
         "schema_recognized": True,
         "contract_errors": [],
@@ -394,7 +377,6 @@ def validate_testing_against_task(
         "unknown_verification_ids": unknown_ids,
         "legacy_unbound_results": unbound_results,
         "empty_observed_results": empty_observed,
-        "invalid_commands": invalid_commands,
     }
 
 
@@ -409,7 +391,6 @@ def testing_proof_gaps(proof: Dict[str, Any]) -> List[str]:
         "unknown_verification_ids",
         "legacy_unbound_results",
         "empty_observed_results",
-        "invalid_commands",
     ):
         gaps.extend(str(value) for value in (proof.get(key, []) or []))
     return list(dict.fromkeys(gaps))

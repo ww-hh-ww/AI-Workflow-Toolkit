@@ -1,6 +1,7 @@
 """Resolve the installed AIWF project root from nested working directories."""
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Union
 
@@ -9,6 +10,7 @@ PathLike = Union[str, Path]
 
 OPENCODE_PLUGIN_PATH = Path("scripts/aiwf_opencode_plugin.js")
 LEGACY_OPENCODE_PLUGIN_PATH = Path(".opencode/plugins/aiwf.js")
+INVOCATION_CWD_ENV = "AIWF_INVOKE_CWD"
 
 
 def has_opencode_adapter(path: PathLike) -> bool:
@@ -39,3 +41,15 @@ def resolve_aiwf_project_root(start: PathLike) -> Path:
         if is_installed_aiwf_root(candidate):
             return candidate
     return current
+
+
+def resolve_invocation_root(start: PathLike | None = None) -> Path:
+    """Return the directory where the current AIWF command was invoked.
+
+    The CLI may chdir to the control root before dispatching a command. Record
+    operations still need the original worktree for ownership checks and
+    relative evidence paths.
+    """
+    configured = os.environ.get(INVOCATION_CWD_ENV, "").strip()
+    candidate = Path(configured) if configured else Path(start or Path.cwd())
+    return candidate.expanduser().resolve()

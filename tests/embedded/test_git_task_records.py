@@ -676,7 +676,7 @@ Verification Commands:
         self.assertIn("pytest integration", action)
         self.assertIn("valid results on the unchanged tested snapshot are preserved", action)
 
-    def test_non_executable_contract_routes_to_planner_before_tester(self):
+    def test_structural_contract_defect_routes_to_planner_before_tester(self):
         from aiwf_core.commands.flow import _task_next
         from aiwf_core.core.task_records import load_task_record
         from aiwf_core.core.task_ledger import load_ledger
@@ -687,7 +687,7 @@ Verification Commands:
 
 | ID | Command | Expected |
 | --- | --- | --- |
-| V-001 | xacro ... nav_base.xacro | xacro succeeds |
+| V-001 | xacro ... nav_base.xacro | |
 """,
             encoding="utf-8",
         )
@@ -707,6 +707,7 @@ Verification Commands:
 
         self.assertEqual(role, "Planner decision")
         self.assertIn("proof contract is not dispatchable", action)
+        self.assertIn("lacks expected observable output", action)
         self.assertIn("not missing test evidence", action)
         self.assertIn("Do not dispatch Tester", action)
         self.assertIn("ask the user to interrupt", action)

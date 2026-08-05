@@ -13,9 +13,15 @@ PathLike = Union[str, Path]
 
 
 def _git(start: Path, *args: str) -> subprocess.CompletedProcess:
-    return subprocess.run(
-        ["git", *args], cwd=str(start), capture_output=True, text=True, timeout=15,
-    )
+    try:
+        return subprocess.run(
+            ["git", *args], cwd=str(start), capture_output=True, text=True,
+            encoding="utf-8", errors="surrogateescape", timeout=15,
+        )
+    except OSError as exc:
+        return subprocess.CompletedProcess(
+            ["git", *args], 127, stdout="", stderr=str(exc),
+        )
 
 
 def resolve_worktree_root(start: PathLike) -> Path:
