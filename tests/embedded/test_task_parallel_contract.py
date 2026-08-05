@@ -636,7 +636,9 @@ class TestTaskParallelContract(unittest.TestCase):
         self.assertFalse(denied["allowed"])
         self.assertIn("Shell write target", denied["reason"])
         self.assertFalse(denied_with_redirect["allowed"])
-        self.assertIn(str(self.worktree_b), denied_with_redirect["reason"])
+        # Windows may expose the temp root through its 8.3 short name in the
+        # test input while the policy message uses the resolved long name.
+        self.assertIn(str(self.worktree_b.resolve()), denied_with_redirect["reason"])
         self.assertNotEqual(allowed.get("allowed"), False, allowed)
 
     def test_task_may_write_outside_managed_worktrees_for_temporary_output(self):

@@ -65,12 +65,23 @@ def _task_id_in_text(task_id: str, text: str) -> bool:
     ))
 
 
+def _normalise_path_text(value: str) -> str:
+    """Compare paths across native and JSON-escaped Windows spellings."""
+    return re.sub(r"[\\/]+", "/", str(value or "")).casefold().rstrip("/")
+
+
 def _matching_tasks(tasks: Iterable[Dict[str, Any]], text: str) -> List[Dict[str, Any]]:
     matches = []
+    normalised_text = _normalise_path_text(text)
     for task in tasks:
         task_id = str(task.get("id") or "")
         worktree = str(task.get("worktree_path") or "")
-        if task_id and worktree and _task_id_in_text(task_id, text) and worktree in text:
+        if (
+            task_id
+            and worktree
+            and _task_id_in_text(task_id, text)
+            and _normalise_path_text(worktree) in normalised_text
+        ):
             matches.append(task)
     return matches
 
@@ -248,6 +259,7 @@ def resolve_planner_assignment(
     # In a parallel cycle, an absolute path or an explicit Bash --task-id may
     # identify one worktree. Route only when all selectors agree; never guess.
     tool_text = json.dumps(event.tool_input or {}, ensure_ascii=False)
+    normalised_tool_text = _normalise_path_text(tool_text)
     explicit_task_ids = _bash_task_ids(event)
     named: Dict[str, Dict[str, Any]] = {}
     for task in tasks:
@@ -256,8 +268,8 @@ def resolve_planner_assignment(
         resolved_worktree = str(Path(raw_worktree).resolve())
         if (
             task_id in explicit_task_ids
-            or raw_worktree in tool_text
-            or resolved_worktree in tool_text
+            or _normalise_path_text(raw_worktree) in normalised_tool_text
+            or _normalise_path_text(resolved_worktree) in normalised_tool_text
         ):
             named[task_id] = task
     if len(named) == 1:
@@ -314,7 +326,7 @@ def _route_bash_governance(command: str, assignment: AgentAssignment) -> str:
         routed = routed.replace(worktree_aiwf, control_aiwf)
     return re.sub(
         r"(?<![A-Za-z0-9_./-])(?:\./)?\.aiwf(?=/|\b)",
-        shlex.quote(control_aiwf),
+        lambda _match: shlex.quote(control_aiwf),
         routed,
     )
 

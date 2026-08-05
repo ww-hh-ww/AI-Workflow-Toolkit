@@ -113,7 +113,7 @@ def _show_tiered_help(show_all: bool = False) -> None:
                     dep = f" [QUARANTINE: {entry.get('deprecation', '')[:60]}]"
                 else:
                     dep = ""
-                print(f"    {cmd:20s} → {core}{dep}")
+                print(f"    {cmd:20s} -> {core}{dep}")
             print()
     else:
         print("Primary commands:")

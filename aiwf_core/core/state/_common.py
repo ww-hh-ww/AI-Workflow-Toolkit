@@ -27,7 +27,7 @@ class StateFileError(ValueError):
 
 
 @contextmanager
-def _exclusive_operation_lock(base_dir: str, name: str, timeout: float = 5.0):
+def _exclusive_operation_lock(base_dir: str, name: str, timeout: float = 30.0):
     """Cross-platform short lock for one multi-file state transition."""
     lock_path = Path(base_dir) / ".aiwf" / "runtime" / "internal" / f"{name}.lock"
     lock_path.parent.mkdir(parents=True, exist_ok=True)
@@ -57,7 +57,7 @@ def _exclusive_operation_lock(base_dir: str, name: str, timeout: float = 5.0):
 
 
 @contextmanager
-def _governance_state_lock(base_dir: str, timeout: float = 5.0):
+def _governance_state_lock(base_dir: str, timeout: float = 30.0):
     """Serialize short governance transitions across tasks, Plans, and sync."""
     from ..worktree_context import resolve_control_root
 

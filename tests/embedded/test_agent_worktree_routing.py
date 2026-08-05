@@ -102,6 +102,25 @@ class TestAgentWorktreeRouting(unittest.TestCase):
             str((self.worktree_b / "src/value.py").resolve()),
         )
 
+    def test_transcript_matching_accepts_json_escaped_windows_paths(self):
+        main = self.root / "windows-session.jsonl"
+        transcript = main.with_suffix("") / "subagents" / "agent-win.jsonl"
+        transcript.parent.mkdir(parents=True, exist_ok=True)
+        windows_spelling = str(self.worktree_a).replace("/", "\\")
+        transcript.write_text(json.dumps({
+            "message": f"Implement TASK-A in assigned worktree {windows_spelling}",
+        }) + "\n", encoding="utf-8")
+
+        routed = route_agent_tool(
+            self._event(
+                "Read", {"file_path": "src/value.py"},
+                agent_id="win", transcript_path=main,
+            ),
+            self.root,
+        )
+
+        self.assertEqual(routed.assignment.task_id, "TASK-A")
+
     def test_bash_is_rooted_on_every_call(self):
         main = self._agent_transcript("a", "TASK-A")
         routed = route_agent_tool(

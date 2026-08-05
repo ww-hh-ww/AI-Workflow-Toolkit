@@ -464,7 +464,8 @@ def sync_index(base_dir: str, dry_run: bool = False) -> Dict[str, Any]:
         if changed and not dry_run:
             tmp_path = Path(str(json_path) + ".tmp")
             _write_json(tmp_path, data)
-            tmp_path.rename(json_path)
+            # Path.rename does not replace an existing file on Windows.
+            os.replace(tmp_path, json_path)
 
     # Second pass: register .md files not yet in JSON
     for etype, json_path, entries_key, md_dir in [
@@ -500,7 +501,7 @@ def sync_index(base_dir: str, dry_run: bool = False) -> Dict[str, Any]:
             if not dry_run:
                 tmp_path = Path(str(json_path) + ".tmp")
                 _write_json(tmp_path, data)
-                tmp_path.rename(json_path)
+                os.replace(tmp_path, json_path)
 
     # Post-sync: derive Plan.task_ids from Task.plan_id (master relationship)
     _sync_plan_task_relations(root, dry_run, changes)
@@ -703,7 +704,7 @@ def _sync_plan_task_relations(root: Path, dry_run: bool, changes: List[str]) -> 
             if not dry_run:
                 tmp_path = Path(str(plans_path) + ".tmp")
                 _write_json(tmp_path, plans_data)
-                tmp_path.rename(plans_path)
+                os.replace(tmp_path, plans_path)
 
 def _sync_milestone_plan_relations(root: Path, dry_run: bool, changes: List[str]) -> None:
     """Sync plan.milestone_id from milestone.plan_ids. Milestone.md is authoritative."""
@@ -770,12 +771,12 @@ def _sync_milestone_plan_relations(root: Path, dry_run: bool, changes: List[str]
     if ms_changed and not dry_run:
         tmp_path = Path(str(ms_path) + ".tmp")
         _write_json(tmp_path, ms_data)
-        tmp_path.rename(ms_path)
+        os.replace(tmp_path, ms_path)
 
     if plans_changed and not dry_run:
         tmp_path = Path(str(plans_path) + ".tmp")
         _write_json(tmp_path, plans_data)
-        tmp_path.rename(plans_path)
+        os.replace(tmp_path, plans_path)
 
 def _sync_goal_children_order(root: Path, dry_run: bool, changes: List[str]) -> None:
     """Prune children_order to match child_goal_ids. Remove stale entries from
@@ -811,7 +812,7 @@ def _sync_goal_children_order(root: Path, dry_run: bool, changes: List[str]) -> 
     if changed and not dry_run:
         tmp_path = Path(str(goals_path) + ".tmp")
         _write_json(tmp_path, goals_data)
-        tmp_path.rename(goals_path)
+        os.replace(tmp_path, goals_path)
 
 # ── narrative doc generation ──────────────────────────────────────────
 
