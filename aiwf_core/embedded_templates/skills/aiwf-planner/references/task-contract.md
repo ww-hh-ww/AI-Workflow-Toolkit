@@ -69,6 +69,17 @@ Add these only when real:
 
 Omit empty optional sections.
 
+## Author The Proof Contract
+
+The author owns proof quality; the activation check is only a last-resort
+structural guard. Before writing a Verification Command, locate the real
+script, selector, entry point, and runtime, and run or inspect enough of it to
+know the command is usable. Do not write a guessed command and wait for the
+Tester or validator to discover that it is shorthand, unavailable, or aimed at
+the wrong suite. Write Expected as the observable meaning of success, not a
+copied transcript or a promised count. If the command or observable cannot yet
+be made concrete, keep the Task in planning and fix the contract first.
+
 ## Known Context
 
 Known Context is the cold-start handoff. It should let the next role reach the
@@ -134,6 +145,12 @@ representative cases named by the Plan and the Task.
 Verification Commands are final proof, not a log of the development loop. Every
 row must have a stable ID (`V-001`, `V-002`, ...). The ID is the machine identity
 of the check; the command text is only the command to execute and display.
+Commands must be directly executable in the declared runtime. Do not write
+`...`, `<maps_dir>`, or another prose placeholder into the command cell; put
+concrete paths in the command and explain variable setup in Known Context.
+Changing this table changes the proof contract: interrupt and reactivate the
+Task, then collect fresh results for the current IDs. Do not combine results
+from the old table with the new one.
 Before activation, check them against the project's real test runner and
 scripts:
 

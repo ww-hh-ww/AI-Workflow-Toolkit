@@ -78,6 +78,8 @@ class TestOpenCodeInstall(unittest.TestCase):
         reviewer = (self.root / ".opencode/agents/aiwf-reviewer.md").read_text(encoding="utf-8")
         architect = (self.root / ".opencode/agents/aiwf-architect.md").read_text(encoding="utf-8")
         self.assertIn("mode: primary", planner)
+        self.assertIn("aiwf governance status", planner)
+        self.assertIn("aiwf governance checkpoint", planner)
         self.assertIn("mode: subagent", executor)
         self.assertIn("  edit: allow", executor)
         self.assertIn("  edit: allow", architect)

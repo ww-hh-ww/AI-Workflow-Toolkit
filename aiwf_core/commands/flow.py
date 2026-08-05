@@ -228,15 +228,33 @@ def _task_next(
             return "Executor", f"load /aiwf-implement and dispatch aiwf-executor for {task_id}"
         return "Inline implementation", f"load /aiwf-implement, implement {task_id} inline, and record it"
     proof_gaps: List[str] = []
-    if (
-        control
-        and testing.get("tested_ref")
-        and testing.get("status") in ("partial", "passed")
-    ):
-        from ..core.task_proof import testing_proof_gaps, validate_testing_against_task
+    contract_blockers: List[str] = []
+    if control:
+        from ..core.task_proof import (
+            activation_proof_blockers,
+            testing_proof_gaps,
+            validate_testing_against_task,
+        )
 
-        proof_gaps = testing_proof_gaps(
-            validate_testing_against_task(str(control), task, testing)
+        proof_validation = validate_testing_against_task(str(control), task, testing)
+        contract_blockers = activation_proof_blockers(str(control), task)
+        if testing.get("tested_ref") and testing.get("status") in ("partial", "passed"):
+            proof_gaps = testing_proof_gaps(proof_validation)
+    proof_contract_blockers = [
+        item for item in contract_blockers
+        if item.startswith("Verification")
+        or "proof contract" in item.lower()
+        or "Wired/Running" in item
+    ]
+    if proof_contract_blockers:
+        blockers = "; ".join(proof_contract_blockers[:4])
+        return (
+            "Planner decision",
+            f"load /aiwf-planner for {task_id}; Task.md proof contract is not dispatchable: "
+            f"{blockers}. This is a contract defect, not missing test evidence. Do not "
+            "dispatch Tester or substitute paths. Because the active Task.md is frozen, "
+            "ask the user to interrupt and revise the exact contract, sync, then reactivate "
+            "the Task",
         )
     if (
         testing.get("status") not in ("adequate", "passed")

@@ -32,6 +32,9 @@ class TestPromptClarityContract(unittest.TestCase):
             "changes execution, boundaries, interfaces, or",
             "Do not record the critique or activate the Task",
             "Run `aiwf status --prompt` when Planner starts work",
+            "aiwf governance status",
+            "aiwf governance checkpoint",
+            "tracked` versus",
             "The narrow exception is a user-approved Plan Integration Stage",
             "environment hygiene and non-semantic conflict resolution",
             "Closure Calibration",
@@ -218,6 +221,10 @@ class TestPromptClarityContract(unittest.TestCase):
             "State each requirement once",
             "Carry into Task.md the chosen direction",
             "keep the design history and detailed rationale in the Plan",
+            "The author owns proof quality",
+            "run or inspect enough of it to know the command is usable",
+            "Expected as the observable meaning of success",
+            "keep the Task in planning and fix the contract first",
             "Keep `## Fixed Contract`",
             "headings exact",
             "Verification Commands are final proof",
@@ -228,6 +235,8 @@ class TestPromptClarityContract(unittest.TestCase):
             self.assertIn(required, task)
         self.assertIn("Check Verification Commands against the real scripts", critique)
         self.assertIn("selectors narrow the run", critique)
+        self.assertIn("This pass owns whether the proof is real", critique)
+        self.assertIn("Do not accept a command merely because it has no obvious placeholder", critique)
         self.assertIn("required Fixed Contract headings", critique)
         self.assertIn("Do not load AIWF routing skills", executor)
         self.assertIn("run the smallest relevant checks", executor)

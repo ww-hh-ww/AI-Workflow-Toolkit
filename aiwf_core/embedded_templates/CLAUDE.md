@@ -37,3 +37,12 @@ not guess. Surface the mismatch and follow the phase skill.
 - Do not run `aiwf task force-close`; human emergency override only.
 - Do not run `aiwf task interrupt`; human interruption only.
 - Do not run `aiwf fixloop continue`; ask the human when repeated failures require a decision.
+
+## Governance Git
+
+At a Plan integration, Task/Plan close boundary, or after a Planner governance
+edit, run `aiwf governance status` when the next action depends on Git state.
+In `tracked` mode, `aiwf governance checkpoint` commits only pending stable
+`.aiwf` governance files; it never commits project code. `aiwf governance
+tracking tracked|local` changes the human's tracking choice and must not be run
+unless the user asks for that choice. Do not invent `aiwf checkpoint`.

@@ -18,6 +18,50 @@ def _write_task(base: Path, task_id: str, body: str) -> dict:
 
 
 class TestTaskProofContract(unittest.TestCase):
+    def test_activation_rejects_non_executable_verification_shorthand(self):
+        from aiwf_core.core.task_proof import activation_proof_blockers
+
+        base = Path(tempfile.mkdtemp(prefix="awproof_command_"))
+        task = _write_task(
+            base,
+            "TASK-COMMAND",
+            """# TASK-COMMAND
+
+## Fixed Contract
+
+### Structural Home
+
+Goal and Plan.
+
+### Objective
+
+Run the map check.
+
+### Contract Responsibility
+
+Own the map check.
+
+### Proof Standard
+
+Done When:
+
+- [Running] map check is run.
+
+Verification Commands:
+
+| ID | Command | Expected |
+|----|---------|----------|
+| V-002 | xacro ... nav_base.xacro | xacro succeeds |
+| V-005 | save-map --output <maps_dir> | map exists |
+""",
+        )
+
+        blockers = activation_proof_blockers(str(base), task)
+        joined = "\n".join(blockers)
+        self.assertIn("V-002", joined)
+        self.assertIn("V-005", joined)
+        self.assertIn("not executable", joined)
+
     def test_verification_id_is_identity_not_natural_language_output(self):
         from aiwf_core.core.task_proof import validate_testing_against_task
 
@@ -70,6 +114,92 @@ Verification Commands:
         self.assertEqual(proof["missing_verification_results"], [])
         self.assertEqual(proof["mismatched_results"], [])
         self.assertEqual(proof["required_verification_ids"], ["V-001", "V-002"])
+
+    def test_command_text_cannot_bind_an_unidentified_result(self):
+        from aiwf_core.core.task_proof import validate_testing_against_task
+
+        base = Path(tempfile.mkdtemp(prefix="awproof_unbound_"))
+        task = _write_task(
+            base,
+            "TASK-UNBOUND",
+            """# TASK-UNBOUND
+
+## Fixed Contract
+
+### Structural Home
+
+Goal and Plan.
+
+### Objective
+
+Prove the route.
+
+### Contract Responsibility
+
+Own the route proof.
+
+### Proof Standard
+
+- [Running] The route passes.
+
+Verification Commands:
+
+| ID | Command | Expected |
+|---|---|---|
+| V-001 | pytest -q | route passes |
+""",
+        )
+        proof = validate_testing_against_task(str(base), task, {
+            "commands": ["pytest -q"],
+            "verification_results": [{
+                "command": "pytest -q",
+                "observed": "route passes",
+                "matched": True,
+                "verdict": "matched",
+            }],
+        })
+
+        self.assertEqual(proof["missing_verification_results"], ["pytest -q"])
+        self.assertEqual(proof["legacy_unbound_results"], ["pytest -q"])
+
+    def test_activation_rejects_duplicate_verification_ids(self):
+        from aiwf_core.core.task_proof import activation_proof_blockers
+
+        base = Path(tempfile.mkdtemp(prefix="awproof_duplicate_"))
+        task = _write_task(
+            base,
+            "TASK-DUPLICATE",
+            """# TASK-DUPLICATE
+
+## Fixed Contract
+
+### Structural Home
+
+Goal and Plan.
+
+### Objective
+
+Prove two routes.
+
+### Contract Responsibility
+
+Own both proofs.
+
+### Proof Standard
+
+- [Running] Both routes pass.
+
+Verification Commands:
+
+| ID | Command | Expected |
+|---|---|---|
+| V-001 | pytest -q tests/a.py | route A passes |
+| V-001 | pytest -q tests/b.py | route B passes |
+""",
+        )
+
+        blockers = activation_proof_blockers(str(base), task)
+        self.assertTrue(any("reuse stable ID V-001" in item for item in blockers))
 
     def test_missing_task_document_blocks_activation_and_testing_proof(self):
         from aiwf_core.core.task_proof import (
@@ -180,6 +310,7 @@ GOAL-001 / PLAN-001。
             "status": "passed",
             "commands": ["pnpm test"],
             "verification_results": [{
+                "verification_id": "V-001",
                 "command": "pnpm test",
                 "expected": "测试通过。",
                 "observed": "10 passed",
@@ -353,6 +484,7 @@ Verification Commands:
                 "status": "passed",
                 "commands": ["python3 -m aiwf_core.cli status --prompt"],
                 "verification_results": [{
+                    "verification_id": "V-001",
                     "command": "python3 -m aiwf_core.cli status --prompt",
                     "expected": "lists required skill routing",
                     "observed": "lists required skill routing",
@@ -496,6 +628,7 @@ Verification Commands:
             "status": "passed",
             "commands": ["pytest tests/test_route.py"],
             "verification_results": [{
+                "verification_id": "V-001",
                 "command": "pytest tests/test_route.py",
                 "expected": "1 passed",
                 "observed": "failed",

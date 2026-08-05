@@ -101,6 +101,7 @@ def default_testing(task_id: str = "") -> Dict[str, Any]:
         "commands": [],
         "summary": "",
         "tested_ref": "",
+        "proof_contract_fingerprint": "",
         "recorded_at": "",
     }
 

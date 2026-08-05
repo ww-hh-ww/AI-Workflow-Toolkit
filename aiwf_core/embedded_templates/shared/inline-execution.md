@@ -43,8 +43,9 @@ snapshots there. They do not require the Plan to be in main before Task close.
 - Record one testing result for every stable Verification Command ID in Task.md.
   Use `--check`, `--observed` (or `--observed-file`), and an explicit
   `--verdict`; use `--basis` when the judgment needs explanation. The Task owns
-  the command and expected observable. Do not record by command text or infer a
-  pass from non-empty output; if the contract is unclear, return to Planner:
+  the command and expected observable. The ID, not command text, binds the
+  result. Do not infer a pass from non-empty output. If Task.md changed, record
+  a fresh proof for its current IDs; if the contract is unclear, return to Planner:
   ```bash
   aiwf record testing --task-id <TASK-ID> --status passed --check V-001 --observed "<actual output>" --verdict matched --basis "<why it satisfies the contract>" --summary "<what the output proved>"
   aiwf record testing --task-id <TASK-ID> --status failed --check V-001 --observed "<actual output>" --verdict mismatched --basis "<verified failure>" --summary "<failure>"

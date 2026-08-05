@@ -26,13 +26,15 @@ Ask whether Task.md is ready to hand to a new Executor:
 - Are required Skills, MCP tools, and role capabilities named only when the
   contract really depends on them?
 - Do Verification Commands exist or name the exact command that this Task must
-  create? Does each command prove a distinct claim with an expected observable
-  result?
+  create? Does each row have a stable ID, an executable command (no `...` or
+  `<placeholder>`), a distinct claim, and an expected observable result?
 - Is the Task small enough to complete and prove, but broad enough to cover all
   relevant entry points and consumers?
 
 Resolve missing, vague, guessed, or conflicting parts. Inspect the project when
 needed. If the contract changes, edit the relevant MD and run `aiwf sync`.
+This pass owns whether the proof is real; the activation check only catches
+obvious structural defects and must not be treated as a command-design tool.
 
 ## Pass 2: Check Against Reality
 
@@ -51,6 +53,9 @@ navigation, LSP, and focused file reads where they help.
 - Check Verification Commands against the real scripts and test runner. Confirm
   that selectors narrow the run, repeated full regressions are removed, and
   runtime tests exercise production code in the claimed runtime.
+- Do not accept a command merely because it has no obvious placeholder. If its
+  runtime, target, or observable was not verified from the project, revise the
+  Task instead of sending the uncertainty to Tester.
 - Challenge the weakest design assumption. When the Plan chose a technical
   method, compare it with the raw problem, representative inputs, and support
   boundary.

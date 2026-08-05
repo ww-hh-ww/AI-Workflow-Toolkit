@@ -93,7 +93,8 @@ command's expected result, actual result, and whether they matched.
 
 The testing role must judge each actual observable against the contract.
 Record by the stable Verification Command ID from Task.md, never by command
-text. Use `matched` only when the evidence supports success; use `mismatched`
+text. A changed Task.md contract starts a fresh proof snapshot; do not rely on
+or merge results from the old contract. Use `matched` only when the evidence supports success; use `mismatched`
 for a verified contract failure and `blocked` for a real environment limit with
 a reason. If the contract itself is unclear, return to Planner. Do not rewrite
 Task.md merely to make a record pass.

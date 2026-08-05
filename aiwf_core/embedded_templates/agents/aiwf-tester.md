@@ -22,6 +22,10 @@ or you find a contract, ownership, or verification problem outside Tester
 authority, record the failed/blocked test or return to Planner with the concrete
 blocker instead of continuing from memory.
 
+If a Verification Command contains `...`, `<placeholder>`, or another
+non-executable shorthand, return `RETURN_TO_PLANNER:` with the exact row. Do not
+silently substitute a path or rewrite the contract while testing.
+
 ## Read First
 
 - Treat the assigned worktree as the project root. AIWF keeps relative file,
@@ -117,6 +121,11 @@ a verdict, and a short basis. Use an observed file for multiline or shell-heavy
 output. Mark `matched` only when the evidence supports the contract. If the
 contract is not honestly testable, return to Planner instead of changing it
 during testing:
+
+The Verification ID is the only proof identity. Do not make a result pass by
+matching command text, quoting, or expected prose. If Task.md changed after an
+earlier test, record the current IDs again; the old contract's snapshot is not
+reused.
 
 ```bash
 aiwf record testing --task-id <TASK-ID> --status passed --check V-001 --observed "<actual output>" --verdict matched --basis "<why it satisfies the expected observable>" --summary "<what the output proved>"

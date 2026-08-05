@@ -6,6 +6,8 @@ the recorded testing surface covers it.
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -22,6 +24,7 @@ HEADING_ALIASES = {
 }
 VERIFICATION_LABELS = ("Verification Commands", "验证命令")
 PLACEHOLDERS = {"", "fill", "(fill)", "tbd", "todo", "n/a"}
+_COMMAND_PLACEHOLDER_RE = re.compile(r"(?<!\.)\.\.\.|<[A-Za-z_][A-Za-z0-9_./-]*>")
 
 
 @dataclass
@@ -59,6 +62,13 @@ def _is_placeholder(value: str) -> bool:
         or "(fill" in cleaned
         or "<fill" in cleaned
     )
+
+
+def _verification_command_issue(command: str) -> str:
+    """Return a small, obvious contract error without trying to parse a shell."""
+    if _COMMAND_PLACEHOLDER_RE.search(str(command or "")):
+        return "contains an ellipsis or angle-bracket placeholder"
+    return ""
 
 
 def _heading_aliases(heading: str) -> tuple[str, ...]:
@@ -228,6 +238,27 @@ def task_contract_structure_errors(base_dir: str, task: Dict[str, Any]) -> List[
     return [f"Task.md proof contract is missing: {path}"]
 
 
+def proof_contract_fingerprint(base_dir: str, task: Dict[str, Any]) -> str:
+    """Identify the proof-bearing part of Task.md that testing establishes.
+
+    Ordinary task prose is not part of the testing identity. The Proof Standard
+    section is: it contains the proof level, claims, and verification table.
+    """
+    contract = read_task_proof_contract(base_dir, task)
+    if not contract or not contract.path.exists():
+        return ""
+    proof_section = _section(
+        contract.path.read_text(encoding="utf-8"), "Proof Standard"
+    )
+    canonical_lines = [
+        _norm(line)
+        for line in proof_section.splitlines()
+        if _norm(line)
+    ]
+    payload = json.dumps(canonical_lines, ensure_ascii=False, separators=(",", ":"))
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
 def activation_proof_blockers(base_dir: str, task: Dict[str, Any]) -> List[str]:
     """Block activation when the current Task contract is missing or incomplete."""
     contract = read_task_proof_contract(base_dir, task)
@@ -248,10 +279,23 @@ def activation_proof_blockers(base_dir: str, task: Dict[str, Any]) -> List[str]:
         blockers.append(
             "Task Packet has Wired/Running proof but no concrete Verification Commands"
         )
+    seen_ids: Dict[str, str] = {}
     for cmd in contract.verification_commands:
         if not cmd.explicit_id:
             blockers.append(
                 f"Verification command lacks stable ID: {cmd.command}"
+            )
+        elif cmd.verification_id in seen_ids:
+            blockers.append(
+                f"Verification commands reuse stable ID {cmd.verification_id}: "
+                f"{seen_ids[cmd.verification_id]} and {cmd.command}"
+            )
+        else:
+            seen_ids[cmd.verification_id] = cmd.command
+        issue = _verification_command_issue(cmd.command)
+        if issue:
+            blockers.append(
+                f"Verification command is not executable ({issue}): {cmd.verification_id}"
             )
         if _is_placeholder(cmd.expected):
             blockers.append(
@@ -265,7 +309,7 @@ def validate_testing_against_task(
     task: Dict[str, Any],
     testing: Dict[str, Any],
 ) -> Dict[str, Any]:
-    """Compare recorded testing commands with the task's required commands."""
+    """Check proof coverage without treating command text as identity."""
     contract = read_task_proof_contract(base_dir, task)
     if not contract:
         return {
@@ -284,10 +328,6 @@ def validate_testing_against_task(
     required_items = contract.verification_commands
     required = [cmd.command for cmd in required_items]
     required_ids = [cmd.verification_id for cmd in required_items]
-    recorded = [
-        _norm_command(cmd) for cmd in (testing.get("commands", []) or [])
-        if _norm_command(cmd)
-    ]
     verification_results = [
         item for item in (testing.get("verification_results", []) or [])
         if isinstance(item, dict)
@@ -297,24 +337,22 @@ def validate_testing_against_task(
         for item in verification_results
         if str(item.get("verification_id") or "").strip()
     }
-    command_to_id = {
-        _norm_command(item.command): item.verification_id
-        for item in required_items
-    }
-    for item in verification_results:
-        if str(item.get("verification_id") or "").strip():
-            continue
-        command = _norm_command(item.get("command", ""))
-        if command in command_to_id:
-            result_by_id[command_to_id[command]] = item
+    unbound_results = [
+        _norm_command(item.get("command", ""))
+        for item in verification_results
+        if not str(item.get("verification_id") or "").strip()
+        and _norm_command(item.get("command", ""))
+    ]
     unknown_ids = [
         str(item.get("verification_id"))
         for item in verification_results
         if str(item.get("verification_id") or "").strip()
         and str(item.get("verification_id")) not in required_ids
     ]
-    recorded_set = set(recorded)
-    missing = [cmd for cmd in required if _norm_command(cmd) not in recorded_set]
+    missing = [
+        item.command for item in required_items
+        if item.verification_id not in result_by_id
+    ]
     missing_results = [
         item.command for item in required_items
         if item.verification_id not in result_by_id
@@ -335,18 +373,28 @@ def validate_testing_against_task(
         and str(result_by_id[item.verification_id].get("verdict") or "").lower() != "blocked"
         and not _norm(result_by_id[item.verification_id].get("observed", ""))
     ]
+    invalid_commands = [
+        item.command for item in required_items
+        if _verification_command_issue(item.command)
+    ]
     return {
         "schema_recognized": True,
         "contract_errors": [],
         "required_commands": required,
         "required_verification_ids": required_ids,
-        "recorded_commands": recorded,
+        "recorded_commands": [
+            _norm_command(item.get("command", ""))
+            for item in verification_results
+            if _norm_command(item.get("command", ""))
+        ],
         "missing_commands": missing,
         "missing_verification_results": missing_results,
         "mismatched_results": mismatched,
         "blocked_results": blocked,
         "unknown_verification_ids": unknown_ids,
+        "legacy_unbound_results": unbound_results,
         "empty_observed_results": empty_observed,
+        "invalid_commands": invalid_commands,
     }
 
 
@@ -359,7 +407,9 @@ def testing_proof_gaps(proof: Dict[str, Any]) -> List[str]:
         "mismatched_results",
         "blocked_results",
         "unknown_verification_ids",
+        "legacy_unbound_results",
         "empty_observed_results",
+        "invalid_commands",
     ):
         gaps.extend(str(value) for value in (proof.get(key, []) or []))
     return list(dict.fromkeys(gaps))

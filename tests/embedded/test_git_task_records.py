@@ -452,10 +452,10 @@ The public entry point works.
 
 Verification Commands:
 
-| Command | Expected |
-|---|---|
-| `pytest -q` | tests pass |
-| `python3 app.py` | prints ready |
+| ID | Command | Expected |
+|---|---|---|
+| V-001 | `pytest -q` | tests pass |
+| V-002 | `python3 app.py` | prints ready |
 """,
             encoding="utf-8",
         )
@@ -466,6 +466,7 @@ Verification Commands:
             str(self.tmp), status="passed", commands=["pytest -q"],
             coverage_summary="unit tests passed",
             verification_results=[{
+                "verification_id": "V-001",
                 "command": "pytest -q", "expected": "tests pass",
                 "observed": "1 passed", "matched": True,
             }],
@@ -474,6 +475,7 @@ Verification Commands:
             str(self.tmp), status="passed", commands=["python3 app.py"],
             coverage_summary="entry point passed",
             verification_results=[{
+                "verification_id": "V-002",
                 "command": "python3 app.py", "expected": "prints ready",
                 "observed": "ready", "matched": True,
             }],
@@ -490,6 +492,128 @@ Verification Commands:
         proof = validate_testing_against_task(str(self.tmp), task, second)
         self.assertEqual(proof["missing_commands"], [])
         self.assertEqual(proof["missing_verification_results"], [])
+
+    def test_task_contract_revision_discards_old_testing_results(self):
+        from aiwf_core.core.state.context_ops import record_implementation
+        from aiwf_core.core.state.testing_ops import record_testing
+
+        task_doc = self.tmp / ".aiwf/tasks/TASK-001.md"
+        task_doc.write_text(
+            VALID_TASK_CONTRACT + """
+Verification Commands:
+
+| ID | Command | Expected |
+|---|---|---|
+| V-001 | pytest -q tests/old.py | old route passes |
+""",
+            encoding="utf-8",
+        )
+        (self.tmp / "src").mkdir(exist_ok=True)
+        (self.tmp / "src/feature.py").write_text("VALUE = 1\n", encoding="utf-8")
+        implementation = record_implementation(str(self.tmp), "implemented feature")
+        first = record_testing(
+            str(self.tmp), status="passed", commands=["pytest -q tests/old.py"],
+            verification_results=[{
+                "verification_id": "V-001",
+                "command": "pytest -q tests/old.py",
+                "observed": "old route passes",
+                "matched": True,
+                "verdict": "matched",
+            }],
+        )
+
+        task_doc.write_text(
+            VALID_TASK_CONTRACT + """
+Verification Commands:
+
+| ID | Command | Expected |
+|---|---|---|
+| V-002 | pytest -q tests/new.py | new route passes |
+""",
+            encoding="utf-8",
+        )
+        second = record_testing(
+            str(self.tmp), status="passed", commands=["pytest -q tests/new.py"],
+            verification_results=[{
+                "verification_id": "V-002",
+                "command": "pytest -q tests/new.py",
+                "observed": "new route passes",
+                "matched": True,
+                "verdict": "matched",
+            }],
+        )
+
+        self.assertEqual(first["status"], "passed")
+        self.assertEqual(second["status"], "passed")
+        self.assertNotEqual(second["tested_ref"], first["tested_ref"])
+        self.assertNotEqual(second["proof_contract_fingerprint"], first["proof_contract_fingerprint"])
+        self.assertEqual(
+            [item["verification_id"] for item in second["verification_results"]],
+            ["V-002"],
+        )
+        self.assertEqual(second["proof_validation"]["missing_verification_results"], [])
+
+    def test_task_explanatory_prose_edit_preserves_proof_snapshot(self):
+        from aiwf_core.core.state.context_ops import record_implementation
+        from aiwf_core.core.state.testing_ops import record_testing
+
+        task_doc = self.tmp / ".aiwf/tasks/TASK-001.md"
+        task_doc.write_text(
+            VALID_TASK_CONTRACT + """
+Verification Commands:
+
+| ID | Command | Expected |
+|---|---|---|
+| V-001 | pytest -q tests/old.py | old route passes |
+| V-002 | python3 app.py | prints ready |
+""",
+            encoding="utf-8",
+        )
+        (self.tmp / "src").mkdir(exist_ok=True)
+        (self.tmp / "src/feature.py").write_text("VALUE = 1\n", encoding="utf-8")
+        record_implementation(str(self.tmp), "implemented feature")
+        first = record_testing(
+            str(self.tmp), status="passed", commands=["pytest -q tests/old.py"],
+            verification_results=[{
+                "verification_id": "V-001",
+                "command": "pytest -q tests/old.py",
+                "observed": "old route passes",
+                "matched": True,
+                "verdict": "matched",
+            }],
+        )
+
+        task_doc.write_text(
+            VALID_TASK_CONTRACT.replace(
+                "Ship the feature.",
+                "Ship the feature.\n\nImplementation note: keep the public API stable.",
+            ) + """
+Verification Commands:
+
+| ID | Command | Expected |
+|---|---|---|
+| V-001 | pytest -q tests/old.py | old route passes |
+| V-002 | python3 app.py | prints ready |
+""",
+            encoding="utf-8",
+        )
+        second = record_testing(
+            str(self.tmp), status="passed", commands=["python3 app.py"],
+            verification_results=[{
+                "verification_id": "V-002",
+                "command": "python3 app.py",
+                "observed": "ready",
+                "matched": True,
+                "verdict": "matched",
+            }],
+        )
+
+        self.assertEqual(second["tested_ref"], first["tested_ref"])
+        self.assertEqual(second["attempt"], first["attempt"])
+        self.assertEqual(
+            [item["verification_id"] for item in second["verification_results"]],
+            ["V-001", "V-002"],
+        )
 
     def test_partial_testing_route_names_missing_proof(self):
         from aiwf_core.commands.flow import _task_next
@@ -524,10 +648,10 @@ Done When:
 
 Verification Commands:
 
-| Command | Expected Observable Output |
-|---------|----------------------------|
-| pytest unit | unit passes |
-| pytest integration | integration passes |
+| ID | Command | Expected Observable Output |
+|---------|----------------------------|---------|
+| V-001 | pytest unit | unit passes |
+| V-002 | pytest integration | integration passes |
 """,
             encoding="utf-8",
         )
@@ -537,6 +661,7 @@ Verification Commands:
         testing = record_testing(
             str(self.tmp), status="passed", commands=["pytest unit"],
             verification_results=[{
+                "verification_id": "V-001",
                 "command": "pytest unit", "expected": "unit passes",
                 "observed": "unit passes", "matched": True,
             }],
@@ -550,6 +675,41 @@ Verification Commands:
         self.assertEqual(role, "Tester")
         self.assertIn("pytest integration", action)
         self.assertIn("valid results on the unchanged tested snapshot are preserved", action)
+
+    def test_non_executable_contract_routes_to_planner_before_tester(self):
+        from aiwf_core.commands.flow import _task_next
+        from aiwf_core.core.task_records import load_task_record
+        from aiwf_core.core.task_ledger import load_ledger
+
+        (self.tmp / ".aiwf/tasks/TASK-001.md").write_text(
+            VALID_TASK_CONTRACT + """
+Verification Commands:
+
+| ID | Command | Expected |
+| --- | --- | --- |
+| V-001 | xacro ... nav_base.xacro | xacro succeeds |
+""",
+            encoding="utf-8",
+        )
+        task = load_ledger(str(self.tmp))["tasks"][0]
+        record = load_task_record(self.tmp, "TASK-001")
+        record["implementation"] = {
+            "task_id": "TASK-001",
+            "implementation_ref": "implementation-ref",
+        }
+        record["testing"] = {
+            "task_id": "TASK-001",
+            "status": "partial",
+            "tested_ref": "tested-ref",
+        }
+
+        role, action = _task_next(task, record, self.tmp)
+
+        self.assertEqual(role, "Planner decision")
+        self.assertIn("proof contract is not dispatchable", action)
+        self.assertIn("not missing test evidence", action)
+        self.assertIn("Do not dispatch Tester", action)
+        self.assertIn("ask the user to interrupt", action)
 
     def test_testing_record_starts_fresh_after_the_worktree_changes(self):
         from aiwf_core.core.state.context_ops import record_implementation

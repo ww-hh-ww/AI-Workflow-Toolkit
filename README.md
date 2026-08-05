@@ -213,6 +213,9 @@ OpenCode 当前没有可阻止会话结束的 Stop Plugin 事件，因此最终�
 `aiwf task close` 保证，不能依赖会话退出提醒。它的 Task 子代理没有独立
 `cwd` 参数；AIWF Plugin 根据 Task ID 绑定子会话，并把项目工具路由到对应
 Plan worktree。Planner 可以留在 control root，并行 Plan 使用相互独立的子会话。
+OpenCode 的 Planner 在 Git 或治理边界先运行 `aiwf governance status`；只有需要
+固化 pending stable `.aiwf` 文件时才运行 `aiwf governance checkpoint`。`tracked`
+和 `local` 是用户的追踪选择，Agent 不应自行切换。
 如果项目同时安装了 Claude Code 和 OpenCode，可用
 `aiwf doctor --host opencode` 单独检查 OpenCode 适配器。
 
@@ -509,7 +512,7 @@ Task 的核心内容是：
 - Objective
 - Contract Responsibility
 - Done When，标明 Built、Wired 或 Running
-- Verification Commands 和 Expected Observable Output
+- Verification Commands（每条带稳定 ID）和 Expected Observable Output
 - 经过验证的 Known Context
 - 留给 Executor、Tester、Reviewer 的 Open Judgment
 
@@ -517,9 +520,12 @@ Known Context 是下一角色的冷启动交接，不是代码地图或探索日
 事实、已经证明的结论、容易走错的地方和真实 Unknown；Executor 会核对影响实现的
 关键前提，但不应从头重做 Planner 的探索。
 
-Verification Commands 是最终证明，不是开发过程记录。每条命令应证明不同结果；精确
-测试放前面，每套必要的完整回归只在最后运行一次。激活前需要确认过滤参数真的缩小
-测试范围，Browser、Worker 等运行时测试也必须调用生产代码并在所声明的环境中运行。
+Verification Commands 是最终证明，不是开发过程记录。每行必须有稳定 ID（如
+`V-001`），命令必须能在声明的运行环境中直接执行，不能写 `...`、`<maps_dir>`
+等说明性占位符。每条命令应证明不同结果；精确测试放前面，每套必要的完整回归只在
+最后运行一次。激活前需要确认过滤参数真的缩小测试范围，Browser、Worker 等运行时测试
+也必须调用生产代码并在所声明的环境中运行。Tester 通过检查项 ID 记录 observed 和
+`matched/mismatched/blocked` 判断；机器只校验证据完整性，不比较自然语言输出。
 
 Task.md 不是文件 allowlist。Executor 可以追踪并修改为完成合同所必需的文件，但不能触碰明确的 `forbidden_write`。
 
@@ -808,21 +814,27 @@ Tester：
 
 ```bash
 aiwf record testing --task-id TASK-001 --status passed \
-  --command "pytest -q tests/test_index.py" \
+  --check V-001 \
   --observed "12 passed" \
+  --verdict matched \
+  --basis "重启恢复和增量更新均通过" \
   --summary "验证了重启恢复和增量更新"
 ```
 
 没有 `aiwf task test` 命令。`/aiwf-test` 负责派发测试工作，Tester 完成后用
 `aiwf record testing` 保存测试结果和 Git snapshot。
 
-对于 Task.md 已声明且 Tester 判断通过的命令，`--observed` 会自动读取其 expected，
-并记录实际输出和 `matched`。`--verification-result` 保留给失败、额外探针或需要显式
-陈述判断的场景；它本身已经包含 command，不要再用 `--command` 重复声明。expected
-描述成功的可观察含义，不要求逐字等于 stdout。是否满足由 Tester 明确记录，Reviewer
-复核；AIWF 只机械检查命令覆盖、非空证据、match 决定和 snapshot 新鲜度，不替代这个
-判断。一次完整验证应尽量一次记录全部命令。若漏了一条，只运行并补录缺失项；仅当
-`implementation_ref` 和工作树内容都未变化时，AIWF 才保留同一 `tested_ref` 上已有的有效结果。
+Task.md 的 Verification Commands 通过稳定 ID（如 `V-001`）定义检查项；`--check`
+选择检查项，`--observed` 或 `--observed-file` 保存实际结果，`--verdict` 由 Tester
+判断 `matched`、`mismatched` 或 `blocked`，必要时用 `--basis` 说明依据。expected
+描述成功的可观察含义，不要求逐字等于 stdout。AIWF 只检查 ID 覆盖、证据非空、判断和
+snapshot 新鲜度，不替代 Tester 与 Reviewer 的判断。Task 测试记录不使用旧的
+`--command` 或 `--verification-result` 语法；后者只属于 Plan integration 的独立命令。
+Verification ID 是唯一身份；命令文本、引号和 expected 文案不会绑定结果。修改
+Task.md 的 Verification Commands 后必须重新收集当前 ID 的证据，旧契约结果不会拼接进来。
+多行或 shell 复杂输出优先使用 `--observed-file`。一次完整验证应尽量一次记录全部检查项。
+若漏了一条，只运行并补录缺失项；仅当 `implementation_ref` 和工作树内容都未变化时，
+AIWF 才保留同一 `tested_ref` 上已有的有效结果。
 
 Reviewer：
 
@@ -1219,6 +1231,18 @@ aiwf sync [--check]
 aiwf ui
 ```
 
+### Governance Git
+
+```bash
+aiwf governance status
+aiwf governance checkpoint
+aiwf governance tracking tracked|local  # 用户选择；Agent 不自行切换
+```
+
+`status` 只查看当前追踪模式和待固化的稳定治理文件；`checkpoint` 在 `tracked`
+模式下只提交 pending `.aiwf` 治理文件，不提交项目代码。通常在 Plan integration
+或治理收口边界使用，不需要每次写文件都运行。
+
 ### Mission
 
 ```bash
@@ -1608,11 +1632,9 @@ Reviewer 只审查 Tester 的最终 snapshot。先完成 Testing。若 Testing �
 
 严格 Task 的每条 Verification Command 都需要：
 
-- 完整的 `--command`。
-- passed 主链路对应的 `--observed`，或 failed/mixed 主链路的 `--verification-result`。
-- expected。
-- 非空 observed。
-- `matched`。
+- Task.md 中的稳定 ID 和可直接执行的命令；不要写 `...` 或 `<maps_dir>` 之类的占位符。
+- 用 `--check <ID>` 记录实际 `--observed` 或 `--observed-file`。
+- 用 `--verdict matched|mismatched|blocked` 做明确判断；`blocked` 必须有 `--basis`。
 
 运行 `aiwf task proof TASK-001` 查看 `proof_validation`。不要把 summary 当作命令输出。
 

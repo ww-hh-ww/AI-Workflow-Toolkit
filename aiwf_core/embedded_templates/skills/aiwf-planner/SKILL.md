@@ -150,6 +150,14 @@ Before activating or dispatching a Task, running Plans in parallel, routing a
 finding, or closing a Plan, read `references/lifecycle.md` and the skill named
 by status. One Planner owns governance; do not dispatch another Planner.
 
+### Governance Git when needed
+
+At a Git or governance boundary, run `aiwf governance status` before deciding
+what to commit. In `tracked` mode, `aiwf governance checkpoint` commits only
+pending stable `.aiwf` files; it does not commit project code. `tracked` versus
+`local` is the user's choice, so do not change it unless asked. Do not invent a
+shorter checkpoint command.
+
 ### 5. Learn After Work
 
 Read the actual implementation, testing, review, findings, and user decisions.

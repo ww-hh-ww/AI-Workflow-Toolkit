@@ -208,6 +208,9 @@ def _write_agents() -> List[Path]:
 Own AIWF governance in the main OpenCode session. Run `aiwf status --prompt`
 first, load every required skill, and follow the selected skill. Discuss before
 creating governance documents unless the user explicitly asks you to proceed.
+At a Git or governance boundary, run `aiwf governance status`; use
+`aiwf governance checkpoint` only for pending stable `.aiwf` files. The user
+chooses `tracked` or `local`; do not change that setting yourself.
 Do not implement project code while acting as Planner.
 """
     planner = root / "aiwf-planner.md"

@@ -28,14 +28,8 @@ def _merge_verification_results(
         if not isinstance(result, dict):
             continue
         verification_id = str(result.get("verification_id") or "").strip()
-        normalized = _normalized_command(result.get("command"))
-        key = f"id:{verification_id}" if verification_id else f"command:{normalized}"
-        if verification_id or normalized:
-            if verification_id and normalized:
-                # A new ID-based record upgrades an old command-keyed record
-                # for the same check instead of leaving two proof rows.
-                merged.pop(f"command:{normalized}", None)
-            merged[key] = dict(result)
+        if verification_id:
+            merged[f"id:{verification_id}"] = dict(result)
     return list(merged.values())
 
 
@@ -59,6 +53,7 @@ def record_testing(
     summary = coverage_summary or failure_summary or f"testing status={status}"
     from ..task_ledger import load_ledger, resolve_active_task_id, update_task_runtime
     from ..task_records import load_task_record, update_task_record
+    from ..task_proof import proof_contract_fingerprint
     from ..worktree_context import resolve_worktree_root, same_path
 
     task_id = resolve_active_task_id(base_dir, task_id)
@@ -91,10 +86,13 @@ def record_testing(
 
     previous = task_record.get("testing", {}) or {}
     previous_ref = str(previous.get("tested_ref") or "")
+    current_contract_fingerprint = proof_contract_fingerprint(base_dir, task)
     same_snapshot = bool(
         previous.get("task_id") == task_id
         and previous.get("based_on_ref") == parent_ref
         and previous_ref
+        and previous.get("proof_contract_fingerprint") == current_contract_fingerprint
+        and current_contract_fingerprint
         and worktree_matches_ref(worktree, previous_ref)
     )
     if same_snapshot:
@@ -161,6 +159,7 @@ def record_testing(
         "snapshot_ref": snapshot["named_ref"],
         "test_changed_files": snapshot["files"],
         "attempt": snapshot["attempt"],
+        "proof_contract_fingerprint": current_contract_fingerprint,
         "recorded_at": datetime.now(timezone.utc).isoformat(),
     }
     if merged_results:

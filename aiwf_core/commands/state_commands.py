@@ -180,6 +180,8 @@ def _task_verification_results(
     bases = list(bases or [])
     if not checks:
         raise ValueError("Task proof recording requires at least one --check ID")
+    if len(set(checks)) != len(checks):
+        raise ValueError("each Task proof --check ID may appear only once per record")
     if len(observed_results) != len(checks):
         raise ValueError("--observed/--observed-file must appear once for each --check")
     if not verdicts:

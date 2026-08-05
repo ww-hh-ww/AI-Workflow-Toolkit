@@ -395,10 +395,10 @@ The public entry point works.
 
 Verification Commands:
 
-| Command | Expected |
-|---|---|
-| `pytest -q` | tests pass |
-| `python3 app.py` | prints ready |
+| ID | Command | Expected |
+|---|---|---|
+| V-001 | `pytest -q` | tests pass |
+| V-002 | `python3 app.py` | prints ready |
 """,
             encoding="utf-8",
         )
@@ -406,6 +406,7 @@ Verification Commands:
         record["testing"].update({
             "commands": ["pytest -q"],
             "verification_results": [{
+                "verification_id": "V-001",
                 "command": "pytest -q", "expected": "tests pass",
                 "observed": "10 passed", "matched": True,
             }],
@@ -661,6 +662,34 @@ Verification Commands:
 
         self.assertEqual(result.returncode, 1)
         self.assertIn("explicit --verdict", result.stderr)
+
+    def test_recording_rejects_duplicate_check_ids(self):
+        tasks_path = self.tmp / ".aiwf" / "state" / "tasks.json"
+        tasks = json.loads(tasks_path.read_text(encoding="utf-8"))
+        tasks["tasks"][0]["requirements"]["tester_required"] = False
+        tasks_path.write_text(json.dumps(tasks, indent=2) + "\n", encoding="utf-8")
+        task_doc = self.tmp / ".aiwf/tasks/TASK-001.md"
+        task_doc.write_text(
+            VALID_TASK_CONTRACT + """
+Verification Commands:
+
+| ID | Command | Expected |
+| --- | --- | --- |
+| V-001 | pytest -q | all tests pass |
+""",
+            encoding="utf-8",
+        )
+
+        result = self._cli(
+            "record", "testing", "--status", "passed",
+            "--check", "V-001", "--check", "V-001",
+            "--observed", "all pass", "--observed", "all pass",
+            "--verdict", "matched", "--verdict", "matched",
+            "--summary", "duplicate check",
+        )
+
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("each Task proof --check ID may appear only once", result.stderr)
 
     def test_proof_file_cannot_mix_with_inline_results(self):
         tasks_path = self.tmp / ".aiwf" / "state" / "tasks.json"
@@ -1183,6 +1212,7 @@ GOAL-001 / PLAN-001。
             "recorded_at": datetime.now(timezone.utc).isoformat(),
             "commands": ["pytest -q"],
             "verification_results": [{
+                "verification_id": "V-001",
                 "command": "pytest -q",
                 "expected": "tests pass",
                 "observed": "10 passed",
@@ -1202,12 +1232,14 @@ GOAL-001 / PLAN-001。
             "commands": ["pytest -q", "python3 app.py"],
             "verification_results": [
                 {
+                    "verification_id": "V-001",
                     "command": "pytest -q",
                     "expected": "tests pass",
                     "observed": "10 passed",
                     "matched": True,
                 },
                 {
+                    "verification_id": "V-002",
                     "command": "python3 app.py",
                     "expected": "prints ready",
                     "observed": "ready",
