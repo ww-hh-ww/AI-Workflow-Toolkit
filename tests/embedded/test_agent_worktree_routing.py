@@ -79,6 +79,10 @@ class TestAgentWorktreeRouting(unittest.TestCase):
         transcript.write_text("\n".join(lines) + "\n", encoding="utf-8")
         return main
 
+    @staticmethod
+    def _bash_prefix(worktree):
+        return f"cd {agent_worktree._shell_quote(str(worktree.resolve()))} && "
+
     def test_parallel_same_role_agents_use_their_own_transcripts(self):
         main = self._agent_transcript("a", "TASK-A", later_task="TASK-B")
         self._agent_transcript("b", "TASK-B", later_task="TASK-A")
@@ -131,7 +135,7 @@ class TestAgentWorktreeRouting(unittest.TestCase):
         )
         self.assertTrue(
             routed.tool_input["command"].startswith(
-                f"cd {self.worktree_a.resolve()} && "
+                self._bash_prefix(self.worktree_a)
             )
         )
         self.assertIn("pwd && pytest -q", routed.tool_input["command"])
@@ -234,7 +238,7 @@ class TestAgentWorktreeRouting(unittest.TestCase):
         routed_bash = route_agent_tool(bash, self.root)
         self.assertTrue(
             routed_bash.tool_input["command"].startswith(
-                f"cd {self.worktree_b.resolve()} && "
+                self._bash_prefix(self.worktree_b)
             )
         )
 
@@ -255,10 +259,12 @@ class TestAgentWorktreeRouting(unittest.TestCase):
         )
 
         command = routed.tool_input["command"]
-        control_aiwf = str((self.root / ".aiwf").resolve())
+        control_aiwf = agent_worktree._shell_quote(
+            str((self.root / ".aiwf").resolve())
+        )
         self.assertIn(control_aiwf, command)
-        self.assertNotIn(str(self.worktree_a / ".aiwf"), command)
-        self.assertTrue(command.startswith(f"cd {self.worktree_a.resolve()} && "))
+        self.assertNotIn("worktrees/plan-a/.aiwf", command.replace("\\", "/"))
+        self.assertTrue(command.startswith(self._bash_prefix(self.worktree_a)))
 
     def test_one_unfinished_dispatch_is_a_safe_fallback(self):
         runtime = self.root / ".aiwf/runtime/internal"
@@ -361,7 +367,7 @@ class TestAgentWorktreeRouting(unittest.TestCase):
                 self.assertEqual(routed.assignment.task_id, "TASK-B")
                 self.assertTrue(
                     routed.tool_input["command"].startswith(
-                        f"cd {self.worktree_b.resolve()} && "
+                        self._bash_prefix(self.worktree_b)
                     )
                 )
 

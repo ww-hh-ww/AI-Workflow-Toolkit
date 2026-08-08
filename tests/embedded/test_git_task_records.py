@@ -1043,6 +1043,7 @@ Verification Commands:
         before_close = subprocess.run(
             ["git", "cat-file", "-e", f"HEAD:{relative}"], cwd=self.tmp,
             capture_output=True, text=True,
+            encoding="utf-8", errors="surrogateescape",
         )
         self.assertNotEqual(before_close.returncode, 0)
 

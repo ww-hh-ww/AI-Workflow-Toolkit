@@ -331,16 +331,33 @@ def _is_governance_path(raw_path: str, assignment: AgentAssignment) -> bool:
 def _route_bash_governance(command: str, assignment: AgentAssignment) -> str:
     """Keep shell reads of shared governance out of stale Plan worktree copies."""
     control_aiwf = str((assignment.control_root / ".aiwf").resolve())
+    shell_control_aiwf = _shell_quote(control_aiwf)
     routed = command
-    worktree_paths = {
-        str(assignment.declared_worktree / ".aiwf"),
-        str((assignment.worktree / ".aiwf").resolve()),
+    worktree_roots = {
+        str(assignment.declared_worktree),
+        str(assignment.worktree),
     }
+    worktree_paths = set()
+    for root in worktree_roots:
+        spellings = {root, root.replace("\\", "/"), root.replace("/", "\\")}
+        for spelling in spellings:
+            base = spelling.rstrip("/\\")
+            worktree_paths.add(base + "/.aiwf")
+            worktree_paths.add(base + "\\.aiwf")
+    flags = re.IGNORECASE if os.name == "nt" else 0
     for worktree_aiwf in sorted(worktree_paths, key=len, reverse=True):
-        routed = routed.replace(worktree_aiwf, control_aiwf)
+        for quoted in (f"'{worktree_aiwf}'", f'"{worktree_aiwf}"'):
+            routed = re.sub(
+                re.escape(quoted), lambda _match: shell_control_aiwf,
+                routed, flags=flags,
+            )
+        routed = re.sub(
+            re.escape(worktree_aiwf), lambda _match: shell_control_aiwf,
+            routed, flags=flags,
+        )
     return re.sub(
-        r"(?<![A-Za-z0-9_./-])(?:\./)?\.aiwf(?=/|\b)",
-        lambda _match: _shell_quote(control_aiwf),
+        r"(?<![A-Za-z0-9_./\\-])(?:\./)?\.aiwf(?=[/\\]|\b)",
+        lambda _match: shell_control_aiwf,
         routed,
     )
 
