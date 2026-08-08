@@ -140,11 +140,11 @@ class TestAgentWorktreeRouting(unittest.TestCase):
         with patch.object(agent_worktree.os, "name", "nt"):
             self.assertEqual(
                 agent_worktree._shell_quote(r"C:\Users\runneradmin\Temp"),
-                r"C:\Users\runneradmin\Temp",
+                "C:/Users/runneradmin/Temp",
             )
             self.assertEqual(
                 agent_worktree._shell_quote(r"C:\Project With Space"),
-                r'"C:\Project With Space"',
+                '"C:/Project With Space"',
             )
 
     def test_relative_governance_read_uses_control_root(self):

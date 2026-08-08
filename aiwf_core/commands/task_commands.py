@@ -94,7 +94,9 @@ def _cmd_task_plan(args: argparse.Namespace) -> None:
         print(f"  ! {w}")
 
 def _cmd_task_activate(args: argparse.Namespace) -> None:
+    from ..core.index_ops import sync_index
     from ..core.task_ledger import activate_task, task_activation_critique_blockers
+
     critique_blockers = task_activation_critique_blockers(str(Path.cwd()), args.task_id)
     if critique_blockers:
         print(f"Task activation: {args.task_id} activated=False")
@@ -102,6 +104,16 @@ def _cmd_task_activate(args: argparse.Namespace) -> None:
         for blocker in critique_blockers[:8]:
             print(f"    - {blocker}")
         raise SystemExit(1)
+    sync_result = sync_index(str(Path.cwd()))
+    if sync_result.get("errors"):
+        print(f"Task activation sync blocked: {args.task_id}")
+        for error in sync_result["errors"][:8]:
+            print(f"  - {error}")
+        raise SystemExit(1)
+    if sync_result.get("changes"):
+        print(
+            f"Task activation sync: {len(sync_result['changes'])} governance change(s) applied."
+        )
     result = activate_task(
         str(Path.cwd()), args.task_id,
         accept_head_change=bool(getattr(args, "accept_head_change", False)),

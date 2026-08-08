@@ -17,7 +17,10 @@ def _is_reasonix() -> bool:
 
 def output_json(data: Dict[str, Any]) -> None:
     """Print JSON to stdout and exit 0 (Claude processes JSON on exit 0)."""
-    print(json.dumps(data, ensure_ascii=False))
+    # Hook stdout may use a legacy Windows code page when captured by the host.
+    # ASCII JSON preserves Unicode semantically through \u escapes and cannot
+    # fail before Claude receives the response.
+    print(json.dumps(data, ensure_ascii=True))
     sys.exit(0)
 
 

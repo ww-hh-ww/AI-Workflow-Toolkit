@@ -125,7 +125,7 @@ def reviewed_snapshot_mismatch_message(base_dir: str, reviewed_ref: str) -> str:
 def _run(base: Path, *args: str, env: Optional[Dict[str, str]] = None) -> subprocess.CompletedProcess:
     return subprocess.run(
         ["git", *args], cwd=str(base), env=env, capture_output=True,
-        text=True, timeout=30,
+        text=True, encoding="utf-8", errors="surrogateescape", timeout=30,
     )
 
 

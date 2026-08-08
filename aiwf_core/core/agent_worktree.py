@@ -76,6 +76,9 @@ def _shell_quote(value: str) -> str:
     raw = str(value or "")
     if os.name != "nt":
         return shlex.quote(raw)
+    # Claude/OpenCode Bash tools use a POSIX shell on Windows. Forward slashes
+    # remain valid for native Windows tools and are not consumed as escapes by sh.
+    raw = raw.replace("\\", "/")
     if not raw or any(char.isspace() or char in '&()[]{}^=;!\'",`~' for char in raw):
         return '"' + raw.replace('"', '\\"') + '"'
     return raw

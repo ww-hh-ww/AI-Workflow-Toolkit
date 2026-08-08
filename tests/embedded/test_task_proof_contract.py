@@ -51,8 +51,8 @@ Verification Commands:
 
 | ID | Command | Expected |
 |----|---------|----------|
-| V-002 | xacro ... nav_base.xacro | xacro succeeds |
-| V-005 | save-map --output <maps_dir> | map exists |
+| V-002 | project-runtime map-check | map check succeeds |
+| V-005 | project-runtime map-save | map exists |
 """,
         )
 

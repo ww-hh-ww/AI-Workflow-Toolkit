@@ -687,7 +687,7 @@ Verification Commands:
 
 | ID | Command | Expected |
 | --- | --- | --- |
-| V-001 | xacro ... nav_base.xacro | |
+| V-001 | project-runtime map-check | |
 """,
             encoding="utf-8",
         )
@@ -1052,6 +1052,7 @@ Verification Commands:
         tree = subprocess.run(
             ["git", "ls-tree", "-r", "--name-only", "-z", commit],
             cwd=self.tmp, check=True, capture_output=True, text=True,
+            encoding="utf-8", errors="surrogateescape",
         ).stdout.split("\0")
         self.assertIn(relative, tree)
 

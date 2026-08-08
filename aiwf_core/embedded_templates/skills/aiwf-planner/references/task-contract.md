@@ -82,8 +82,16 @@ be made concrete, keep the Task in planning and fix the contract first.
 
 ## Known Context
 
-Known Context is the cold-start handoff. It should let the next role reach the
-real code quickly without repeating Planner's exploration.
+Known Context is the shared cold-start handoff for every role that will actually
+participate, whether inline or independent. It should let each role reach the
+real code and its first consequential judgment without repeating Planner's
+exploration.
+
+Derive it from those judgments, not from the volume of facts Planner learned:
+where Executor must choose or preserve behavior, how Tester can observe failure
+or a false pass, and what relationship or downstream effect Reviewer must
+trace. Keep shared facts once. Do not require role headings or write a separate
+manual for each role.
 
 Use free bullets. There is no required bullet format. Record only verified
 facts that help the next role start in the right place, reuse an established
@@ -115,9 +123,10 @@ Unknown, the implementation Task is not ready.
 When a Task crosses a boundary, include the smallest shared slice later roles
 must not guess: Input, Output, Consumer, Invariant, Owner, Proof, and Basis.
 
-Before activation, reread Known Context as the next role. Every bullet should
-help it locate the work, reuse a trustworthy conclusion, avoid a real trap, or
-recognize an unresolved question. Remove the rest.
+Before activation, reread Known Context as each participating role. Every
+bullet should help at least one of them locate the work, reuse a trustworthy
+conclusion, avoid a real trap, or recognize an unresolved question. Remove the
+rest.
 
 ## Open Judgment
 
@@ -146,8 +155,8 @@ Verification Commands are final proof, not a log of the development loop. Every
 row must have a stable ID (`V-001`, `V-002`, ...). The ID is the machine identity
 of the check; the command text is only the command to execute and display.
 Commands must be directly executable in the declared runtime. Do not write
-`...`, `<maps_dir>`, or another prose placeholder into the command cell; put
-concrete paths in the command and explain variable setup in Known Context.
+prose shorthand or unresolved setup into the command cell; put the runnable
+command there and explain required environment setup in Known Context.
 Changing this table changes the proof contract: interrupt and reactivate the
 Task, then collect fresh results for the current IDs. Do not combine results
 from the old table with the new one.

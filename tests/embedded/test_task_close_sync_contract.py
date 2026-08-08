@@ -4,10 +4,89 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stdout
+from io import StringIO
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 
 class TestTaskCloseSyncContract(unittest.TestCase):
+    def test_suspended_task_syncs_after_fresh_critiques_when_reactivated(self):
+        from aiwf_core.commands.task_commands import _cmd_task_activate
+        from aiwf_core.core.index_ops import write_narrative_doc
+        from aiwf_core.core.task_ledger import record_task_activation_critique
+
+        base = Path(tempfile.mkdtemp(prefix="awreactivate_sync_"))
+        for rel in (".aiwf/state", ".aiwf/tasks"):
+            (base / rel).mkdir(parents=True, exist_ok=True)
+        write_narrative_doc(base / ".aiwf/tasks/TASK-001.md", {
+            "id": "TASK-001",
+            "type": "task",
+            "title": "Resume changed contract",
+            "contract_status": "suspended",
+            "goal_id": "GOAL-001",
+            "plan_id": "PLAN-001",
+            "executor_required": False,
+            "tester_required": False,
+            "reviewer_required": True,
+            "rollback_required": False,
+            "tester_write": [],
+            "dependencies": [],
+        }, "# TASK-001\n")
+        tasks_path = base / ".aiwf/state/tasks.json"
+        tasks_path.write_text(json.dumps({
+            "schema_version": 1,
+            "tasks": [{
+                "id": "TASK-001",
+                "title": "Resume changed contract",
+                "status": "suspended",
+                "phase": "suspended",
+                "suspended_phase": "implementing",
+                "activation_critique_count": 0,
+                "goal_id": "GOAL-001",
+                "plan_id": "PLAN-001",
+                "doc_path": ".aiwf/tasks/TASK-001.md",
+                "requirements": {
+                    "executor_required": True,
+                    "tester_required": True,
+                    "reviewer_required": True,
+                    "rollback_required": False,
+                    "tester_write": [],
+                },
+                "dependencies": [],
+            }],
+        }), encoding="utf-8")
+
+        record_task_activation_critique(str(base), "TASK-001")
+        record_task_activation_critique(str(base), "TASK-001")
+        before = json.loads(tasks_path.read_text(encoding="utf-8"))["tasks"][0]
+        self.assertEqual(before["activation_critique_count"], 2)
+        self.assertTrue(before["requirements"]["executor_required"])
+
+        def inspect_activation(base_dir, task_id, accept_head_change=False):
+            task = json.loads(tasks_path.read_text(encoding="utf-8"))["tasks"][0]
+            self.assertEqual(task_id, "TASK-001")
+            self.assertFalse(task["requirements"]["executor_required"])
+            self.assertFalse(task["requirements"]["tester_required"])
+            self.assertTrue(task["requirements"]["reviewer_required"])
+            self.assertEqual(task["activation_critique_count"], 2)
+            return {"activated": True, "blockers": []}
+
+        previous = Path.cwd()
+        try:
+            os.chdir(base)
+            with patch(
+                "aiwf_core.core.task_ledger.activate_task",
+                side_effect=inspect_activation,
+            ):
+                with redirect_stdout(StringIO()):
+                    _cmd_task_activate(SimpleNamespace(
+                        task_id="TASK-001", accept_head_change=False,
+                    ))
+        finally:
+            os.chdir(previous)
+
     def test_sync_reports_active_contract_changes_without_overwriting_runtime(self):
         from aiwf_core.core.index_ops import sync_index, write_narrative_doc
 

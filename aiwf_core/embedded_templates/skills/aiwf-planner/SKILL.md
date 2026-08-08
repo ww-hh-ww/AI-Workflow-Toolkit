@@ -29,7 +29,9 @@ owners, old paths, and proof. Mark important unverified facts Unknown.
 4. Use the Planner memory snapshot printed by status. Open a note from the
    listed memory root only when its index entry matches the work.
 5. Read relevant user-requested `.aiwf/reports/architect/ARCH-*` reports.
-6. Inspect the code and runtime surfaces needed for the current decision.
+6. From the control root, inspect needed code and runtime through the relevant
+   Plan's recorded worktree path. With parallel Plans, never assume main or the
+   current directory is that Plan's code reality.
 
 If the mission Statement is Unknown, discuss and write it before creating
 Goals, then run `aiwf sync`.
@@ -113,8 +115,9 @@ aiwf milestone create
 For structural changes without a CLI command, edit the narrative Markdown and
 run `aiwf sync`. Never edit JSON directly.
 
-Write one document carefully. Omit empty sections and placeholders. Reread it
-as the next role and remove generic text.
+Write one document carefully. Omit empty or placeholder sections. For Task
+Known Context, derive decision-critical anchors for participating roles. Reread
+as each role; remove generic text.
 
 Run `aiwf sync` after structural edits. Before handoff, consider whether memory
 must be added, corrected, or deleted. If no durable planning fact changed, do
@@ -130,7 +133,8 @@ twice.
 
 Use code reality to challenge the contract. Revise and sync when a pass finds a
 problem. Any conclusion that changes execution, boundaries, interfaces, or
-proof must first be written into the relevant MD and synced.
+proof must first be written into the relevant MD and synced. Formal activation
+syncs again as a backstop.
 Do not record the critique or activate the Task until this is done.
 Record only a pass you can defend; do not perform critique as a form.
 

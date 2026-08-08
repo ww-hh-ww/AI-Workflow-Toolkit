@@ -9,7 +9,7 @@ export PYTHONPYCACHEPREFIX="${TMPDIR:-/tmp}/aiwf-pycache"
 [[ -f "$ROOT/bin/aiwf" ]] && chmod +x "$ROOT/bin/aiwf" 2>/dev/null || true
 
 # Keep enough room for the parallel-worktree contract test on slower filesystems.
-TIMEOUT_SEC="${AIWF_TEST_TIMEOUT_SEC:-180}"
+TIMEOUT_SEC="${AIWF_TEST_TIMEOUT_SEC:-300}"
 
 TESTS=()
 while IFS= read -r test_file; do

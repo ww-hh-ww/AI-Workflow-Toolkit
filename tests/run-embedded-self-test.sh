@@ -9,7 +9,7 @@ export PYTHONPYCACHEPREFIX="${PYTHONPYCACHEPREFIX:-${TMPDIR:-/tmp}/aiwf-pycache}
 
 # Contract files intentionally exercise installed CLIs and temporary Git repos.
 # Keep hang protection, but leave enough room for slower local filesystems.
-TIMEOUT_SEC="${AIWF_TEST_TIMEOUT_SEC:-180}"
+TIMEOUT_SEC="${AIWF_TEST_TIMEOUT_SEC:-300}"
 
 # Each file runs in its own process. If it hangs, it is killed.
 # Explicit per-file execution replaces unittest discovery (quarantined due to hangs).

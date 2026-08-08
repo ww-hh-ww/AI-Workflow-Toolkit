@@ -910,10 +910,12 @@ briefly explain any non-obvious choice
 
 ## Known Context
 
-Write concise, source-backed bullets that let the next role reach the real code
-without repeating Planner's exploration. Keep only useful anchors, established
-conclusions, old-path traps, representative cases, and real Unknowns. Do not
-paste logs, directory maps, whole-file summaries, or implementation recipes.
+Write concise, source-backed bullets that let every participating role reach
+the real code and its first consequential judgment without repeating Planner's exploration.
+Derive the smallest useful anchors from what Executor must decide,
+Tester must observe, and Reviewer must trace. Keep shared facts once; do not
+create separate role manuals or paste logs, directory maps, whole-file
+summaries, or implementation recipes.
 
 - Unknown — blocks: verified facts and anchors needed before implementation
 

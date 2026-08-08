@@ -247,7 +247,7 @@ class TestPromptClarityContract(unittest.TestCase):
         self.assertIn("Check Verification Commands against the real scripts", critique)
         self.assertIn("selectors narrow the run", critique)
         self.assertIn("This pass owns whether the proof is real", critique)
-        self.assertIn("Do not accept a command merely because it has no obvious placeholder", critique)
+        self.assertIn("Do not accept a command merely because it looks concrete", critique)
         self.assertIn("required Fixed Contract headings", critique)
         self.assertIn("Do not load AIWF routing skills", executor)
         self.assertIn("run the smallest relevant checks", executor)

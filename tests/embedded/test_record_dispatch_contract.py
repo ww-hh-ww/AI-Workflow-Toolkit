@@ -161,6 +161,8 @@ class TestRecordDispatchContract(unittest.TestCase):
             input=payload,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="surrogateescape",
         )
 
     def _load_skill(self, skill, session_id="test"):
@@ -581,7 +583,7 @@ Verification Commands:
 
 | ID | Command | Expected |
 | --- | --- | --- |
-| V-001 | xacro ... nav_base.xacro | xacro succeeds |
+| V-001 | project-runtime map-check | map check succeeds |
 """,
             encoding="utf-8",
         )
@@ -589,15 +591,18 @@ Verification Commands:
         result = self._cli(
             "record", "testing", "--status", "passed",
             "--check", "V-001", "--observed", "xacro completed",
-            "--executed-command", "xacro params/nav_base.xacro",
+            "--executed-command", "project-runtime map-check --config params/nav_base.yaml",
             "--verdict", "matched", "--basis", "the resolved command completed",
             "--summary", "concrete xacro validation passed",
         )
 
         self.assertEqual(result.returncode, 0, result.stderr)
         verification = self._read_record()["testing"]["verification_results"][0]
-        self.assertEqual(verification["command"], "xacro ... nav_base.xacro")
-        self.assertEqual(verification["executed_command"], "xacro params/nav_base.xacro")
+        self.assertEqual(verification["command"], "project-runtime map-check")
+        self.assertEqual(
+            verification["executed_command"],
+            "project-runtime map-check --config params/nav_base.yaml",
+        )
 
     def test_inline_testing_reads_expected_output_from_task_contract(self):
         tasks_path = self.tmp / ".aiwf" / "state" / "tasks.json"
@@ -1525,6 +1530,9 @@ GOAL-001 / PLAN-001。
             session_id="new-session", skill_session_id="old-session",
         )
 
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(result.stdout.strip(), result.stderr)
+        self.assertTrue(result.stdout.isascii())
         output = json.loads(result.stdout)
         reason = output["hookSpecificOutput"]["permissionDecisionReason"]
         self.assertIn("skill not loaded", reason)
