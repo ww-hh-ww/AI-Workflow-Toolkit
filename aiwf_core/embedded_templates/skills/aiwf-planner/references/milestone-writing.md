@@ -5,9 +5,10 @@ the covered capabilities work together on the real path.
 
 ## Frontmatter
 
-Keep Goal, Plan, Task, verification Task, and requirement links accurate. A
-milestone that requires verification must link a
-`kind=milestone_verification` Task.
+Keep Goal, Plan, verification Task, and requirement links accurate. Use Plans
+as the primary delivery coverage. Link an ordinary Task directly only when it
+is not represented by a linked Plan. Every milestone must use a dedicated
+`kind=milestone_verification` Task before close.
 
 ## Must Say
 
@@ -19,6 +20,23 @@ milestone that requires verification must link a
   Architect must check.
 - Human Acceptance: what the human is being asked to accept after technical
   proof passes.
+
+## Choose Verification Coverage With The User
+
+Before finalizing Real Verification, show the applicable modes and recommend
+one with a project-specific reason:
+
+- `end_to_end_flow` is the default: prove real input, processing, consumer, and
+  observable output on the running main path.
+- `function_reverse_trace` is the high-cost option: account for the declared
+  source scope function by function. Recommend it for security-, protocol-,
+  kernel-, migration-, or dead-path-sensitive work, or when the Pass Standard
+  explicitly requires source-wide reachability.
+
+Record the selected mode and scope in Milestone.md. Do not select reverse trace
+silently or use it as a routine ceremony. Also surface direct Task coverage,
+documentation/platform limits, and residual-risk acceptance when they are
+actually relevant to this Milestone.
 
 Use headings that fit the milestone. The names above are not a required form.
 

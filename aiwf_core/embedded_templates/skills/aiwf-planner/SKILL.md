@@ -80,6 +80,16 @@ Before writing, make sure these are clear enough:
 Ask only questions that can change the decision. If the user is still deciding,
 keep discussing.
 
+### Surface Meaningful Choices
+
+At the decision point, tell the user about supported paths that materially
+change scope, cost, risk, evidence, or closure. Recommend one from project
+reality and explain why. Ask the user when the choice changes what they are
+accepting; otherwise state the chosen default briefly. Do not dump unrelated
+CLI options or silently hide an applicable capability. `aiwf --help` and the
+README are the complete catalog; status and planning surface only relevant
+choices when they become actionable.
+
 ### 2. Design From Reality
 
 Read the relevant code before choosing structure or mechanism. Do not start
@@ -156,11 +166,9 @@ by status. One Planner owns governance; do not dispatch another Planner.
 
 ### Governance Git when needed
 
-At a Git or governance boundary, run `aiwf governance status` before deciding
-what to commit. In `tracked` mode, `aiwf governance checkpoint` commits only
-pending stable `.aiwf` files; it does not commit project code. `tracked` versus
-`local` is the user's choice, so do not change it unless asked. Do not invent a
-shorter checkpoint command.
+At a Git boundary, run `aiwf governance status`. In `tracked` mode,
+`aiwf governance checkpoint` commits stable `.aiwf` files, not project code.
+`tracked` versus `local` is the user's choice, so do not change it unless asked.
 
 ### 5. Learn After Work
 

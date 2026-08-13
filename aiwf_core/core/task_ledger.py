@@ -818,6 +818,12 @@ def _close_task_locked(base_dir: str, task_id: str = "", note: str = "") -> Dict
 
         blockers.extend(task_contract_structure_errors(base_dir, task))
 
+        if task.get("kind") == "milestone_verification":
+            milestone_id = str(task.get("milestone_id") or "")
+            from .state.milestone_ops import check_milestone_readiness
+
+            blockers.extend(check_milestone_readiness(base_dir, milestone_id))
+
         if reqs.get("executor_required"):
             if (
                 implementation.get("task_id") != task_id

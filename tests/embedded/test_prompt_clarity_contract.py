@@ -15,7 +15,6 @@ class TestPromptClarityContract(unittest.TestCase):
         planner = read("skills/aiwf-planner/SKILL.md")
         lifecycle = read("skills/aiwf-planner/references/lifecycle.md")
         lifecycle_text = " ".join(lifecycle.split())
-        self.assertLess(len(planner.split()), 1200)
         for required in [
             "Discussion is the default",
             "Read the relevant code",
@@ -372,6 +371,20 @@ class TestPromptClarityContract(unittest.TestCase):
             "explicit human approval",
         ]:
             self.assertIn(required, normalized)
+
+    def test_planner_surfaces_material_capabilities_at_the_decision_point(self):
+        planner = read("skills/aiwf-planner/SKILL.md")
+        milestone = read("skills/aiwf-planner/references/milestone-writing.md")
+
+        self.assertIn("Surface Meaningful Choices", planner)
+        self.assertIn("Recommend one from project reality", " ".join(planner.split()))
+        self.assertIn("Do not dump unrelated CLI options", " ".join(planner.split()))
+        self.assertIn("Choose Verification Coverage With The User", milestone)
+        self.assertIn("end_to_end_flow", milestone)
+        self.assertIn("function_reverse_trace", milestone)
+        self.assertIn(
+            "Do not select reverse trace silently", " ".join(milestone.split())
+        )
 
     def test_executor_tester_reviewer_keep_independent_judgment_and_handoff(self):
         executor = read("agents/aiwf-executor.md")

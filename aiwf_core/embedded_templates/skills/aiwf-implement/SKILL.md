@@ -7,9 +7,10 @@ description: Use only when `aiwf status --prompt` lists `aiwf-implement` under R
 
 ## Role
 
-Route implementation for the selected Task.md. Do not plan, test independently,
-review, close, or edit the active Task.md. Implement in the current session only
-when `executor_required` is false or a follow-up repair qualifies below.
+Route implementation for the selected Task.md. When an independent Executor is
+required, dispatch it; when inline work is allowed, perform the same contract in
+this session. Do not plan, test independently, review, close, or edit the active
+Task.md.
 
 The Task.md is the baseline. Give Executor its path; do not recopy the whole
 contract or turn the dispatch prompt into separate coding instructions.
@@ -75,7 +76,8 @@ required role, bypassing a gate, or accepting a material unverified risk.
 
 ## Follow-Up Repairs
 
-After the Task has an Executor implementation record, choose the cheapest honest route:
+After the Task has an implementation record, choose the smallest route that
+still preserves independent work where the risk requires it:
 
 - Dispatch Executor again for changes to main paths, interfaces, state, data
   conversion, concurrency, permissions, safety, deployment, or unclear design.

@@ -461,6 +461,21 @@ def _cmd_plan_integrate(args: argparse.Namespace) -> None:
         print(f"  Governance checkpoint: {str(checkpoint.get('commit') or '')[:12]}")
     elif checkpoint.get("warning"):
         print(f"  Governance checkpoint pending: {checkpoint['warning']}")
+    milestone_id = str((result.get("plan") or {}).get("milestone_id") or "")
+    if milestone_id:
+        from .flow import _milestones_at_acceptance
+        from ..core.worktree_context import resolve_control_root
+
+        ready_ids = {
+            str(item.get("milestone_id") or item.get("id") or "")
+            for item in _milestones_at_acceptance(resolve_control_root(Path.cwd()))
+        }
+        if milestone_id in ready_ids:
+            print(
+                f"  Milestone acceptance frontier reached: {milestone_id}. "
+                "Run aiwf status --prompt for the verification Task and Architect route; "
+                "AIWF does not dispatch or confirm automatically."
+            )
 
 def _update_md_status(entity_type: str, entity_id: str, status: str,
                       summary: str = "") -> None:

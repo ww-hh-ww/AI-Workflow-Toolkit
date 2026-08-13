@@ -245,11 +245,24 @@ def _cmd_task_close(args: argparse.Namespace) -> None:
     if report_policy == "silent_until_done":
         # Auto-proceed: Planner decides next action, no human reporting
         remaining = gp.get("remaining_tasks", []) or []
-        ms_id = task_ms_id or pp.get("milestone_progress", {}).get("milestone", {}).get("milestone_id", "")
-        if remaining:
-            print(f"  → load /aiwf-planner, pick next task from [{', '.join(remaining[:5])}], activate and continue  (silent, do not report to human)")
+        plan = pp.get("plan", {}) or {}
+        plan_id = str(plan.get("plan_id") or plan.get("id") or "")
+        plan_remaining = pp.get("remaining_task_ids", []) or []
+        ms_id = task_ms_id or str(plan.get("milestone_id") or "")
+        if plan_id and plan_remaining:
+            print(f"  → load /aiwf-planner, pick next task from [{', '.join(plan_remaining[:5])}], activate and continue  (silent, do not report to human)")
+        elif plan_id and plan.get("status") == "open":
+            print(
+                f"  → load /aiwf-planner and run aiwf plan integrate {plan_id}; "
+                "the Plan must be verified, merged, and closed before Milestone acceptance"
+            )
         elif ms_id:
-            print(f"  → load /aiwf-architect with milestone-acceptance lens, assess milestone {ms_id}  (silent batch complete, report milestone result to human)")
+            print(
+                f"  → run aiwf status --prompt for the {ms_id} verification Task and "
+                "milestone-acceptance route; AIWF does not dispatch Architect automatically"
+            )
+        elif remaining:
+            print(f"  → load /aiwf-planner, pick next task from [{', '.join(remaining[:5])}], activate and continue  (silent, do not report to human)")
         else:
             print(f"  → all tasks complete, load /aiwf-planner for next cycle  (silent, report summary to human)")
         return

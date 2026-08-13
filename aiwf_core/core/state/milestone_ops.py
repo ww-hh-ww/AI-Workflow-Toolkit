@@ -39,7 +39,6 @@ def _empty_milestone(
     task_ids: Optional[List[str]] = None,
     covered_goal_ids: Optional[List[str]] = None,
     mission_id: str = "",
-    advance_policy: str = "checkpoint",
     checkpoint_level: str = "milestone",
 ) -> Dict[str, Any]:
     now = _now()
@@ -78,7 +77,6 @@ def _empty_milestone(
         "stability_claim": None,
         "risk_summary": None,
         "recommended_next_frontier": None,
-        "advance_policy": advance_policy,
         "checkpoint_level": checkpoint_level,
         # Milestone integration verification — cross-Goal system integrity
         "integration_test": {
@@ -102,8 +100,8 @@ def _empty_milestone(
             "review_history": [],
         },
         "user_acceptance": {
-            "required": advance_policy != "auto",
-            "status": "open" if advance_policy != "auto" else "not_required",
+            "required": True,
+            "status": "open",
             "confirmed_by": "",
             "summary": "",
             "confirmed_at": "",
@@ -120,26 +118,20 @@ def _empty_milestone(
     }
 
 def _ensure_user_acceptance(milestone: Dict[str, Any]) -> Dict[str, Any]:
-    policy = str(milestone.get("advance_policy") or "checkpoint")
-    verdict = str((milestone.get("stage_synthesis", {}) or {}).get("verdict") or "pending")
-    required = policy != "auto" or verdict == "PASS_WITH_RISK"
     acceptance = milestone.setdefault("user_acceptance", {})
-    acceptance["required"] = required
+    # A Milestone is always a human acceptance boundary.
+    acceptance["required"] = True
     acceptance.setdefault("confirmed_by", "")
     acceptance.setdefault("summary", "")
     acceptance.setdefault("confirmed_at", "")
     acceptance.setdefault("assessment_recorded_at", "")
-    if not required:
-        acceptance["status"] = "not_required"
-    else:
-        acceptance.setdefault("status", "pending")
-        if acceptance.get("status") == "not_required":
-            acceptance["status"] = "pending"
+    if acceptance.get("status") != "confirmed":
+        acceptance["status"] = "pending"
     return acceptance
 
 def _invalidate_user_acceptance(milestone: Dict[str, Any]) -> None:
     acceptance = _ensure_user_acceptance(milestone)
-    acceptance["status"] = "pending" if acceptance.get("required") else "not_required"
+    acceptance["status"] = "pending"
     acceptance["confirmed_by"] = ""
     acceptance["summary"] = ""
     acceptance["confirmed_at"] = ""
@@ -190,7 +182,6 @@ def upsert_milestone(
     task_ids: Optional[List[str]] = None,
     covered_goal_ids: Optional[List[str]] = None,
     mission_id: str = "",
-    advance_policy: str = "",
     checkpoint_level: str = "",
     # Stage 4.7.2: structural convergence fields
     scope_type: str = "",
@@ -216,7 +207,6 @@ def upsert_milestone(
             task_ids=task_ids,
             covered_goal_ids=covered_goal_ids,
             mission_id=mission_id,
-            advance_policy=advance_policy or "checkpoint",
             checkpoint_level=checkpoint_level or "milestone",
         )
         data["milestones"].append(milestone)
@@ -242,9 +232,6 @@ def upsert_milestone(
         if mission_id:
             milestone["mission_id"] = mission_id
             data["mission_id"] = mission_id
-        if advance_policy:
-            milestone["advance_policy"] = advance_policy
-            _invalidate_user_acceptance(milestone)
         if checkpoint_level:
             milestone["checkpoint_level"] = checkpoint_level
         for pid in plan_ids or []:
@@ -279,15 +266,10 @@ def upsert_milestone(
             milestone["recommended_next_frontier"] = recommended_next_frontier
         milestone["updated_at"] = _now()
     if milestone.get("status") == "open":
-        # Only one active milestone at a time — auto-deactivate any previously active
-        for m in data.get("milestones", []) or []:
-            if m is milestone:
-                continue
-            if m.get("status") == "open":
-                m["status"] = "open"
-                m["updated_at"] = _now()
+        # Several delivery slices may remain open. This pointer is only the
+        # currently focused Milestone for status/navigation.
         data["active_milestone_id"] = milestone_id
-    elif data.get("active_milestone_id") == milestone_id and milestone.get("status") != "active":
+    elif data.get("active_milestone_id") == milestone_id:
         data["active_milestone_id"] = None
     save_milestones(base_dir, data)
     return {"milestone": milestone, "milestones": data}
@@ -536,10 +518,9 @@ def record_milestone_integration(
                 "passed milestone integration requires coverage_mode and main_path_status: "
                 + ", ".join(missing)
             )
-        if main_path_status not in ("passed", "not_applicable"):
-            missing.append(f"main_path_status={main_path_status} (expected passed or not_applicable)")
+        if main_path_status != "passed":
             raise ValueError(
-                "passed milestone integration requires main_path_status=passed or not_applicable"
+                "passed milestone integration requires main_path_status=passed"
             )
         # function_reverse_trace mode: requires full trace inventory
         if coverage_mode == "function_reverse_trace":
@@ -909,17 +890,24 @@ def close_milestone(base_dir: str, milestone_id: str) -> Dict[str, Any]:
     snapshot.setdefault("known_risks", [])
     snapshot.setdefault("next_milestone_focus", "")
 
-    # ── Auto git tag ──
+    # ── Best-effort Git tag ──
     tag_name = ""
+    warnings = []
     try:
         import subprocess
-        tag_name = milestone_id.lower().replace(" ", "-") + "-" + _now()[:10]
-        subprocess.run(
-            ["git", "tag", tag_name, "-m", f"Milestone {milestone_id} snapshot"],
-            capture_output=True, cwd=str(Path(base_dir)), timeout=10,
+        candidate = milestone_id.lower().replace(" ", "-") + "-" + _now()[:10]
+        result = subprocess.run(
+            ["git", "tag", candidate, "-m", f"Milestone {milestone_id} snapshot"],
+            capture_output=True, text=True, encoding="utf-8", errors="surrogateescape",
+            cwd=str(Path(base_dir)), timeout=10,
         )
-    except Exception:
-        pass
+        if result.returncode == 0:
+            tag_name = candidate
+        else:
+            detail = result.stderr.strip() or result.stdout.strip() or "git tag failed"
+            warnings.append(f"Milestone closed, but Git tag was not created: {detail}")
+    except Exception as exc:
+        warnings.append(f"Milestone closed, but Git tag was not created: {exc}")
 
     milestone["status"] = "closed"
     milestone["closed_at"] = _now()
@@ -928,4 +916,9 @@ def close_milestone(base_dir: str, milestone_id: str) -> Dict[str, Any]:
     if data.get("active_milestone_id") == milestone_id:
         data["active_milestone_id"] = None
     save_milestones(base_dir, data)
-    return {"closed": True, "milestone": milestone, "blockers": []}
+    return {
+        "closed": True,
+        "milestone": milestone,
+        "blockers": [],
+        "warnings": warnings,
+    }

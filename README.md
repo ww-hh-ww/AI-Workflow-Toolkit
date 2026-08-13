@@ -544,6 +544,13 @@ Milestone 是可选的真实验收切片。它可以跨多个 Goal 和 Plan，�
 - 人类确认
 - milestone verification Task 关闭
 
+设计 Milestone 时，Planner 会在相关时点向用户说明并推荐验证覆盖方式：
+
+- `end_to_end_flow`：默认选择，验证真实输入、处理、下游消费和可观察输出组成的运行主链路。
+- `function_reverse_trace`：高成本选择，对声明的源码范围逐文件、逐函数说明调用者或有理由的不使用状态；适合安全、协议、内核、迁移、死路径敏感项目，或 Pass Standard 明确要求源码级可达性时。
+
+选择会写入 Milestone.md。Planner 不应静默启用高成本模式，也不应在无关项目里机械执行逐函数回溯。Milestone 还支持特殊横向 Task 直接关联、文档与平台限制，以及有明确理由的 `PASS_WITH_RISK`；这些能力只在当前验收切片相关时向用户说明。
+
 ## 角色分工
 
 | 角色 | 负责 | 不负责 |
@@ -999,6 +1006,17 @@ aiwf milestone close MS-001
 ```
 
 `confirm` 只能在用户看到验收结果并明确同意后运行。
+
+当 Milestone.md 明确选择源码级追踪时，可改用：
+
+```bash
+aiwf milestone integration-test MS-001 --status passed \
+  --coverage-mode function_reverse_trace --main-path-status passed \
+  --source-file src/protocol.py \
+  --function-trace "src/protocol.py::decode::receive_message::connected" \
+  --accounted-file src/generated.py \
+  --summary "声明范围内的函数均已连接或明确说明用途"
+```
 
 ### Critic
 

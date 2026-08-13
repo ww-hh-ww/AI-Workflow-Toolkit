@@ -20,7 +20,6 @@ def _cmd_milestone_create(args: argparse.Namespace) -> None:
             task_ids=getattr(args, "task_ids", None) or None,
             covered_goal_ids=getattr(args, "covered_goal_ids", None) or None,
             mission_id=getattr(args, "mission_id", "") or "",
-            advance_policy=getattr(args, "advance_policy", "") or "",
             checkpoint_level=getattr(args, "checkpoint_level", "") or "",
         )
     except ValueError as e:
@@ -44,6 +43,12 @@ def _cmd_milestone_create(args: argparse.Namespace) -> None:
     print(f"  Goal: {m.get('goal_id', '')}")
     print(f"  Plans: {len(m.get('plan_ids', []) or [])}")
     print(f"  Tasks: {len(m.get('task_ids', []) or [])}")
+    print("  Next: write Milestone.md and choose verification coverage with the user.")
+    print("    Recommended default: end_to_end_flow for the real running main path.")
+    print(
+        "    Optional: function_reverse_trace when source-wide reachability is "
+        "material to this milestone's risk or Pass Standard."
+    )
 
 def _cmd_milestone_list(args: argparse.Namespace) -> None:
     from ..core.state.milestone_ops import list_milestones
@@ -150,6 +155,8 @@ def _cmd_milestone_close(args: argparse.Namespace) -> None:
         print(f"  - {blocker}")
     if result.get("blockers"):
         raise SystemExit(1)
+    for warning in result.get("warnings", []) or []:
+        print(f"  warning: {warning}")
     _update_milestone_md(args.milestone_id, status="closed")
     print()
     print("Milestone closed.")

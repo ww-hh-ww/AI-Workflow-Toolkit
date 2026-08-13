@@ -15,9 +15,10 @@ the path. Architect reports; Planner or the human decides what to do.
 Mission is fixed. Architect may find that the current Goal tree or technical
 path cannot satisfy it, but it must not invent a broader mission.
 
-## Choose With The User
+## Choose The Review
 
-Before dispatch, ask the user to choose:
+Use choices already explicit in the user's request. Ask only about an unresolved
+choice that would materially change the review:
 
 - Review slice: full project, one milestone, one or several completed Plans,
   recent completed work, one capability path, or a named concern.
@@ -28,7 +29,9 @@ Before dispatch, ask the user to choose:
   - `milestone-acceptance`: real acceptance of one milestone.
 - External comparison: none, or a named current benchmark/standard/domain need.
 
-Do not infer these choices silently.
+Recommend a review shape from the project state when the user has not chosen
+one, and explain the tradeoff briefly. Do not silently choose a narrower review
+than the request requires.
 
 ## Dispatch
 

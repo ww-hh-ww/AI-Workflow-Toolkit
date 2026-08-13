@@ -464,9 +464,23 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
     p_msi = p_ms_sub.add_parser("integration-test", help="record milestone integration test")
     p_msi.add_argument("milestone_id", help="milestone ID")
     p_msi.add_argument("--status", required=True, choices=["passed","failed"])
-    p_msi.add_argument("--coverage-mode", choices=["end_to_end_flow","function_reverse_trace"], default="")
+    p_msi.add_argument(
+        "--coverage-mode", choices=["end_to_end_flow", "function_reverse_trace"],
+        default="",
+        help=(
+            "end_to_end_flow verifies the real main path (default recommendation); "
+            "function_reverse_trace accounts for an explicitly declared source scope"
+        ),
+    )
     p_msi.add_argument("--main-path-status", choices=["passed","failed","not_run"], default="")
     p_msi.add_argument("--command", action="append", default=[], dest="command")
+    p_msi.add_argument("--failed-point", action="append", default=[], help="failed integration point")
+    p_msi.add_argument("--source-file", action="append", default=[], help="source file in reverse-trace scope")
+    p_msi.add_argument("--accounted-file", action="append", default=[], help="source file intentionally accounted for without a function trace")
+    p_msi.add_argument(
+        "--function-trace", action="append", default=[],
+        help="reverse trace: FILE::FUNCTION::CALLERS::STATUS[::REASON]",
+    )
     p_msi.add_argument("--summary", default="", help="test summary")
     p_msi.set_defaults(func=_cmd_milestone_integration_test)
     p_msr = p_ms_sub.add_parser("arch-review", help="record milestone architecture review")

@@ -175,6 +175,44 @@ def _task_next(
     implementation = record.get("implementation", {}) or {}
     testing = record.get("testing", {}) or {}
     review = record.get("review", {}) or {}
+    if task.get("kind") == "milestone_verification":
+        milestone_id = str(task.get("milestone_id") or "")
+        from ..core.state.milestone_ops import get_milestone
+
+        milestone = get_milestone(str(control or Path.cwd()), milestone_id)
+        synthesis = milestone.get("stage_synthesis", {}) or {}
+        integration = milestone.get("integration_test", {}) or {}
+        architecture = milestone.get("architecture_review", {}) or {}
+        acceptance = milestone.get("user_acceptance", {}) or {}
+        technically_passed = (
+            synthesis.get("verdict") in ("PASS", "PASS_WITH_RISK")
+            and integration.get("status") == "passed"
+            and integration.get("main_path_status") == "passed"
+            and architecture.get("status") == "intact"
+        )
+        if not technically_passed:
+            return (
+                "Milestone acceptance",
+                f"load /aiwf-architect and dispatch an independent aiwf-architect for "
+                f"{milestone_id} with the milestone-acceptance lens. Use "
+                f"{control / '.aiwf/milestones' / (milestone_id + '.md') if control else 'Milestone.md'} "
+                "as the acceptance contract, exercise its Pass Standard on the real path, "
+                "and record integration, architecture, and assessment results. This status "
+                "route does not dispatch the Agent itself",
+            )
+        if acceptance.get("status") != "confirmed":
+            return (
+                "Human acceptance",
+                f"present the {milestone_id} assessment and residual risks to the user, then "
+                f"ask whether they confirm this Milestone. Do not run aiwf milestone confirm "
+                f"{milestone_id} until they explicitly approve",
+            )
+        return (
+            "Planner calibration",
+            f"load /aiwf-planner and calibrate {task_id} with the accepted Milestone outcome, "
+            f"then load /aiwf-close and close the verification Task. After it closes, run "
+            f"aiwf milestone close {milestone_id}",
+        )
     reviewed_ref = str(review.get("reviewed_ref") or "")
     if review.get("result") == "accepted" and reviewed_ref and control:
         try:
@@ -392,6 +430,8 @@ def _skill_for(next_role: str) -> str:
         "Close": "/aiwf-close",
         "Planner calibration": "/aiwf-planner",
         "Planner decision": "/aiwf-planner",
+        "Milestone acceptance": "/aiwf-architect",
+        "Human acceptance": "",
         "Agent running": "",
     }.get(next_role, "/aiwf-planner")
 
@@ -557,6 +597,58 @@ def _plans_between_tasks(control: Path) -> List[Dict[str, Any]]:
     return plans
 
 
+def _milestones_at_acceptance(control: Path) -> List[Dict[str, Any]]:
+    """Return open delivery slices whose linked work is terminal."""
+    from ..core.state.milestone_ops import load_milestones
+
+    plan_by_id = {
+        str(plan.get("plan_id") or plan.get("id")): plan
+        for plan in load_plans(str(control), migrate=False).get("plans", []) or []
+        if isinstance(plan, dict) and (plan.get("plan_id") or plan.get("id"))
+    }
+    tasks = [
+        task for task in load_ledger(str(control)).get("tasks", []) or []
+        if isinstance(task, dict)
+    ]
+    task_by_id = {str(task.get("id")): task for task in tasks if task.get("id")}
+    ready: List[Dict[str, Any]] = []
+    for milestone in load_milestones(str(control)).get("milestones", []) or []:
+        if not isinstance(milestone, dict) or milestone.get("status") != "open":
+            continue
+        plan_ids = [str(item) for item in milestone.get("plan_ids", []) or []]
+        task_ids = [str(item) for item in milestone.get("task_ids", []) or []]
+        task_refs_exist = all(task_id in task_by_id for task_id in task_ids)
+        delivery_tasks = [
+            task_by_id[task_id] for task_id in task_ids
+            if task_id in task_by_id
+            and task_by_id[task_id].get("kind") != "milestone_verification"
+        ]
+        has_delivery_scope = bool(plan_ids or delivery_tasks)
+        plans_done = bool(plan_ids) and all(
+            plan_id in plan_by_id and plan_by_id[plan_id].get("status") == "closed"
+            for plan_id in plan_ids
+        )
+        tasks_done = all(
+            task.get("status") in ("closed", "cancelled") for task in delivery_tasks
+        )
+        if (
+            not has_delivery_scope
+            or (plan_ids and not plans_done)
+            or not task_refs_exist
+            or not tasks_done
+        ):
+            continue
+        verification = next((
+            task for task in tasks
+            if task.get("kind") == "milestone_verification"
+            and task.get("milestone_id") == milestone.get("milestone_id")
+        ), None)
+        item = dict(milestone)
+        item["_verification_task"] = verification
+        ready.append(item)
+    return ready
+
+
 def _installed(control: Path) -> bool:
     from ..core.project_root import has_opencode_adapter
 
@@ -595,13 +687,23 @@ def cmd_status(args) -> None:
     current = task_for_worktree(str(worktree))
     plans_closeout = _plans_at_closeout(control)
     plans_between = _plans_between_tasks(control)
+    milestones_acceptance = _milestones_at_acceptance(control)
     if getattr(args, "debug", False):
-        _print_debug(control, worktree, rows, current, plans_closeout, plans_between)
+        _print_debug(
+            control, worktree, rows, current, plans_closeout, plans_between,
+            milestones_acceptance,
+        )
     elif getattr(args, "prompt", False):
         _acknowledge_status_hook(control)
-        _print_prompt(control, worktree, rows, current, plans_closeout, plans_between)
+        _print_prompt(
+            control, worktree, rows, current, plans_closeout, plans_between,
+            milestones_acceptance,
+        )
     else:
-        _print_human(control, worktree, rows, current, plans_closeout, plans_between)
+        _print_human(
+            control, worktree, rows, current, plans_closeout, plans_between,
+            milestones_acceptance,
+        )
 
 
 def _print_human(
@@ -611,6 +713,7 @@ def _print_human(
     current: Dict[str, Any] | None,
     plans_closeout: List[Dict[str, Any]],
     plans_between: List[Dict[str, Any]],
+    milestones_acceptance: List[Dict[str, Any]],
 ) -> None:
     from ..core.project_root import has_opencode_adapter
 
@@ -659,7 +762,13 @@ def _print_human(
             print(f"Plan awaiting user decision: {plan_id}")
     for plan in plans_between:
         print(f"Plan ready for next Task review: {plan.get('plan_id') or plan.get('id')}")
-    if not rows and not plans_closeout and not plans_between:
+    for milestone in milestones_acceptance:
+        verification = milestone.get("_verification_task") or {}
+        print(
+            f"Milestone ready for acceptance: {milestone.get('milestone_id')} "
+            f"verification={verification.get('status') or 'missing'}"
+        )
+    if not rows and not plans_closeout and not plans_between and not milestones_acceptance:
         goal = get_active_goal(str(control))
         print(f"Planning: {goal.get('current_goal') or goal.get('active_goal') or 'no active Goal'}")
 
@@ -708,7 +817,9 @@ def _print_prompt(
     current: Dict[str, Any] | None,
     plans_closeout: List[Dict[str, Any]],
     plans_between: List[Dict[str, Any]],
+    milestones_acceptance: List[Dict[str, Any]] | None = None,
 ) -> None:
+    milestones_acceptance = milestones_acceptance or []
     memory_root = control / ".aiwf" / "memory"
     if not rows and temporary_ai_writes_enabled(control):
         print("Do now: complete the user's current small project-file operation directly.")
@@ -723,7 +834,12 @@ def _print_prompt(
         print(f"Task contract: {control / '.aiwf/tasks' / (row['id'] + '.md')}")
         print(f"Plan: {row['plan_id'] or '(none)'}")
         print(f"Worktree: {row['worktree_path']}")
-        if "with SendMessage" in row["action"]:
+        if row["next_role"] == "Human acceptance":
+            print(
+                "Human gate: present the recorded result and wait for explicit approval. "
+                "AIWF does not dispatch, confirm, or close automatically."
+            )
+        elif "with SendMessage" in row["action"]:
             print(
                 "Resume: try the listed Agent ID once only when it is available in this or "
                 "the resumed original Claude session. If it fails, start a new Agent."
@@ -900,6 +1016,59 @@ def _print_prompt(
         print("Required skills: /aiwf-planner")
         _print_planner_memory(memory_root)
         return
+    elif milestones_acceptance:
+        print("Do now: advance each ready Milestone to explicit acceptance. AIWF only routes this work; it does not create a Task, dispatch Architect, confirm, or close automatically:")
+        required = set()
+        for milestone in milestones_acceptance:
+            milestone_id = str(milestone.get("milestone_id") or milestone.get("id"))
+            verification = milestone.get("_verification_task") or {}
+            verification_id = str(verification.get("id") or "")
+            verification_status = str(verification.get("status") or "")
+            acceptance = milestone.get("user_acceptance", {}) or {}
+            synthesis = milestone.get("stage_synthesis", {}) or {}
+            if not verification:
+                required.add("/aiwf-planner")
+                print(
+                    f"- {milestone_id} | verification Task missing | load /aiwf-planner; "
+                    "choose a Task ID, create kind=milestone_verification with "
+                    f"--milestone-id {milestone_id}, write its contract from "
+                    f"{control / '.aiwf/milestones' / (milestone_id + '.md')}, link it with "
+                    f"aiwf milestone link-task {milestone_id} <TASK-ID>, then critique and activate it"
+                )
+            elif verification_status in ("ready", "suspended"):
+                required.add("/aiwf-planner")
+                print(
+                    f"- {milestone_id} | verification Task {verification_id} "
+                    f"status={verification_status} | load /aiwf-planner, inspect its contract, "
+                    "complete activation critique if needed, and activate or resume it"
+                )
+            elif verification_status == "closed" and acceptance.get("status") == "confirmed":
+                required.add("/aiwf-planner")
+                print(
+                    f"- {milestone_id} | accepted verification Task {verification_id} closed | "
+                    f"run aiwf milestone close {milestone_id}"
+                )
+            elif verification_status == "closed":
+                required.add("/aiwf-planner")
+                print(
+                    f"- {milestone_id} | verification Task {verification_id} closed before "
+                    "Milestone acceptance completed | load /aiwf-planner and inspect the inconsistent "
+                    "state; do not claim or force Milestone closure"
+                )
+            elif synthesis.get("verdict") in ("PASS", "PASS_WITH_RISK"):
+                print(
+                    f"- {milestone_id} | technical assessment passed | present its summary and "
+                    f"risks, then ask the user whether to run aiwf milestone confirm {milestone_id}"
+                )
+            else:
+                required.add("/aiwf-architect")
+                print(
+                    f"- {milestone_id} | verification Task {verification_id} active | load "
+                    "/aiwf-architect and dispatch an independent Architect with milestone-acceptance; "
+                    f"Milestone.md is authoritative"
+                )
+        print("Required skills: " + (", ".join(sorted(required)) if required else "none"))
+        return
     else:
         print(
             "Do now: load /aiwf-planner. Discuss and investigate before creating or changing "
@@ -945,6 +1114,7 @@ def _print_debug(
     current: Dict[str, Any] | None,
     plans_closeout: List[Dict[str, Any]],
     plans_between: List[Dict[str, Any]],
+    milestones_acceptance: List[Dict[str, Any]],
 ) -> None:
     state = _read_json(control / ".aiwf/state/state.json", {})
     plans = load_plans(str(control), migrate=False)
@@ -979,6 +1149,10 @@ def _print_debug(
         ],
         "plans_between_tasks": [
             plan.get("plan_id") or plan.get("id") for plan in plans_between
+        ],
+        "milestones_at_acceptance": [
+            milestone.get("milestone_id") or milestone.get("id")
+            for milestone in milestones_acceptance
         ],
         "state": state,
         "plans": plans,
