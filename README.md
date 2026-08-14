@@ -213,6 +213,12 @@ OpenCode 当前没有可阻止会话结束的 Stop Plugin 事件，因此最终�
 `aiwf task close` 保证，不能依赖会话退出提醒。它的 Task 子代理没有独立
 `cwd` 参数；AIWF Plugin 根据 Task ID 绑定子会话，并把项目工具路由到对应
 Plan worktree。Planner 可以留在 control root，并行 Plan 使用相互独立的子会话。
+安装器会在注册 Plugin 后运行一次有时限的真实配置加载检查。如果 OpenCode
+无法及时准备自己的 `@opencode-ai/plugin` 依赖，例如 npm 不可达、代理异常或
+宿主版本与 SDK 发布不同步，AIWF 会只撤销自己的 Plugin 注册，保留 Agent、
+Skill 和治理数据，让 OpenCode 仍能启动。此时 `aiwf doctor --host opencode`
+会明确报告缺少 Hook enforcement；依赖恢复后重新运行
+`aiwf install opencode --force` 即可启用并复验 Plugin。
 OpenCode 的 Planner 在 Git 或治理边界先运行 `aiwf governance status`；只有需要
 固化 pending stable `.aiwf` 文件时才运行 `aiwf governance checkpoint`。`tracked`
 和 `local` 是用户的追踪选择，Agent 不应自行切换。

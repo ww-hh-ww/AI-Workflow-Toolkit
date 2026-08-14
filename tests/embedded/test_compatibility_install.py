@@ -17,6 +17,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 def _run(command, cwd):
     env = os.environ.copy()
     env["PYTHONPATH"] = str(PROJECT_ROOT)
+    env["AIWF_OPENCODE_STARTUP_CHECK"] = "skip"
     return subprocess.run(
         command, cwd=str(cwd), env=env, capture_output=True, text=True, timeout=20,
     )
@@ -46,6 +47,12 @@ class TestOpenCodeInstall(unittest.TestCase):
         self.assertTrue((self.root / "AGENTS.md").exists())
         self.assertTrue((self.root / "opencode.json").exists())
         self.assertTrue((self.root / "scripts/aiwf_opencode_plugin.js").exists())
+        startup = json.loads(
+            (self.root / ".aiwf/runtime/internal/opencode-startup.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        self.assertTrue(startup["plugin_enabled"])
         self.assertFalse((self.root / ".opencode/plugins/aiwf.js").exists())
         config = json.loads((self.root / "opencode.json").read_text(encoding="utf-8"))
         self.assertIn("./scripts/aiwf_opencode_plugin.js", config["plugin"])
@@ -145,6 +152,38 @@ class TestOpenCodeInstall(unittest.TestCase):
         config = json.loads((self.root / "opencode.json").read_text(encoding="utf-8"))
         self.assertEqual(config["default_agent"], "build")
         self.assertEqual(config["share"], "disabled")
+
+    def test_failed_startup_probe_disables_only_aiwf_plugin(self):
+        from aiwf_core.opencode_startup import PLUGIN_SPEC, finalize_plugin_startup
+
+        config = self.root / "opencode.json"
+        config.write_text(
+            json.dumps({"plugin": ["user-plugin", PLUGIN_SPEC]}), encoding="utf-8"
+        )
+        results = {"created": [], "updated": [], "skipped": [], "warnings": []}
+        with patch(
+            "aiwf_core.opencode_startup.probe_opencode_startup",
+            side_effect=[
+                {
+                    "checked": True,
+                    "ok": False,
+                    "reason": "startup timeout",
+                },
+                {
+                    "checked": True,
+                    "ok": True,
+                    "reason": "fallback passed",
+                },
+            ],
+        ):
+            status_path = finalize_plugin_startup(self.root, results)
+
+        updated = json.loads(config.read_text(encoding="utf-8"))
+        self.assertEqual(updated["plugin"], ["user-plugin"])
+        status = json.loads(status_path.read_text(encoding="utf-8"))
+        self.assertFalse(status["plugin_enabled"])
+        self.assertTrue(status["fallback_startup_ok"])
+        self.assertIn("startup timeout", results["warnings"][0])
 
     def test_claude_and_open_code_adapters_can_coexist(self):
         self.install()

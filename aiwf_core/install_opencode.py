@@ -22,6 +22,11 @@ from .install_claude import (
     _write_state_files,
 )
 from .io import rel, write_text
+from .opencode_startup import (
+    PLUGIN_SPEC,
+    STARTUP_STATUS_PATH,
+    finalize_plugin_startup,
+)
 from .core.project_root import (
     LEGACY_OPENCODE_PLUGIN_PATH,
     OPENCODE_PLUGIN_PATH,
@@ -31,7 +36,6 @@ from .core.project_root import (
 PRODUCT_NAME = "OpenCode"
 COMMAND_NAME = "opencode --agent aiwf-planner"
 ENTRY_COMMAND = "/aiwf-planner"
-PLUGIN_SPEC = "./scripts/aiwf_opencode_plugin.js"
 
 
 def _root() -> Path:
@@ -240,7 +244,9 @@ def _write_opencode_assets() -> List[Path]:
 
 
 def install_opencode(force: bool = False) -> Dict[str, List[str]]:
-    results: Dict[str, List[str]] = {"created": [], "updated": [], "skipped": []}
+    results: Dict[str, List[str]] = {
+        "created": [], "updated": [], "skipped": [], "warnings": [],
+    }
     _migrate_legacy_paths()
     results["updated"].extend([rel(_write_instruction()), rel(_write_config())])
     for path in [*_write_skills(), *_write_agents(), *_write_opencode_assets()]:
@@ -273,6 +279,8 @@ def install_opencode(force: bool = False) -> Dict[str, List[str]]:
         readme_rel = rel(readme)
         if readme_rel not in results["created"]:
             results["created"].append(readme_rel)
+    startup_status = finalize_plugin_startup(_root(), results)
+    results["created"].append(rel(startup_status))
     from .hooks.common.diff_snapshot import write_install_baseline
     write_install_baseline(_root())
     return results
@@ -303,26 +311,35 @@ def doctor_opencode() -> Dict[str, object]:
         }
     plugin = root / OPENCODE_PLUGIN_PATH
     plugin_text = plugin.read_text(encoding="utf-8") if plugin.exists() else ""
+    try:
+        config = json.loads((root / "opencode.json").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        config = {}
+    plugin_configured = PLUGIN_SPEC in (config.get("plugin", []) or [])
+    try:
+        startup = json.loads((root / STARTUP_STATUS_PATH).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        startup = {}
     hooks = {
         "chat.message": {
             "configured": '"chat.message"' in plugin_text,
-            "valid_schema": '"chat.message"' in plugin_text,
+            "valid_schema": plugin_configured and '"chat.message"' in plugin_text,
         },
         "shell.env": {
             "configured": '"shell.env"' in plugin_text,
-            "valid_schema": '"shell.env"' in plugin_text,
+            "valid_schema": plugin_configured and '"shell.env"' in plugin_text,
         },
         "tool.execute.before": {
             "configured": '"tool.execute.before"' in plugin_text,
-            "valid_schema": '"tool.execute.before"' in plugin_text,
+            "valid_schema": plugin_configured and '"tool.execute.before"' in plugin_text,
         },
         "tool.execute.after": {
             "configured": '"tool.execute.after"' in plugin_text,
-            "valid_schema": '"tool.execute.after"' in plugin_text,
+            "valid_schema": plugin_configured and '"tool.execute.after"' in plugin_text,
         },
         "experimental.session.compacting": {
             "configured": '"experimental.session.compacting"' in plugin_text,
-            "valid_schema": '"experimental.session.compacting"' in plugin_text,
+            "valid_schema": plugin_configured and '"experimental.session.compacting"' in plugin_text,
         },
     }
     state_files = {name: (root / ".aiwf" / name).exists() for name in MVP_STATE_FILES}
@@ -372,6 +389,12 @@ def doctor_opencode() -> Dict[str, object]:
         and sync["healthy"]
     )
     has_warnings = bool(warnings) or bool(sync.get("warning_count"))
+    adapter_warnings = []
+    if not plugin_configured:
+        adapter_warnings.append(
+            "AIWF OpenCode Plugin is disabled; Agents and Skills are available, but hook "
+            "enforcement is not. " + str(startup.get("reason") or "rerun the installer")
+        )
     return {
         "mode": "opencode",
         "product_name": PRODUCT_NAME,
@@ -388,5 +411,6 @@ def doctor_opencode() -> Dict[str, object]:
         "index": index,
         "sync": sync,
         "memory": memory,
+        "adapter_warnings": adapter_warnings,
         "overall": "healthy_with_warnings" if all_ok and has_warnings else ("healthy" if all_ok else "issues_found"),
     }

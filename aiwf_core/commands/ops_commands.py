@@ -123,6 +123,8 @@ def _cmd_install(args: argparse.Namespace) -> None:
         print(f"Updated ({len(results['updated'])}):")
         for path in results["updated"]:
             print(f"  ~ {path}")
+    for warning in results.get("warnings", []):
+        print(f"WARNING: {warning}")
     try:
         git = subprocess.run(
             ["git", "rev-parse", "--verify", "HEAD"],
@@ -193,6 +195,8 @@ def _cmd_doctor(args: argparse.Namespace) -> None:
         print(f"WARN memory: {memory.get('warning_count', 0)} structural warning(s)")
         for warning in memory.get("warnings", []):
             print(f"  WARN {warning}")
+    for warning in results.get("adapter_warnings", []):
+        print(f"WARN adapter: {warning}")
 
     if overall not in ("healthy", "healthy_with_warnings"):
         raise SystemExit(1)
