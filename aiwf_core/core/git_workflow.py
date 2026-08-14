@@ -469,6 +469,12 @@ def plan_integration_state(base_dir: str, plan: Dict[str, Any]) -> str:
         if actual.returncode != 0 or actual.stdout.strip() != head_ref:
             return "git_incomplete"
     if integration_status == "prepared":
+        # A deliberate hold is authoritative for an otherwise prepared
+        # candidate. Check it before the prepared/base comparison; governance
+        # checkpoints made while holding another Plan can legitimately move the
+        # base branch without reopening this Plan's merge decision.
+        if head_ref and str(plan.get("integration_hold_ref") or "") == head_ref:
+            return "held"
         base_branch = str(plan.get("git_base_branch") or "")
         current_base = _run(Path(base_dir), "rev-parse", f"{base_branch}^{{commit}}")
         if current_base.returncode != 0:
