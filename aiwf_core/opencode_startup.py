@@ -3,15 +3,19 @@ from __future__ import annotations
 
 import json
 import os
+import signal
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 
 PLUGIN_SPEC = "./scripts/aiwf_opencode_plugin.js"
 STARTUP_STATUS_PATH = Path(".aiwf/runtime/internal/opencode-startup.json")
 STARTUP_CHECK_ENV = "AIWF_OPENCODE_STARTUP_CHECK"
+WARM_STARTUP_TIMEOUT = 8.0
+COLD_STARTUP_TIMEOUT = 120.0
+FALLBACK_STARTUP_TIMEOUT = 15.0
 
 
 def set_plugin_enabled(root: Path, enabled: bool) -> Path:
@@ -32,7 +36,63 @@ def set_plugin_enabled(root: Path, enabled: bool) -> Path:
     return path
 
 
-def probe_opencode_startup(root: Path, timeout: float = 8.0) -> Dict[str, object]:
+def _plugin_sdk_ready(root: Path) -> bool:
+    return (
+        root / ".opencode/node_modules/@opencode-ai/plugin/package.json"
+    ).is_file()
+
+
+def _terminate_process_tree(process: subprocess.Popen[str]) -> None:
+    if process.poll() is not None:
+        return
+    if os.name == "nt":
+        subprocess.run(
+            ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+            capture_output=True,
+            check=False,
+        )
+    else:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+    if process.poll() is None:
+        process.kill()
+
+
+def _run_probe(
+    command: List[str], root: Path, env: Dict[str, str], timeout: float
+) -> subprocess.CompletedProcess[str]:
+    options: Dict[str, object] = {
+        "cwd": str(root),
+        "env": env,
+        "stdout": subprocess.PIPE,
+        "stderr": subprocess.PIPE,
+        "text": True,
+        "encoding": "utf-8",
+        "errors": "surrogateescape",
+    }
+    if os.name == "nt":
+        options["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+    else:
+        options["start_new_session"] = True
+    process = subprocess.Popen(command, **options)
+    try:
+        stdout, stderr = process.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        _terminate_process_tree(process)
+        try:
+            process.communicate(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.communicate()
+        raise
+    return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
+
+
+def probe_opencode_startup(
+    root: Path, timeout: Optional[float] = None
+) -> Dict[str, object]:
     """Check that OpenCode can finish loading the installed project plugin."""
     if os.environ.get(STARTUP_CHECK_ENV, "").strip().lower() == "skip":
         return {"checked": False, "ok": True, "reason": "startup check skipped"}
@@ -45,23 +105,25 @@ def probe_opencode_startup(root: Path, timeout: float = 8.0) -> Dict[str, object
         }
     env = os.environ.copy()
     env["OPENCODE_DISABLE_MODELS_FETCH"] = "true"
+    effective_timeout = timeout
+    if effective_timeout is None:
+        effective_timeout = (
+            WARM_STARTUP_TIMEOUT if _plugin_sdk_ready(root) else COLD_STARTUP_TIMEOUT
+        )
     try:
-        result = subprocess.run(
+        result = _run_probe(
             [executable, "debug", "config"],
-            cwd=str(root),
-            env=env,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="surrogateescape",
-            timeout=timeout,
+            root,
+            env,
+            effective_timeout,
         )
     except subprocess.TimeoutExpired:
         return {
             "checked": True,
             "ok": False,
             "reason": (
-                f"OpenCode did not finish loading the project plugin within {timeout:g}s; "
+                "OpenCode did not finish loading the project plugin within "
+                f"{effective_timeout:g}s; "
                 "its local Plugin SDK may be unavailable"
             ),
         }
@@ -82,7 +144,7 @@ def finalize_plugin_startup(root: Path, results: Dict[str, List[str]]) -> Path:
         config_rel = str(config.relative_to(root))
         if config_rel not in results["updated"]:
             results["updated"].append(config_rel)
-        fallback = probe_opencode_startup(root, timeout=3.0)
+        fallback = probe_opencode_startup(root, timeout=FALLBACK_STARTUP_TIMEOUT)
         if fallback.get("ok"):
             warning = (
                 "OpenCode startup recovered after AIWF Plugin registration was disabled: "

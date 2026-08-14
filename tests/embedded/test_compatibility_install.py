@@ -185,6 +185,28 @@ class TestOpenCodeInstall(unittest.TestCase):
         self.assertTrue(status["fallback_startup_ok"])
         self.assertIn("startup timeout", results["warnings"][0])
 
+    def test_startup_probe_allows_cold_sdk_bootstrap_but_keeps_warm_check_short(self):
+        from aiwf_core.opencode_startup import (
+            COLD_STARTUP_TIMEOUT,
+            WARM_STARTUP_TIMEOUT,
+            probe_opencode_startup,
+        )
+
+        completed = subprocess.CompletedProcess(
+            ["opencode", "debug", "config"], 0, "{}", ""
+        )
+        with patch("aiwf_core.opencode_startup.shutil.which", return_value="opencode"), patch(
+            "aiwf_core.opencode_startup._run_probe", return_value=completed
+        ) as run_probe:
+            self.assertTrue(probe_opencode_startup(self.root)["ok"])
+            self.assertEqual(run_probe.call_args.args[3], COLD_STARTUP_TIMEOUT)
+
+            sdk = self.root / ".opencode/node_modules/@opencode-ai/plugin/package.json"
+            sdk.parent.mkdir(parents=True)
+            sdk.write_text("{}\n", encoding="utf-8")
+            self.assertTrue(probe_opencode_startup(self.root)["ok"])
+            self.assertEqual(run_probe.call_args.args[3], WARM_STARTUP_TIMEOUT)
+
     def test_claude_and_open_code_adapters_can_coexist(self):
         self.install()
         result = _run(
