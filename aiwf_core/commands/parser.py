@@ -73,6 +73,7 @@ from .task_commands import (
     _cmd_task_interrupt,
     _cmd_task_plan,
     _cmd_task_proof,
+    _cmd_task_restore,
     _cmd_task_show,
     _cmd_task_status,
 )
@@ -339,6 +340,16 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
     p_tca.add_argument("task_id", help="task ID")
     p_tca.add_argument("--reason", default="", help="why this task is cancelled")
     p_tca.set_defaults(func=_cmd_task_cancel)
+    p_tr = p_task_sub.add_parser(
+        "restore", help="human-only restore of a cancelled task to ready or closed"
+    )
+    p_tr.add_argument("task_id", help="task ID")
+    p_tr.add_argument(
+        "--status", choices=["ready", "closed"], default="ready",
+        help="restored status (ready requires fresh critique; closed is human_restore)",
+    )
+    p_tr.add_argument("--reason", required=True, help="why the cancellation is being reversed")
+    p_tr.set_defaults(func=_cmd_task_restore)
     p_ta = p_task_sub.add_parser("activate", help="activate a task")
     p_ta.add_argument("task_id", help="task ID")
     p_ta.add_argument(

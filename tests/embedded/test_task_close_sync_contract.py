@@ -465,6 +465,72 @@ Own and record the completed result.
         tasks = json.loads((base / ".aiwf/state/tasks.json").read_text(encoding="utf-8"))
         self.assertEqual(tasks["tasks"][0]["status"], "cancelled")
 
+    def test_human_can_restore_cancelled_task_to_ready_or_closed(self):
+        from aiwf_core.core.index_ops import parse_md, write_narrative_doc
+        from aiwf_core.core.task_ledger import restore_cancelled_task
+
+        base = Path(tempfile.mkdtemp(prefix="awrestore_"))
+        for rel in (".aiwf/state", ".aiwf/tasks"):
+            (base / rel).mkdir(parents=True, exist_ok=True)
+        tasks = []
+        for task_id in ("TASK-READY", "TASK-CLOSED"):
+            task_doc = base / f".aiwf/tasks/{task_id}.md"
+            write_narrative_doc(task_doc, {
+                "id": task_id,
+                "type": "task",
+                "title": task_id,
+                "contract_status": "cancelled",
+                "goal_id": "GOAL-001",
+                "plan_id": "PLAN-001",
+            }, f"# {task_id}\n")
+            tasks.append({
+                "id": task_id,
+                "status": "cancelled",
+                "phase": "planning",
+                "doc_path": f".aiwf/tasks/{task_id}.md",
+                "plan_id": "PLAN-001",
+                "cancel_reason": "old decision",
+                "activation_critique_count": 2,
+            })
+        (base / ".aiwf/state/tasks.json").write_text(json.dumps({
+            "schema_version": 1, "tasks": tasks,
+        }), encoding="utf-8")
+        (base / ".aiwf/state/plans.json").write_text(json.dumps({
+            "schema_version": 1,
+            "plans": [{
+                "id": "PLAN-001",
+                "plan_id": "PLAN-001",
+                "status": "open",
+                "task_ids": ["TASK-READY", "TASK-CLOSED"],
+                "task_status": {"TASK-READY": "cancelled", "TASK-CLOSED": "cancelled"},
+                "closed_task_ids": [],
+                "remaining_task_ids": [],
+            }],
+        }), encoding="utf-8")
+
+        ready = restore_cancelled_task(
+            str(base), "TASK-READY", status="ready", reason="resume the original scope"
+        )
+        self.assertTrue(ready["restored"], ready["blockers"])
+        self.assertEqual(ready["task"]["status"], "ready")
+        self.assertEqual(ready["task"]["activation_critique_count"], 0)
+        self.assertEqual(ready["task"]["restoration"]["from"], "cancelled")
+        fm, _ = parse_md(base / ".aiwf/tasks/TASK-READY.md")
+        self.assertEqual(fm["contract_status"], "ready")
+
+        closed = restore_cancelled_task(
+            str(base), "TASK-CLOSED", status="closed", reason="work was already delivered"
+        )
+        self.assertTrue(closed["restored"], closed["blockers"])
+        self.assertEqual(closed["task"]["status"], "closed")
+        self.assertEqual(closed["task"]["closure"]["mode"], "human_restore")
+        fm, _ = parse_md(base / ".aiwf/tasks/TASK-CLOSED.md")
+        self.assertEqual(fm["contract_status"], "closed")
+        plan = json.loads((base / ".aiwf/state/plans.json").read_text(encoding="utf-8"))["plans"][0]
+        self.assertEqual(plan["task_status"]["TASK-READY"], "ready")
+        self.assertEqual(plan["task_status"]["TASK-CLOSED"], "closed")
+        self.assertEqual(plan["remaining_task_ids"], ["TASK-READY"])
+
     def test_command_policy_blocks_human_only_recovery_commands_for_agents(self):
         policy_path = (
             Path(__file__).resolve().parent.parent.parent
@@ -475,6 +541,7 @@ Own and record the completed result.
 
         self.assertTrue(denied["aiwf task force-close"]["human_only"])
         self.assertTrue(denied["aiwf task interrupt"]["human_only"])
+        self.assertTrue(denied["aiwf task restore"]["human_only"])
         self.assertTrue(denied["aiwf fixloop continue"]["human_only"])
 
     def test_public_task_help_hides_internal_suspend(self):
@@ -491,6 +558,7 @@ Own and record the completed result.
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("interrupt", result.stdout)
         self.assertIn("force-close", result.stdout)
+        self.assertIn("restore", result.stdout)
         self.assertNotIn("suspend", result.stdout)
 
 

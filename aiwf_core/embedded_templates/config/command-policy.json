@@ -13,6 +13,11 @@
       "human_only": true
     },
     {
+      "command": "aiwf task restore",
+      "reason": "restoring a cancelled Task changes a terminal human decision. Human recovery only.",
+      "human_only": true
+    },
+    {
       "command": "aiwf fixloop continue",
       "reason": "continue authorizes another workflow step after repeated failures. Human decision only.",
       "human_only": true

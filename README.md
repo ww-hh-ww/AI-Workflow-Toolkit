@@ -954,6 +954,17 @@ aiwf task cancel TASK-001 --reason "方案已被 PLAN-002 替代"
 
 Active Task 不能直接 cancel，必须先 interrupt。
 
+如果取消决定后来被人类撤回，只能由人类选择恢复方向：
+
+```bash
+aiwf task restore TASK-001 --status ready --reason "继续原任务"
+aiwf task restore TASK-001 --status closed --reason "确认工作已完成"
+```
+
+`ready` 会回到规划状态，并要求重新通过 activation critique；`closed` 会记录
+为 `human_restore`，不伪装成正常 Executor/Tester/Reviewer 闭合。取消原因和恢复
+原因都会保留。
+
 ### Force-close
 
 紧急把 active Task 标为 closed，并记录未满足的 gates：
@@ -1325,6 +1336,7 @@ aiwf task close [TASK-ID]
 aiwf task interrupt [TASK-ID] --reason "..."      # human only
 aiwf task force-close [TASK-ID] --reason "..."    # human only
 aiwf task cancel TASK-001 --reason "..."
+aiwf task restore TASK-001 --status ready --reason "..."  # human only
 ```
 
 ### Records

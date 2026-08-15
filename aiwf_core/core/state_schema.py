@@ -58,6 +58,8 @@ VALID_MILESTONE_STATUSES = {"open", "closed", "cancelled"}
 # Force-close:     {"status":"closed","closure":{"mode":"human_force","reason":null,"unsatisfied_checks":[]}}
 # Interrupt:       {"status":"suspended","interruption":{"reason":null,"unsatisfied_checks":[]}}
 # Cancel:          {"status":"cancelled","cancel_reason":"...","replaced_by":null}
+# Restore:          human-only cancelled→ready|closed, with restoration history;
+#                   ready requires fresh activation critique, closed uses human_restore.
 
 def default_goals() -> Dict[str, Any]:
     return {

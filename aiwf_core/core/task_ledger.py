@@ -222,6 +222,50 @@ def _find(tasks: List[Dict[str, Any]], task_id: str) -> Optional[Dict[str, Any]]
     return None
 
 
+def _restore_plan_task_status(base_dir: str, task: Dict[str, Any]) -> Optional[str]:
+    """Keep the parent Plan rollup aligned after a human Task restoration."""
+    plan_id = str(task.get("plan_id") or task.get("parent_plan") or "")
+    if not plan_id:
+        return None
+    try:
+        from .state.plan_ops import load_plans, save_plans
+
+        plans = load_plans(base_dir)
+        plan = next(
+            (
+                item for item in plans.get("plans", []) or []
+                if isinstance(item, dict)
+                and str(item.get("plan_id") or item.get("id") or "") == plan_id
+            ),
+            None,
+        )
+        if not plan:
+            return f"parent Plan not found while restoring Task: {plan_id}"
+        task_ids = plan.setdefault("task_ids", [])
+        if task.get("id") not in task_ids:
+            task_ids.append(task.get("id"))
+        task_status = plan.setdefault("task_status", {})
+        task_status[task["id"]] = str(task.get("status") or "")
+        closed = [tid for tid in task_ids if task_status.get(tid) == "closed"]
+        remaining = [
+            tid for tid in task_ids
+            if task_status.get(tid) not in ("closed", "cancelled")
+        ]
+        plan["closed_task_ids"] = closed
+        plan["remaining_task_ids"] = remaining
+        plan["task_rollup"] = {
+            "summary": f"{len(closed)}/{len(task_ids)} plan tasks closed",
+            "closed_count": len(closed),
+            "total_count": len(task_ids),
+            "remaining_task_ids": remaining,
+        }
+        plan["updated_at"] = _now()
+        save_plans(base_dir, plans)
+    except Exception as exc:
+        return f"parent Plan rollup update failed: {exc}"
+    return None
+
+
 def active_tasks(base_dir: str) -> List[Dict[str, Any]]:
     return [
         task for task in load_ledger(base_dir).get("tasks", [])
@@ -750,6 +794,123 @@ def _interrupt_task_locked(base_dir: str, reason: str = "", task_id: str = "") -
 
     save_ledger(base_dir, ledger)
     return {"interrupted": True, "task": task, "ledger": ledger, "blockers": []}
+
+
+@_governance_locked
+def restore_cancelled_task(
+    base_dir: str,
+    task_id: str,
+    status: str = "ready",
+    reason: str = "",
+) -> Dict[str, Any]:
+    """Human-only recovery from cancelled to ready or administratively closed."""
+    status = str(status or "").strip().lower()
+    reason = str(reason or "").strip()
+    if status not in {"ready", "closed"}:
+        return {
+            "restored": False,
+            "task": None,
+            "ledger": load_ledger(base_dir),
+            "blockers": ["restore status must be 'ready' or 'closed'"],
+        }
+    if not reason:
+        return {
+            "restored": False,
+            "task": None,
+            "ledger": load_ledger(base_dir),
+            "blockers": ["restore reason is required"],
+        }
+
+    ledger = load_ledger(base_dir)
+    task = _find(ledger.get("tasks", []), task_id)
+    if not task:
+        return {
+            "restored": False,
+            "task": None,
+            "ledger": ledger,
+            "blockers": [f"task not found: {task_id}"],
+        }
+    if task.get("status") != "cancelled":
+        return {
+            "restored": False,
+            "task": task,
+            "ledger": ledger,
+            "blockers": [f"task status is '{task.get('status')}', not cancelled"],
+        }
+
+    plan_id = str(task.get("plan_id") or task.get("parent_plan") or "")
+    if status == "ready" and plan_id:
+        try:
+            from .state.plan_ops import load_plans
+
+            plan = next(
+                (
+                    item for item in load_plans(base_dir).get("plans", []) or []
+                    if isinstance(item, dict)
+                    and str(item.get("plan_id") or item.get("id") or "") == plan_id
+                ),
+                None,
+            )
+            if plan and str(plan.get("status") or "open") == "closed":
+                return {
+                    "restored": False,
+                    "task": task,
+                    "ledger": ledger,
+                    "blockers": [
+                        f"parent Plan is closed: {plan_id}; restore into a new Plan instead"
+                    ],
+                }
+        except Exception as exc:
+            return {
+                "restored": False,
+                "task": task,
+                "ledger": ledger,
+                "blockers": [f"could not inspect parent Plan: {exc}"],
+            }
+
+    previous_cancel = {
+        "reason": task.get("cancel_reason") or "",
+        "replaced_by": task.get("replaced_by") or "",
+        "status": "cancelled",
+    }
+    task["status"] = status
+    task["updated_at"] = _now()
+    task["restoration"] = {
+        "from": "cancelled",
+        "to": status,
+        "reason": reason,
+        "restored_at": _now(),
+        "previous_cancel": previous_cancel,
+    }
+    if status == "ready":
+        task["phase"] = "planning"
+        task["activation_critique_count"] = 0
+        task.pop("interruption", None)
+        task.pop("suspended_phase", None)
+    else:
+        task["phase"] = "closed"
+        task["closed_at"] = _now()
+        task["closure"] = {
+            "mode": "human_restore",
+            "reason": reason,
+            "restored_from": "cancelled",
+            "previous_cancel": previous_cancel,
+        }
+    warning = _mark_task_doc_contract_status(base_dir, task, status)
+    if warning:
+        task.setdefault("close_warnings", []).append(warning)
+    save_ledger(base_dir, ledger)
+    rollup_warning = _restore_plan_task_status(base_dir, task)
+    if rollup_warning:
+        task.setdefault("close_warnings", []).append(rollup_warning)
+        save_ledger(base_dir, ledger)
+    return {
+        "restored": True,
+        "task": task,
+        "ledger": ledger,
+        "blockers": [],
+        "warnings": [item for item in (warning, rollup_warning) if item],
+    }
 
 def close_task(base_dir: str, task_id: str = "", note: str = "") -> Dict[str, Any]:
     try:

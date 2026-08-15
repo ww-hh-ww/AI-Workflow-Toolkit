@@ -36,6 +36,8 @@ not guess. Surface the mismatch and follow the phase skill.
 - Do not hand-edit `.aiwf/state/` or `.aiwf/records/`; use `aiwf` commands.
 - Do not run `aiwf task force-close`; human emergency override only.
 - Do not run `aiwf task interrupt`; human interruption only.
+- Do not run `aiwf task restore`; ask the human to choose `ready` or `closed`
+  and run it with a reason when a cancelled Task must return.
 - Do not run `aiwf fixloop continue`; ask the human when repeated failures require a decision.
 
 ## Governance Git

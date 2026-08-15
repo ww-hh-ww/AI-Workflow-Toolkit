@@ -433,6 +433,33 @@ def _cmd_task_cancel(args: argparse.Namespace) -> None:
     print(f"Task not found: {task_id}", file=sys.stderr)
     raise SystemExit(1)
 
+
+def _cmd_task_restore(args: argparse.Namespace) -> None:
+    """Human-only recovery of a cancelled Task."""
+    from ..core.task_ledger import restore_cancelled_task
+
+    result = restore_cancelled_task(
+        str(Path.cwd()),
+        task_id=getattr(args, "task_id", "") or "",
+        status=getattr(args, "status", "ready") or "ready",
+        reason=getattr(args, "reason", "") or "",
+    )
+    task = result.get("task") or {}
+    task_id = task.get("id", getattr(args, "task_id", "unknown"))
+    if not result.get("restored"):
+        print(f"Task restore: {task_id} restored=False", file=sys.stderr)
+        for blocker in result.get("blockers", [])[:8]:
+            print(f"  - {blocker}", file=sys.stderr)
+        raise SystemExit(1)
+    print(f"Task restored: {task_id} status={task.get('status')}")
+    print(f"  Reason: {task['restoration']['reason']}")
+    if task.get("status") == "ready":
+        print("  Next: Planner must run fresh activation critique before activation.")
+    else:
+        print("  Close mode: human_restore")
+    for warning in result.get("warnings", []) or []:
+        print(f"  ! {warning}")
+
 def _cmd_task_show(args: argparse.Namespace) -> None:
     from ..core.task_ledger import load_ledger, resolve_active_task_id
     task_id = getattr(args, "task_id", "") or ""

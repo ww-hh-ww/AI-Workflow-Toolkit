@@ -188,6 +188,18 @@ explicit approval, run `aiwf task activate <TASK-ID> --accept-head-change`.
   correct route and exact remaining work, then follow status.
 - If the Task contract must change, ask the user whether to interrupt it.
 
+Cancellation is terminal for the model. If a human wants a cancelled Task back,
+explain the choice and ask them to run one of these commands:
+
+```text
+aiwf task restore <TASK-ID> --status ready --reason "..."
+aiwf task restore <TASK-ID> --status closed --reason "..."
+```
+
+`ready` returns the Task to planning and requires fresh activation critique.
+`closed` records a human restoration decision and does not claim a normal
+Executor/Tester/Reviewer closure. The model must not run `task restore`.
+
 For an integration Task, do not repair an unchanged implementation merely
 because Tester expected the Plan to already be in main. Verify the recorded
 base merge and combined behavior on the same snapshot, record the narrow
