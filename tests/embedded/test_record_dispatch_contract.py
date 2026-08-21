@@ -1459,7 +1459,10 @@ GOAL-001 / PLAN-001。
             tool_response={
                 "status": "async_launched",
                 "isAsync": True,
-                "content": "The agent is working in the background.",
+                "agentId": "executor-123",
+                "prompt": (
+                    "Continue TASK-001 from a prior interrupted Executor session."
+                ),
             },
         )
         self.assertEqual(returned.returncode, 0, returned.stderr)

@@ -112,8 +112,46 @@ def _open_planner_fix_loop(base, task_id, source, reason):
 
 
 def _was_cancelled(value):
-    text = _response_text(value).lower()
-    return any(word in text for word in ("was stopped", "interrupted", "cancelled", "canceled"))
+    if isinstance(value, str):
+        text = value.lower()
+        return any(
+            phrase in text
+            for phrase in (
+                "was stopped",
+                "was interrupted",
+                "was cancelled",
+                "was canceled",
+            )
+        )
+    if isinstance(value, list):
+        return any(_was_cancelled(item) for item in value)
+    if not isinstance(value, dict):
+        return False
+
+    state = str(value.get("status") or value.get("state") or "").lower()
+    if state in ("stopped", "interrupted", "cancelled", "canceled"):
+        return True
+    if any(
+        value.get(key) is True
+        for key in ("cancelled", "canceled", "interrupted", "is_interrupt")
+    ):
+        return True
+
+    # A Claude async launch response includes the original dispatch prompt.
+    # Prompt prose is not lifecycle evidence and may legitimately mention a
+    # prior interrupted run, so inspect only result-bearing fields here.
+    return any(
+        _was_cancelled(value[key])
+        for key in (
+            "content",
+            "output",
+            "result",
+            "text",
+            "message",
+            "last_assistant_message",
+        )
+        if key in value
+    )
 
 
 def _was_background_launch(value):
@@ -342,12 +380,9 @@ def main():
     # Claude emits PostToolUse when a background Agent launch succeeds. That
     # event says nothing about whether the subagent has finished. SubagentStop
     # is the sole normal completion signal for Claude workflow roles.
-    if (
-        event.engine == "claude"
-        and not tool_failed
-        and not _was_cancelled(event.tool_response)
-    ):
-        if subagent_type in TASK_ROLES and _was_background_launch(event.tool_response):
+    if event.engine == "claude" and not tool_failed:
+        background_launch = _was_background_launch(event.tool_response)
+        if subagent_type in TASK_ROLES and background_launch:
             task_label = f" for {task_id}" if task_id else ""
             print(json.dumps({
                 "hookSpecificOutput": {
@@ -359,7 +394,10 @@ def main():
                     ),
                 }
             }))
-        sys.exit(0)
+        # A structured async launch is authoritative even when its embedded
+        # prompt mentions cancelled or interrupted earlier work.
+        if background_launch or not _was_cancelled(event.tool_response):
+            sys.exit(0)
 
     reason = ""
     completion_note = ""
