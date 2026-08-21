@@ -26,6 +26,7 @@ from .plan_integration_refresh import (
     refreshable_integration_task,
     reset_integration_task_critiques,
 )
+from .plan_worktrees import _hide_worktree_governance
 from .state._common import _governance_state_lock
 from .state.plan_ops import load_plans, save_plans
 from .worktree_context import resolve_control_root
@@ -57,6 +58,8 @@ def prepare_plan_integration(base_dir: str, plan_id: str) -> Dict[str, Any]:
             raise ValueError("; ".join(blockers))
 
         worktree = Path(str(plan["git_worktree_path"]))
+        if not git_operation(worktree):
+            _hide_worktree_governance(worktree, restore_index=True)
         base_branch = str(plan["git_base_branch"])
         prior_integration = dict(plan.get("integration", {}) or {})
         current_plan_head = str(repository_info(str(worktree)).get("head") or "")
@@ -180,6 +183,7 @@ def prepare_plan_integration(base_dir: str, plan_id: str) -> Dict[str, Any]:
             candidate_ref = require_git(worktree, "rev-parse", "HEAD")
             plan["git_head_ref"] = candidate_ref
 
+        _hide_worktree_governance(worktree, restore_index=True)
         candidate_ref, candidate_tree = canonical_candidate(
             control, candidate_ref, base_ref, plan_id,
         )

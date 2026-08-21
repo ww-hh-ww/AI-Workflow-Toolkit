@@ -37,17 +37,34 @@ def _ensure_local_ignore(control: Path, relative_parent: Path) -> None:
         handle.write(f"{prefix}{pattern}\n")
 
 
-def _hide_worktree_governance(worktree: Path) -> None:
+def _hide_worktree_governance(
+    worktree: Path,
+    *,
+    restore_index: bool = False,
+) -> None:
     """Keep the Plan worktree free of an independent `.aiwf` directory.
 
     Tracked governance remains in Git history for the selected tracking mode,
     but its working-tree files are marked skip-worktree and removed. All AIWF
-    reads and writes already resolve through the primary worktree.
+    reads and writes already resolve through the primary worktree. Integration
+    callers may first restore the governance index to the Plan HEAD so stale or
+    staged worktree copies cannot leak into the candidate.
     """
     if not worktree.exists():
         return
     raw = _required(worktree, "ls-files", "-z", "--", ".aiwf")
     tracked = [item for item in raw.split("\0") if item]
+    if restore_index and tracked:
+        _required(
+            worktree,
+            "reset",
+            "-q",
+            "HEAD",
+            "--",
+            ".aiwf",
+        )
+        raw = _required(worktree, "ls-files", "-z", "--", ".aiwf")
+        tracked = [item for item in raw.split("\0") if item]
     if tracked:
         _required(worktree, "update-index", "--skip-worktree", "--", *tracked)
 

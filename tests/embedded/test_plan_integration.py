@@ -154,6 +154,30 @@ class TestPlanIntegration(unittest.TestCase):
         self.assertIn("Nothing has been merged", text)
         self.assertIn("Stage 2/2, verify + merge + close", text)
 
+    def test_prepare_keeps_plan_worktree_free_of_shared_governance(self):
+        from aiwf_core.core.plan_integration import prepare_plan_integration
+
+        stale = self.worktree / ".aiwf/records/stale.json"
+        stale.parent.mkdir(parents=True, exist_ok=True)
+        stale.write_text("{}\n", encoding="utf-8")
+        subprocess.run(
+            ["git", "add", ".aiwf/records/stale.json"],
+            cwd=self.worktree, check=True,
+        )
+
+        prepared = prepare_plan_integration(str(self.control), "PLAN-001")
+
+        self.assertTrue(prepared["prepared"])
+        self.assertFalse((self.worktree / ".aiwf").exists())
+        self.assertEqual(
+            self._git(self.worktree, "status", "--short", "--", ".aiwf"),
+            "",
+        )
+        flags = self._git(self.worktree, "ls-files", "-v", "--", ".aiwf")
+        self.assertTrue(flags)
+        self.assertTrue(all(line.startswith("S ") for line in flags.splitlines()))
+        self.assertNotIn("stale.json", flags)
+
     @patch("aiwf_core.core.plan_integration.prepare_plan_integration")
     def test_audit_output_is_actionable_without_a_repair_workflow(self, prepare):
         prepare.return_value = {
