@@ -33,6 +33,33 @@ def _merge_verification_results(
     return list(merged.values())
 
 
+def _failed_verification_obligations(
+    testing: Dict[str, Any], current_fix_loop: Dict[str, Any],
+) -> List[Dict[str, Any]]:
+    """Bind a failed Tester result to stable Task or fix-loop proof IDs."""
+    current = {
+        str(item.get("verification_id") or "").strip(): dict(item)
+        for item in current_fix_loop.get("verification_obligations", []) or []
+        if isinstance(item, dict) and str(item.get("verification_id") or "").strip()
+    }
+    obligations = []
+    seen = set()
+    for result in testing.get("verification_results", []) or []:
+        if not isinstance(result, dict):
+            continue
+        verification_id = str(result.get("verification_id") or "").strip()
+        verdict = str(result.get("verdict") or "").lower()
+        failed = result.get("matched") is False and verdict != "blocked"
+        if not verification_id or not failed or verification_id in seen:
+            continue
+        seen.add(verification_id)
+        obligations.append(current.get(verification_id, {
+            "verification_id": verification_id,
+            "source": "task",
+        }))
+    return obligations
+
+
 def record_testing(
     base_dir: str,
     status: str,
@@ -211,7 +238,7 @@ def record_testing(
                 base_dir,
                 route="executor",
                 reason=testing["failure_summary"],
-                required_verification=testing["failed_commands"],
+                verification_obligations=_failed_verification_obligations(testing, current),
                 source="tester",
                 task_id=task_id,
             )

@@ -8,6 +8,10 @@ from typing import Any, Dict, List, Optional
 from ..task_ledger import load_ledger, resolve_active_task_id, update_task_runtime
 from ..task_records import load_task_record, update_task_record
 from ..worktree_context import resolve_worktree_root
+from .fixloop_verification import (
+    uncovered_verification_obligations,
+    validate_verification_obligations,
+)
 
 
 def _tester_verified_current_implementation(record: Dict[str, Any], source: str) -> bool:
@@ -37,7 +41,7 @@ def open_fix_loop(
     route: str,
     reason: str,
     required_fixes: Optional[List[str]] = None,
-    required_verification: Optional[List[str]] = None,
+    verification_obligations: Optional[List[Dict[str, Any]]] = None,
     source: str = "reviewer",
     invalidated_files: Optional[List[str]] = None,
     invalidated_obligations: Optional[List[str]] = None,
@@ -56,6 +60,11 @@ def open_fix_loop(
     if not effective_task:
         raise ValueError("fix-loop requires an active Task ID or an assigned Task worktree")
 
+    normalized_obligations = None
+    if verification_obligations is not None:
+        normalized_obligations = validate_verification_obligations(
+            base_dir, effective_task, verification_obligations,
+        )
     result: Dict[str, Any] = {}
 
     def mutate(record: Dict[str, Any]) -> None:
@@ -117,10 +126,14 @@ def open_fix_loop(
             fix_loop["required_fixes"] = list(required_fixes)
         elif not was_open:
             fix_loop["required_fixes"] = []
-        if required_verification is not None:
-            fix_loop["required_verification"] = list(required_verification)
+        # Free-text required_verification used keyword matching and is no longer
+        # a supported proof contract. Reopening the loop writes only ID-bound
+        # obligations.
+        fix_loop.pop("required_verification", None)
+        if normalized_obligations is not None:
+            fix_loop["verification_obligations"] = list(normalized_obligations)
         elif not was_open:
-            fix_loop["required_verification"] = []
+            fix_loop["verification_obligations"] = []
         if invalidated_files or invalidated_obligations:
             fix_loop["invalidated_scope"] = {
                 "files": list(invalidated_files or []),
@@ -376,15 +389,22 @@ def resolve_fix_loop(
         blockers.append(
             "continued escalation requires passed testing against the current implementation"
         )
-    if fix_loop.get("required_verification"):
+    legacy_verification = fix_loop.get("required_verification", []) or []
+    if legacy_verification:
+        blockers.append(
+            "legacy free-text required_verification is unsupported; reopen the fix-loop "
+            "with ID-bound --verify obligations"
+        )
+    obligations = fix_loop.get("verification_obligations", []) or []
+    if obligations:
         if testing.get("status") not in ("adequate", "passed"):
             blockers.append("required verification has not produced adequate/passed testing")
-        if not testing.get("commands"):
-            blockers.append("required verification has no recorded test commands")
-        # P1-4: check that each required_verification item is mechanically covered
-        uncovered = _check_verification_coverage(fix_loop.get("required_verification", []) or [], testing)
+        implementation_ref = str((record.get("implementation", {}) or {}).get("implementation_ref") or "")
+        if implementation_ref and str(testing.get("based_on_ref") or "") != implementation_ref:
+            blockers.append("required verification was not run against the current implementation")
+        uncovered = uncovered_verification_obligations(obligations, testing)
         if uncovered:
-            blockers.append("required verification not covered in testing: " + "; ".join(uncovered[:5]))
+            blockers.append("required verification not matched in testing: " + ", ".join(uncovered[:5]))
     if blockers:
         raise ValueError("fix-loop resolution blocked: " + "; ".join(blockers))
     # P1-3: delta review/cleanup invalidation when fixes involved real code changes
@@ -428,38 +448,6 @@ def resolve_fix_loop(
             scope_violation=bool(task.get("scope_violation")),
         )
     return dict(fix_loop)
-
-def _check_verification_coverage(
-    required_verification: List[str],
-    testing: Dict[str, Any],
-) -> List[str]:
-    """Check each required_verification item is covered in testing evidence.
-
-    Coverage is checked against: acceptance_coverage, delta_verification,
-    commands, and validation_layers. Simple substring/keyword match — no NLP.
-    """
-    uncovered = []
-    # Build a corpus of all testing evidence text
-    corpus_parts = []
-    for field in ("acceptance_coverage", "delta_verification", "commands", "validation_layers"):
-        val = testing.get(field)
-        if isinstance(val, list):
-            corpus_parts.extend(str(v) for v in val)
-        elif isinstance(val, str) and val:
-            corpus_parts.append(val)
-    corpus = " ".join(corpus_parts).lower()
-
-    for item in required_verification:
-        item_lower = str(item).lower()
-        # Direct substring match first
-        if item_lower in corpus:
-            continue
-        # Check if any keyword from the item appears in the corpus
-        keywords = [w for w in item_lower.split() if len(w) > 3]
-        if keywords and any(kw in corpus for kw in keywords):
-            continue
-        uncovered.append(str(item)[:120])
-    return uncovered
 
 def _invalidate_delta_review(
     fix_loop: Dict[str, Any],

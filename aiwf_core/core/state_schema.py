@@ -137,7 +137,7 @@ def default_fix_loop() -> Dict[str, Any]:
         "status": "none",
         "route": None,
         "required_fixes": [],
-        "required_verification": [],
+        "verification_obligations": [],
         "reason": "",
         "source": "",
         "resolution": "",

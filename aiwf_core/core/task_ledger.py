@@ -539,8 +539,14 @@ def activation_blockers(
         blockers.append("this Task still needs to close")
     fix_loop = record.get("fix_loop", {}) or {}
     if fix_loop.get("status") == "open" and not resuming:
-        required = fix_loop.get("required_verification", []) or []
-        suffix = f"; required verification: {', '.join(map(str, required[:3]))}" if required else ""
+        required = [
+            str(item.get("verification_id") or "")
+            for item in fix_loop.get("verification_obligations", []) or []
+            if isinstance(item, dict) and item.get("verification_id")
+        ]
+        suffix = f"; required verification: {', '.join(required[:3])}" if required else ""
+        if fix_loop.get("required_verification"):
+            suffix += "; legacy verification contract must be reopened with --verify"
         blockers.append(
             "fix-loop is open; complete required fixes/verification and run aiwf fix-loop resolve"
             + suffix

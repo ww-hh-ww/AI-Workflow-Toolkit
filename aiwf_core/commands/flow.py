@@ -557,13 +557,23 @@ def _print_fix_loop_context(row: Dict[str, Any]) -> None:
     ]
     if required_fixes:
         print("Required fixes: " + compact(required_fixes))
-    required_verification = [
-        " ".join(str(item).split())
-        for item in fix_loop.get("required_verification", []) or []
-        if str(item).strip()
-    ]
-    if required_verification:
-        print("Required verification: " + compact(required_verification))
+    verification_obligations = []
+    for item in fix_loop.get("verification_obligations", []) or []:
+        if not isinstance(item, dict):
+            continue
+        verification_id = " ".join(str(item.get("verification_id") or "").split())
+        command = " ".join(str(item.get("command") or "").split())
+        if verification_id:
+            verification_obligations.append(
+                f"{verification_id}: {command}" if command else verification_id
+            )
+    if verification_obligations:
+        print("Verification obligations: " + compact(verification_obligations))
+    if fix_loop.get("required_verification"):
+        print(
+            "Verification contract: legacy free text is unsupported; reopen this "
+            "fix-loop with ID-bound --verify entries."
+        )
     print(
         "Repair brief: use these verified facts and project judgment to state the "
         "specific problem, expected correction, preserved work, and focused proof. "

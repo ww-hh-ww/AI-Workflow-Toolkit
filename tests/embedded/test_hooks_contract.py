@@ -614,7 +614,12 @@ class TestHooks(unittest.TestCase):
                 "status": "open",
                 "route": "executor",
                 "required_fixes": ["src/lib.rs"],
-                "required_verification": ["cargo test"],
+                "verification_obligations": [{
+                    "verification_id": "FIX-CARGO-TEST",
+                    "source": "fix_loop",
+                    "command": "cargo test",
+                    "expected": "tests pass",
+                }],
             },
         })
 

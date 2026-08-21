@@ -169,7 +169,13 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
     p_fl_open.add_argument("--route", required=True, choices=["executor","tester","planner","environment"])
     p_fl_open.add_argument("--reason", required=True, help="reason for opening")
     p_fl_open.add_argument("--required-fix", action="append", dest="required_fixes", default=[])
-    p_fl_open.add_argument("--required-verification", action="append", default=[])
+    p_fl_open.add_argument(
+        "--verify", action="append", default=[], dest="verification_obligations",
+        help=(
+            "required proof: Task ID V-001 or "
+            "'FIX-001:::exact command:::expected observable'"
+        ),
+    )
     p_fl_open.add_argument("--source", default="reviewer")
     p_fl_open.add_argument("--invalidated-file", action="append", dest="invalidated_files", default=[])
     p_fl_open.add_argument("--invalidated-obligation", action="append", dest="invalidated_obligations", default=[])

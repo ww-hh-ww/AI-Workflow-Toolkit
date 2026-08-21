@@ -34,6 +34,12 @@ not guess. Surface the mismatch and follow the phase skill.
 - Do not skip required skills, roles, proof level, or gates unless the user
   explicitly accepts that risk.
 - Do not hand-edit `.aiwf/state/` or `.aiwf/records/`; use `aiwf` commands.
+- Do not inspect AIWF toolkit source or generated hook implementation to infer,
+  bypass, or appease workflow gates. Use the current Skill, `aiwf status
+  --prompt`, `aiwf task proof`, `aiwf doctor`, and CLI help. If behavior still
+  conflicts with those public surfaces, report the exact output to Planner.
+  This restriction does not apply when the user's task is explicitly to develop
+  or debug AIWF itself.
 - Do not run `aiwf task force-close`; human emergency override only.
 - Do not run `aiwf task interrupt`; human interruption only.
 - Do not run `aiwf task restore`; ask the human to choose `ready` or `closed`

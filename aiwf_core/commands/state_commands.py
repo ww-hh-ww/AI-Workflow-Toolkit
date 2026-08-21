@@ -211,7 +211,10 @@ def _task_verification_results(
         raise ValueError("--basis must appear once for each --check")
 
     from ..core.task_ledger import load_ledger
-    from ..core.task_proof import read_task_proof_contract
+    from ..core.task_proof import (
+        fix_loop_verification_commands,
+        read_task_proof_contract,
+    )
 
     task = next(
         (
@@ -229,6 +232,10 @@ def _task_verification_results(
     expected_by_id = {
         item.verification_id: item for item in contract.verification_commands
     }
+    expected_by_id.update({
+        item.verification_id: item
+        for item in fix_loop_verification_commands(str(base), task_id)
+    })
     results = []
     for index, (identity, observed, verdict) in enumerate(
         zip(checks, observed_results, verdicts)
@@ -236,7 +243,7 @@ def _task_verification_results(
         contract_item = expected_by_id.get(identity)
         if contract_item is None:
             raise ValueError(
-                f"unknown Task proof check: {identity}. Use a declared verification ID."
+                f"unknown proof check: {identity}. Use a Task V-* or declared FIX-* ID."
             )
         if not contract_item.explicit_id:
             raise ValueError(

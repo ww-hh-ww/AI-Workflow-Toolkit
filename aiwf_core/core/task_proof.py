@@ -220,6 +220,30 @@ def read_task_proof_contract(base_dir: str, task: Dict[str, Any]) -> Optional[Ta
     )
 
 
+def fix_loop_verification_commands(
+    base_dir: str, task_id: str,
+) -> List[VerificationCommand]:
+    """Return declared fix-loop-local checks; Task V-* references live in Task.md."""
+    from .task_records import load_task_record
+
+    fix_loop = load_task_record(base_dir, task_id).get("fix_loop", {}) or {}
+    commands = []
+    for item in fix_loop.get("verification_obligations", []) or []:
+        if not isinstance(item, dict) or item.get("source") != "fix_loop":
+            continue
+        verification_id = _norm(item.get("verification_id", ""))
+        command = _norm_command(item.get("command", ""))
+        expected = _norm(item.get("expected", ""))
+        if verification_id and command and expected:
+            commands.append(VerificationCommand(
+                verification_id=verification_id,
+                command=command,
+                expected=expected,
+                explicit_id=True,
+            ))
+    return commands
+
+
 def task_contract_structure_errors(base_dir: str, task: Dict[str, Any]) -> List[str]:
     contract = read_task_proof_contract(base_dir, task)
     if contract:
@@ -312,9 +336,18 @@ def validate_testing_against_task(
             "required_commands": [],
             "missing_commands": [],
         }
-    required_items = contract.verification_commands
+    fix_items = fix_loop_verification_commands(base_dir, str(task.get("id") or ""))
+    required_items = [*contract.verification_commands, *fix_items]
     required = [cmd.command for cmd in required_items]
     required_ids = [cmd.verification_id for cmd in required_items]
+    allowed_ids = set(required_ids)
+    from .task_records import load_task_record
+    fix_loop = load_task_record(base_dir, str(task.get("id") or "")).get("fix_loop", {}) or {}
+    allowed_ids.update(
+        str(item.get("verification_id") or "").strip()
+        for item in fix_loop.get("verification_obligations", []) or []
+        if isinstance(item, dict)
+    )
     verification_results = [
         item for item in (testing.get("verification_results", []) or [])
         if isinstance(item, dict)
@@ -334,7 +367,7 @@ def validate_testing_against_task(
         str(item.get("verification_id"))
         for item in verification_results
         if str(item.get("verification_id") or "").strip()
-        and str(item.get("verification_id")) not in required_ids
+        and str(item.get("verification_id")) not in allowed_ids
     ]
     missing = [
         item.command for item in required_items
@@ -365,6 +398,7 @@ def validate_testing_against_task(
         "contract_errors": [],
         "required_commands": required,
         "required_verification_ids": required_ids,
+        "required_fix_verification_ids": [item.verification_id for item in fix_items],
         "recorded_commands": [
             _norm_command(item.get("command", ""))
             for item in verification_results

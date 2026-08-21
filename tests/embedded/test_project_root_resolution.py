@@ -98,6 +98,12 @@ class TestProjectRootResolution(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertTrue((root / ".aiwf" / "state" / "state.json").exists())
+        self.assertFalse((root / ".git").exists())
+        self.assertIn(
+            "/.aiwf/runtime/",
+            (root / ".gitignore").read_text(encoding="utf-8"),
+        )
+        self.assertIn("not a Git repository", result.stdout)
 
     def test_record_commands_keep_nested_plan_worktree_context(self):
         from aiwf_core.core.plan_worktrees import _hide_worktree_governance

@@ -34,7 +34,7 @@ instead of continuing from memory.
   acceptance. If it does, return to Planner instead of reviewing against it.
 - Other dispatch wording does not change the contract.
 - The already-read `aiwf task proof <TASK-ID>`, including the Executor snapshot, Tester snapshot,
-  fix-loop finding, required verification, changed files, and testing proof.
+  fix-loop finding, ID-bound verification obligations, changed files, and testing proof.
 - The relevant `git diff <baseline>..<head>`.
 - Testing records, external findings, callers, consumers, configuration,
   registrations, public surfaces, and old paths as needed.

@@ -537,6 +537,7 @@ Ship the product safely.
         self.assertIn("routing source of truth", content)
         self.assertIn("Use AIWF assets first", content)
         self.assertIn("Do not hand-edit `.aiwf/state/`", content)
+        self.assertIn("Do not inspect AIWF toolkit source", content)
 
     def test_claude_md_managed_block_idempotent(self):
         """Second install does not duplicate managed block."""
@@ -608,6 +609,10 @@ class TestReasonixInstall(unittest.TestCase):
     def test_reasonix_files_created(self):
         self.assertEqual(self.result.returncode, 0, self.result.stderr)
         self.assertTrue((self.tmp / "REASONIX.md").exists())
+        self.assertIn(
+            "Do not inspect AIWF toolkit source",
+            (self.tmp / "REASONIX.md").read_text(encoding="utf-8"),
+        )
         self.assertTrue((self.tmp / ".reasonix" / "settings.json").exists())
         self.assertTrue((self.tmp / ".reasonix" / "skills" / "aiwf-planner" / "SKILL.md").exists())
         self.assertFalse((self.tmp / ".reasonix" / "agents" / "aiwf-executor.md").exists())

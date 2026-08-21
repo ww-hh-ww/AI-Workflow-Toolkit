@@ -39,14 +39,14 @@ contract while testing.
   acceptance. If it does, return to Planner instead of testing it.
 - Other dispatch wording does not change the contract.
 - The already-read implementation handoff, changed files, current fix-loop finding, and
-  required verification from `aiwf task proof <TASK-ID>`.
+  named `V-*`/`FIX-*` obligations from `aiwf task proof <TASK-ID>`.
 
 Use the proof to choose the entry:
 
 - First validation: read the entire Task.md and the real consumer path and
   relevant source/tests.
 - Follow-up verification: do not restart the Task. Read the earlier finding,
-  repaired implementation and diff, required verification, affected Task
+  repaired implementation and diff, named verification obligations, affected Task
   clauses, and the relevant source/tests. Expand only when the repair changed
   a wider path or test method.
 
@@ -70,7 +70,7 @@ Plan has not yet been merged into main.
 2. For first validation, run every Verification Command exactly enough to judge
    the actual observable against the contract. Expected may describe a
    semantic condition rather than literal stdout. For follow-up verification, run the
-   failed reproducer, required verification from the proof, and regressions
+   failed reproducer, named verification obligations from the proof, and regressions
    affected by the repair; do not repeat the whole Task by default.
 3. Add independent probes that could expose a false pass. Check whether mocks,
    fixtures, old paths, or an unconsumed new path make the required test look

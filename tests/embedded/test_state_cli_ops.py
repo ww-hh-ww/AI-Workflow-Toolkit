@@ -103,6 +103,33 @@ class TestStateCliOps(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("unrecognized arguments: --force", result.stderr)
 
+    def test_fixloop_verification_is_id_bound_not_free_text(self):
+        self._set_active_task()
+
+        opened = self._run(
+            "fixloop", "open", "--route", "tester",
+            "--reason", "new regression needs focused proof",
+            "--verify", "FIX-REGRESSION:::pytest -q tests/test_regression.py:::test passes",
+        )
+        legacy = self._run(
+            "fixloop", "open", "--route", "tester",
+            "--reason", "legacy input", "--required-verification", "pytest regression",
+        )
+
+        self.assertEqual(opened.returncode, 0, opened.stderr)
+        record = json.loads(
+            (self.tmp / ".aiwf/records/tasks/TASK-ACTIVE.json").read_text()
+        )
+        self.assertEqual(record["fix_loop"]["verification_obligations"], [{
+            "verification_id": "FIX-REGRESSION",
+            "source": "fix_loop",
+            "command": "pytest -q tests/test_regression.py",
+            "expected": "test passes",
+        }])
+        self.assertNotIn("required_verification", record["fix_loop"])
+        self.assertNotEqual(legacy.returncode, 0)
+        self.assertIn("unrecognized arguments", legacy.stderr)
+
     def test_status_prompt_follows_fixloop_route(self):
         cases = {
             "planner": "/aiwf-planner",
@@ -118,7 +145,7 @@ class TestStateCliOps(unittest.TestCase):
                 "review": {"task_id": "TASK-ACTIVE", "result": "unknown"},
                 "fix_loop": {
                     "status": "open", "route": route, "reason": "route test",
-                    "required_fixes": [], "required_verification": [],
+                    "required_fixes": [], "verification_obligations": [],
                 },
             })
             status = self._run("status", "--prompt")
@@ -137,7 +164,7 @@ class TestStateCliOps(unittest.TestCase):
             "fix_loop": {
                 "status": "open", "route": "executor", "reason": "repeated failure",
                 "escalation_required": True, "required_fixes": [],
-                "required_verification": [],
+                "verification_obligations": [],
             },
         })
 
@@ -172,7 +199,12 @@ class TestStateCliOps(unittest.TestCase):
             "fix_loop": {
                 "status": "open", "route": "tester", "reason": "repeated failure",
                 "escalation_required": True, "required_fixes": [],
-                "required_verification": ["pytest -q"],
+                "verification_obligations": [{
+                    "verification_id": "FIX-PYTEST",
+                    "source": "fix_loop",
+                    "command": "pytest -q",
+                    "expected": "tests pass",
+                }],
             },
         })
 

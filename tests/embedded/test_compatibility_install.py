@@ -45,6 +45,10 @@ class TestOpenCodeInstall(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("initialize Git and create the initial commit", result.stdout)
         self.assertTrue((self.root / "AGENTS.md").exists())
+        self.assertIn(
+            "Do not inspect AIWF toolkit source",
+            (self.root / "AGENTS.md").read_text(encoding="utf-8"),
+        )
         self.assertTrue((self.root / "opencode.json").exists())
         self.assertTrue((self.root / "scripts/aiwf_opencode_plugin.js").exists())
         startup = json.loads(
@@ -60,6 +64,14 @@ class TestOpenCodeInstall(unittest.TestCase):
         self.assertTrue((self.root / ".opencode/agents/aiwf-executor.md").exists())
         self.assertTrue((self.root / ".opencode/skills/aiwf-planner/SKILL.md").exists())
         self.assertTrue((self.root / ".opencode/commands/aiwf-planner.md").exists())
+        self.assertIn(
+            "`FIX-*` checks",
+            (self.root / ".opencode/skills/aiwf-test/SKILL.md").read_text(encoding="utf-8"),
+        )
+        self.assertIn(
+            "verification obligations",
+            (self.root / ".opencode/agents/aiwf-tester.md").read_text(encoding="utf-8"),
+        )
         self.assertFalse((self.root / ".claude/settings.json").exists())
 
     def test_status_recognizes_opencode_only_install(self):

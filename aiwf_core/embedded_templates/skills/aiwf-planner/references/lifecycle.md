@@ -188,6 +188,13 @@ explicit approval, run `aiwf task activate <TASK-ID> --accept-head-change`.
   correct route and exact remaining work, then follow status.
 - If the Task contract must change, ask the user whether to interrupt it.
 
+Fix-loop proof uses the same stable identities as Task testing. Reuse an
+existing check with `--verify V-003`. If the finding needs a new regression
+check without changing Task responsibility, declare it once as
+`--verify 'FIX-001:::<exact command>:::<expected observable>'`. Keep the reason
+and required repair in prose, but never put a prose verification paragraph in
+place of an ID-bound check.
+
 Cancellation is terminal for the model. If a human wants a cancelled Task back,
 explain the choice and ask them to run one of these commands:
 

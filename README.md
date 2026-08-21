@@ -141,7 +141,7 @@ aiwf doctor
 - `scripts/aiwf_*.py`。
 - `.aiwf/` 治理工作区。
 
-安装产生的 Claude 集成文件属于项目变更。开始第一个 Task 前，先根据项目的版本控制策略提交或处理这些改动，确保项目工作树干净。AIWF 会在 `.gitignore` 中维护一个很小的区块，使本机 runtime 不进入 Git。
+安装产生的 Claude 集成文件属于项目变更。开始第一个 Task 前，先根据项目的版本控制策略提交或处理这些改动，确保项目工作树干净。AIWF 不会自动运行 `git init` 或创建初始提交；它只在 `.gitignore` 中维护自己的 runtime 区块。已有 Git 仓库还会在本机 `.git/info/exclude` 中忽略 `.DS_Store`、`Thumbs.db`，不改变团队共享规则。已经被 Git 跟踪的本机噪音不会被自动取消跟踪，install 和 doctor 会列出它们。
 
 通常应保留 `CLAUDE.md`、`.claude/` 和 `scripts/`。`.aiwf/config/write-policy.json` 的 `governance_git_tracking` 可设为 `tracked`（默认，AIWF 在关键 Git 边界聚合 checkpoint）或 `local`（治理文档和状态只保留在本机，config 仍进入 Git）。使用 `aiwf governance status` 查看，使用 `aiwf governance tracking tracked|local` 切换。`.aiwf/runtime/` 始终只属于本机。
 
@@ -900,6 +900,25 @@ aiwf fixloop status --task-id TASK-001
 aiwf status --prompt
 ```
 
+Fix-loop 与 Task Testing 使用同一套稳定检查 ID。已有 Task 检查直接引用：
+
+```bash
+aiwf fixloop open --route executor --reason "service 入口仍绕过验证" \
+  --required-fix "接通受验证的 service 入口" \
+  --verify V-003
+```
+
+Reviewer 发现合同外的新回归点，但不改变 Task 责任时，可声明一个本轮检查：
+
+```bash
+aiwf fixloop open --route executor --reason "旧入口仍可绕过" \
+  --verify 'FIX-001:::pytest -q tests/test_old_entry.py:::旧入口被拒绝'
+```
+
+Tester 仍通过 `aiwf record testing --check V-003` 或 `--check FIX-001`
+记录实际输出与 verdict。机器只按 ID、当前实现快照和 `matched` 结果判断，
+不匹配命令文本或说明文字中的关键词。
+
 正常返工顺序是：
 
 ```text
@@ -913,15 +932,16 @@ aiwf status --prompt
 -> Close
 ```
 
+Tester-route 的证据满足后，`record testing` 内部调用同一个 resolve 操作自动闭环。
 `RETURN_TO_PLANNER` 或 `EXTERNAL_FINDING` 产生的 Planner decision 不会被
-Testing 自动解决。Planner 做出真实决定并满足所需证据后运行：
+Testing 自动解决。Planner 做出真实决定并满足同一组机械门禁后显式运行：
 
 ```bash
 aiwf fixloop resolve --task-id TASK-001 \
   --resolution "修复 service 入口并重跑 service integration test"
 ```
 
-`--force` 是显式覆盖机械验证的恢复手段，不应用来把真实失败改成通过。
+`fixloop resolve` 没有 `--force`，不能用处置文字替代缺失的测试证据。
 
 同一 `tested_ref` 的失败只计为一次验证失败。达到重试上限后，AIWF 会阻止
 workflow Agent，直到人类在 TUI 选中该 Task 后按 `c`，或在终端运行：
@@ -1200,7 +1220,7 @@ aiwf status --debug
 - `status`：给人看的当前工作区、active Tasks 和下一角色。
 - `status --prompt`：给模型看的精确下一步与 Required skills。
 - `task proof`：某 Task 的 Git refs、实现、Testing 和 Review 真相。
-- `fixloop status`：返工原因、路由和必需验证。
+- `fixloop status`：返工原因、路由和 ID 化验证义务。
 - `sync --check`：Markdown 和机器索引是否可编译。
 - `doctor`：安装、hooks、skills、agents、scripts 和目录是否完整。
 - `status --debug`：完整 JSON 调试面板。
@@ -1351,7 +1371,9 @@ aiwf record disposition --help
 ### Fix-loop
 
 ```bash
-aiwf fixloop open --route executor --reason "..."
+aiwf fixloop open --route executor --reason "..." --verify V-001
+aiwf fixloop open --route executor --reason "..." \
+  --verify 'FIX-001:::<exact command>:::<expected observable>'
 aiwf fixloop status [--task-id TASK-001]
 aiwf fixloop continue [--task-id TASK-001]          # human only
 aiwf fixloop resolve --resolution "..." [--task-id TASK-001]
@@ -1708,7 +1730,8 @@ aiwf status --prompt
 
 普通 implementation repair 会在修复记录和 Testing 通过后自动解决。如果仍是
 Planner decision，做出决定并满足所需证据后运行 `aiwf fixloop resolve`；如果仍路由
-Tester，说明修复尚未被完整验证。修复改变代码后仍需要新的 Testing 和 Review。
+Tester，说明某个 `V-*` 或 `FIX-*` 义务尚未在当前实现上得到 matched 证据。修复改变
+代码后仍需要新的 Testing 和 Review。
 
 ### Close 提示 `project files changed after review`
 

@@ -76,6 +76,19 @@ class TestGitTaskRecords(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
+    def _write_verification_contract(self):
+        (self.tmp / ".aiwf/tasks/TASK-001.md").write_text(
+            VALID_TASK_CONTRACT.replace(
+                "- [Built] The result exists in the reviewed snapshot.",
+                "- [Wired] The result is connected and tested.\n\n"
+                "#### Verification Commands\n\n"
+                "| ID | Command | Expected |\n"
+                "|---|---|---|\n"
+                "| V-001 | `pytest -q` | tests pass |",
+            ),
+            encoding="utf-8",
+        )
+
     def _record_full_chain(self):
         from aiwf_core.core.state.context_ops import record_implementation
         from aiwf_core.core.state.review_ops import record_review
@@ -800,6 +813,7 @@ Verification Commands:
         from aiwf_core.core.state.testing_ops import record_testing
         from aiwf_core.core.task_records import load_task_record
 
+        self._write_verification_contract()
         (self.tmp / "src").mkdir(exist_ok=True)
         feature = self.tmp / "src/feature.py"
         feature.write_text("VALUE = 1\n", encoding="utf-8")
@@ -807,9 +821,18 @@ Verification Commands:
         record_testing(
             str(self.tmp), status="failed", commands=["pytest -q"],
             failure_summary="feature still fails",
+            verification_results=[{
+                "verification_id": "V-001", "command": "pytest -q",
+                "expected": "tests pass", "observed": "1 failed",
+                "matched": False, "verdict": "mismatched",
+            }],
         )
         failed_record = load_task_record(self.tmp, "TASK-001")
         self.assertEqual(failed_record["fix_loop"]["route"], "executor")
+        self.assertEqual(
+            failed_record["fix_loop"]["verification_obligations"],
+            [{"verification_id": "V-001", "source": "task"}],
+        )
 
         feature.write_text("VALUE = 2\n", encoding="utf-8")
         record_implementation(str(self.tmp), "small repair recorded inline")
@@ -826,8 +849,9 @@ Verification Commands:
             str(self.tmp), status="passed", commands=["pytest -q"],
             coverage_summary="repair verified",
             verification_results=[{
-                "command": "pytest -q", "expected": "pass",
-                "observed": "1 passed", "matched": True,
+                "verification_id": "V-001", "command": "pytest -q",
+                "expected": "tests pass", "observed": "1 passed",
+                "matched": True, "verdict": "matched",
             }],
         )
         self.assertTrue(result["fix_loop_resolved"])
@@ -835,12 +859,58 @@ Verification Commands:
         self.assertEqual(verified_record["fix_loop"]["status"], "resolved")
         self.assertEqual(_task_next(task, verified_record)[0], "Reviewer")
 
+    def test_fix_local_check_uses_testing_id_and_auto_resolves(self):
+        from aiwf_core.core.state.context_ops import record_implementation
+        from aiwf_core.core.state.fixloop_ops import open_fix_loop
+        from aiwf_core.core.state.testing_ops import record_testing
+        from aiwf_core.core.task_records import load_task_record
+
+        self._write_verification_contract()
+        (self.tmp / "src").mkdir(exist_ok=True)
+        (self.tmp / "src/feature.py").write_text("VALUE = 2\n", encoding="utf-8")
+        record_implementation(str(self.tmp), "implementation ready for regression proof")
+        open_fix_loop(
+            str(self.tmp), route="tester", reason="old bypass needs a regression check",
+            verification_obligations=[{
+                "verification_id": "FIX-OLD-BYPASS",
+                "source": "fix_loop",
+                "command": "pytest -q tests/test_old_bypass.py",
+                "expected": "old bypass is rejected",
+            }],
+            source="reviewer",
+        )
+
+        result = record_testing(
+            str(self.tmp), status="passed",
+            commands=["pytest -q", "pytest -q tests/test_old_bypass.py"],
+            coverage_summary="Task proof and focused regression passed",
+            verification_results=[
+                {
+                    "verification_id": "V-001", "command": "pytest -q",
+                    "expected": "tests pass", "observed": "2 passed",
+                    "matched": True, "verdict": "matched",
+                },
+                {
+                    "verification_id": "FIX-OLD-BYPASS",
+                    "command": "pytest -q tests/test_old_bypass.py",
+                    "expected": "old bypass is rejected", "observed": "1 passed",
+                    "matched": True, "verdict": "matched",
+                },
+            ],
+        )
+
+        self.assertTrue(result["fix_loop_resolved"])
+        record = load_task_record(self.tmp, "TASK-001")
+        self.assertEqual(record["fix_loop"]["status"], "resolved")
+        self.assertNotIn("fix_loop_pending_reason", record["testing"])
+
     def test_escalated_repair_is_resolved_by_current_tester_pass(self):
         from aiwf_core.core.state.context_ops import record_implementation
         from aiwf_core.core.state.fixloop_ops import continue_fix_loop
         from aiwf_core.core.state.testing_ops import record_testing
         from aiwf_core.core.task_records import load_task_record, update_task_record
 
+        self._write_verification_contract()
         (self.tmp / "src").mkdir(exist_ok=True)
         feature = self.tmp / "src/feature.py"
         feature.write_text("VALUE = 1\n", encoding="utf-8")
@@ -848,6 +918,11 @@ Verification Commands:
         record_testing(
             str(self.tmp), status="failed", commands=["pytest -q"],
             failure_summary="feature still fails",
+            verification_results=[{
+                "verification_id": "V-001", "command": "pytest -q",
+                "expected": "tests pass", "observed": "1 failed",
+                "matched": False, "verdict": "mismatched",
+            }],
         )
 
         def escalate(record):
@@ -869,8 +944,9 @@ Verification Commands:
             str(self.tmp), status="passed", commands=["pytest -q"],
             coverage_summary="fresh repair verified",
             verification_results=[{
-                "command": "pytest -q", "expected": "pass",
-                "observed": "1 passed", "matched": True,
+                "verification_id": "V-001", "command": "pytest -q",
+                "expected": "tests pass", "observed": "1 passed",
+                "matched": True, "verdict": "matched",
             }],
         )
 
@@ -901,7 +977,7 @@ Verification Commands:
                 "escalation_required": True,
                 "escalation_reason": "retry limit reached",
                 "required_fixes": [],
-                "required_verification": [],
+                "verification_obligations": [],
             })
 
         update_task_record(self.tmp, "TASK-001", escalate)
@@ -969,11 +1045,11 @@ Verification Commands:
         tested_ref("tested-ref-1")
         first = open_fix_loop(
             str(self.tmp), route="executor", reason="same failed assertion",
-            required_verification=["pytest -q"], source="tester",
+            verification_obligations=[], source="tester",
         )
         same_snapshot_finding = open_fix_loop(
             str(self.tmp), route="executor", reason="another finding from same run",
-            required_verification=["pytest -q"], source="tester",
+            verification_obligations=[], source="tester",
         )
         route_change = open_fix_loop(
             str(self.tmp), route="planner", reason="need a design decision",
@@ -982,7 +1058,7 @@ Verification Commands:
         tested_ref("tested-ref-2")
         next_failure = open_fix_loop(
             str(self.tmp), route="executor", reason="different failed assertion",
-            required_verification=["pytest -q"], source="tester",
+            verification_obligations=[], source="tester",
         )
 
         self.assertEqual(first["attempt_count"], 1)

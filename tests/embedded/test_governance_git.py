@@ -71,6 +71,29 @@ class GovernanceGitTests(unittest.TestCase):
         self.assertNotIn(".aiwf/state/tasks.json", status)
         self.assertNotIn(".aiwf/runtime", status)
 
+    def test_install_hygiene_uses_local_exclude_and_reports_tracked_residue(self):
+        from aiwf_core.core.git_hygiene import inspect_git_hygiene
+
+        exclude_path = Path(self._git("rev-parse", "--git-path", "info/exclude"))
+        if not exclude_path.is_absolute():
+            exclude_path = self.tmp / exclude_path
+        exclude = exclude_path.read_text(encoding="utf-8")
+        self.assertIn("# BEGIN AIWF LOCAL HYGIENE", exclude)
+        self.assertIn(".DS_Store", exclude)
+
+        residue = self.tmp / "docs/.DS_Store"
+        residue.parent.mkdir()
+        residue.write_text("finder\n", encoding="utf-8")
+        subprocess.run(["git", "add", "-f", "docs/.DS_Store"], cwd=self.tmp, check=True)
+        subprocess.run(
+            ["git", "commit", "-m", "track residue"], cwd=self.tmp,
+            check=True, capture_output=True,
+        )
+
+        self.assertEqual(
+            inspect_git_hygiene(self.tmp)["tracked_residue"],
+            ["docs/.DS_Store"],
+        )
     def test_local_mode_untracks_governance_but_keeps_config(self):
         from aiwf_core.core.governance_git import set_governance_tracking
 

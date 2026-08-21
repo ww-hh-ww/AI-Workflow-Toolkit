@@ -2,34 +2,65 @@
 from __future__ import annotations
 
 import argparse
-import subprocess
 import sys
 from pathlib import Path
 
 from ..constants import VERSION
 
 
+def _parse_fixloop_verification(values: list[str]) -> list[dict]:
+    obligations = []
+    for raw in values:
+        parts = [part.strip() for part in str(raw).split(":::", 2)]
+        if len(parts) == 1 and parts[0]:
+            obligations.append({
+                "verification_id": parts[0],
+                "source": "task",
+            })
+            continue
+        if len(parts) == 3 and all(parts):
+            obligations.append({
+                "verification_id": parts[0],
+                "source": "fix_loop",
+                "command": parts[1],
+                "expected": parts[2],
+            })
+            continue
+        raise ValueError(
+            "--verify must be V-001 or "
+            "'FIX-001:::exact command:::expected observable'"
+        )
+    return obligations
+
+
 def _cmd_fix_loop_open(args: argparse.Namespace) -> None:
     from ..core.state_ops import open_fix_loop
 
-    result = open_fix_loop(
-        str(Path.cwd()),
-        route=args.route,
-        reason=args.reason,
-        required_fixes=args.required_fixes or None,
-        required_verification=args.required_verification or None,
-        source=args.source or "reviewer",
-        invalidated_files=args.invalidated_files or None,
-        invalidated_obligations=args.invalidated_obligations or None,
-        task_id=args.task_id,
-    )
+    try:
+        obligations = _parse_fixloop_verification(
+            args.verification_obligations or []
+        )
+        result = open_fix_loop(
+            str(Path.cwd()),
+            route=args.route,
+            reason=args.reason,
+            required_fixes=args.required_fixes or None,
+            verification_obligations=obligations or None,
+            source=args.source or "reviewer",
+            invalidated_files=args.invalidated_files or None,
+            invalidated_obligations=args.invalidated_obligations or None,
+            task_id=args.task_id,
+        )
+    except ValueError as exc:
+        print(f"Fix-loop open blocked: {exc}", file=sys.stderr)
+        raise SystemExit(1)
     print(f"Fix-loop opened: status={result['status']}")
     print(f"  Route: {args.route}")
     print(f"  Reason: {args.reason[:160]}")
     if args.required_fixes:
         print(f"  Required fixes: {len(args.required_fixes)}")
-    if args.required_verification:
-        print(f"  Required verification: {len(args.required_verification)}")
+    if obligations:
+        print(f"  Verification obligations: {len(obligations)}")
     print("  Next: run aiwf status --prompt and follow its route")
 
 
@@ -84,8 +115,15 @@ def _cmd_fix_loop_status(args: argparse.Namespace) -> None:
         print(f"  Reason: {fix_loop['reason'][:160]}")
     for item in fix_loop.get("required_fixes", []) or []:
         print(f"  Fix: {str(item)[:160]}")
-    for item in fix_loop.get("required_verification", []) or []:
-        print(f"  Verify: {str(item)[:160]}")
+    for item in fix_loop.get("verification_obligations", []) or []:
+        if not isinstance(item, dict):
+            continue
+        verification_id = str(item.get("verification_id") or "")
+        command = str(item.get("command") or "")
+        detail = f" — {command}" if command else ""
+        print(f"  Verify: {verification_id}{detail}"[:170])
+    if fix_loop.get("required_verification"):
+        print("  Verify: legacy free-text contract; reopen with --verify")
     if fix_loop.get("escalation_required"):
         print("  Human decision required: yes")
         print(f"  Continue: aiwf fixloop continue --task-id {task_id}")
@@ -125,17 +163,19 @@ def _cmd_install(args: argparse.Namespace) -> None:
             print(f"  ~ {path}")
     for warning in results.get("warnings", []):
         print(f"WARNING: {warning}")
-    try:
-        git = subprocess.run(
-            ["git", "rev-parse", "--verify", "HEAD"],
-            cwd=str(Path.cwd()),
-            capture_output=True,
-            text=True,
-        )
-    except OSError:
-        git = None
-    if git is None or git.returncode != 0:
+    from ..core.git_hygiene import inspect_git_hygiene
+
+    hygiene = inspect_git_hygiene(Path.cwd())
+    if not hygiene["repository"]:
+        print("Git readiness: this directory is not a Git repository.")
+    if not hygiene["has_head"]:
         print("Before starting AIWF work: initialize Git and create the initial commit.")
+    if hygiene["tracked_residue"]:
+        print(
+            "WARNING: tracked local residue can invalidate testing/review snapshots: "
+            + ", ".join(hygiene["tracked_residue"][:8])
+        )
+        print("  Review these paths and untrack them deliberately; AIWF will not modify the index.")
     print("Next:")
     print(f"  1. Start {product_name}: {command_name}")
     print(f"  2. Load Planner: {entry_command}")
@@ -160,6 +200,16 @@ def _cmd_doctor(args: argparse.Namespace) -> None:
         from ..install_claude import doctor
         results = doctor(mode=requested_host)
     overall = results["overall"]
+    from ..core.git_hygiene import inspect_git_hygiene
+
+    hygiene = inspect_git_hygiene(Path.cwd())
+    git_warning = bool(
+        not hygiene["repository"]
+        or not hygiene["has_head"]
+        or hygiene["tracked_residue"]
+    )
+    if overall == "healthy" and git_warning:
+        overall = "healthy_with_warnings"
     product = results.get("product_name", "embedded")
     config_dir = results.get("config_dir", ".claude")
     instruction_file = results.get("instruction_file", "CLAUDE.md")
@@ -197,6 +247,16 @@ def _cmd_doctor(args: argparse.Namespace) -> None:
             print(f"  WARN {warning}")
     for warning in results.get("adapter_warnings", []):
         print(f"WARN adapter: {warning}")
+
+    if not hygiene["repository"]:
+        print("WARN git: not a Git repository; initialize it and create an initial commit before Task activation")
+    elif not hygiene["has_head"]:
+        print("WARN git: repository has no initial commit; create one before Task activation")
+    if hygiene["tracked_residue"]:
+        print(
+            "WARN git: tracked local residue can invalidate proof snapshots: "
+            + ", ".join(hygiene["tracked_residue"][:8])
+        )
 
     if overall not in ("healthy", "healthy_with_warnings"):
         raise SystemExit(1)

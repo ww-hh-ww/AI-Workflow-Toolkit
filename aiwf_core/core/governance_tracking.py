@@ -54,9 +54,10 @@ def _write_managed_gitignore(control: Path, mode: str) -> None:
 def ensure_governance_gitignore(base_dir: str | Path) -> None:
     """Keep runtime local and apply the configured tracked/local layout."""
     control = resolve_control_root(base_dir)
-    if _run(control, "rev-parse", "--git-dir").returncode != 0:
-        return
     _write_managed_gitignore(control, governance_tracking_mode(control))
+    from .git_hygiene import ensure_local_git_excludes
+
+    ensure_local_git_excludes(control)
 
 
 def set_governance_tracking(

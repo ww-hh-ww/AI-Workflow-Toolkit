@@ -335,7 +335,12 @@ GOAL-001 / PLAN-001。
                 "status": "open",
                 "route": "tester",
                 "reason": "old path still bypasses the fix",
-                "required_verification": ["prove the old path is closed"],
+                "verification_obligations": [{
+                    "verification_id": "FIX-OLD-PATH",
+                    "source": "fix_loop",
+                    "command": "pytest -q tests/test_old_path.py",
+                    "expected": "old path cannot bypass the fix",
+                }],
             },
         }), encoding="utf-8")
 
@@ -343,8 +348,8 @@ GOAL-001 / PLAN-001。
 
         self.assertEqual(proof["fix_loop"]["route"], "tester")
         self.assertEqual(
-            proof["fix_loop"]["required_verification"],
-            ["prove the old path is closed"],
+            proof["fix_loop"]["verification_obligations"][0]["verification_id"],
+            "FIX-OLD-PATH",
         )
 
     def test_forbidden_write_is_optional(self):

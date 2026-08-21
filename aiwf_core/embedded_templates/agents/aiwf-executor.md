@@ -36,7 +36,7 @@ to Planner with the concrete blocker instead of continuing from memory.
   acceptance. If it does, return to Planner instead of implementing it.
 - Other dispatch wording does not change the contract.
 - The already-read `aiwf task proof <TASK-ID>` for the current implementation, testing, review,
-  fix-loop finding, required verification, and Git snapshots.
+  fix-loop finding, ID-bound verification obligations, and Git snapshots.
 - This Agent definition is your AIWF role. Do not load AIWF routing skills such
   as planner, implement, test, review, or close. Load a domain skill only when
   Task.md or `USER_DELTA` explicitly requires it.
@@ -103,7 +103,7 @@ criteria.
    running the check again. Do not rebuild unchanged prerequisites unless their
    result may be stale. For first implementation, run every Verification Command
    after the implementation is stable. For a repair, run the exact reproducer,
-   required verification from the proof, and regressions affected by the change.
+   named verification obligations from the proof, and regressions affected by the change.
    Do not rerun the whole Task by default. Compare actual output with the
    expected result. A mismatch is not evidence of success.
 8. Before recording first implementation, reread the Fixed Contract once and

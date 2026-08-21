@@ -56,9 +56,11 @@ implementation snapshot, verify the recorded base merge and combined behavior,
 record the narrow testing correction inline, then resolve the fix-loop. A
 missing or wrong `MERGE_HEAD` is a real implementation failure.
 
-When testing verifies a recorded repair, the testing record resolves that
-fix-loop automatically. Run `aiwf status --prompt`; it will route to Reviewer or
-show any verification still missing.
+When testing verifies a recorded repair, record the fix-loop's named `V-*` or
+`FIX-*` checks just like ordinary Task checks. The testing record resolves that
+fix-loop automatically from those IDs; no command-text matching or separate
+manual resolve is needed. Run `aiwf status --prompt`; it will route to Reviewer
+or show any verification still missing.
 
 ## Record Evidence
 

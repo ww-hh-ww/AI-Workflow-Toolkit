@@ -478,7 +478,7 @@ class TestPromptClarityContract(unittest.TestCase):
             self.assertIn("Other dispatch wording does", source)
             self.assertIn("not change the contract", source)
             self.assertIn("fix-loop", source)
-            self.assertIn("required verification", source)
+            self.assertIn("verification obligations", source)
 
         executor = agents[0]
         self.assertIn("requires a named skill or tool", executor)
@@ -537,6 +537,11 @@ class TestPromptClarityContract(unittest.TestCase):
         self.assertIn("`aiwf record testing`", testing)
         self.assertIn("--executed-command", testing)
         self.assertIn("actual command", testing)
+        self.assertIn("named `V-*` or", testing)
+        self.assertIn("`FIX-*` checks", testing)
+        lifecycle = read("skills/aiwf-planner/references/lifecycle.md")
+        self.assertIn("--verify V-003", lifecycle)
+        self.assertIn("FIX-001:::<exact command>:::<expected observable>", lifecycle)
 
     def test_integration_roles_use_the_plan_worktree_stage(self):
         tester = read("agents/aiwf-tester.md")

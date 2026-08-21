@@ -1053,7 +1053,12 @@ Verification Commands:
             "source": "reviewer",
             "reason": "The production loader still bypasses signature verification.",
             "required_fixes": ["Connect the verified loader to the production path."],
-            "required_verification": ["Run the Windows loader smoke test."],
+            "verification_obligations": [{
+                "verification_id": "FIX-WINDOWS-LOADER",
+                "source": "fix_loop",
+                "command": "python scripts/windows_loader_smoke.py",
+                "expected": "verified loader reaches the production path",
+            }],
             "attempt_count": 1,
             "max_attempts": 2,
         }
@@ -1075,7 +1080,7 @@ Verification Commands:
             status.stdout,
         )
         self.assertIn(
-            "Required verification: Run the Windows loader smoke test.",
+            "Verification obligations: FIX-WINDOWS-LOADER: python scripts/windows_loader_smoke.py",
             status.stdout,
         )
         self.assertIn("concise repair brief", status.stdout)
@@ -1121,7 +1126,12 @@ Verification Commands:
                 "route": "tester",
                 "source": "planner",
                 "reason": "Only the Windows runtime proof is missing.",
-                "required_verification": ["Run the Windows smoke test."],
+                "verification_obligations": [{
+                    "verification_id": "FIX-WINDOWS-SMOKE",
+                    "source": "fix_loop",
+                    "command": "python scripts/windows_smoke.py",
+                    "expected": "runtime smoke passes",
+                }],
             },
         }
 
