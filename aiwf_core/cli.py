@@ -14,6 +14,7 @@ from .constants import VERSION
 from .core.state_schema import MVP_STATE_FILES
 from .core.project_root import (
     INVOCATION_CWD_ENV,
+    has_codex_adapter,
     has_opencode_adapter,
     resolve_aiwf_project_root,
 )
@@ -27,7 +28,10 @@ def _show_planner_facade() -> None:
     claude_settings = root / ".claude" / "settings.json"
     reasonix_settings = root / ".reasonix" / "settings.json"
     if aiwf_state_path.exists() and (
-        reasonix_settings.exists() or claude_settings.exists() or has_opencode_adapter(root)
+        reasonix_settings.exists()
+        or claude_settings.exists()
+        or has_codex_adapter(root)
+        or has_opencode_adapter(root)
     ):
         cmd_status(argparse.Namespace())
         return
@@ -37,6 +41,7 @@ def _show_planner_facade() -> None:
     print()
     print("Start here:")
     print("  aiwf install claude      # Claude Code")
+    print("  aiwf install codex       # Codex")
     print("  aiwf install opencode    # OpenCode")
     print("  aiwf install reasonix    # Reasonix")
     print()
@@ -135,6 +140,7 @@ def _show_tiered_help(show_all: bool = False) -> None:
     print()
     print("Primary path:")
     print("  aiwf install claude      # Claude Code")
+    print("  aiwf install codex       # Codex")
     print("  aiwf install opencode    # OpenCode")
     print("  aiwf install reasonix    # Reasonix")
 

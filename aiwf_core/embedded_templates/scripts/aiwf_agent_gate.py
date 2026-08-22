@@ -152,13 +152,18 @@ def main():
     if event.tool_name not in ("Agent", "Task"):
         allow()
 
-    subagent_type = event.tool_input.get("subagent_type", "")
+    subagent_type = str(
+        event.tool_input.get("subagent_type")
+        or event.tool_input.get("agent_type")
+        or ""
+    )
     base = resolve_control_root(Path(__file__).resolve().parent.parent)
     ledger = _read_json(base / ".aiwf" / "state" / "tasks.json", {"tasks": []})
-    original_prompt = str(event.tool_input.get("prompt") or "")
+    prompt_key = "message" if "message" in event.tool_input else "prompt"
+    original_prompt = str(event.tool_input.get(prompt_key) or "")
     dispatch_text = "\n".join(
         str(event.tool_input.get(key) or "")
-        for key in ("prompt", "description", "name")
+        for key in ("prompt", "message", "description", "name")
     )
     matches = _task_matches(ledger.get("tasks", []) or [], dispatch_text)
     if subagent_type == "general-purpose" and matches:
@@ -187,7 +192,7 @@ def main():
             except Exception:
                 pass
 
-    if not loaded:
+    if not loaded and event.engine != "codex":
         deny_pre_tool_use(
             f"Cannot dispatch {subagent_type}: skill not loaded.\n"
             f"  → Load /{required_skill} first, then dispatch {subagent_type}."
@@ -195,7 +200,7 @@ def main():
 
     if subagent_type == "aiwf-architect":
         updated = dict(event.tool_input or {})
-        updated["prompt"] = (
+        updated[prompt_key] = (
             f"AIWF Architect review\nControl root: {base}\n\n{original_prompt.strip()}"
         ).strip()
         allow_with_updated_input(updated)
@@ -215,6 +220,8 @@ def main():
 
     blocker = _workflow_dispatch_blocker(base, active_task_id, subagent_type)
     if blocker:
+        if event.engine == "codex":
+            blocker = re.sub(r"(?<![A-Za-z0-9_])/(aiwf-[a-z-]+)", r"$\1", blocker)
         deny_pre_tool_use(blocker)
 
     try:
@@ -235,7 +242,7 @@ def main():
         deny_pre_tool_use(f"Cannot dispatch {subagent_type}: {exc}. Retry once.")
 
     updated = dict(event.tool_input or {})
-    updated["prompt"] = _enriched_prompt(base, task, subagent_type, original_prompt)
+    updated[prompt_key] = _enriched_prompt(base, task, subagent_type, original_prompt)
     allow_with_updated_input(updated)
 
 if __name__ == "__main__":

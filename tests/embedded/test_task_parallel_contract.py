@@ -211,6 +211,41 @@ class TestTaskParallelContract(unittest.TestCase):
         self.assertEqual(Path(plan["git_worktree_path"]), expected.resolve())
         self.assertTrue(expected.is_dir())
 
+    def test_codex_session_uses_its_own_worktree_directory_when_hosts_coexist(self):
+        hooks = self.tmp / ".codex/hooks.json"
+        skill = self.tmp / ".agents/skills/aiwf-planner/SKILL.md"
+        hooks.parent.mkdir(parents=True, exist_ok=True)
+        skill.parent.mkdir(parents=True, exist_ok=True)
+        hooks.write_text('{"hooks": {}}\n', encoding="utf-8")
+        skill.write_text("---\nname: aiwf-planner\ndescription: planner\n---\n", encoding="utf-8")
+        subprocess.run(["git", "add", str(hooks), str(skill)], cwd=self.tmp, check=True)
+        subprocess.run(
+            ["git", "commit", "-m", "add codex adapter"],
+            cwd=self.tmp, check=True, capture_output=True,
+        )
+        upsert_plan(str(self.tmp), "PLAN-CODEX")
+        env = os.environ.copy()
+        env["PYTHONPATH"] = str(PROJECT_ROOT)
+        env["AIWF_HOST"] = "codex"
+
+        created = subprocess.run(
+            [
+                sys.executable, "-m", "aiwf_core.cli",
+                "plan", "bind-worktree", "PLAN-CODEX", "--create",
+            ],
+            cwd=self.tmp, env=env, capture_output=True, text=True,
+        )
+
+        self.assertEqual(created.returncode, 0, created.stderr)
+        plan = next(
+            item for item in load_plans(str(self.tmp))["plans"]
+            if item.get("plan_id") == "PLAN-CODEX"
+        )
+        expected = self.tmp / ".codex/worktrees/plan-codex"
+        self.assertEqual(Path(plan["git_worktree_path"]), expected.resolve())
+        self.assertTrue(expected.is_dir())
+        self.assertFalse((expected / ".aiwf").exists())
+
     def test_public_bind_does_not_turn_control_root_into_plan_worktree(self):
         upsert_plan(str(self.tmp), "PLAN-CONTROL")
         env = os.environ.copy()

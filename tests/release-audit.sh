@@ -19,7 +19,7 @@ git -C "$ROOT" ls-files | grep -E '(^|/)\.DS_Store$|^\._' && {
   exit 1
 } || true
 
-git -C "$ROOT" ls-files | grep -E '^\.aiwf/|^\.claude/|^\.reasonix/' && {
+git -C "$ROOT" ls-files | grep -E '^\.aiwf/|^\.claude/|^\.codex/|^\.reasonix/' && {
   echo "tracked installed runtime state found" >&2
   exit 1
 } || true
@@ -115,6 +115,22 @@ TMP_CLAUDE="$(mktemp -d "${TMPDIR:-/tmp}/aiwf-embedded-claude-audit-XXXXXX")"
   STATUS_OUT="$(printf '{"session_id":"audit","cwd":"%s","hook_event_name":"UserPromptSubmit"}' "$TMP_CLAUDE" | env -u PYTHONPATH python3 scripts/aiwf_status.py)"
   printf '%s' "$STATUS_OUT" | grep -q "aiwf status --prompt"
   PYTHONPATH="$ROOT" "$ROOT/bin/aiwf" doctor | grep -q "healthy"
+)
+
+TMP_CODEX="$(mktemp -d "${TMPDIR:-/tmp}/aiwf-embedded-codex-audit-XXXXXX")"
+(
+  cd "$TMP_CODEX"
+  PYTHONPATH="$ROOT" "$ROOT/bin/aiwf" install codex >/dev/null
+  test -f AGENTS.md
+  test -f .agents/skills/aiwf-planner/SKILL.md
+  test -f .codex/agents/aiwf-executor.toml
+  test -f .codex/agents/aiwf-tester.toml
+  test -f .codex/agents/aiwf-reviewer.toml
+  test -f .codex/hooks.json
+  test -f scripts/aiwf_codex_hook.py
+  grep -q "Build a failure model" .codex/agents/aiwf-tester.toml
+  grep -q "apply_patch|Edit|Write" .codex/hooks.json
+  PYTHONPATH="$ROOT" "$ROOT/bin/aiwf" doctor --host codex | grep -q "healthy"
 )
 
 echo "release audit ok"

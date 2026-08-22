@@ -117,7 +117,7 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="aiwf",
         description="AIWF — Embedded coding-shell workflow governance.",
-        epilog="Primary path: aiwf install claude (or reasonix)",
+        epilog="Primary path: aiwf install claude, codex, opencode, or reasonix",
         formatter_class=argparse.RawTextHelpFormatter,
     )
     sub = parser.add_subparsers(dest="cmd")
@@ -133,12 +133,15 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
 
     # ── status / install / doctor ──
     p_install = sub.add_parser("install", help="install AIWF integration (skills, hooks, agents, state, scripts)")
-    p_install.add_argument("mode", choices=["claude", "opencode", "reasonix"], help="installation mode")
+    p_install.add_argument(
+        "mode", choices=["claude", "codex", "opencode", "reasonix"],
+        help="installation mode",
+    )
     p_install.add_argument("--force", action="store_true", help="force overwrite")
     p_install.set_defaults(func=_cmd_install)
     p_doctor = sub.add_parser("doctor", help="check AIWF installation health")
     p_doctor.add_argument(
-        "--host", choices=["claude", "opencode", "reasonix"],
+        "--host", choices=["claude", "codex", "opencode", "reasonix"],
         help="check one installed host adapter when several coexist",
     )
     p_doctor.set_defaults(func=_cmd_doctor)

@@ -132,7 +132,15 @@ def _cmd_fix_loop_status(args: argparse.Namespace) -> None:
 
 
 def _cmd_install(args: argparse.Namespace) -> None:
-    if args.mode == "opencode":
+    if args.mode == "codex":
+        from ..install_codex import (
+            COMMAND_NAME, ENTRY_COMMAND, PRODUCT_NAME, install_codex,
+        )
+        product_name = PRODUCT_NAME
+        command_name = COMMAND_NAME
+        entry_command = ENTRY_COMMAND
+        results = install_codex(force=bool(args.force))
+    elif args.mode == "opencode":
         from ..install_opencode import (
             COMMAND_NAME, ENTRY_COMMAND, PRODUCT_NAME, install_opencode,
         )
@@ -183,10 +191,25 @@ def _cmd_install(args: argparse.Namespace) -> None:
 
 
 def _cmd_doctor(args: argparse.Namespace) -> None:
-    from ..core.project_root import has_opencode_adapter
+    from ..core.project_root import (
+        has_codex_adapter,
+        has_opencode_adapter,
+        in_codex_session,
+    )
 
     requested_host = getattr(args, "host", None)
-    if requested_host == "opencode" or (
+    if requested_host == "codex" or (
+        requested_host is None
+        and has_codex_adapter(Path.cwd())
+        and (in_codex_session() or not (
+            (Path.cwd() / ".claude" / "settings.json").exists()
+            or (Path.cwd() / ".reasonix" / "settings.json").exists()
+            or has_opencode_adapter(Path.cwd())
+        ))
+    ):
+        from ..install_codex import doctor_codex
+        results = doctor_codex()
+    elif requested_host == "opencode" or (
         requested_host is None
         and has_opencode_adapter(Path.cwd())
         and not (

@@ -21,12 +21,30 @@ def has_opencode_adapter(path: PathLike) -> bool:
     )
 
 
+def has_codex_adapter(path: PathLike) -> bool:
+    root = Path(path).expanduser().resolve()
+    return (
+        (root / ".codex" / "hooks.json").exists()
+        and (root / ".agents" / "skills" / "aiwf-planner" / "SKILL.md").exists()
+    )
+
+
+def in_codex_session() -> bool:
+    """Return whether the command is running inside a native Codex session."""
+    return bool(
+        os.environ.get("CODEX_SESSION_ID")
+        or os.environ.get("CODEX_THREAD_ID")
+        or os.environ.get("CODEX_SHELL")
+    )
+
+
 def is_installed_aiwf_root(path: PathLike) -> bool:
     root = Path(path).expanduser().resolve()
     state = root / ".aiwf" / "state" / "state.json"
     integration = (
         (root / ".claude" / "settings.json").exists()
         or (root / ".reasonix" / "settings.json").exists()
+        or has_codex_adapter(root)
         or has_opencode_adapter(root)
     )
     return state.exists() and integration

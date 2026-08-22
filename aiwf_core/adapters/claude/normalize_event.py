@@ -1,4 +1,4 @@
-"""Claude Code / Reasonix event normalizer.
+"""Claude-compatible hook event normalizer for Claude Code, Codex, and Reasonix.
 
 Translates coding-shell hook JSON into backend-neutral AIWF events.
 """
@@ -26,7 +26,7 @@ def parse_claude_stdin() -> Dict[str, Any]:
 
 
 def normalize(data: Dict[str, Any]) -> NormalizedEvent:
-    """Convert Claude Code or Reasonix hook JSON to a normalized AIWF event.
+    """Convert Claude Code, Codex, or Reasonix hook JSON to a normalized event.
 
     Claude input shape (from official docs):
     {

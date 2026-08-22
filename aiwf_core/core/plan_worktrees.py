@@ -99,13 +99,21 @@ def create_plan_worktree(
         raise ValueError("control root must be on a named base branch")
     relative_parent: Path | None = None
     if not worktree_path:
-        from .project_root import has_opencode_adapter
+        from .project_root import (
+            has_codex_adapter,
+            has_opencode_adapter,
+            in_codex_session,
+        )
 
         host = os.environ.get("AIWF_HOST", "").strip().lower()
-        if host == "opencode" and has_opencode_adapter(control):
+        if (host == "codex" or in_codex_session()) and has_codex_adapter(control):
+            config_dir = ".codex"
+        elif host == "opencode" and has_opencode_adapter(control):
             config_dir = ".opencode"
         elif (control / ".claude/settings.json").exists():
             config_dir = ".claude"
+        elif has_codex_adapter(control):
+            config_dir = ".codex"
         elif has_opencode_adapter(control):
             config_dir = ".opencode"
         else:
@@ -116,6 +124,8 @@ def create_plan_worktree(
             managed_worktree_roots.add(Path(".claude/worktrees"))
         if has_opencode_adapter(control):
             managed_worktree_roots.add(Path(".opencode/worktrees"))
+        if has_codex_adapter(control):
+            managed_worktree_roots.add(Path(".codex/worktrees"))
         if (control / ".reasonix/settings.json").exists():
             managed_worktree_roots.add(Path(".reasonix/worktrees"))
         for managed_root in sorted(managed_worktree_roots, key=str):

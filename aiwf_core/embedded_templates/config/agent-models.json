@@ -19,6 +19,14 @@
       "aiwf-critic": "inherit",
       "aiwf-explorer": "inherit"
     },
+    "codex": {
+      "aiwf-executor": "inherit",
+      "aiwf-tester": "inherit",
+      "aiwf-reviewer": "inherit",
+      "aiwf-architect": "inherit",
+      "aiwf-critic": "inherit",
+      "aiwf-explorer": "inherit"
+    },
     "opencode": {
       "aiwf-planner": "inherit",
       "aiwf-executor": "inherit",

@@ -1230,7 +1230,10 @@ def _show_records_inline(stdscr, data, task_id):
 def run_ui():
     root = resolve_control_root(Path.cwd())
     if not (root / ".aiwf" / "state" / "state.json").exists():
-        print("No AIWF installation found. Run: aiwf install claude or aiwf install opencode")
+        print(
+            "No AIWF installation found. Run: aiwf install claude, "
+            "aiwf install codex, or aiwf install opencode"
+        )
         sys.exit(1)
     curses.wrapper(main)
 

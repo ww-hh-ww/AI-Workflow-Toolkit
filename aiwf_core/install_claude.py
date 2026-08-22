@@ -389,6 +389,17 @@ def _template_text(relative_path: str) -> str:
     return (_TEMPLATE_ROOT / relative_path).read_text(encoding="utf-8")
 
 
+def _shared_agents_instruction_text() -> str:
+    """Return the host-neutral AGENTS.md block used by Codex and OpenCode."""
+    return (
+        _template_text("CLAUDE.md")
+        .replace("Claude Code", "the coding agent")
+        .replace("suggest `/aiwf-architect`", "suggest the `aiwf-architect` skill")
+        .replace("workflow Agent", "workflow subagent")
+        .replace("`EnterWorktree`", "a worktree-switching tool")
+    )
+
+
 def _target_template_text(relative_path: str, target: EmbedTarget) -> str:
     text = _template_text(relative_path)
     if target.mode == "reasonix" and relative_path in REASONIX_ROLE_SKILL_TEMPLATES:

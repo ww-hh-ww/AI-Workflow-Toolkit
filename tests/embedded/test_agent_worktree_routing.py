@@ -10,7 +10,11 @@ from pathlib import Path
 from unittest.mock import patch
 
 from aiwf_core.core import agent_worktree
-from aiwf_core.core.agent_worktree import AgentWorktreeError, route_agent_tool
+from aiwf_core.core.agent_worktree import (
+    AgentWorktreeError,
+    apply_patch_paths,
+    route_agent_tool,
+)
 from aiwf_core.core.event_model import NormalizedEvent
 
 
@@ -139,6 +143,39 @@ class TestAgentWorktreeRouting(unittest.TestCase):
             )
         )
         self.assertIn("pwd && pytest -q", routed.tool_input["command"])
+
+    def test_codex_apply_patch_routes_every_file_to_assigned_worktree(self):
+        event = NormalizedEvent(
+            engine="codex",
+            event_type="pre_tool_use",
+            session_id="session-1",
+            cwd=str(self.root),
+            tool_name="apply_patch",
+            tool_input={
+                "command": (
+                    "*** Begin Patch\n"
+                    "*** Update File: src/value.py\n"
+                    "@@\n-old\n+new\n"
+                    "*** Add File: tests/test_value.py\n"
+                    "+assert True\n"
+                    "*** End Patch"
+                ),
+            },
+            agent_id="codex-child",
+            agent_type="aiwf-executor",
+        )
+        with patch(
+            "aiwf_core.core.agent_worktree._unfinished_dispatch_tasks",
+            return_value=["TASK-A"],
+        ):
+            routed = route_agent_tool(event, self.root)
+
+        self.assertTrue(routed.changed)
+        paths = apply_patch_paths(routed.tool_input)
+        self.assertEqual(paths, [
+            str((self.worktree_a / "src/value.py").resolve()),
+            str((self.worktree_a / "tests/test_value.py").resolve()),
+        ])
 
     def test_windows_shell_quote_does_not_use_posix_single_quotes(self):
         with patch.object(agent_worktree.os, "name", "nt"):

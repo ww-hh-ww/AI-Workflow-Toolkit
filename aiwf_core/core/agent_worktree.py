@@ -15,7 +15,12 @@ from .worktree_context import resolve_control_root
 
 
 TASK_ROLE_TYPES = frozenset({"aiwf-executor", "aiwf-tester", "aiwf-reviewer"})
-NATIVE_SESSION_ENGINES = frozenset({"claude", "opencode"})
+NATIVE_SESSION_ENGINES = frozenset({"claude", "codex", "opencode"})
+
+PATCH_PATH_LINE = re.compile(
+    r"^(\*\*\* (?:Add File|Update File|Delete File|Move to): )(.+)$",
+    re.MULTILINE,
+)
 
 
 class AgentWorktreeError(RuntimeError):
@@ -362,6 +367,29 @@ def _route_bash_governance(command: str, assignment: AgentAssignment) -> str:
     )
 
 
+def apply_patch_paths(tool_input: Dict[str, Any]) -> List[str]:
+    """Return file paths named by a Codex apply_patch call."""
+    command = str((tool_input or {}).get("command") or "")
+    return [match.group(2).strip() for match in PATCH_PATH_LINE.finditer(command)]
+
+
+def _route_apply_patch(
+    tool_input: Dict[str, Any], assignment: AgentAssignment,
+) -> Tuple[Dict[str, Any], bool]:
+    updated = dict(tool_input or {})
+    command = str(updated.get("command") or "")
+
+    def replace(match: re.Match[str]) -> str:
+        raw = match.group(2).strip()
+        return match.group(1) + _routed_path(raw, assignment)
+
+    routed = PATCH_PATH_LINE.sub(replace, command)
+    if routed != command:
+        updated["command"] = routed
+        return updated, True
+    return updated, False
+
+
 def route_agent_tool(
     event: NormalizedEvent,
     control_root: Optional[Path] = None,
@@ -381,7 +409,10 @@ def route_agent_tool(
     # OpenCode child sessions keep the parent session directory even when AIWF
     # binds the child to a Plan worktree. Always make relative project tools
     # explicit there. Claude can continue using its native worktree cwd.
-    route_from_parent = event.engine == "opencode"
+    route_from_parent = event.engine in ("codex", "opencode")
+    if event.tool_name == "apply_patch":
+        updated, changed = _route_apply_patch(updated, assignment)
+        return RoutedToolInput(assignment, updated, changed)
     path_key = {
         "Read": "file_path",
         "Write": "file_path",

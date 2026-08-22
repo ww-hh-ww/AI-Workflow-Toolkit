@@ -269,6 +269,7 @@ def main():
         if resumed_task is not None:
             sys.exit(0)
         task_id = ""
+        assignment = None
         if agent_type != "aiwf-architect":
             try:
                 assignment = resolve_agent_assignment(event, base)
@@ -282,6 +283,19 @@ def main():
             task_id=task_id,
             session_id=str(data.get("session_id") or ""),
         )
+        if event.engine == "codex" and assignment is not None:
+            task_doc = base / ".aiwf" / "tasks" / f"{task_id}.md"
+            print(json.dumps({
+                "hookSpecificOutput": {
+                    "hookEventName": "SubagentStart",
+                    "additionalContext": (
+                        f"AIWF assignment: Task {task_id}. Read {task_doc}. "
+                        f"Project worktree: {assignment.worktree}. Read `aiwf task proof {task_id}` "
+                        "before acting. Follow your installed AIWF role instructions; if the "
+                        "contract conflicts with reality, return RETURN_TO_PLANNER."
+                    ),
+                }
+            }))
         sys.exit(0)
 
     if data.get("hook_event_name") == "SubagentStop":
@@ -362,7 +376,11 @@ def main():
     if event.tool_name not in ("Agent", "Task"):
         sys.exit(0)
 
-    subagent_type = event.tool_input.get("subagent_type", "")
+    subagent_type = str(
+        event.tool_input.get("subagent_type")
+        or event.tool_input.get("agent_type")
+        or ""
+    )
     if not subagent_type:
         sys.exit(0)
 
@@ -371,11 +389,43 @@ def main():
     if subagent_type in TASK_ROLES:
         prompt = "\n".join(
             str(event.tool_input.get(key) or "")
-            for key in ("prompt", "description", "name")
+            for key in ("prompt", "message", "description", "name")
         )
         task_id = _task_from_text(base, prompt)
     else:
         task_id = ""
+
+    # Codex reports spawn failures through PostToolUse too. A successful spawn
+    # has already produced SubagentStart and bound a concrete agent_id.
+    if event.engine == "codex" and not tool_failed:
+        candidates = [
+            item for item in running_dispatches(
+                base, task_id=task_id, session_id=event.session_id,
+            )
+            if item["subagent_type"] == subagent_type
+        ]
+        if any(item.get("agent_id") for item in candidates):
+            sys.exit(0)
+        if candidates:
+            finish_dispatch(
+                base,
+                subagent_type,
+                task_id=task_id,
+                session_id=event.session_id,
+                status="cancelled",
+                source="spawn_return_without_subagent_start",
+            )
+            print(json.dumps({
+                "hookSpecificOutput": {
+                    "hookEventName": "PostToolUse",
+                    "additionalContext": (
+                        f"[AIWF] {ROLE_LABELS.get(subagent_type, 'Agent')} did not start "
+                        f"for {task_id}; its slot was released. Read the spawn result, then "
+                        "run `aiwf status --prompt` before retrying."
+                    ),
+                }
+            }))
+        sys.exit(0)
 
     # Claude emits PostToolUse when a background Agent launch succeeds. That
     # event says nothing about whether the subagent has finished. SubagentStop

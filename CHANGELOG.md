@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Codex Compatibility
+- Added `aiwf install codex` and `aiwf doctor --host codex`.
+- Installed route Skills in `.agents/skills/` and complete AIWF role prompts as
+  native `.codex/agents/*.toml` custom agents.
+- Added project hooks for status, role dispatch evidence, Task/worktree routing,
+  scope checks, `apply_patch`, testing/review lifecycle, and closure reporting.
+- Kept `AGENTS.md` host-neutral so Codex and OpenCode adapters can coexist.
+
 ## 1.0 — Embedded Claude Code and Reasonix Governance (2026-06)
 
 ### Reasonix Compatibility

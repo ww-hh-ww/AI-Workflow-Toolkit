@@ -1,4 +1,4 @@
-"""Claude Code hook response formatter.
+"""Claude-compatible hook response formatter used by Claude Code and Codex.
 
 Converts AIWF core results into Claude-compatible hook responses
 (JSON stdout or exit codes). No business logic here — only formatting.

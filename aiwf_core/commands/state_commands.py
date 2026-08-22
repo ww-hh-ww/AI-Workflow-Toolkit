@@ -71,9 +71,13 @@ def _require_role_dispatch(base: Path, role: str, task_id: str = "") -> str:
                 and entry.get("subagent_type") == subagent_type
             ):
                 return effective_task
+    from ..core.project_root import has_codex_adapter, in_codex_session
+
+    codex = in_codex_session() and has_codex_adapter(control)
+    skill = ("$" if codex else "/") + skill_name
     raise ValueError(
         f"{role} record requires a task-scoped {subagent_type} dispatch. "
-        f"Load /{skill_name} and dispatch {subagent_type} before recording."
+        f"Load {skill} and dispatch {subagent_type} before recording."
     )
 
 

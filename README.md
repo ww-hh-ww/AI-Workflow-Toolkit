@@ -106,7 +106,7 @@ Planner 会先讨论工作是否值得进入 AIWF。讨论是默认行为；只�
 
 - Python 3.9+
 - Git
-- Claude Code、OpenCode，或 Reasonix
+- Claude Code、Codex、OpenCode，或 Reasonix
 
 从源码安装：
 
@@ -182,6 +182,28 @@ aiwf status --prompt
 /aiwf-planner
 ```
 
+### Codex
+
+```bash
+cd /path/to/project
+aiwf install codex
+aiwf doctor --host codex
+codex
+```
+
+在 Codex 中使用 `$aiwf-planner` 开始或继续。安装器创建：
+
+- `AGENTS.md` 中可与其他宿主共用的 AIWF 运行协议；
+- `.agents/skills/` 中供主会话按阶段加载的 Skills；
+- `.codex/agents/*.toml`，把 Executor、Tester、Reviewer、Architect 等完整角色指令直接交给 Codex 子代理；
+- `.codex/hooks.json`，接通状态提醒、Task/worktree 路由、scope、角色账本和关闭门；
+- 与其他宿主相同的 `.aiwf/` 状态、records 和 `scripts/`。
+
+首次使用项目 hooks 时，在 Codex 的 `/hooks` 中检查并信任
+`.codex/hooks.json`。AIWF 不修改用户全局 `~/.codex`。Codex 子代理从
+control root 派发，AIWF 根据 Task ID 将其项目读取、命令和 `apply_patch`
+定向到对应 Plan worktree；治理文档仍只有 control root 一份。
+
 ### Reasonix
 
 ```bash
@@ -231,7 +253,7 @@ Windows 使用同一套命令。推荐先安装 Git for Windows，并在 PowerSh
 
 ```powershell
 py -m pip install -e .
-aiwf install claude   # 或 aiwf install opencode
+aiwf install claude   # 或 aiwf install codex / opencode
 aiwf doctor
 ```
 
@@ -241,13 +263,13 @@ Windows Claude 版自动把 AIWF Hook 转为无 shell 的 Python exec 形式，�
 
 ### 支持矩阵
 
-| 平台 | Claude Code | OpenCode |
-|---|---|---|
-| macOS | 完整 Hook、Agent、Skill、TUI | 原生 Plugin、Agent、Skill、TUI |
-| Windows | Windows Hook 启动与文件锁适配 | 同一 OpenCode Plugin，Windows 路径与文件锁适配 |
+| 平台 | Claude Code | Codex | OpenCode |
+|---|---|---|---|
+| macOS | 完整 Hook、Agent、Skill、TUI | 项目 Hook、自定义 Agent、Skill、TUI | 原生 Plugin、Agent、Skill、TUI |
+| Windows | Windows Hook 启动与文件锁适配 | 同一项目 Hook 与 worktree 路由 | 同一 OpenCode Plugin，Windows 路径与文件锁适配 |
 
 适配层只转换宿主事件、路径、进程和终端差异。Mission、Goal、Plan、Task、
-records、Git 快照和关闭语义在四种组合中保持一致。
+records、Git 快照和关闭语义在所有宿主与平台组合中保持一致。
 
 ## 第一次对话
 
@@ -1173,11 +1195,15 @@ Task 自己的 `executor_required`、`tester_required`、`reviewer_required` 和
 ```bash
 aiwf install claude --force
 # 或
+aiwf install codex --force
+# 或
 aiwf install opencode --force
 ```
 
-Claude Agent 继承当前 Claude Code 的原生工具、MCP、网络和权限。OpenCode Agent
-使用原生 permission 字段，Reviewer 保持只读；其他角色的项目写入仍由
+Claude Agent 继承当前 Claude Code 的原生工具、MCP、网络和权限。Codex 从
+`.codex/agents/*.toml` 读取完整角色指令，所有角色使用 `workspace-write` 以便写入
+合法 records 或测试资产，项目文件边界继续由 AIWF scope hooks 管理。OpenCode Agent
+使用原生 permission 字段，Reviewer 禁止项目编辑；其他角色的项目写入仍由
 `write-policy.json` 精确限制。Bash、Skill 和宿主提供的网络能力由 OpenCode 配置决定。
 
 ### skill-map.json
@@ -1292,9 +1318,10 @@ aiwf <command> --help
 
 ```bash
 aiwf install claude [--force]
+aiwf install codex [--force]
 aiwf install opencode [--force]
 aiwf install reasonix [--force]
-aiwf doctor [--host claude|opencode|reasonix]
+aiwf doctor [--host claude|codex|opencode|reasonix]
 aiwf status [--prompt | --debug]
 aiwf sync [--check]
 aiwf ui
@@ -1497,6 +1524,7 @@ aiwf_core/
 ├── platform/             # POSIX / Windows 平台差异
 ├── embedded_templates/   # 安装到目标项目的 skills、agents、config、scripts
 ├── install_claude.py     # Claude / Reasonix 安装与 doctor
+├── install_codex.py      # Codex 安装与 doctor
 └── install_opencode.py   # OpenCode 安装与 doctor
 
 tests/embedded/           # 当前主链合同和端到端测试
@@ -1533,6 +1561,7 @@ which aiwf
 
 ```bash
 aiwf install claude --force
+# Codex 项目使用：aiwf install codex --force
 # OpenCode 项目使用：aiwf install opencode --force
 aiwf doctor
 ```

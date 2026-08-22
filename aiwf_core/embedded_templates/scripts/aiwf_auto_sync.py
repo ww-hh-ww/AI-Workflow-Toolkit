@@ -1,6 +1,7 @@
 import json, subprocess, sys
 from pathlib import Path
 from aiwf_core.adapters.claude.normalize_event import parse_claude_stdin, normalize
+from aiwf_core.core.agent_worktree import apply_patch_paths
 
 def main():
     data = parse_claude_stdin()
@@ -8,18 +9,33 @@ def main():
         sys.exit(0)
 
     event = normalize(data)
-    if event.tool_name not in ("Write", "Edit", "MultiEdit"):
+    if event.tool_name not in ("Write", "Edit", "MultiEdit", "apply_patch"):
         sys.exit(0)
 
-    file_path = event.tool_input.get("file_path", "")
-    if not file_path:
+    file_paths = (
+        apply_patch_paths(event.tool_input)
+        if event.tool_name == "apply_patch"
+        else [str(event.tool_input.get("file_path") or "")]
+    )
+    if not any(file_paths):
         sys.exit(0)
 
     # Only sync when AIWF governance MD files change
-    if not file_path.startswith(".aiwf/") or not file_path.endswith(".md"):
+    base = Path(__file__).resolve().parent.parent
+    governance_changed = False
+    for file_path in file_paths:
+        path = Path(file_path).expanduser()
+        try:
+            relative = path.resolve().relative_to(base) if path.is_absolute() else path
+        except ValueError:
+            continue
+        normalized = relative.as_posix()
+        if normalized.startswith(".aiwf/") and normalized.endswith(".md"):
+            governance_changed = True
+            break
+    if not governance_changed:
         sys.exit(0)
 
-    base = Path(__file__).resolve().parent.parent
     try:
         r = subprocess.run(
             [sys.executable, "-m", "aiwf_core.cli", "sync"],

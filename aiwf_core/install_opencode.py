@@ -17,6 +17,7 @@ from .install_claude import (
     _aiwf_toolkit_root,
     _migrate_legacy_paths,
     _remove_retired_skills,
+    _shared_agents_instruction_text,
     _template_text,
     _write_scripts,
     _write_state_files,
@@ -149,9 +150,7 @@ def _agent_text(name: str, source: str, *, primary: bool = False) -> str:
 
 def _write_instruction() -> Path:
     path = _root() / "AGENTS.md"
-    content = _opencode_text(_template_text("CLAUDE.md")).replace(
-        "/aiwf-planner", "/aiwf-planner"
-    )
+    content = _shared_agents_instruction_text()
     block = f"{AIWF_MANAGED_BLOCK_START}\n{content.rstrip()}\n{AIWF_MANAGED_BLOCK_END}\n"
     if not path.exists():
         write_text(path, block)

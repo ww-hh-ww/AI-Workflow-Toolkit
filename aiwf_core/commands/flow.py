@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
@@ -417,26 +418,46 @@ def _task_next(
     return "Close", f"load /aiwf-close, calibrate Task.md if needed, then close {task_id}"
 
 
+def _named_skill(name: str) -> str:
+    prefix = "$" if os.environ.get("AIWF_HOST", "").lower() == "codex" else "/"
+    return prefix + name
+
+
 def _skill_for(next_role: str) -> str:
-    return {
-        "Executor": "/aiwf-implement",
-        "Implementation repair": "/aiwf-implement",
-        "Inline implementation": "/aiwf-implement",
-        "Tester": "/aiwf-test",
-        "Verification follow-up": "/aiwf-test",
-        "Inline testing": "/aiwf-test",
-        "Reviewer": "/aiwf-review",
-        "Inline review": "/aiwf-review",
-        "Close": "/aiwf-close",
-        "Planner calibration": "/aiwf-planner",
-        "Planner decision": "/aiwf-planner",
-        "Milestone acceptance": "/aiwf-architect",
+    name = {
+        "Executor": "aiwf-implement",
+        "Implementation repair": "aiwf-implement",
+        "Inline implementation": "aiwf-implement",
+        "Tester": "aiwf-test",
+        "Verification follow-up": "aiwf-test",
+        "Inline testing": "aiwf-test",
+        "Reviewer": "aiwf-review",
+        "Inline review": "aiwf-review",
+        "Close": "aiwf-close",
+        "Planner calibration": "aiwf-planner",
+        "Planner decision": "aiwf-planner",
+        "Milestone acceptance": "aiwf-architect",
         "Human acceptance": "",
         "Agent running": "",
-    }.get(next_role, "/aiwf-planner")
+    }.get(next_role, "aiwf-planner")
+    if not name:
+        return ""
+    return _named_skill(name)
+
+
+def _host_action(action: str, host: str) -> str:
+    if host != "codex":
+        return action
+    converted = re.sub(r"(?<![A-Za-z0-9_])/(aiwf-[a-z-]+)", r"$\1", action)
+    return (
+        converted
+        .replace("the resumed original Claude session", "a resumed Codex task")
+        .replace("with SendMessage", "by sending one follow-up message to the existing agent thread")
+    )
 
 
 def _active_rows(control: Path, host: str = "") -> List[Dict[str, Any]]:
+    host = (host or os.environ.get("AIWF_HOST", "claude")).lower()
     rows: List[Dict[str, Any]] = []
     for task in load_ledger(str(control)).get("tasks", []) or []:
         if not isinstance(task, dict) or task.get("status") not in ("active", "suspended"):
@@ -518,7 +539,7 @@ def _active_rows(control: Path, host: str = "") -> List[Dict[str, Any]]:
             "phase": task.get("phase", ""),
             "worktree_path": task.get("worktree_path", ""),
             "next_role": next_role,
-            "action": action,
+            "action": _host_action(action, host),
             "implementation_ref": (record.get("implementation", {}) or {}).get("implementation_ref", ""),
             "testing_status": (record.get("testing", {}) or {}).get("status", "missing"),
             "review_result": (record.get("review", {}) or {}).get("result", "unknown"),
@@ -660,13 +681,14 @@ def _milestones_at_acceptance(control: Path) -> List[Dict[str, Any]]:
 
 
 def _installed(control: Path) -> bool:
-    from ..core.project_root import has_opencode_adapter
+    from ..core.project_root import has_codex_adapter, has_opencode_adapter
 
     return (
         (control / ".aiwf/state/state.json").exists()
         and (
             (control / ".claude/settings.json").exists()
             or (control / ".reasonix/settings.json").exists()
+            or has_codex_adapter(control)
             or has_opencode_adapter(control)
         )
     )
@@ -678,14 +700,20 @@ def cmd_status(args) -> None:
     if not _installed(control):
         print(f"AIWF V{VERSION}")
         print("No embedded AIWF installation found in this project.")
-        print("Install with: aiwf install claude or aiwf install opencode")
+        print("Install with: aiwf install claude, aiwf install codex, or aiwf install opencode")
         return
 
     host = os.environ.get("AIWF_HOST", "").lower()
     if not host:
-        from ..core.project_root import has_opencode_adapter
+        from ..core.project_root import (
+            has_codex_adapter,
+            has_opencode_adapter,
+            in_codex_session,
+        )
 
-        if has_opencode_adapter(control) and not (
+        if has_codex_adapter(control) and in_codex_session():
+            host = "codex"
+        elif has_opencode_adapter(control) and not (
             control / ".claude/settings.json"
         ).exists():
             host = "opencode"
@@ -693,6 +721,7 @@ def cmd_status(args) -> None:
             host = "reasonix"
         else:
             host = "claude"
+    os.environ["AIWF_HOST"] = host
     rows = _active_rows(control, host)
     current = task_for_worktree(str(worktree))
     plans_closeout = _plans_at_closeout(control)
@@ -725,9 +754,16 @@ def _print_human(
     plans_between: List[Dict[str, Any]],
     milestones_acceptance: List[Dict[str, Any]],
 ) -> None:
-    from ..core.project_root import has_opencode_adapter
+    from ..core.project_root import has_codex_adapter, has_opencode_adapter
 
-    if os.environ.get("AIWF_HOST", "").lower() == "opencode" or (
+    configured_host = os.environ.get("AIWF_HOST", "").lower()
+    if configured_host == "codex" or (
+        has_codex_adapter(control)
+        and not (control / ".claude/settings.json").exists()
+        and not has_opencode_adapter(control)
+    ):
+        product = "Codex"
+    elif configured_host == "opencode" or (
         has_opencode_adapter(control)
         and not (control / ".claude/settings.json").exists()
     ):
@@ -831,6 +867,8 @@ def _print_prompt(
 ) -> None:
     milestones_acceptance = milestones_acceptance or []
     memory_root = control / ".aiwf" / "memory"
+    planner_skill = _named_skill("aiwf-planner")
+    architect_skill = _named_skill("aiwf-architect")
     if not rows and temporary_ai_writes_enabled(control):
         print("Do now: complete the user's current small project-file operation directly.")
         print("Temporary AI project writes were enabled by a human in `aiwf ui`.")
@@ -875,7 +913,7 @@ def _print_prompt(
             f"review={row['review_result']}, fix-loop={row['fix_loop']}"
         )
         _print_fix_loop_context(row)
-        if _skill_for(row["next_role"]) == "/aiwf-planner":
+        if _skill_for(row["next_role"]).endswith("aiwf-planner"):
             _print_planner_memory(memory_root)
         return
 
@@ -932,7 +970,7 @@ def _print_prompt(
                 else:
                     print(
                         f"- {plan_id} | candidate prepared at {candidate_path} | run its integration "
-                        "checks there. Before merge, ask whether the user wants /aiwf-architect "
+                        f"checks there. Before merge, ask whether the user wants {architect_skill} "
                         "on this exact candidate; the user chooses one or several Plans whose "
                         "results are present in it. If a finding changes the candidate, resolve "
                         "environment, generated, or non-semantic work directly and use a Task "
@@ -1019,11 +1057,11 @@ def _print_prompt(
             str(plan.get("plan_id") or plan.get("id")) for plan in plans_between
         )
         print(
-            f"Do now: load /aiwf-planner. Before the next Task in {plan_ids}, compare the "
+            f"Do now: load {planner_skill}. Before the next Task in {plan_ids}, compare the "
             "completed Task Calibration and proof with the Plan, correct changed assumptions, "
             "and maintain memory."
         )
-        print("Required skills: /aiwf-planner")
+        print(f"Required skills: {planner_skill}")
         _print_planner_memory(memory_root)
         return
     elif milestones_acceptance:
@@ -1037,32 +1075,32 @@ def _print_prompt(
             acceptance = milestone.get("user_acceptance", {}) or {}
             synthesis = milestone.get("stage_synthesis", {}) or {}
             if not verification:
-                required.add("/aiwf-planner")
+                required.add(planner_skill)
                 print(
-                    f"- {milestone_id} | verification Task missing | load /aiwf-planner; "
+                    f"- {milestone_id} | verification Task missing | load {planner_skill}; "
                     "choose a Task ID, create kind=milestone_verification with "
                     f"--milestone-id {milestone_id}, write its contract from "
                     f"{control / '.aiwf/milestones' / (milestone_id + '.md')}, link it with "
                     f"aiwf milestone link-task {milestone_id} <TASK-ID>, then critique and activate it"
                 )
             elif verification_status in ("ready", "suspended"):
-                required.add("/aiwf-planner")
+                required.add(planner_skill)
                 print(
                     f"- {milestone_id} | verification Task {verification_id} "
-                    f"status={verification_status} | load /aiwf-planner, inspect its contract, "
+                    f"status={verification_status} | load {planner_skill}, inspect its contract, "
                     "complete activation critique if needed, and activate or resume it"
                 )
             elif verification_status == "closed" and acceptance.get("status") == "confirmed":
-                required.add("/aiwf-planner")
+                required.add(planner_skill)
                 print(
                     f"- {milestone_id} | accepted verification Task {verification_id} closed | "
                     f"run aiwf milestone close {milestone_id}"
                 )
             elif verification_status == "closed":
-                required.add("/aiwf-planner")
+                required.add(planner_skill)
                 print(
                     f"- {milestone_id} | verification Task {verification_id} closed before "
-                    "Milestone acceptance completed | load /aiwf-planner and inspect the inconsistent "
+                    f"Milestone acceptance completed | load {planner_skill} and inspect the inconsistent "
                     "state; do not claim or force Milestone closure"
                 )
             elif synthesis.get("verdict") in ("PASS", "PASS_WITH_RISK"):
@@ -1071,20 +1109,20 @@ def _print_prompt(
                     f"risks, then ask the user whether to run aiwf milestone confirm {milestone_id}"
                 )
             else:
-                required.add("/aiwf-architect")
+                required.add(architect_skill)
                 print(
                     f"- {milestone_id} | verification Task {verification_id} active | load "
-                    "/aiwf-architect and dispatch an independent Architect with milestone-acceptance; "
+                    f"{architect_skill} and dispatch an independent Architect with milestone-acceptance; "
                     f"Milestone.md is authoritative"
                 )
         print("Required skills: " + (", ".join(sorted(required)) if required else "none"))
         return
     else:
         print(
-            "Do now: load /aiwf-planner. Discuss and investigate before creating or changing "
+            f"Do now: load {planner_skill}. Discuss and investigate before creating or changing "
             "Mission, Goal, Plan, or Task documents."
         )
-        print("Required skills: /aiwf-planner")
+        print(f"Required skills: {planner_skill}")
         _print_planner_memory(memory_root)
         return
 
@@ -1093,7 +1131,7 @@ def _print_prompt(
         if (skill := _skill_for(row["next_role"]))
     })
     if plans_closeout:
-        required = sorted(set(required) | {"/aiwf-planner"})
+        required = sorted(set(required) | {planner_skill})
     print("Required skills: " + (", ".join(required) if required else "none"))
 
     current_id = str((current or {}).get("id") or "")
@@ -1113,7 +1151,7 @@ def _print_prompt(
             f"skill={_skill_for(row['next_role'])} | worktree={row['worktree_path']}"
         )
         _print_fix_loop_context(row)
-    if "/aiwf-planner" in required:
+    if any(skill.endswith("aiwf-planner") for skill in required):
         _print_planner_memory(memory_root)
 
 
