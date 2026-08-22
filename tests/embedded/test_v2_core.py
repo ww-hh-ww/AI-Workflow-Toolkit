@@ -289,6 +289,50 @@ class TestConfigurableWritePolicy(unittest.TestCase):
         self.assertGreater(len(wrapped), 1)
         self.assertTrue(all(_display_width(line) <= 12 for line in wrapped))
 
+    def test_tui_gnu_nano_uses_session_scoped_soft_wrapping(self):
+        from aiwf_core.tui_actions import editor_command
+
+        path = self.tmp / "long narrative.md"
+        with patch.dict(os.environ, {"EDITOR": "nano -l"}, clear=True), patch(
+            "aiwf_core.tui_actions._editor_help",
+            return_value="--softwrap --atblanks",
+        ):
+            command, warning = editor_command(path)
+
+        self.assertEqual(
+            command,
+            ["nano", "-l", "--softwrap", "--atblanks", str(path)],
+        )
+        self.assertEqual(warning, "")
+
+    def test_tui_pico_keeps_supported_command_and_explains_softwrap(self):
+        from aiwf_core.tui_actions import editor_command
+
+        path = self.tmp / "PLAN-001.md"
+        with patch.dict(os.environ, {"EDITOR": "nano"}, clear=True), patch(
+            "aiwf_core.tui_actions._editor_help",
+            return_value="Possible Starting Arguments for Pico editor",
+        ):
+            command, warning = editor_command(path)
+
+        self.assertEqual(command, ["nano", str(path)])
+        self.assertIn("Pico", warning)
+        self.assertIn("brew install nano", warning)
+
+    def test_tui_prefers_visual_and_preserves_editor_arguments(self):
+        from aiwf_core.tui_actions import editor_command
+
+        path = self.tmp / "PLAN-001.md"
+        with patch.dict(
+            os.environ,
+            {"VISUAL": "vim -f", "EDITOR": "nano"},
+            clear=True,
+        ):
+            command, warning = editor_command(path)
+
+        self.assertEqual(command, ["vim", "-f", str(path)])
+        self.assertEqual(warning, "")
+
     def test_sync_preserves_tester_write_as_a_list(self):
         from aiwf_core.core.index_ops import sync_index
 

@@ -985,6 +985,20 @@ aiwf task restore TASK-001 --status closed --reason "确认工作已完成"
 为 `human_restore`，不伪装成正常 Executor/Tester/Reviewer 闭合。取消原因和恢复
 原因都会保留。
 
+### Reopen
+
+正常闭合后来被新证据证明不成立时，不能直接改 JSON。若它仍是 open Plan 中
+最新、尚未合并且未被下游消费的 Task 结果，人类可以运行：
+
+```bash
+aiwf task reopen TASK-001 --reason "运行证据证明原闭合结论不成立"
+```
+
+AIWF 会归档原 closure 与 proof、让旧 Closure Calibration 失效、清除未合并的
+Plan integration 状态，并把 Task 放回 `ready`；Git 提交不会回滚。若已有后续
+Task、Plan merge 或 Milestone acceptance，命令会拒绝，此时应新建 corrective
+Task，原 Plan 已合并时则放入新 Plan。该命令只能由人类运行。
+
 ### Force-close
 
 紧急把 active Task 标为 closed，并记录未满足的 gates：
@@ -1199,7 +1213,7 @@ aiwf ui
 - `PlanChain`：查看 Plan 依赖和集成顺序。
 - `GoalDeps`：查看 Goal 能力依赖。
 
-TUI 会通过 `$EDITOR` 编辑 Markdown，并在编辑器退出后运行 `aiwf sync`。机器状态仍由 CLI 维护；TUI 不直接修改 `.aiwf/state/` 或 `.aiwf/records/`。
+TUI 优先使用 `$VISUAL`，其次使用 `$EDITOR` 编辑 Markdown，并在编辑器退出后运行 `aiwf sync`。使用 GNU nano 时，AIWF 只为当前编辑会话启用软换行和按词换行，不修改 `~/.nanorc`；如果系统的 `nano` 实际是没有软换行能力的 Pico，退出编辑器后会显示安装 GNU nano 或改用其他编辑器的提示。机器状态仍由 CLI 维护；TUI 不直接修改 `.aiwf/state/` 或 `.aiwf/records/`。
 
 ### 最常用的诊断顺序
 
@@ -1357,6 +1371,7 @@ aiwf task interrupt [TASK-ID] --reason "..."      # human only
 aiwf task force-close [TASK-ID] --reason "..."    # human only
 aiwf task cancel TASK-001 --reason "..."
 aiwf task restore TASK-001 --status ready --reason "..."  # human only
+aiwf task reopen TASK-001 --reason "..."                  # human only, unconsumed close only
 ```
 
 ### Records

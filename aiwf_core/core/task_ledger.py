@@ -266,6 +266,13 @@ def _restore_plan_task_status(base_dir: str, task: Dict[str, Any]) -> Optional[s
     return None
 
 
+def reopen_closed_task(base_dir: str, task_id: str, reason: str = "") -> Dict[str, Any]:
+    """Compatibility entry point for the dedicated reopen operation."""
+    from .task_reopen import reopen_closed_task as reopen
+
+    return reopen(base_dir, task_id, reason)
+
+
 def active_tasks(base_dir: str) -> List[Dict[str, Any]]:
     return [
         task for task in load_ledger(base_dir).get("tasks", [])

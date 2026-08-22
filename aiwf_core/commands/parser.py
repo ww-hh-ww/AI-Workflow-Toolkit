@@ -73,6 +73,7 @@ from .task_commands import (
     _cmd_task_interrupt,
     _cmd_task_plan,
     _cmd_task_proof,
+    _cmd_task_reopen,
     _cmd_task_restore,
     _cmd_task_show,
     _cmd_task_status,
@@ -356,6 +357,16 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
     )
     p_tr.add_argument("--reason", required=True, help="why the cancellation is being reversed")
     p_tr.set_defaults(func=_cmd_task_restore)
+    p_treopen = p_task_sub.add_parser(
+        "reopen",
+        help="human-only reopen of an unconsumed closed task",
+    )
+    p_treopen.add_argument("task_id", help="task ID")
+    p_treopen.add_argument(
+        "--reason", required=True,
+        help="why the accepted close is invalid and must be redone",
+    )
+    p_treopen.set_defaults(func=_cmd_task_reopen)
     p_ta = p_task_sub.add_parser("activate", help="activate a task")
     p_ta.add_argument("task_id", help="task ID")
     p_ta.add_argument(

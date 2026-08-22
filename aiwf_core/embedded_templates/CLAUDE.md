@@ -44,6 +44,9 @@ not guess. Surface the mismatch and follow the phase skill.
 - Do not run `aiwf task interrupt`; human interruption only.
 - Do not run `aiwf task restore`; ask the human to choose `ready` or `closed`
   and run it with a reason when a cancelled Task must return.
+- Do not run `aiwf task reopen`. If a normal close is later proven false, ask
+  Planner to assess consumption. A human may reopen only an unmerged,
+  unconsumed latest Task result; otherwise create a corrective Task.
 - Do not run `aiwf fixloop continue`; ask the human when repeated failures require a decision.
 
 ## Governance Git

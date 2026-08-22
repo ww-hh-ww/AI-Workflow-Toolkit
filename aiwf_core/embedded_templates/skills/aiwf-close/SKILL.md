@@ -47,6 +47,8 @@ commit.
 - Do not rewrite close output as your own decision.
 - Do not run `aiwf task interrupt`; it is human-only.
 - Do not run `aiwf task force-close`; it is human-only.
+- Do not run `aiwf task reopen`; return a suspected false close to Planner for
+  consumption analysis and a human decision.
 - Do not continue editing files after close.
 
 ## Stop Condition

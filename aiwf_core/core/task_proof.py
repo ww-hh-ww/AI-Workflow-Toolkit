@@ -480,4 +480,6 @@ def build_task_proof(base_dir: str, task: Dict[str, Any]) -> Dict[str, Any]:
         "testing": testing,
         "review": review,
         "fix_loop": fix_loop,
+        "reopen_context": record.get("reopen_context", {}) or {},
+        "attempt_history": record.get("attempt_history", []) or [],
     }

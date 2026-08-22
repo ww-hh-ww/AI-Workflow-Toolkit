@@ -37,6 +37,8 @@ DEFAULT_WRITE_POLICY: Dict[str, Any] = {
 HUMAN_ONLY_COMMANDS = {
     "aiwf task force-close": "force-close bypasses all Task gates",
     "aiwf task interrupt": "interrupt releases the active Task execution window",
+    "aiwf task restore": "restore reverses a terminal Task cancellation",
+    "aiwf task reopen": "reopen invalidates an accepted Task close",
     "aiwf fixloop continue": "continue authorizes work after repeated fix-loop failures",
     "aiwf governance tracking": "changing governance Git tracking changes project traceability",
 }

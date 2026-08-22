@@ -460,6 +460,36 @@ def _cmd_task_restore(args: argparse.Namespace) -> None:
     for warning in result.get("warnings", []) or []:
         print(f"  ! {warning}")
 
+
+def _cmd_task_reopen(args: argparse.Namespace) -> None:
+    """Human-only invalidation of a closed Task before downstream consumption."""
+    from ..core.task_ledger import reopen_closed_task
+
+    result = reopen_closed_task(
+        str(Path.cwd()),
+        task_id=getattr(args, "task_id", "") or "",
+        reason=getattr(args, "reason", "") or "",
+    )
+    task = result.get("task") or {}
+    task_id = task.get("id", getattr(args, "task_id", "unknown"))
+    if not result.get("reopened"):
+        print(f"Task reopen: {task_id} reopened=False", file=sys.stderr)
+        for blocker in result.get("blockers", [])[:10]:
+            print(f"  - {blocker}", file=sys.stderr)
+        print(
+            "  Next: keep the closed Task immutable and create a corrective Task.",
+            file=sys.stderr,
+        )
+        raise SystemExit(1)
+    archived = result.get("archived_attempt", {}) or {}
+    old_commit = str(((archived.get("closure") or {}).get("git_commit")) or "")[:12]
+    print(f"Task reopened: {task_id} status=ready")
+    print(f"  Reason: {task['last_reopen']['reason']}")
+    print(f"  Archived attempt: {archived.get('attempt')} commit={old_commit or 'no-commit'}")
+    print("  Next: Planner must run fresh activation critique before activation.")
+    for warning in result.get("warnings", []) or []:
+        print(f"  ! {warning}")
+
 def _cmd_task_show(args: argparse.Namespace) -> None:
     from ..core.task_ledger import load_ledger, resolve_active_task_id
     task_id = getattr(args, "task_id", "") or ""
@@ -498,6 +528,9 @@ def _cmd_task_show(args: argparse.Namespace) -> None:
         print(f"  Git origin: {task['git_origin_ref']}")
     if (task.get("closure", {}) or {}).get("git_commit"):
         print(f"  Git commit: {task['closure']['git_commit']}")
+    if task.get("last_reopen"):
+        print(f"  Reopened: {task['last_reopen'].get('reopened_at', '')}")
+        print(f"  Reopen reason: {task['last_reopen'].get('reason', '')}")
     if task.get("notes"):
         for note in task["notes"][-3:]:
             print(f"  Note: {note}")

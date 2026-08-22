@@ -542,6 +542,7 @@ Own and record the completed result.
         self.assertTrue(denied["aiwf task force-close"]["human_only"])
         self.assertTrue(denied["aiwf task interrupt"]["human_only"])
         self.assertTrue(denied["aiwf task restore"]["human_only"])
+        self.assertTrue(denied["aiwf task reopen"]["human_only"])
         self.assertTrue(denied["aiwf fixloop continue"]["human_only"])
 
     def test_public_task_help_hides_internal_suspend(self):
@@ -559,6 +560,7 @@ Own and record the completed result.
         self.assertIn("interrupt", result.stdout)
         self.assertIn("force-close", result.stdout)
         self.assertIn("restore", result.stdout)
+        self.assertIn("reopen", result.stdout)
         self.assertNotIn("suspend", result.stdout)
 
 

@@ -60,6 +60,8 @@ VALID_MILESTONE_STATUSES = {"open", "closed", "cancelled"}
 # Cancel:          {"status":"cancelled","cancel_reason":"...","replaced_by":null}
 # Restore:          human-only cancelled→ready|closed, with restoration history;
 #                   ready requires fresh activation critique, closed uses human_restore.
+# Reopen:           human-only unconsumed closed→ready; archives the accepted attempt,
+#                   invalidates unmerged Plan integration, and never rewrites Git history.
 
 def default_goals() -> Dict[str, Any]:
     return {

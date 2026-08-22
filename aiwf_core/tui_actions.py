@@ -3,9 +3,11 @@ from __future__ import annotations
 
 import curses
 import os
+import shlex
 import shutil
 import subprocess
 import unicodedata
+from functools import lru_cache
 from pathlib import Path
 
 
@@ -98,7 +100,9 @@ def memory_browser(stdscr, root: Path) -> None:
         elif key in (ord("k"), curses.KEY_UP):
             selected = max(selected - 1, 0)
         elif key in (ord("\n"), ord("e")):
-            edit_file(root, paths[selected])
+            warning = edit_file(root, paths[selected])
+            if warning:
+                show_message(stdscr, "编辑器", [warning])
 
 
 def _run_external(command: list[str], root: Path):
@@ -121,9 +125,54 @@ def _run_external(command: list[str], root: Path):
             pass
 
 
-def edit_file(root: Path, path: Path) -> None:
-    editor = os.environ.get("EDITOR", "nano")
-    _run_external([editor, str(path)], root)
+@lru_cache(maxsize=8)
+def _editor_help(editor: str) -> str:
+    try:
+        result = subprocess.run(
+            [editor, "-h"],
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    return result.stdout + result.stderr
+
+
+def editor_command(path: Path) -> tuple[list[str], str]:
+    """Build one editor invocation without changing global editor config."""
+    raw = (os.environ.get("VISUAL") or os.environ.get("EDITOR") or "nano").strip()
+    try:
+        command = shlex.split(raw) if raw else ["nano"]
+    except ValueError:
+        command = [raw]
+    if not command:
+        command = ["nano"]
+
+    warning = ""
+    if Path(command[0]).name.lower() in {"nano", "rnano"}:
+        help_text = _editor_help(command[0])
+        if "softwrap" in help_text:
+            if not any(arg in {"--softwrap", "-$"} for arg in command[1:]):
+                command.append("--softwrap")
+            if "atblanks" in help_text and not any(
+                arg in {"--atblanks", "-a"} for arg in command[1:]
+            ):
+                command.append("--atblanks")
+        else:
+            warning = (
+                "当前 nano 不支持显示级软换行（macOS 系统 nano 实际可能是 Pico）。"
+                "可安装 GNU nano：brew install nano；或通过 $VISUAL/$EDITOR 选择其他编辑器。"
+            )
+    return [*command, str(path)], warning
+
+
+def edit_file(root: Path, path: Path) -> str:
+    command, warning = editor_command(path)
+    if _run_external(command, root) is None:
+        return f"无法启动编辑器：{command[0]}"
+    return warning
 
 
 def choose_git_graph_view(stdscr):

@@ -207,6 +207,22 @@ aiwf task restore <TASK-ID> --status closed --reason "..."
 `closed` records a human restoration decision and does not claim a normal
 Executor/Tester/Reviewer closure. The model must not run `task restore`.
 
+If evidence later proves a normally closed Task false, first decide whether its
+result has been consumed. For the latest Task result of an open, unmerged Plan,
+with no started downstream dependent or accepted Milestone, explain the impact
+and ask the human to run:
+
+```text
+aiwf task reopen <TASK-ID> --reason "why the accepted close is invalid"
+```
+
+Reopen preserves the old closure and proof as an invalidated attempt, clears
+unmerged Plan integration state, returns the Task to `ready`, and requires
+fresh critique, implementation, testing, and review. It never rolls back Git.
+If the command reports consumption or newer Plan work, keep the closed Task
+immutable and create a corrective Task, using a new Plan when the original Plan
+was already merged. The model must not run `task reopen`.
+
 For an integration Task, do not repair an unchanged implementation merely
 because Tester expected the Plan to already be in main. Verify the recorded
 base merge and combined behavior on the same snapshot, record the narrow

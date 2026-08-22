@@ -18,6 +18,11 @@
       "human_only": true
     },
     {
+      "command": "aiwf task reopen",
+      "reason": "reopening invalidates an accepted Task close and its downstream promise. Human correction only.",
+      "human_only": true
+    },
+    {
       "command": "aiwf fixloop continue",
       "reason": "continue authorizes another workflow step after repeated failures. Human decision only.",
       "human_only": true

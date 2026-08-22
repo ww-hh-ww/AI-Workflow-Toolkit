@@ -1051,7 +1051,9 @@ def main(stdscr):
                     if not full.exists():
                         full.parent.mkdir(parents=True, exist_ok=True)
                         full.write_text(f"# {node['title']}\n\n(fill)\n", encoding="utf-8")
-                    _edit_and_sync(root, md_path)
+                    warning = _edit_and_sync(root, md_path)
+                    if warning:
+                        show_message(stdscr, "编辑器", [warning])
                     # Auto-refresh: reload data after sync
         elif key == ord("s"):
             _run_sync_inline(root)
@@ -1155,11 +1157,12 @@ def _md_path_for(node):
 def _edit_and_sync(root, md_path):
     """Open MD in $EDITOR, auto-sync on exit, return to TUI."""
     full = root / md_path
-    edit_file(root, full)
+    warning = edit_file(root, full)
     try:
         _run_sync_inline(root)
     except Exception:
         pass
+    return warning
 
 
 def _run_sync_inline(root):
