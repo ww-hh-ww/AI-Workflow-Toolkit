@@ -182,6 +182,10 @@ Own and record the completed result.
 ### Proof Standard
 
 - [Built] The result is present.
+
+## Closure Calibration
+
+The completed task is represented in the reviewed snapshot.
 """)
         (base / ".aiwf/state/state.json").write_text(json.dumps({
             "phase": "reviewing",
@@ -219,6 +223,49 @@ Own and record the completed result.
         self.assertEqual(sync["errors"], [])
         tasks = json.loads((base / ".aiwf/state/tasks.json").read_text(encoding="utf-8"))
         self.assertEqual(tasks["tasks"][0]["status"], "closed")
+
+    def test_close_blocks_when_closure_calibration_is_missing(self):
+        from aiwf_core.core.task_ledger import close_task
+
+        base = Path(tempfile.mkdtemp(prefix="awclose_calibration_"))
+        for rel in (".aiwf/state", ".aiwf/records", ".aiwf/tasks"):
+            (base / rel).mkdir(parents=True, exist_ok=True)
+        task_doc = base / ".aiwf/tasks/TASK-CAL.md"
+        task_doc.write_text(
+            "---\n"
+            "id: TASK-CAL\n"
+            "type: task\n"
+            "title: Calibration gate\n"
+            "contract_status: ready\n"
+            "goal_id: GOAL-001\n"
+            "plan_id: PLAN-001\n"
+            "kind: implementation\n"
+            "---\n\n"
+            "# TASK-CAL\n\n"
+            "## Fixed Contract\n\n"
+            "The task has a valid contract.\n",
+            encoding="utf-8",
+        )
+        (base / ".aiwf/state/tasks.json").write_text(json.dumps({
+            "schema_version": 1,
+            "tasks": [{
+                "id": "TASK-CAL",
+                "status": "active",
+                "phase": "closing",
+                "doc_path": ".aiwf/tasks/TASK-CAL.md",
+                "worktree_path": str(base),
+                "requirements": {
+                    "executor_required": False,
+                    "tester_required": False,
+                    "reviewer_required": False,
+                },
+            }],
+        }), encoding="utf-8")
+
+        result = close_task(str(base), "TASK-CAL")
+
+        self.assertFalse(result["closed"])
+        self.assertTrue(any("Closure Calibration" in item for item in result["blockers"]))
 
     def test_close_repairs_already_closed_task_frontmatter(self):
         from aiwf_core.core.index_ops import parse_md, write_narrative_doc

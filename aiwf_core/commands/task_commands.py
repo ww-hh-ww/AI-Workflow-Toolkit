@@ -4,18 +4,6 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 import sys
-import re
-
-def _task_doc_has_section(cwd: Path, task_id: str, heading: str) -> bool:
-    from ..core.worktree_context import resolve_control_root
-    doc = resolve_control_root(cwd) / ".aiwf" / "tasks" / f"{task_id}.md"
-    if not doc.exists():
-        return False
-    try:
-        text = doc.read_text(encoding="utf-8")
-    except Exception:
-        return False
-    return bool(re.search(rf"^## {re.escape(heading)}\s*$", text, flags=re.MULTILINE))
 
 def _cmd_task_plan(args: argparse.Namespace) -> None:
     from ..core.task_ledger import upsert_task
@@ -194,17 +182,10 @@ def _cmd_task_calibrate(args: argparse.Namespace) -> None:
     print("  Next: aiwf status --prompt")
 
 def _cmd_task_close(args: argparse.Namespace) -> None:
-    from ..core.task_ledger import close_task, resolve_active_task_id
+    from ..core.task_ledger import close_task
     from ..core.worktree_context import resolve_control_root
 
     task_id = getattr(args, "task_id", "") or ""
-    effective_task_id = resolve_active_task_id(str(Path.cwd()), task_id)
-    if effective_task_id and not _task_doc_has_section(Path.cwd(), effective_task_id, "Closure Calibration"):
-        print(
-            "  Warning: Task.md has no Closure Calibration. "
-            "Planner should record what actually completed before close with "
-            "`aiwf task calibrate --summary \"...\"`."
-        )
 
     result = close_task(str(Path.cwd()), task_id, note=args.note or "")
     print(f"Task close: {task_id or result.get('task', {}).get('id', '?')} closed={result['closed']}")

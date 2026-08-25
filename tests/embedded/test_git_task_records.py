@@ -76,6 +76,17 @@ class TestGitTaskRecords(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
+    def _write_closure_calibration(self):
+        task_doc = self.tmp / ".aiwf/tasks/TASK-001.md"
+        text = task_doc.read_text(encoding="utf-8")
+        if "## Closure Calibration" not in text:
+            task_doc.write_text(
+                text.rstrip()
+                + "\n\n## Closure Calibration\n\n"
+                + "The completed task is represented in the reviewed snapshot.\n",
+                encoding="utf-8",
+            )
+
     def _write_verification_contract(self):
         (self.tmp / ".aiwf/tasks/TASK-001.md").write_text(
             VALID_TASK_CONTRACT.replace(
@@ -313,6 +324,7 @@ class TestGitTaskRecords(unittest.TestCase):
         stored_record = default_task_record("TASK-001")
         stored_record.update(record)
         save_task_record(self.tmp, stored_record)
+        self._write_closure_calibration()
         result = close_task(str(self.tmp), "TASK-001")
         self.assertTrue(result["closed"], result["blockers"])
         completed_ref = result["task"]["closure"]["git_commit"]
@@ -1084,6 +1096,7 @@ Verification Commands:
         from aiwf_core.core.task_ledger import close_task
 
         _, testing, _ = self._record_full_chain()
+        self._write_closure_calibration()
         result = close_task(str(self.tmp), note="feature and tests completed")
         self.assertTrue(result["closed"], result["blockers"])
         commit = result["task"]["closure"]["git_commit"]
@@ -1123,6 +1136,7 @@ Verification Commands:
         )
         self.assertNotEqual(before_close.returncode, 0)
 
+        self._write_closure_calibration()
         result = close_task(str(self.tmp))
         self.assertTrue(result["closed"], result["blockers"])
         commit = result["task"]["closure"]["git_commit"]
@@ -1254,6 +1268,7 @@ Verification Commands:
                        coverage_summary="renamed file exists")
         record_review(str(self.tmp), result="accepted", closure_allowed=True,
                       summary="rename is complete and no old path remains")
+        self._write_closure_calibration()
         result = close_task(str(self.tmp))
         self.assertTrue(result["closed"], result["blockers"])
         self.assertTrue((self.tmp / "PROJECT.md").exists())
@@ -1268,6 +1283,7 @@ Verification Commands:
 
         implementation, _, _ = self._record_full_chain()
         self.assertIn("CLAUDE.md", implementation["changed_files"])
+        self._write_closure_calibration()
         result = close_task(str(self.tmp))
         self.assertTrue(result["closed"], result["blockers"])
         committed = subprocess.run(

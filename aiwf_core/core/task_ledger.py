@@ -189,6 +189,26 @@ def _mark_task_doc_contract_status(
 def _mark_task_doc_closed(base_dir: str, task: Dict[str, Any]) -> Optional[str]:
     return _mark_task_doc_contract_status(base_dir, task, "closed")
 
+
+def _task_has_closure_calibration(base_dir: str, task: Dict[str, Any]) -> bool:
+    """Require a non-empty outcome record before normal Task closure."""
+    doc_path = str(task.get("doc_path") or "").strip()
+    task_id = str(task.get("id") or task.get("task_id") or "").strip()
+    if not doc_path and task_id:
+        doc_path = f".aiwf/tasks/{task_id}.md"
+    if not doc_path:
+        return False
+    doc = resolve_control_root(base_dir) / doc_path
+    if not doc.exists():
+        return False
+    try:
+        from .index_ops import parse_md, read_markdown_section
+
+        _frontmatter, body = parse_md(doc)
+        return bool(body and read_markdown_section(body, "Closure Calibration"))
+    except (OSError, ValueError, TypeError):
+        return False
+
 def _task_unsatisfied_checks(base_dir: str, task: Dict[str, Any]) -> List[str]:
     """Collect gate failures for human override/interruption records."""
     unsatisfied: List[str] = []
@@ -983,6 +1003,12 @@ def _close_task_locked(base_dir: str, task_id: str = "", note: str = "") -> Dict
         testing = record.get("testing", {}) or {"status": "missing"}
         review = record.get("review", {}) or {"result": "unknown"}
         reqs = task.get("requirements", {})
+
+        if not _task_has_closure_calibration(base_dir, task):
+            blockers.append(
+                "Task.md requires a non-empty '## Closure Calibration' before task close; "
+                f"run `aiwf task calibrate {task_id} --summary \"...\"`"
+            )
 
         if fix_loop.get("status") == "open":
             blockers.append("open fix-loop blocks task close")
