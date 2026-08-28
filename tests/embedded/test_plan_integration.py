@@ -33,6 +33,16 @@ Own and prove the integrated result.
 ### Proof Standard
 
 - [Built] The integrated result exists in the reviewed snapshot.
+
+Verification Commands:
+
+| ID | Command | Expected Observable Output |
+| --- | --- | --- |
+| V-001 | grep -q 'main + plan' app.txt | exit 0 |
+
+## Closure Calibration
+
+The integration Task preserves both sides of the reviewed merge.
 """,
         encoding="utf-8",
     )
@@ -1311,7 +1321,6 @@ class TestPlanIntegration(unittest.TestCase):
         from aiwf_core.core.state.context_ops import record_implementation
         from aiwf_core.core.state.plan_ops import load_plans, save_plans
         from aiwf_core.core.state.review_ops import record_review
-        from aiwf_core.core.state.testing_ops import record_testing
         from aiwf_core.core.task_ledger import close_task
 
         (self.worktree / "app.txt").write_text("plan\n", encoding="utf-8")
@@ -1347,7 +1356,6 @@ class TestPlanIntegration(unittest.TestCase):
                 "integration_base_ref": base_ref,
                 "requirements": {
                     "executor_required": True,
-                    "tester_required": True,
                     "reviewer_required": True,
                 },
             }],
@@ -1363,22 +1371,22 @@ class TestPlanIntegration(unittest.TestCase):
         self.assertNotEqual(merge.returncode, 0)
         (self.worktree / "app.txt").write_text("main + plan\n", encoding="utf-8")
         implementation = record_implementation(
-            str(self.worktree), "resolved both behaviors", command="cat app.txt",
-            task_id="TASK-INTEGRATE",
-        )
-        testing = record_testing(
-            str(self.worktree), status="passed", commands=["grep -q 'main + plan' app.txt"],
-            coverage_summary="combined behavior present",
+            str(self.worktree), "resolved both behaviors",
             verification_results=[{
-                "command": "grep -q 'main + plan' app.txt", "expected": "exit 0",
-                "observed": "exit 0", "matched": True,
-            }], task_id="TASK-INTEGRATE",
+                "verification_id": "V-001",
+                "command": "grep -q 'main + plan' app.txt",
+                "expected": "exit 0",
+                "observed": "exit 0",
+                "verdict": "matched",
+                "basis": "the resolved integration worktree contains both behaviors",
+            }],
+            task_id="TASK-INTEGRATE",
         )
         review = record_review(
             str(self.worktree), result="accepted", closure_allowed=True,
             summary="reviewed combined behavior", task_id="TASK-INTEGRATE",
         )
-        self.assertEqual(review["reviewed_ref"], testing["tested_ref"])
+        self.assertEqual(review["reviewed_ref"], implementation["implementation_ref"])
         self.assertNotEqual(implementation["implementation_ref"], plan_ref)
 
         result = close_task(str(self.worktree), "TASK-INTEGRATE")

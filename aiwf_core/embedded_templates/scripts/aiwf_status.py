@@ -56,7 +56,7 @@ def _problem(task, record):
     if fix_loop.get("status") == "open":
         return f"{task['id']} fix-loop routes to {fix_loop.get('route') or 'planner'}"
     review = record.get("review", {}) or {}
-    if review.get("result") in ("rejected", "needs_fix", "needs_more_testing", "scope_violation"):
+    if review.get("result") in ("rejected", "needs_change", "needs_experiment", "scope_violation"):
         return f"{task['id']} review={review.get('result')}"
     if task.get("scope_violation"):
         return f"{task['id']} has a scope violation"
@@ -65,15 +65,12 @@ def _problem(task, record):
 
 def _evidence(record):
     implementation = record.get("implementation", {}) or {}
-    testing = record.get("testing", {}) or {}
     review = record.get("review", {}) or {}
     bits = [
         "impl=" + ("recorded" if implementation.get("implementation_ref") else "missing"),
-        "test=" + str(testing.get("status") or "missing"),
+        "experiments=" + str(len(record.get("experiment_ids", []) or [])),
         "review=" + str(review.get("result") or "unknown"),
     ]
-    if testing.get("status") in ("passed", "adequate") and not testing.get("tested_ref"):
-        bits.append("tested_ref=missing")
     if review.get("result") == "accepted" and not review.get("closure_allowed"):
         bits.append("closure=blocked")
     return ", ".join(bits)
@@ -92,21 +89,14 @@ def _decision(task, record):
         route = str(fix_loop.get("route") or "planner")
         if route == "executor":
             return "Executor repair", f"route the finding to aiwf-executor for {task_id}"
-        if route == "tester":
-            return "Tester follow-up", f"route missing verification to aiwf-tester for {task_id}"
         return "Planner", f"run aiwf fixloop status --task-id {task_id} and decide the repair route"
 
     implementation = record.get("implementation", {}) or {}
-    testing = record.get("testing", {}) or {}
     review = record.get("review", {}) or {}
     if not implementation.get("implementation_ref"):
         if requirements.get("executor_required", True):
             return "Executor", f"dispatch or resume aiwf-executor for {task_id}"
         return "Inline implementation", f"implement {task_id} inline and record implementation"
-    if testing.get("status") not in ("adequate", "passed"):
-        if requirements.get("tester_required", True):
-            return "Tester", f"dispatch or resume aiwf-tester for {task_id}; verify real behavior, not just form"
-        return "Inline testing", f"test {task_id} inline and record concrete commands/results"
     if review.get("result") != "accepted" or not review.get("closure_allowed", False):
         if requirements.get("reviewer_required", True):
             return "Reviewer", f"dispatch or resume aiwf-reviewer for {task_id}"
@@ -115,7 +105,7 @@ def _decision(task, record):
 
 
 def _guardrail(role):
-    if role in ("Executor", "Tester", "Reviewer", "Executor repair", "Tester follow-up"):
+    if role in ("Executor", "Experimenter", "Reviewer", "Executor repair"):
         return "use the native Agent/Task tool; do not role-play or self-fill missing independent evidence"
     if role.startswith("Inline"):
         return "inline is allowed by this Task; still record concrete evidence before close"
@@ -185,7 +175,10 @@ def main():
             "id": task.get("id", ""),
             "phase": task.get("phase", ""),
             "worktree": task.get("worktree_path", ""),
-            "testing": (record.get("testing", {}) or {}).get("status", "missing"),
+            "implementation": (record.get("implementation", {}) or {}).get(
+                "implementation_ref", ""
+            ),
+            "experiments": list(record.get("experiment_ids", []) or []),
             "review": (record.get("review", {}) or {}).get("result", "unknown"),
             "fix": (record.get("fix_loop", {}) or {}).get("status", "none"),
         })

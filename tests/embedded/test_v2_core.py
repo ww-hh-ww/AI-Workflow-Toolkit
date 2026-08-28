@@ -26,7 +26,7 @@ class TestConfigurableWritePolicy(unittest.TestCase):
             raise AssertionError(result.stderr)
         (self.tmp / ".aiwf/tasks/TASK-001.md").write_text(
             "---\nid: TASK-001\nexecutor_required: true\n"
-            "tester_required: true\nreviewer_required: true\n---\n"
+            "reviewer_required: true\n---\n"
         )
         tasks_path = self.tmp / ".aiwf/state/tasks.json"
         tasks = json.loads(tasks_path.read_text())
@@ -34,7 +34,6 @@ class TestConfigurableWritePolicy(unittest.TestCase):
             "id": "TASK-001", "status": "active",
             "requirements": {
                 "executor_required": True,
-                "tester_required": True,
                 "reviewer_required": True,
             },
         }]
@@ -81,23 +80,21 @@ class TestConfigurableWritePolicy(unittest.TestCase):
         self._policy(first_implementation_requires_executor=False)
         self.assertTrue(check_file_write(self._event("src/main.py")).allowed)
 
-    def test_tester_write_mode_is_configurable_and_reviewer_has_no_separate_policy(self):
+    def test_reviewer_never_writes_stable_project_files(self):
         from aiwf_core.hooks.common.scope_checker import check_file_write
-        self._policy(tester_project_writes="allow_all")
-        self.assertTrue(check_file_write(self._event("src/test.py", "aiwf-tester")).allowed)
         reviewer = check_file_write(self._event("src/main.py", "aiwf-reviewer"))
         self.assertFalse(reviewer.allowed)
-        self.assertIn("first implementation", reviewer.reason)
+        self.assertIn("judges the stable candidate", reviewer.reason)
         record_path = self.tmp / ".aiwf/records/tasks/TASK-001.json"
         record_path.parent.mkdir(parents=True, exist_ok=True)
         record_path.write_text(json.dumps({
             "task_id": "TASK-001",
             "implementation": {"task_id": "TASK-001", "implementation_ref": "abc"},
-            "testing": {"task_id": "TASK-001", "status": "missing"},
+            "experiment_ids": [],
             "review": {"task_id": "TASK-001", "result": "unknown"},
             "fix_loop": {"status": "none"},
         }))
-        self.assertTrue(check_file_write(self._event("src/main.py", "aiwf-reviewer")).allowed)
+        self.assertFalse(check_file_write(self._event("src/main.py", "aiwf-reviewer")).allowed)
 
     def test_read_only_roles_are_blocked_by_default(self):
         from aiwf_core.hooks.common.scope_checker import check_file_write
@@ -128,7 +125,6 @@ class TestConfigurableWritePolicy(unittest.TestCase):
         self._policy(
             project_writes_require_active_task=False,
             first_implementation_requires_executor=False,
-            tester_project_writes="allow_all",
         )
         result = check_file_write(self._event(".aiwf/state/state.json"))
         self.assertFalse(result.allowed)
@@ -333,7 +329,7 @@ class TestConfigurableWritePolicy(unittest.TestCase):
         self.assertEqual(command, ["vim", "-f", str(path)])
         self.assertEqual(warning, "")
 
-    def test_sync_preserves_tester_write_as_a_list(self):
+    def test_sync_drops_removed_role_fields(self):
         from aiwf_core.core.index_ops import sync_index
 
         task_doc = self.tmp / ".aiwf/tasks/TASK-001.md"
@@ -369,7 +365,9 @@ class TestConfigurableWritePolicy(unittest.TestCase):
         result = sync_index(str(self.tmp))
         self.assertEqual(result["errors"], [])
         tasks = json.loads((self.tmp / ".aiwf/state/tasks.json").read_text())
-        self.assertEqual(tasks["tasks"][0]["requirements"]["tester_write"], ["tests/**"])
+        requirements = tasks["tasks"][0]["requirements"]
+        self.assertNotIn("tester_required", requirements)
+        self.assertNotIn("tester_write", requirements)
 
     def test_sync_does_not_register_an_incomplete_task_document(self):
         from aiwf_core.core.index_ops import sync_index

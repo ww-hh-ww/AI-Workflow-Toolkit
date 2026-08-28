@@ -13,26 +13,33 @@ routing a finding, preparing the next Task, or closing a Plan. Run
    `aiwf plan bind-worktree <PLAN-ID> --create`. It creates or reuses the
    Plan's persistent worktree.
 4. `aiwf task activate` activates one Task for that Plan.
-5. Executor implements and records the implementation snapshot.
-6. Tester may add test assets, tests the result, and records the tested snapshot.
-7. Reviewer reviews that tested snapshot and records review.
-8. Planner records a decision for every finding and writes Closure Calibration.
-9. Complete any required repair and cleanup before final acceptance.
-10. `aiwf task close` checks freshness, creates the Task commit, and closes it.
+5. If a real pre-implementation unknown exists, open/start an EXP, dispatch
+   Experimenter, record its immutable evidence, and dispose its worktree.
+6. Executor implements and records the stable implementation plus complete V evidence.
+7. If a post-implementation empirical unknown exists, run the same EXP lifecycle
+   against `implementation_ref` without changing the stable worktree.
+8. Reviewer judges the current implementation and relevant evidence.
+9. Planner records a decision for every finding and writes Closure Calibration.
+10. Complete any required repair, experiment, promotion, and cleanup before acceptance.
+11. `aiwf task close` checks freshness, creates the Task commit, and closes it.
 
 Do not replace this loop with direct JSON edits or remembered state.
 
 ## Task Role Dispatch
 
-This section applies to Executor, Tester, and Reviewer. Explorer, Architect, and
+This section applies to Executor, Experimenter, and Reviewer. Explorer, Architect, and
 Critic use their own prompts.
 
-- Read the complete Task.md and `aiwf task proof <TASK-ID>` before dispatch.
-- Give the Agent exactly one Task ID. Add `USER_DELTA` only when needed. AIWF
-  adds the current control-root Task.md path and assigned worktree without
-  removing Planner context, then routes every project tool call to that worktree.
-- Do not use `isolation: worktree`, call `EnterWorktree`, or copy changes
-  between worktrees. The Task roles share the Plan worktree.
+- Read Task.md and `aiwf task proof <TASK-ID>` before dispatching Executor or
+  Reviewer. Give either Agent exactly one Task ID. Add `USER_DELTA` only when
+  needed. AIWF adds the contract and stable Plan worktree.
+- Before Experimenter, open and start exactly one EXP. Give it the EXP ID, not a
+  Task packet. AIWF supplies its question, immutable subject ref, and disposable
+  full-project worktree. After it records evidence and returns, run
+  `aiwf experiment finish <EXP-ID>` from the stable session.
+- Do not use host-created isolation, call `EnterWorktree`, or copy changes
+  between worktrees. Executor and Reviewer use the Plan worktree. Experimenter
+  uses only the AIWF-created EXP worktree.
 - `.aiwf` governance always comes from the control root. Plan worktrees do not
   carry an independent `.aiwf` working-tree copy; project code and tests come
   from the assigned Plan worktree.
@@ -157,10 +164,10 @@ user trust, ask whether to fix it now or defer it with a visible reason. Never
 turn a finding into a silent pass.
 
 Use inline repair only after Executor has worked once and the correction is
-tiny, local, and fully understood. Record the repaired implementation; AIWF then
-routes the fix-loop to verification. After Tester has worked once, a narrow
-repair with an exact reproducer may be retested inline; higher-risk repairs go
-back to Tester. Always record a fresh testing snapshot.
+tiny, local, and fully understood. Record the repaired implementation and all
+affected V/FIX evidence; AIWF then routes the fix-loop to Reviewer. Repeat an
+Experiment only when the repair invalidates a decision-relevant empirical fact.
+Do not send ordinary repair verification to Experimenter.
 
 When status says `Planner decision`, do not use Reviewer observation
 disposition. Read the returned report and run:
@@ -175,7 +182,8 @@ needs verification. Ask the user to choose: continue with
 `aiwf task interrupt <TASK-ID>`, or accept the unmet checks and close with
 `aiwf task force-close <TASK-ID>`. These commands are human-only. After the
 human continues, run `aiwf status --prompt` again and follow its route. Do not
-resolve the loop until Testing passes against the current implementation.
+resolve the loop until Reviewer accepts the current implementation and its
+construction evidence.
 
 If the Task was interrupted while its fix-loop was open, reactivate that same
 Task and continue the loop; do not resolve an unfixed problem. If Git HEAD
@@ -184,11 +192,11 @@ explicit approval, run `aiwf task activate <TASK-ID> --accept-head-change`.
 
 - If the issue has been decided and its required evidence is recorded, run
   `aiwf fixloop resolve --task-id <TASK-ID> --source planner --resolution "<decision and evidence>"`.
-- If implementation or testing still remains, run `aiwf fixloop open` with the
+- If implementation, construction evidence, or review still remains, run `aiwf fixloop open` with the
   correct route and exact remaining work, then follow status.
 - If the Task contract must change, ask the user whether to interrupt it.
 
-Fix-loop proof uses the same stable identities as Task testing. Reuse an
+Fix-loop proof uses the same stable identities as Task construction evidence. Reuse an
 existing check with `--verify V-003`. If the finding needs a new regression
 check without changing Task responsibility, declare it once as
 `--verify 'FIX-001:::<exact command>:::<expected observable>'`. Keep the reason
@@ -205,7 +213,7 @@ aiwf task restore <TASK-ID> --status closed --reason "..."
 
 `ready` returns the Task to planning and requires fresh activation critique.
 `closed` records a human restoration decision and does not claim a normal
-Executor/Tester/Reviewer closure. The model must not run `task restore`.
+Executor/Reviewer closure. The model must not run `task restore`.
 
 If evidence later proves a normally closed Task false, first decide whether its
 result has been consumed. For the latest Task result of an open, unmerged Plan,
@@ -218,16 +226,15 @@ aiwf task reopen <TASK-ID> --reason "why the accepted close is invalid"
 
 Reopen preserves the old closure and proof as an invalidated attempt, clears
 unmerged Plan integration state, returns the Task to `ready`, and requires
-fresh critique, implementation, testing, and review. It never rolls back Git.
+fresh critique, implementation evidence, affected experiments, and review. It never rolls back Git.
 If the command reports consumption or newer Plan work, keep the closed Task
 immutable and create a corrective Task, using a new Plan when the original Plan
 was already merged. The model must not run `task reopen`.
 
-For an integration Task, do not repair an unchanged implementation merely
-because Tester expected the Plan to already be in main. Verify the recorded
-base merge and combined behavior on the same snapshot, record the narrow
-testing correction inline, then resolve the loop. A missing or wrong
-`MERGE_HEAD` still routes to implementation repair.
+For an integration Task, judge the recorded base merge and combined behavior on
+the same implementation snapshot. A missing or wrong `MERGE_HEAD` routes to
+Executor repair; a genuinely unknown runtime interaction may justify an EXP
+against the integration candidate.
 
 ## After A Task
 

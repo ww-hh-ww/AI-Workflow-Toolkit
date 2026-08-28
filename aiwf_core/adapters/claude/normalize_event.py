@@ -56,12 +56,20 @@ def normalize(data: Dict[str, Any]) -> NormalizedEvent:
     }
     normalized_type = type_map.get(event_type, event_type.lower())
 
+    engine = os.environ.get("AIWF_HOOK_ENGINE", "").lower() or "claude"
+    tool_name = str(data.get("tool_name", ""))
+    if engine == "codex" and tool_name in (
+        "spawn_agent",
+        "multi_agent_v1__spawn_agent",
+    ):
+        tool_name = "Agent"
+
     return NormalizedEvent(
-        engine=os.environ.get("AIWF_HOOK_ENGINE", "").lower() or "claude",
+        engine=engine,
         event_type=normalized_type,
         session_id=data.get("session_id", ""),
         cwd=str(resolve_worktree_root(data.get("cwd", str(Path.cwd())))),
-        tool_name=data.get("tool_name", ""),
+        tool_name=tool_name,
         tool_input=data.get("tool_input", {}) or {},
         tool_response=data.get("tool_response"),
         exit_code=_extract_exit_code(data),

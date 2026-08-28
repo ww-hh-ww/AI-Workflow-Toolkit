@@ -1,81 +1,58 @@
 ---
 name: aiwf-review
-description: Use only when `aiwf status --prompt` lists `aiwf-review` under Required skills.
+description: Route or perform Reviewer judgment over the stable Task candidate, Executor evidence, and relevant experiments.
 ---
 
 # AIWF Review
 
-## Role
+Reviewer judges whether the complete change is trustworthy. It neither owns
+production changes nor uses Experiment as a generic request for more testing.
 
-Route review for the selected Task.md. Do not implement, test, plan, or close.
-Make the review judgment in the main session only when `reviewer_required` is
-false.
+## Start
 
-## Dispatch
+Run `aiwf task proof <TASK-ID>` and read Task.md. Review starts only when:
 
-Start Reviewer only after Tester has returned and recorded the tested snapshot.
-Do not run it in parallel with Executor or Tester.
+- the current stable worktree matches `implementation_ref`;
+- every required V-* and FIX-* row has complete Executor construction evidence;
+- every experiment against the current implementation is recorded and its
+  disposable worktree has been removed.
 
-1. Read the Task.md and run `aiwf task proof <TASK-ID>`. If proof and
-   `aiwf status --prompt` disagree about the next role, stop and rerun status;
-   do not continue from memory.
-2. When `reviewer_required` is true, dispatch `aiwf-reviewer` with:
-   - the Task ID;
-   - the current `USER_DELTA`, if one exists.
-   AIWF adds the current contract path and assigned worktree without removing
-   your prompt.
-3. `USER_DELTA` may contain only an explicit user clarification missing from
-   Task.md. It must not change execution, boundaries, or acceptance. A material
-   change requires human interrupt and write-back to the relevant MD.
-4. Do not paste the complete Task Packet or prescribe review conclusions.
-   Reviewer needs the original contract and independent judgment space.
-5. Let Reviewer record review. Do not record it again.
+When `reviewer_required=true`, dispatch `aiwf-reviewer` with exactly the Task ID
+and any explicit user clarification absent from Task.md. Otherwise make the same
+judgment inline. Do not reuse Executor or Experimenter as Reviewer.
 
-The Agent prompt must name exactly one active Task ID. AIWF adds the current
-contract path and worktree, then routes project tools there. Do not use `EnterWorktree`
-or copy Task changes between worktrees. Other Plans may be reviewed in
-parallel; roles for this Task remain sequential.
+## Verdicts
 
-`needs_fix` and `rejected` open an implementation repair loop. `RETURN_TO_PLANNER` opens
-a Planner fix-loop. Run `aiwf status --prompt` and follow its route; do not
-proceed to close.
+- `accepted`: the current `implementation_ref` satisfies the Task and is
+  structurally worth accepting.
+- `needs_change`: a concrete repairable defect exists in stable reality. Name
+  the blocker; this routes back to Executor.
+- `needs_experiment`: acceptance depends on one important empirical fact that
+  current code, construction evidence, and existing experiments do not answer.
+  Provide a new EXP ID, precise question, and optional hypothesis.
+- `rejected`: the candidate is fundamentally inconsistent with the contract or
+  its intended structural home.
 
-If `reviewer_required` is false, do not dispatch Reviewer. Read
-`inline-execution.md`, follow its Review section in this session, and produce
-the same task-specific report and record.
+Do not use `needs_experiment` for a missing V-* result, a code defect, vague
+unease, or work Executor should have completed.
 
-Ask the user before accepting material unverified behavior, deferring a
-main-path risk, downgrading a required role, bypassing a gate, or changing the
-Task contract.
+## Record
 
-## Follow-Up Review
+```text
+aiwf record review --task-id <TASK-ID> --result accepted \
+  --summary "<why the complete story holds>" \
+  --cleanup-status fresh --structure-status sound
 
-After an implementation or testing repair, review the new tested snapshot and
-the affected contract path. Do not replay the whole review by default when the
-repair is narrow; expand when the changed path, test method, or risk surface
-requires it.
+aiwf record review --task-id <TASK-ID> --result needs_change \
+  --summary "<judgment>" --blocker "<specific defect>"
 
-When `aiwf status --prompt` names a previous Reviewer ID, resume that Reviewer
-only if it is available in the current session or the resumed original
-session. Read the current proof, repair finding, tested snapshot, and changed
-diff, then send the Task ID and a concise review brief with `SendMessage` once.
-If resume is unavailable or fails, dispatch a new Reviewer with the same brief.
-Do not reuse an Executor or Tester as Reviewer, and do not retry a failed
-resume.
+aiwf record review --task-id <TASK-ID> --result needs_experiment \
+  --summary "<why judgment depends on reality>" \
+  --experiment-id EXP-002 --experiment-question "<unknown>" \
+  --experiment-hypothesis "<optional prediction>"
+```
 
-## Required Handoff
-
-The report must tell Planner what Executor changed, what Tester proved, what
-Reviewer personally checked, why the Task can or cannot proceed, and what
-remains. Every concrete finding must stay visible in the report even when it
-does not need a machine observation. Mark speculation as uncertainty or advice,
-not as a finding. Generic approval is not a valid handoff.
-
-When the implementation changes installation, configuration, migration,
-deployment, or public behavior, check the affected surface in reality. Do not
-require unrelated documentation or generated assets.
-
-## Boundaries
-
-- Do not close the task.
-- Stop after review is recorded and `REVIEW_REPORT` is returned.
+Record adversarial observations with
+`severity:::kind:::message`. Critical/high unresolved observations cannot be
+accepted. After recording, return the Review report and let Planner disposition
+observations and perform closure calibration.

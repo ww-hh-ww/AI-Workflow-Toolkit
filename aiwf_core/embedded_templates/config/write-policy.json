@@ -6,7 +6,6 @@
     "freeze_active_task_md": [true, false],
     "first_implementation_requires_executor": [true, false],
     "governance_git_tracking": ["tracked", "local"],
-    "tester_project_writes": ["deny", "test_assets_only", "allow_all"],
     "architect_project_writes": ["deny", "reports_only", "allow"],
     "explorer_project_writes": ["deny", "allow"],
     "critic_project_writes": ["deny", "allow"]
@@ -15,7 +14,6 @@
   "freeze_active_task_md": true,
   "first_implementation_requires_executor": true,
   "governance_git_tracking": "tracked",
-  "tester_project_writes": "test_assets_only",
   "architect_project_writes": "reports_only",
   "explorer_project_writes": "deny",
   "critic_project_writes": "deny"

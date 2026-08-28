@@ -2,7 +2,7 @@
 
 V1: Six-zone workspace layout.
   state/   — machine truth (JSON)
-  records/ — implementation, testing, review, events
+  records/ — implementation, experiments, review, events
   goals/ plans/ tasks/ milestones/ — narrative docs (Markdown)
   memory/  — planner's small long-term project memory
   config/  — skill-map, command-policy
@@ -35,7 +35,7 @@ TASK_LEDGER_JSON = ".aiwf/state/tasks.json"
 MILESTONES_JSON = ".aiwf/state/milestones.json"
 
 # ═══════════════════════════════════════════════════════════════════════════
-# Records zone — implementation, testing, review, events
+# Records zone — implementation, experiments, review, events
 # ═══════════════════════════════════════════════════════════════════════════
 
 TASK_RECORDS_DIR = ".aiwf/records/tasks"
@@ -69,12 +69,12 @@ WORKSPACE_DRIFT_JSON = ".aiwf/runtime/internal/workspace-drift.json"
 
 ALL_DIRS = [
     "state",
-    "records", "records/tasks",
+    "records", "records/tasks", "records/experiments",
     "reports", "reports/architect",
     "goals", "plans", "tasks", "milestones",
     "memory", "memory/notes",
     "config",
-    "runtime", "runtime/internal",
+    "runtime", "runtime/internal", "runtime/experiments",
 ]
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -91,12 +91,10 @@ LEGACY_MAP = {
     "milestones.json": MILESTONES_JSON,
     # artifacts/ → records/
     "evidence.json": None,
-    "testing.json": None,
     "review.json": None,
     "architecture-review.json": None,
     # Old full paths → records/
     ".aiwf/artifacts/evidence/records.json": None,
-    ".aiwf/artifacts/quality/testing.json": None,
     ".aiwf/artifacts/quality/review.json": None,
     ".aiwf/artifacts/quality/architecture-review.json": None,
     # Old runtime paths

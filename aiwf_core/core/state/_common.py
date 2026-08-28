@@ -14,8 +14,7 @@ from typing import Callable, Dict, Optional, TypeVar
 from ...platform.file_lock import locked_file
 
 BLOCKING_REVIEW_RESULTS = {
-    "needs_fix", "needs_more_testing", "evidence_insufficient",
-    "scope_violation", "rejected",
+    "needs_change", "scope_violation", "rejected",
 }
 
 T = TypeVar("T")

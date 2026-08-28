@@ -61,6 +61,7 @@ def record_review(
     cleanup_status: str = "",
     structure_status: str = "",
     summary: str = "",
+    experiment_request: Optional[Dict[str, Any]] = None,
     task_id: str = "",
 ) -> Dict[str, Any]:
     """Validate and replace one Task's review judgment."""
@@ -76,12 +77,12 @@ def record_review(
 
     task_id = resolve_active_task_id(base_dir, task_id)
     task_record = load_task_record(base_dir, task_id) if task_id else {}
-    testing = task_record.get("testing", {}) or {}
-    tested_ref = str(testing.get("tested_ref") or "")
+    implementation = task_record.get("implementation", {}) or {}
+    implementation_ref = str(implementation.get("implementation_ref") or "")
     if not task_id:
         raise ValueError("review requires an active Task")
-    if testing.get("task_id") != task_id or not tested_ref:
-        raise ValueError("review requires a current tested snapshot for the active Task")
+    if implementation.get("task_id") != task_id or not implementation_ref:
+        raise ValueError("review requires a current implementation snapshot for the active Task")
     task = next(
         (
             item for item in load_ledger(base_dir).get("tasks", []) or []
@@ -97,8 +98,25 @@ def record_review(
 
     from ..git_snapshots import worktree_matches_ref
 
-    if not worktree_matches_ref(worktree, tested_ref):
-        raise ValueError("project files changed after testing; record testing again before review")
+    if not worktree_matches_ref(worktree, implementation_ref):
+        raise ValueError(
+            "project files changed after implementation evidence; record implementation again before review"
+        )
+    from ..task_proof import construction_proof_gaps, validate_implementation_against_task
+
+    proof = validate_implementation_against_task(base_dir, task, implementation)
+    gaps = construction_proof_gaps(proof)
+    if gaps:
+        raise ValueError("review requires complete Executor V evidence: " + "; ".join(gaps[:8]))
+    from ..experiment_records import pending_experiments
+
+    empirical_work = pending_experiments(base_dir, task_id, implementation_ref)
+    if empirical_work:
+        item = empirical_work[0]
+        raise ValueError(
+            "review requires empirical work to be recorded and disposed first: "
+            f"{item.get('experiment_id')} is {item.get('status')}"
+        )
 
     observations = _merge_observations(
         list((task_record.get("review", {}) or {}).get("adversarial_observations", []) or []),
@@ -115,6 +133,26 @@ def record_review(
     if result == "accepted" and unresolved_high:
         raise ValueError("critical/high observations cannot be accepted")
 
+    experiment_payload: Dict[str, str] = {}
+    if result == "needs_experiment":
+        request = experiment_request or {}
+        experiment_payload = {
+            "experiment_id": str(request.get("experiment_id") or "").strip(),
+            "question": " ".join(str(request.get("question") or "").split()),
+            "hypothesis": " ".join(str(request.get("hypothesis") or "").split()),
+        }
+        from ..experiment_records import experiment_record_path
+
+        experiment_path = experiment_record_path(
+            base_dir, experiment_payload["experiment_id"],
+        )
+        if not experiment_payload["question"]:
+            raise ValueError("needs_experiment requires an empirical question")
+        if experiment_path.exists():
+            raise ValueError(
+                f"experiment already exists: {experiment_payload['experiment_id']}"
+            )
+
     from ..index_ops import remove_narrative_section
 
     task_doc = resolve_control_root(base) / ".aiwf" / "tasks" / f"{task_id}.md"
@@ -126,7 +164,7 @@ def record_review(
         "closure_allowed": result == "accepted" and bool(closure_allowed),
         "blockers": list(blockers or []),
         "summary": summary.strip() or f"review result={result}",
-        "reviewed_ref": tested_ref,
+        "reviewed_ref": implementation_ref,
         "recorded_at": datetime.now(timezone.utc).isoformat(),
     }
     if observations:
@@ -139,8 +177,31 @@ def record_review(
             review["cleanup_status"] = cleanup_status
         if structure_status:
             review["structure_status"] = structure_status
-    update_task_record(base_dir, task_id, lambda record: record.__setitem__("review", review))
+    def store(record: Dict[str, Any]) -> None:
+        record["review"] = review
+        fix_loop = record.get("fix_loop", {}) or {}
+        if result == "accepted" and fix_loop.get("status") == "open" and fix_loop.get("route") == "reviewer":
+            fix_loop["status"] = "resolved"
+            fix_loop["resolution"] = review["summary"]
+            fix_loop["source"] = "reviewer"
+            record["fix_loop"] = fix_loop
+
+    update_task_record(base_dir, task_id, store)
     update_task_runtime(base_dir, task_id, phase="closing")
+
+    if result == "needs_experiment":
+        from ..experiment_records import open_experiment
+
+        open_experiment(
+            base_dir,
+            experiment_payload["experiment_id"],
+            experiment_payload["question"],
+            hypothesis=experiment_payload["hypothesis"],
+            task_id=task_id,
+            subject_ref=implementation_ref,
+            timing="post_implementation",
+        )
+        update_task_runtime(base_dir, task_id, phase="reviewing")
 
     if result in BLOCKING_REVIEW_RESULTS:
         current = (load_task_record(base_dir, task_id).get("fix_loop", {}) or {})

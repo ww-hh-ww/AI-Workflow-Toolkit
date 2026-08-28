@@ -12,12 +12,12 @@ from .worktree_context import resolve_control_root
 
 ROLE_REQUIRED_SKILL = {
     "aiwf-executor": "aiwf-implement",
-    "aiwf-tester": "aiwf-test",
+    "aiwf-experimenter": "aiwf-experiment",
     "aiwf-reviewer": "aiwf-review",
     "aiwf-architect": "aiwf-architect",
 }
 WORKFLOW_ROLES = frozenset(
-    {"aiwf-executor", "aiwf-tester", "aiwf-reviewer"}
+    {"aiwf-executor", "aiwf-experimenter", "aiwf-reviewer"}
 )
 TRACKED_ROLES = frozenset(ROLE_REQUIRED_SKILL)
 TRACKED_ROLE_MATCHER = "|".join(ROLE_REQUIRED_SKILL)
@@ -75,6 +75,7 @@ def running_dispatches(
                 "plan_id": str(entry.get("plan_id") or ""),
                 "worktree_path": str(entry.get("worktree_path") or ""),
                 "agent_id": str(entry.get("agent_id") or ""),
+                "experiment_id": str(entry.get("experiment_id") or ""),
             }
         elif status == "bound" and counts.get(key, 0) > 0:
             latest[key]["agent_id"] = str(entry.get("agent_id") or "")
@@ -111,6 +112,7 @@ def start_dispatch(
     worktree_path: str,
     agent_id: str = "",
     resumed: bool = False,
+    experiment_id: str = "",
 ) -> str:
     path = dispatch_path(base_dir)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -127,6 +129,8 @@ def start_dispatch(
         entry["agent_id"] = agent_id
     if resumed:
         entry["resumed"] = True
+    if experiment_id:
+        entry["experiment_id"] = experiment_id
     with _exclusive_operation_lock(str(resolve_control_root(base_dir)), "agent-dispatch", timeout=2):
         running = [
             item for item in running_dispatches(base_dir, task_id=task_id)
@@ -172,6 +176,8 @@ def bind_dispatch_agent(
             "agent_id": agent_id,
             "status": "bound",
         }
+        if target.get("experiment_id"):
+            entry["experiment_id"] = target["experiment_id"]
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(entry) + "\n")
@@ -194,6 +200,8 @@ def _remember_task_agent(
     """
     task_id = str(dispatch.get("task_id") or "")
     role = str(dispatch.get("subagent_type") or "")
+    if role == "aiwf-experimenter":
+        return
     if not task_id or not role or not agent_id:
         return
     try:
@@ -307,6 +315,8 @@ def start_resumed_dispatch(
     session_id: str,
 ) -> Optional[str]:
     """Reopen the recorded task-role window when Claude resumes an Agent."""
+    if subagent_type == "aiwf-experimenter":
+        return None
     prior = resumable_agent(
         base_dir, subagent_type=subagent_type, agent_id=agent_id,
     )
@@ -370,6 +380,7 @@ def latest_agent_dispatch(
             "started_at": str(entry.get("timestamp") or ""),
             "plan_id": str(entry.get("plan_id") or ""),
             "worktree_path": str(entry.get("worktree_path") or ""),
+            "experiment_id": str(entry.get("experiment_id") or ""),
         }
     return None
 
@@ -431,6 +442,8 @@ def finish_dispatch(
             "plan_id": target.get("plan_id", ""),
             "worktree_path": target.get("worktree_path", ""),
         }
+        if target.get("experiment_id"):
+            entry["experiment_id"] = target["experiment_id"]
         if effective_agent_id:
             entry["agent_id"] = effective_agent_id
         with path.open("a", encoding="utf-8") as handle:

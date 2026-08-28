@@ -6,7 +6,7 @@ Ask the agent, run `aiwf status`, or read narrative docs when you need a human e
 ## Zones
 
 - `state/` — machine state: registries, active IDs, derived links, gate inputs. JSON only.
-- `records/` — current implementation, testing, review, and event records.
+- `records/` — current implementation evidence, experiments, review, and events.
 - `reports/architect/` — user-requested Architect review reports.
 - `goals/` — goal narrative docs (Markdown).
 - `plans/` — plan narrative docs (Markdown).

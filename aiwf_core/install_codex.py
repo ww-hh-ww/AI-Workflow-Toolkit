@@ -17,6 +17,7 @@ from .install_claude import (
     _aiwf_toolkit_root,
     _migrate_legacy_paths,
     _remove_retired_skills,
+    _remove_retired_role_agents,
     _shared_agents_instruction_text,
     _template_text,
     _write_scripts,
@@ -74,12 +75,33 @@ def _codex_text(text: str) -> str:
         ),
         converted,
     )
+    converted = converted.replace(
+        "- Treat the assigned worktree as the project root. AIWF keeps relative file,\n"
+        "  search, and Bash tools there. Run `pwd` once; if it is not the assigned path,\n"
+        "  return to Planner.",
+        "- Treat the assigned worktree as the project root. Codex may still report the\n"
+        "  parent session directory inside subagent hooks, so use the exact assigned\n"
+        "  worktree path from the dispatch for project reads, writes, and commands. Do\n"
+        "  not return merely because `pwd` shows the control root; return only when the\n"
+        "  assigned worktree is missing or inaccessible.",
+    )
     return converted
 
 
 def _write_instruction() -> Path:
     path = _root() / "AGENTS.md"
-    content = _shared_agents_instruction_text()
+    content = _shared_agents_instruction_text().rstrip() + """
+
+## Codex Agent Dispatch
+
+Use Codex's native `spawn_agent` for every required independent AIWF role. If
+the tool exposes a custom-agent selector, choose the named `aiwf-*` profile. If
+it exposes only `message`, name exactly one active Task ID and the intended
+role; AIWF derives the only valid next role from Task state and injects the
+installed role contract into that independent child. Never imitate a required
+Executor, Experimenter, or Reviewer inline. Name one EXP ID rather than a Task
+ID when dispatching Experimenter.
+"""
     block = f"{AIWF_MANAGED_BLOCK_START}\n{content.rstrip()}\n{AIWF_MANAGED_BLOCK_END}\n"
     if not path.exists():
         write_text(path, block)
@@ -134,8 +156,8 @@ def _agent_toml(name: str, source: str) -> str:
     model = _configured_model(name)
     if model != "inherit":
         lines.append(f"model = {json.dumps(model, ensure_ascii=False)}")
-    # Reviewer must still write its AIWF record, Tester may add test assets, and
-    # Architect may write a report. AIWF hooks own the narrower role boundary.
+    # Workflow roles must write their AIWF records, Experimenter owns a disposable
+    # project worktree, and Architect may write a report. Hooks own narrower boundaries.
     lines.append('sandbox_mode = "workspace-write"')
     lines.extend(["developer_instructions = '''", body, "'''", ""])
     return "\n".join(lines)
@@ -196,8 +218,10 @@ def _write_hooks() -> Path:
                 {"matcher": "Agent", **_hook(_hook_command("aiwf_agent_log.py"))},
                 {"matcher": "apply_patch|Edit|Write", **_hook(_hook_command("aiwf_auto_sync.py"))},
             ],
-            "SubagentStart": [{"matcher": "aiwf-.*", **_hook(_hook_command("aiwf_agent_log.py"))}],
-            "SubagentStop": [{"matcher": "aiwf-.*", **_hook(_hook_command("aiwf_agent_log.py"))}],
+            # Some Codex runtimes expose only a generic child profile. The hook
+            # script filters unrelated agents after consulting AIWF's dispatch ledger.
+            "SubagentStart": [{"matcher": "*", **_hook(_hook_command("aiwf_agent_log.py"))}],
+            "SubagentStop": [{"matcher": "*", **_hook(_hook_command("aiwf_agent_log.py"))}],
             "Stop": [_hook(_hook_command("aiwf_review_gate.py"))],
         }
     }
@@ -233,11 +257,12 @@ def install_codex(force: bool = False) -> Dict[str, List[str]]:
     results["updated"].append(rel(_write_instruction()))
     for path in [*_write_skills(), *_write_agents()]:
         results["created"].append(rel(path))
-    if force:
-        class Target:
-            config_dir = ".agents"
-        for path in _remove_retired_skills(Target()):
-            results["updated"].append(rel(path))
+    class Target:
+        config_dir = ".agents"
+    for path in _remove_retired_skills(Target()):
+        results["updated"].append(rel(path))
+    for path in _remove_retired_role_agents(".codex"):
+        results["updated"].append(rel(path))
     state_paths = _write_state_files()
     from .core.governance_git import ensure_governance_gitignore
 

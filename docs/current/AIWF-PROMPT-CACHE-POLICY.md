@@ -6,11 +6,11 @@ AIWF must not break Claude Code / model service prompt cache.
 
 1. **No dynamic modification of CLAUDE.md** — AIWF managed block is written at install time only. No runtime edits.
 2. **No dynamic modification of .claude/settings.json / tools / MCP** — Install-time only.
-3. **No model/effort switching by workflow_level** — Model selection is user-controlled.
+3. **No runtime model/effort switching** — Model selection is user-controlled.
 4. **UserPromptSubmit injects only short state** — Typical injection: <400 chars. Never inject template text or JSON dumps.
 5. **Detailed templates in docs/references** — Read on demand by skills, not injected into context.
-6. **State records template keys only** — `workflow_level: "L1_review_light"`, `test_template: "targeted"`. Never full template text.
-7. **Plan and research artifacts are on-demand** — task plans and external research registries are file references, not prompt payloads.
+6. **State injection stays referential** — inject Task IDs, phases, blockers, and file references; never full role instructions, contracts, or records.
+7. **Plan, Task, Milestone, and research documents are read on demand** — keep them as file references until the active role needs them.
 
 ## What is cache-safe (static at install time)
 
@@ -28,21 +28,19 @@ AIWF must not break Claude Code / model service prompt cache.
 
 ## What must NOT be injected into context
 
-- Full template text from quality_policy.py
-- Raw evidence.json dumps
-- Full `.aiwf/artifacts/plans/*.md` task plans
-- Full `.aiwf/artifacts/research/external.json` research registries
-- Full project-map.json contents
+- Full role or Skill templates
+- Raw `.aiwf/state/` or `.aiwf/records/` dumps
+- Full Plan, Task, Milestone, or research documents unrelated to the active role
+- Full `PROJECT-MAP.md` contents when a focused reference is enough
 - Long review/cleanup/structure prose
 - Escalation history as narrative
 
-## Template lookup pattern
+## On-demand lookup pattern
 
-Skills read template definitions from:
-- `aiwf_core/core/quality_policy.py` (Python module, imported on demand)
-- `docs/AIWF-QUALITY-POLICY.md` (human reference)
-- `${CLAUDE_PROJECT_DIR}/.aiwf/assets/conventions.md` (project-specific)
+The current phase loads its installed Skill and follows references from that
+Skill. It reads the relevant Mission, Goal, Plan, Task, Milestone, Memory, and
+record files only when they help the role make its next decision.
 
-They do NOT inject the full text; they reference the key and look up the definition when needed.
-
-Task plans and workflow recipes follow the same pattern. `aiwf status` may expose the active plan id, request mode, and workflow pattern, but agents read the full plan or recipe only when they are actively using it.
+`aiwf status --prompt` exposes concise routing state and required Skill names.
+It does not inject the full contract or choose a model. The role reads the
+current files from disk after it has been routed.

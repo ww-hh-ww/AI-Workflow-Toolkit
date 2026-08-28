@@ -6,7 +6,7 @@ Lessons are not general summaries. They must meet admission criteria.
 
 A lesson may be recorded only if it meets at least one:
 - Future tasks of the same type would reuse it
-- It would change planner/tester/reviewer behavior
+- It would change Planner, Executor, Experimenter, or Reviewer behavior
 - It comes from a real bug, review blocker, scope violation, or user decision
 - It can be converted into test_focus / review_focus / non_goal / escalation_trigger
 
@@ -23,7 +23,7 @@ A lesson may be recorded only if it meets at least one:
 |-------|---------|
 | lesson | What was learned |
 | applies_to | task_type(s) this affects |
-| affects | plan | test | review | scope | cleanup | close |
+| affects | plan | construction | experiment | review | scope | cleanup | close |
 | source | bug | review_blocker | scope_violation | user_decision | field_observation |
 | status | active | superseded | resolved_by_code |
 | expires_when | condition that makes this obsolete |

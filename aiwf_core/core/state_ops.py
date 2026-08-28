@@ -19,11 +19,6 @@ from .state.context_ops import (
     record_implementation,
 )
 
-# ── Testing ──
-from .state.testing_ops import (
-    record_testing,
-)
-
 # ── Review ──
 from .state.review_ops import (
     record_review,

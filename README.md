@@ -1,2027 +1,388 @@
 # AI Workflow Toolkit (AIWF)
 
-AIWF 是围绕原生编码 Agent 长周期工程会话构建的治理与可见性层。当前
-支持 Claude Code 和 OpenCode，运行于 macOS 和 Windows。
+AIWF 是围绕原生编码 Agent 长周期工程会话构建的治理与可见性层。主线支持
+Claude Code、Codex 和 OpenCode；Reasonix 是兼容目标。
 
-编码 Agent 继续负责理解代码、探索项目、设计方案、编辑文件、运行命令和处理失败。AIWF 负责保存长期语义、安排独立角色、记录可追溯证据、约束错误顺序，并把任务可靠地收口。
-
-日常使用推荐同时打开编码 Agent 和 `aiwf ui`：在 Agent 中讨论和工作，在 TUI 中查看全局结构、当前阶段、Task 记录、Memory 和 Git 分支，并执行需要人确认的交互操作。
+编码 Agent 继续负责理解架构、搜索代码、编辑文件、运行命令、分析失败和作出工程判断。
+AIWF 负责长期语义、状态顺序、证据身份、角色边界、Git 快照、审查门禁和闭环。
 
 > Intelligence belongs to the coding agent. Governance belongs to AIWF.
 
-Claude Code 是功能最完整的宿主。OpenCode 使用独立的原生 Agent、Skill
-和 Plugin 适配，不复用 Claude Hook 配置。Reasonix 仍作为兼容目标保留。
+## 三个 Task 角色
 
-## 目录
+AIWF 的 Task 工作只有三个角色：
 
-- [AIWF 解决什么问题](#aiwf-解决什么问题)
-- [什么时候适合使用](#什么时候适合使用)
-- [五分钟开始](#五分钟开始)
-- [第一次对话](#第一次对话)
-- [完整工作流](#完整工作流)
-- [Mission、Goal、Plan、Task 与 Milestone](#missiongoalplantask-与-milestone)
-- [角色分工](#角色分工)
-- [Markdown、JSON 与 Memory](#markdownjson-与-memory)
-- [Git、Task 快照与提交](#gittask-快照与提交)
-- [Plan 并行与 Worktree](#plan-并行与-worktree)
-- [Testing、Review 与 Fix-loop](#testingreview-与-fix-loop)
-- [人工中断与紧急关闭](#人工中断与紧急关闭)
-- [Architect 与 Critic](#architect-与-critic)
-- [Hooks 与写保护](#hooks-与写保护)
-- [配置](#配置)
-- [TUI 交互模式与诊断](#tui-交互模式与诊断)
-- [命令索引](#命令索引)
-- [目录结构](#目录结构)
-- [故障排除](#故障排除)
-- [升级、迁移与移除](#升级迁移与移除)
-- [开发与验证](#开发与验证)
-- [安全边界](#安全边界)
+| 角色 | 核心职责 | 权力边界 |
+| --- | --- | --- |
+| Executor | 改变现实 | 修改稳定 Plan 工作区；实现；运行并记录全部 V-* / FIX-* 构造证据 |
+| Experimenter | 认识现实 | 在一次性完整项目工作树中探索、测量、复现和证伪；只产出事实 |
+| Reviewer | 判断现实 | 对当前 implementation ref 和已有证据作 acceptance judgment；不修改项目 |
 
-## AIWF 解决什么问题
-
-长任务里，模型往往不是不会写代码，而是会逐渐丢失最初设计、跳过真实入口、混淆“代码存在”和“能力可用”，或者在测试和审查已经失效后仍然宣布完成。
-
-AIWF 为这些问题增加了一个项目内闭环：
+一句话：
 
 ```text
-讨论与项目研究
--> Mission / Goal / Plan / Task 设计
--> 激活前两次现实批判
--> Executor 实现
--> Tester 独立验证
--> Reviewer 独立判断
--> Planner 处置问题并记录实际结果
--> Task close 创建正式提交
--> Plan 集成、合并和关闭
+Executor changes. Experimenter discovers. Reviewer judges.
 ```
 
-它重点保护以下事情：
+这三个角色不是固定阶段。合法形态包括：
 
-- 项目长期方向不会只存在于聊天记忆中。
-- Planner 在规划前读真实代码，而不是凭印象写合同。
-- Task 激活前必须说明主路径、消费者、证明方式和旧路径。
-- 首次实现可以强制交给独立 Executor。
-- Tester 可以增加测试资产，并记录期望输出和实际输出。
-- Reviewer 审查同一份最终测试快照，而不是只看局部 diff。
-- 测试或审查发现问题后进入返工，不允许静默降级为通过。
-- 关闭时确认实现、测试、审查和当前工作树仍指向同一结果。
-- 多个 Plan 可以并行，但每个 Plan 有独立 branch/worktree。
-- 中断、上下文压缩或会话切换后，可以从项目状态继续。
-
-AIWF 不会替代 Claude Code，也不会：
-
-- 托管一个外部 Agent runtime。
-- 接管终端或限制 Claude Code 正常探索代码。
-- 自动替用户决定产品方向。
-- 自动合并、推送或发布代码。
-- 把流程字段当作架构质量本身。
-- 把 hooks 当成操作系统级安全沙箱。
-
-更强的模型不会让 AIWF 自动失去价值。模型能力决定单次判断的上限；AIWF 保存跨会话结构、独立角色、Git 快照和关闭条件，减少长流程中“本来知道、后来忘了”的损失。对于短而简单的工作，这部分收益可能小于流程成本，所以 Planner 应保持轻量。
-
-## 什么时候适合使用
-
-适合：
-
-- 工作跨越多轮会话或多个 Task。
-- 改动涉及真实入口、共享接口、状态、数据、部署或迁移。
-- 需要独立测试和审查。
-- 多个能力需要按依赖顺序交付。
-- 需要让人和 AI 都能追溯“做了什么、测了什么、为什么通过”。
-- 多个互不依赖的 Plan 希望并行推进。
-
-可以保持轻量：
-
-- 一次性的小脚本。
-- 明确、局部、低风险的机械修正。
-- 不需要跨会话保存结构和证据的短工作。
-
-Planner 会先讨论工作是否值得进入 AIWF。讨论是默认行为；只有用户明确要求规划、更新规划、激活或继续执行时，Planner 才应写治理文档。
-
-## 五分钟开始
-
-### 1. 安装 AIWF
-
-要求：
-
-- Python 3.9+
-- Git
-- Claude Code、Codex、OpenCode，或 Reasonix
-
-从源码安装：
-
-```bash
-git clone https://github.com/ww-hh-ww/AI-Workflow-Toolkit.git
-cd AI-Workflow-Toolkit
-python3 -m pip install -e .
-aiwf --version
+```text
+Executor -> Reviewer
+Experimenter -> Executor -> Reviewer
+Executor -> Experimenter -> Reviewer
+Experimenter -> Executor -> Experimenter -> Reviewer
 ```
 
-### 2. 在目标项目安装 Claude Code 集成
+Experiment 只在存在决策相关的 empirical uncertainty 时出现。它不是每个 Task 必经的
+“Testing stage”，也不接手 Executor 本应完成的验证义务。
 
-目标项目必须是 Git 仓库，并且至少有一个提交：
+Planner 是上层规划和治理角色，不是第四个 Task 执行角色。Explorer、Critic 和 Architect
+是规划或跨 Plan 分析能力，也不改变上述三角色模型。
+
+## 安装与启动
+
+要求 Python 3.9+ 和 Git。
+
+### Claude Code
 
 ```bash
-cd /path/to/project
-
-# 仅当项目还不是 Git 仓库时需要
-git init -b main
-git add -A
-git commit -m "Initial project"
-
+pip install -e .
 aiwf install claude
-aiwf doctor
-```
-
-安装会创建或更新：
-
-- `CLAUDE.md` 中的 AIWF 托管区块。
-- `.claude/settings.json` 中的 AIWF hooks，同时保留非 AIWF hooks。
-- `.claude/skills/` 和 `.claude/agents/`。
-- `scripts/aiwf_*.py`。
-- `.aiwf/` 治理工作区。
-
-安装产生的 Claude 集成文件属于项目变更。开始第一个 Task 前，先根据项目的版本控制策略提交或处理这些改动，确保项目工作树干净。AIWF 不会自动运行 `git init` 或创建初始提交；它只在 `.gitignore` 中维护自己的 runtime 区块。已有 Git 仓库还会在本机 `.git/info/exclude` 中忽略 `.DS_Store`、`Thumbs.db`，不改变团队共享规则。已经被 Git 跟踪的本机噪音不会被自动取消跟踪，install 和 doctor 会列出它们。
-
-通常应保留 `CLAUDE.md`、`.claude/` 和 `scripts/`。`.aiwf/config/write-policy.json` 的 `governance_git_tracking` 可设为 `tracked`（默认，AIWF 在关键 Git 边界聚合 checkpoint）或 `local`（治理文档和状态只保留在本机，config 仍进入 Git）。使用 `aiwf governance status` 查看，使用 `aiwf governance tracking tracked|local` 切换。`.aiwf/runtime/` 始终只属于本机。
-
-### 3. 进入交互工作模式
-
-推荐打开两个终端。第一个终端运行 Claude Code：
-
-```bash
 claude
 ```
 
-第二个终端运行 AIWF TUI：
+从 `/aiwf-planner "describe the goal"` 开始。
+
+### Codex
 
 ```bash
-aiwf ui
+pip install -e .
+aiwf install codex
+codex
 ```
 
-Claude Code 是工作会话；TUI 是人的治理控制台。它们读取同一个 `.aiwf` 状态，互不替代。TUI 不运行 Agent，也不会因为浏览节点而改变状态。
+从 `$aiwf-planner "describe the goal"` 开始。
 
-然后直接描述目标、问题或想法，例如：
+### OpenCode
 
-```text
-先阅读当前项目，和我讨论如何把本地索引改成可恢复的增量索引。
-不要急着创建 Plan 和 Task。
+```bash
+pip install -e .
+aiwf install opencode
+opencode --agent aiwf-planner
 ```
 
-AIWF 的 prompt hook 会在状态变化时提醒 Claude Code 运行：
+从 `/aiwf-planner "describe the goal"` 开始。
+
+安装不会创建外部 managed runtime，也不会用低能力 runner 代替宿主 Agent。
+
+## 状态与语义真相
+
+AIWF 使用两层真相：
+
+- Markdown 保存 Mission、Goal、Plan、Task 的含义和结构；
+- `.aiwf/state/*.json` 与 `.aiwf/records/*.json` 保存运行状态和简明证据。
+
+不要手改 JSON。Markdown frontmatter 的受支持字段通过以下命令编译：
+
+```bash
+aiwf sync
+aiwf sync --check
+```
+
+任何时候先看：
 
 ```bash
 aiwf status --prompt
 ```
 
-该命令会给模型明确的下一步和必须加载的 Skill。用户通常不需要手工调度 Executor、Tester 和 Reviewer。
-
-如果自动路由没有发生，可以在 Claude Code 中手动加载：
-
-```text
-/aiwf-planner
-```
-
-### Codex
+查看一个 Task 的完整证据故事：
 
 ```bash
-cd /path/to/project
-aiwf install codex
-aiwf doctor --host codex
-codex
+aiwf task proof TASK-001
 ```
 
-在 Codex 中使用 `$aiwf-planner` 开始或继续。安装器创建：
+## Task.md 合同
 
-- `AGENTS.md` 中可与其他宿主共用的 AIWF 运行协议；
-- `.agents/skills/` 中供主会话按阶段加载的 Skills；
-- `.codex/agents/*.toml`，把 Executor、Tester、Reviewer、Architect 等完整角色指令直接交给 Codex 子代理；
-- `.codex/hooks.json`，接通状态提醒、Task/worktree 路由、scope、角色账本和关闭门；
-- 与其他宿主相同的 `.aiwf/` 状态、records 和 `scripts/`。
+Task.md 必须回答：
 
-首次使用项目 hooks 时，在 Codex 的 `/hooks` 中检查并信任
-`.codex/hooks.json`。AIWF 不修改用户全局 `~/.codex`。Codex 子代理从
-control root 派发，AIWF 根据 Task ID 将其项目读取、命令和 `apply_patch`
-定向到对应 Plan worktree；治理文档仍只有 control root 一份。
+- Structural Home：它为何属于这个 Goal / Plan；
+- Objective：要实现什么结果；
+- Contract Responsibility：本 Task 负责交付和证明什么；
+- Proof Standard：Built / Wired / Running 的完成要求；
+- Verification Commands：最小、可运行、带稳定 ID 的基线验证；
+- Known Context：源码支持的入口和关键事实；
+- Open Judgment：真正需要角色独立判断的问题。
 
-### Reasonix
+验证命令使用稳定 ID：
 
-```bash
-cd /path/to/project
-aiwf install reasonix
-aiwf doctor
-reasonix code .
+```markdown
+| ID | Command | Expected Observable Output |
+| --- | --- | --- |
+| V-001 | pytest -q tests/test_auth.py | all tests pass |
 ```
 
-Reasonix 使用 `.reasonix/skills/` 中的 `runAs: subagent` 角色。它的 Stop hook 只报告，不承担 Claude Code 中的阻塞式退出门；权威关闭仍由 `aiwf task close` 完成。
+V-* 是 Executor 的构造义务。Executor 不应只“写完代码”，然后把主路径、错误路径或
+回归验证拖给 Experimenter。
 
-### OpenCode
+## 标准 Task 生命周期
 
-```bash
-cd /path/to/project
-aiwf install opencode
-aiwf doctor
-opencode --agent aiwf-planner
-```
-
-在 OpenCode TUI 中使用 `/aiwf-planner` 开始或继续。安装器创建：
-
-- `AGENTS.md` 中的 AIWF 托管区块；
-- `.opencode/agents/`、`.opencode/skills/` 和 `.opencode/commands/`；
-- `scripts/aiwf_opencode_plugin.js`，由 `opencode.json` 显式加载，负责阶段提醒、写入检查、命令检查、角色顺序、自动 sync 和压缩上下文续接；
-- 与 Claude Code 版相同的 `.aiwf/` 状态和 records。
-
-OpenCode 当前没有可阻止会话结束的 Stop Plugin 事件，因此最终关闭由
-`aiwf task close` 保证，不能依赖会话退出提醒。它的 Task 子代理没有独立
-`cwd` 参数；AIWF Plugin 根据 Task ID 绑定子会话，并把项目工具路由到对应
-Plan worktree。Planner 可以留在 control root，并行 Plan 使用相互独立的子会话。
-安装器会在注册 Plugin 后运行一次有时限的真实配置加载检查。如果 OpenCode
-无法及时准备自己的 `@opencode-ai/plugin` 依赖，例如 npm 不可达、代理异常或
-宿主版本与 SDK 发布不同步，AIWF 会只撤销自己的 Plugin 注册，保留 Agent、
-Skill 和治理数据，让 OpenCode 仍能启动。此时 `aiwf doctor --host opencode`
-会明确报告缺少 Hook enforcement；依赖恢复后重新运行
-`aiwf install opencode --force` 即可启用并复验 Plugin。
-OpenCode 的 Planner 在 Git 或治理边界先运行 `aiwf governance status`；只有需要
-固化 pending stable `.aiwf` 文件时才运行 `aiwf governance checkpoint`。`tracked`
-和 `local` 是用户的追踪选择，Agent 不应自行切换。
-如果项目同时安装了 Claude Code 和 OpenCode，可用
-`aiwf doctor --host opencode` 单独检查 OpenCode 适配器。
-
-### Windows
-
-Windows 使用同一套命令。推荐先安装 Git for Windows，并在 PowerShell 中运行：
-
-```powershell
-py -m pip install -e .
-aiwf install claude   # 或 aiwf install codex / opencode
-aiwf doctor
-```
-
-Windows Claude 版自动把 AIWF Hook 转为无 shell 的 Python exec 形式，路径
-含空格时不依赖 Bash 引号或脚本可执行位。状态记录使用 Windows 原生文件
-锁；`windows-curses` 由 Python 包依赖自动安装，供 `aiwf ui` 使用。
-
-### 支持矩阵
-
-| 平台 | Claude Code | Codex | OpenCode |
-|---|---|---|---|
-| macOS | 完整 Hook、Agent、Skill、TUI | 项目 Hook、自定义 Agent、Skill、TUI | 原生 Plugin、Agent、Skill、TUI |
-| Windows | Windows Hook 启动与文件锁适配 | 同一项目 Hook 与 worktree 路由 | 同一 OpenCode Plugin，Windows 路径与文件锁适配 |
-
-适配层只转换宿主事件、路径、进程和终端差异。Mission、Goal、Plan、Task、
-records、Git 快照和关闭语义在所有宿主与平台组合中保持一致。
-
-## 第一次对话
-
-一个健康的第一次使用过程通常是：
-
-1. 用户描述问题或目标。
-2. Planner 读取 `.aiwf/mission.md`、相关治理文档和必要代码。
-3. Planner 与用户讨论需求、能力边界、技术方向、风险和证明方式。
-4. 用户明确要求开始规划。
-5. Planner 写 Mission、Goal、Plan 和 Task，并运行 `aiwf sync`。
-6. Planner 对 Task 做两次激活批判。
-7. Planner 创建或选择 Plan worktree，绑定 Plan，然后激活 Task。
-8. AIWF 按状态依次路由 Executor、Tester、Reviewer 和 Close。
-
-可以用这些表达控制节奏：
+常见主线是：
 
 ```text
-先讨论，不要写治理文件。
+Planner discussion and project research
+-> Mission / Goal / Plan / Task
+-> two activation critiques
+-> optional pre-implementation EXP
+-> Executor implementation + complete V evidence
+-> optional post-implementation EXP
+-> Reviewer judgment
+-> Planner disposition + Closure Calibration
+-> Task close
 ```
 
-```text
-这个方向确定了，开始规划，但先只写 Goal 和 Plan。
-```
-
-```text
-把 Task 合同写完整，批判两遍后再激活。
-```
-
-```text
-先不要继续下一个 Task，向我解释这次实际完成了什么。
-```
-
-## 完整工作流
-
-### 1. Planner 讨论和研究
-
-Planner 先确认：
-
-- 这项工作服务哪个固定 Mission outcome。
-- 系统需要获得什么能力。
-- 真实用户入口、运行路径或部署路径是什么。
-- 最大不确定性是什么，怎样尽早证明。
-- 当前代码有哪些调用者、消费者、接口、状态和旧路径。
-
-当技术方向不清楚时，Planner 可以派只读 Explorer 查事实或独立比较方案。Explorer 不替 Planner 做决定。
-
-### 2. 写结构和合同
-
-Planner 通过 CLI 创建节点，再认真编辑对应 Markdown：
+建立并激活 Task：
 
 ```bash
-aiwf goal create GOAL-001 --title "Recoverable indexing"
-aiwf plan create PLAN-001 --goal GOAL-001 --title "Incremental index mechanism"
-aiwf task create TASK-001 --goal GOAL-001 --plan PLAN-001 --title "Index updates survive restart"
-```
-
-CLI 创建文档和机器索引。Markdown 负责语义，JSON 负责链接、状态和门禁。
-
-### 3. 激活前批判
-
-Planner 必须对即将激活的 Task 做两次真实检查：
-
-- 第一次确认能力、主路径、消费者、共享不变量、证明和旧路径。
-- 第二次尝试推翻第一次结论，查找猜测、遗漏的运行变体和被推迟的风险。
-
-只有一轮没有发现需要修改的问题时，才记录一次：
-
-```bash
+aiwf task create TASK-001 --goal GOAL-001 --plan PLAN-001 --title "..."
 aiwf task critique TASK-001
-```
-
-累计两次后才能激活：
-
-```bash
+aiwf task critique TASK-001
 aiwf task activate TASK-001
 ```
 
-`critique` 是一个简单计数门。真正的质量来自 Planner 实际读取代码并修正合同，而不是把命令执行两次。
-
-### 4. Executor 实现
-
-当 `executor_required: true` 时，Task 的第一次项目实现必须由 `aiwf-executor` 子代理完成。
-
-Executor 会：
-
-- 进入 Task 分配的 worktree。
-- 阅读完整 Task.md。
-- 追踪真实调用链和消费者。
-- 实现最小而完整的设计。
-- 检查新路径是否被消费、旧路径是否仍绕过。
-- 运行 Task 中的 Verification Commands。
-- 保存实现快照并向 Planner 汇报。
-
-如果合同和代码现实冲突，Executor 返回 Planner，而不是自行改写目标。
-
-### 5. Tester 独立验证
-
-Tester 在 Executor 返回后开始，不能与同一 Task 的 Executor 并行。
-
-Tester 会：
-
-- 自己建立失败模型。
-- 运行每条 Verification Command。
-- 对比 expected observable 与 actual output。
-- 增加边界、错误、状态、并发、权限、迁移或旁路测试。
-- 检查 mock、fixture 或旧路径是否造成假通过。
-- 必要时创建测试和验证资产。
-- 保存包含 Tester 改动的最终测试快照。
-
-真实失败必须记为 `failed`。只有硬件、操作系统或环境确实无法提供所需证明时，才使用 `adequate`。
-
-### 6. Reviewer 独立判断
-
-Reviewer 审查 Tester 的同一份最终快照。它不实现，也不替 Tester 重跑完整测试工作。
-
-Reviewer 要回答：
-
-- Task 合同、实现、测试和实际运行路径是否形成完整可信的故事。
-- 每个 changed file 是否有责任依据。
-- 调用者和消费者是否真的使用新代码。
-- 旧路径、重复实现、旁路和死代码是否仍在。
-- 接口语义、单位、ID、状态、错误、权限和生命周期是否被下游正确消费。
-- Tester 的结论是否足以证明 Task claim。
-- 结构是否增加了不必要的间接层或错误边界。
-
-Reviewer 必须返回具体报告，说明 Executor 做了什么、Tester 证明了什么、自己检查了什么，以及为什么可以或不可以继续。
-
-### 7. Planner 处置和校准
-
-Planner 处理 Reviewer observations 和其他发现。每个未解决问题必须有清楚结果：
-
-- 现在修。
-- 并入当前工作。
-- 延后并记录原因。
-- 用户明确接受风险。
-- 中断并重新规划。
-
-关闭前，Planner 把实际完成情况写入 Task.md 的 `Closure Calibration`：
+一个 Plan 使用持久工作树：
 
 ```bash
-aiwf task calibrate TASK-001 \
-  --summary "实际完成内容；与原合同的重要差异；仍需跟进的事项"
+aiwf plan bind-worktree PLAN-001 --create
 ```
 
-原始 Task 合同不应被事后改写。前半部分保留当时的指导，Closure Calibration 记录最后的现实。
+同一 Plan 的 Task 串行。结构独立、工作树分离的多个 Plan 可以并行。
 
-### 8. Task 关闭
+## Executor：实现和构造证据
+
+Executor 在稳定 Plan 工作树中修改生产代码、正式测试、构建配置和其他交付资产。
+它必须执行 Task.md 中的全部 V-*，并把 observed result、verdict 和 basis 绑定到同一
+implementation snapshot：
+
+```bash
+aiwf record implementation \
+  --task-id TASK-001 \
+  --summary "implemented the authenticated entry path" \
+  --check V-001 \
+  --observed "42 passed" \
+  --verdict matched \
+  --basis "pytest completed against the assigned Plan worktree"
+```
+
+多条检查可重复传入相同参数，或使用 `--proof-file`。AIWF 在记录快照前检查：
+
+- V/FIX ID 是否来自当前 Task 合同或 fix loop；
+- 每个义务是否都有完整、matched 的结果；
+- 当前目录是否为该 Task 的 Plan 工作树；
+- 是否仍有未 finish 的 Experiment；
+- 禁止写范围是否被破坏。
+
+新的 implementation 会使旧 Review 失效，并使针对旧实现的 post-implementation EXP
+变为 stale。
+
+## Experimenter：一次性认识现实
+
+Experiment 必须先声明一个明确的未知事实和稳定 subject ref：
+
+```bash
+aiwf experiment open EXP-001 \
+  --task-id TASK-001 \
+  --timing post_implementation \
+  --question "真实入口是否绕过新的鉴权路径？" \
+  --hypothesis "所有生产入口都会经过 authenticate()"
+
+aiwf experiment start EXP-001
+```
+
+`start` 创建 detached、一次性的完整项目工作树。Experimenter 可以在其中任意修改项目
+文件，创建 reproducer、benchmark、fault injection、prototype、临时 fixture 或诊断脚本。
+它不能修改稳定 Plan 工作树，也不能修改控制根的 `.aiwf` 治理状态。
+
+实验完成后，把事实冻结为不可变 Git ref 和结构化记录：
+
+```bash
+aiwf experiment record EXP-001 \
+  --conclusion falsified \
+  --summary "legacy service entry bypasses authenticate()" \
+  --command "pytest -q exp/service_entry.py" \
+  --observation "legacy mode returned 200 without calling authenticate" \
+  --promotion-candidate "promote the reproducer into a regression test"
+
+aiwf experiment finish EXP-001
+```
+
+`record` 至少需要一个 observation。`finish` 删除一次性工作树，但保留：
+
+- immutable subject commit；
+- immutable experiment ref；
+- commands、observations、conclusion；
+- 值得由 Executor 正式化的 promotion candidates。
+
+实验假设被 falsify 只是事实，不会自动伪装成实现修复或 acceptance decision。Planner 或
+Reviewer 根据事实决定是否需要 Executor 修改稳定系统。值得永久保留的实验资产必须由
+Executor 提升为正式测试或工具，并重新记录 implementation 与相关 V 证据。
+
+## Reviewer：判断当前实现
+
+Reviewer 读取：
+
+- Task.md 合同；
+- 当前 `implementation_ref`；
+- Executor V/FIX 证据；
+- 与当前 subject 相关且已 finish 的 Experiment；
+- 代码结构、调用路径、兼容性和清理状态。
+
+Reviewer 不写项目文件，也不重复承担 Executor 的常规验证工作。结果只有：
+
+```text
+accepted
+needs_change
+needs_experiment
+rejected
+```
+
+示例：
+
+```bash
+aiwf record review \
+  --task-id TASK-001 \
+  --result accepted \
+  --summary "current implementation satisfies the Task contract"
+```
+
+当缺少一个真实 empirical fact 时，Reviewer 可以明确开启实验问题：
+
+```bash
+aiwf record review \
+  --task-id TASK-001 \
+  --result needs_experiment \
+  --summary "production routing remains empirically unknown" \
+  --experiment-id EXP-002 \
+  --experiment-question "生产配置下实际选择哪个入口？" \
+  --experiment-hypothesis "production selects the new entry"
+```
+
+`needs_change` 路由回 Executor；`needs_experiment` 创建针对当前实现的事实问题；
+`rejected` 表示当前 change 不应接受。
+
+## Fix loop 与 Reviewer observations
+
+实现缺陷、结构问题或未满足的 FIX-* 义务进入 fix loop。普通修复和回归证明仍属于
+Executor，不能因为出现“验证”一词就交给 Experimenter。
+
+```bash
+aiwf fixloop open \
+  --task-id TASK-001 \
+  --route executor \
+  --reason "the error path violates the contract" \
+  --required-fix "repair the error path" \
+  --verify 'FIX-001:::pytest -q tests/test_error.py:::all tests pass'
+```
+
+Reviewer 的 machine observations 必须逐条 disposition，不能只在聊天里说“已处理”。
+高严重度未决 observation、开放 fix loop、stale snapshot 或未 finish EXP 都会阻止 close。
+
+## Closure
+
+Planner 在 Task.md 写入简洁的 `## Closure Calibration`，说明实际交付结果和仍需未来
+知道的差异。然后运行：
 
 ```bash
 aiwf task close TASK-001
 ```
 
-关闭命令会检查：
+关闭要求至少包括：
 
-- 当前 Task 的 required roles 是否有对应记录。
-- Testing 是否基于当前实现快照。
-- 每条严格 Verification Command 是否有 expected、observed 和 match 结论。
-- Review 是否接受当前 tested snapshot。
-- Reviewer observations 是否已经由 Planner 处置。
-- Fix-loop 是否已解决。
-- Review 后项目文件是否再次变化。
-- Git 暂存区和工作树是否满足创建精确 Task commit 的条件。
+- implementation ref 对应当前稳定工作树；
+- 全部 Executor V/FIX 证据完整；
+- 没有 live Experiment；
+- Reviewer 接受的 ref 与 implementation ref 相同；
+- observations 已 disposition；
+- fix loop 已处理；
+- Closure Calibration 非空；
+- Review 后项目没有再次变化。
 
-通过后，AIWF 创建正式 Task commit，并把 Task 标为 closed。
+Claude Stop hook 会阻止“已审查但尚未 close”的 Task 被静默遗忘。
 
-### 9. Task 后和 Plan 后
+## Git 与证据身份
 
-每个 Task 返回 Planner 后，Planner 要对照 Plan 检查实际结果是否改变了后续假设、接口、责任或主路径，并克制地维护 Memory。
+Task 证据使用 Git 对象，不依赖会话记忆：
 
-Plan 的全部 Task 关闭后：
+- `git_origin_ref`：Task 开始时的稳定基线；
+- `implementation_ref`：Executor 完成实现和 V 证据时的快照；
+- `reviewed_ref`：Reviewer 判断的 implementation ref；
+- `refs/aiwf/experiments/<EXP-ID>/<attempt>`：Experiment 的不可变结果。
 
-1. 检查累计 diff 和真实集成行为。
-2. 向用户说明实际结果，询问是继续增加 Task、暂时保留，还是合并收口。
-3. 如果暂时保留，运行 `aiwf plan hold PLAN-001`。结果不变时不会反复询问。
-4. 如果选择合并，准备与最新 base 组合后的候选：
+Experiment 工作树是 disposable；Plan 工作树是 stable。不要在它们之间手工
+cherry-pick 临时实验改动。需要保留的资产由 Executor 在稳定工作树重新实现。
 
-```bash
-aiwf plan integrate PLAN-001
-```
+## 写边界
 
-5. 在 Plan worktree 中运行命令提示的集成验证。形成精确候选后，再询问用户是否使用
-   `/aiwf-architect`。用户决定是否审查、审查一个或多个已经出现在候选中的 Plan，以及
-   使用哪些 lenses。若报告要求修改候选，环境、生成物和非语义修复由 Planner 直接处理；
-   只有改变行为、接口、依赖或产品含义的修复才新增 Task。修改后重新 Prepare 和验证。
-6. 用户不审查，或 Architect 报告已经由 Planner 处理后，把实际 expected/observed
-   结果交回 `--status passed`。该命令会把 passing candidate 合入 base，并同时关闭
-   Plan、更新 Plan.md 和 checkpoint 治理状态。若预检发现冲突，先分类：非逻辑冲突
-   使用 Plan 级快速修复，不创建 Task；只有改变项目行为、接口、依赖或产品含义的语义
-   冲突才创建 `kind=integration` Task。
+- Planner：拥有 Markdown 合同、Plan 治理和 disposition；常规 Task 实现由 Executor 完成。
+- Executor：只能写分配的稳定 Plan 工作树和 Task 允许范围。
+- Experimenter：只能写当前 running EXP 的一次性工作树。
+- Reviewer：项目只读。
+- JSON state/records：只通过 CLI 修改。
+- closed Plan/Task 文档：历史记录，只读。
 
-如果候选已经完成真实验证，但原 Plan 的某个结果仍未达到，不能把它写成 `passed`。
-Planner 先向用户说明观测结果、后果和可选路径。用户明确接受该限制并决定合并关闭时，
-使用 `--status accepted_with_gaps`，逐条传入 `--known-gap` 和
-`--acceptance-reason`。AIWF 会合入同一个精确候选并关闭 Plan，同时在 JSON closure
-中保留机器可读的问题和接受理由。若仍要在当前 Plan 继续工作，则保持 open，而不是使用
-这个出口。
+Hook 和适配器会拒绝跨 Plan 工作树、跨 EXP 工作树、直接改机械真相和角色越权。
 
-关闭后的 Plan 是完成记录，不再修改，也不能再链接新 Task。新工作创建新 Plan。
-
-## Mission、Goal、Plan、Task 与 Milestone
-
-```text
-Mission
-└── Goal tree
-    └── Goal
-        └── Plan
-            └── Task
-
-Milestone 横向选择一个需要共同验收的稳定切片。
-```
-
-### Mission
-
-Mission 是项目固定方向，位于 Goal tree 之上。它不是一个根 Goal。
-
-文件：`.aiwf/mission.md`
-
-Mission 由 Planner 或人编辑，然后运行：
+## 常用诊断
 
 ```bash
-aiwf sync
-aiwf mission show
-```
-
-Mission 不清楚时，不应先批量创建 Goals。
-
-### Goal
-
-Goal 表达 Mission 需要的一项能力，不表达模块、目录、工具、开发阶段或具体方法。
-
-Goal 可以形成能力树。父子关系表示“没有子能力，父能力明显不完整”，不是代码目录嵌套。
-
-Goal relation 用于表达横向能力关系：
-
-```bash
-aiwf goal link GOAL-A GOAL-B --type supports
-aiwf goal link GOAL-A GOAL-B --type depends_on
-```
-
-Goal relation 是能力语义，不自动成为开发顺序门。真正的开发前置顺序使用 Plan dependency。
-
-方向约定：`A supports B` 表示 A 提供能力、B 消费；`A depends_on B` 表示 A 是消费者、B 是前置能力。
-
-### Plan
-
-Plan 是一个 Goal 的技术机制和交付方向，也是 Git branch/worktree 的并行单位。
-
-好的 Plan 应说明：
-
-- 当前真实问题。
-- 责任放在哪里。
-- 数据流、控制流和消费者路径。
-- 关键技术选择及依据。
-- 共享接口、不变量和所有权。
-- 旧路径的删除、兼容或迁移方式。
-- 先证明什么，Task 如何排序。
-- 多个 Task 最后怎样共同验证。
-
-Plan 不是 Task 清单，也不要求代码模块照着 Goal tree 生长。
-
-### Task
-
-Task 是一个可执行、可证明的工作合同。激活后，其 Task.md 默认冻结。
-
-Task 的核心内容是：
-
-- Structural Home
-- Objective
-- Contract Responsibility
-- Done When，标明 Built、Wired 或 Running
-- Verification Commands（每条带稳定 ID）和 Expected Observable Output
-- 经过验证的 Known Context
-- 留给 Executor、Tester、Reviewer 的 Open Judgment
-
-Known Context 是下一角色的冷启动交接，不是代码地图或探索日志。它只保留可定位的
-事实、已经证明的结论、容易走错的地方和真实 Unknown；Executor 会核对影响实现的
-关键前提，但不应从头重做 Planner 的探索。
-
-Verification Commands 是最终证明，不是开发过程记录。每行必须有稳定 ID（如
-`V-001`），命令必须能在声明的运行环境中直接执行，不能写 `...`、`<maps_dir>`
-等说明性占位符。每条命令应证明不同结果；精确测试放前面，每套必要的完整回归只在
-最后运行一次。激活前需要确认过滤参数真的缩小测试范围，Browser、Worker 等运行时测试
-也必须调用生产代码并在所声明的环境中运行。Tester 通过检查项 ID 记录 observed 和
-`matched/mismatched/blocked` 判断；机器只校验证据完整性，不比较自然语言输出。
-
-Task.md 不是文件 allowlist。Executor 可以追踪并修改为完成合同所必需的文件，但不能触碰明确的 `forbidden_write`。
-
-独立角色由工作风险决定，不按文件数量机械选择：实现需要代码探索、设计判断或影响追踪时要求 Executor；独立测试可能发现有意义的失败模式时要求 Tester；调用关系、接口漂移、旧路径或复杂度值得独立判断时要求 Reviewer。
-
-### Milestone
-
-Milestone 是可选的真实验收切片。它可以跨多个 Goal 和 Plan，用于确认一组能力在真实环境和真实主路径上共同成立。
-
-它不是普通进度标签。一个 Milestone 通常需要：
-
-- Pass Standard
-- 真实 integration test
-- Architect architecture review
-- PASS / PASS_WITH_RISK / REVISE / REJECT assessment
-- 人类确认
-- milestone verification Task 关闭
-
-设计 Milestone 时，Planner 会在相关时点向用户说明并推荐验证覆盖方式：
-
-- `end_to_end_flow`：默认选择，验证真实输入、处理、下游消费和可观察输出组成的运行主链路。
-- `function_reverse_trace`：高成本选择，对声明的源码范围逐文件、逐函数说明调用者或有理由的不使用状态；适合安全、协议、内核、迁移、死路径敏感项目，或 Pass Standard 明确要求源码级可达性时。
-
-选择会写入 Milestone.md。Planner 不应静默启用高成本模式，也不应在无关项目里机械执行逐函数回溯。Milestone 还支持特殊横向 Task 直接关联、文档与平台限制，以及有明确理由的 `PASS_WITH_RISK`；这些能力只在当前验收切片相关时向用户说明。
-
-## 角色分工
-
-| 角色 | 负责 | 不负责 |
-|---|---|---|
-| Planner | 讨论、研究、结构、技术方向、Task 合同、分发、内联阶段、问题处置、Memory 和收口 | 代替要求独立角色的常规工作 |
-| Explorer | 只读查事实、追调用链、比较方案 | 决策、写文件、记录完成 |
-| Executor | 实现 Task，追主路径，自查并保存实现快照 | 独立测试、Review、关闭 |
-| Tester | 尝试打破 claim，创建测试资产，保存 tested snapshot | 修实现、做最终 Review |
-| Reviewer | 判断合同、代码、测试、主路径和结构是否整体可信 | 修改代码、关闭 Task |
-| Architect | 用户手动触发的独立结构审查；也执行 Milestone acceptance | 创建 Task、实现、替 Planner 决策 |
-| Critic | 用户手动触发的独立怀疑者 | 加入正常门禁、修改状态 |
-| Close | 调用机器关闭门并报告结果 | 自行决定“差不多可以了” |
-
-正常 Task 内部顺序始终是：
-
-```text
-Executor -> Tester -> Reviewer -> Planner -> Close
-```
-
-Executor、Tester 和 Reviewer 第一次准备返回时，SubagentStop hook 会让原
-Agent 再核对一次 Task.md、实际结果和证据。没有变化时复用已经得到的测试
-输出；发现遗漏时在原 Agent 内修正。最终 record 或 Git snapshot 不新鲜时，
-原 Agent 继续补齐，不重新派发。
-
-如果 Task frontmatter 中某个 `*_required` 为 `false`，该阶段仍然存在，但可以由主会话按对应 Skill 内联完成。`false` 不是跳过验证，而是不强制独立子代理。
-
-## Markdown、JSON 与 Memory
-
-### 两种真相
-
-Markdown 保存项目语义：
-
-- `.aiwf/mission.md`
-- `.aiwf/goals/*.md`
-- `.aiwf/plans/*.md`
-- `.aiwf/tasks/*.md`
-- `.aiwf/milestones/*.md`
-- `.aiwf/memory/*.md`
-
-JSON 保存机器状态和简洁记录：
-
-- `.aiwf/state/*.json`
-- `.aiwf/records/tasks/<TASK-ID>.json`
-- `.aiwf/records/events.json`
-
-阅读原则：
-
-- 想知道“为什么、做什么、边界是什么”，读 Markdown。
-- 想知道“现在是什么状态、哪个 gate 阻塞、测试和 Review 指向哪个 ref”，读 CLI 或 JSON。
-- 不要把 JSON 当作语义文档。
-- 不要手工编辑 `.aiwf/state/` 或 `.aiwf/records/`。
-
-项目自己的 `docs/` 是详细技术资料，不是 Planner 每轮必读入口。只有用户指定、当前 Goal/Plan/Task 明确指向，或解决具体技术问题确实需要时才读。安装、配置、迁移、部署或公开行为发生变化时，Planner 应把对应文档作为交付面纳入 Plan 和 Task，而不是在最后顺手补文字。
-
-### Sync
-
-CLI 支持的结构和状态变更优先走 CLI。需要编辑语义正文时，编辑 Markdown，然后运行：
-
-```bash
-aiwf sync
-```
-
-只检查、不写入：
-
-```bash
-aiwf sync --check
-```
-
-Claude Code 内通过 Write/Edit 修改治理 Markdown 后，PostToolUse hook 会自动 sync。使用外部编辑器或人类终端修改时没有 hook，必须手工运行 `aiwf sync`。
-
-### Memory
-
-Memory 是 Planner 的小型长期笔记本，不是项目日志。
-
-```text
-.aiwf/memory/
-├── project-facts.md   # 每次规划都读，最多 3-7 条，目标少于 100 字
-├── MEMORY.md          # notes 索引
-└── notes/             # 需要时才读的稳定指导
-```
-
-Planner 在两个时刻审查 Memory：
-
-- 规划完成、准备交出工作前。
-- 实现、测试、Review、Architect 或关闭结果回到 Planner 时。
-
-每次都要判断是否保留、修改、删除或增加，但只有出现经代码、证明、Review、用户决定或完成任务确认的长期事实时才写。不要存临时进度、猜测和当前 Task 已经说清楚的内容。
-
-## Git、Task 快照与提交
-
-AIWF 使用 Git 证明各角色处理的是哪一份代码。
-
-### 前置条件
-
-Task 激活要求：
-
-- 当前目录属于 Git 仓库。
-- 仓库至少有一个提交。
-- 当前是命名 branch，不是 detached HEAD。
-- 不在 `main`、`master` 或 `trunk` 上执行 Task。
-- Plan 绑定的 worktree 项目文件干净。
-
-### 三个 ref
-
-每个 Task 通常保存：
-
-- `implementation_ref`：Executor 完成后的本地不可变快照。
-- `tested_ref`：Tester 完成测试和测试资产后的快照。
-- `reviewed_ref`：Reviewer 接受的 tested snapshot。
-
-查看：
-
-```bash
+aiwf status --prompt
 aiwf task proof TASK-001
-```
-
-输出同时给出可用的 diff 命令，例如：
-
-```bash
-git diff <origin_ref>..<implementation_ref>
-git diff <implementation_ref>..<tested_ref>
-git diff <origin_ref>..<tested_ref>
-```
-
-这些 snapshot 是本地 Git refs，不在当前分支是正常的。不要手工 commit、
-cherry-pick、merge 或 reset 它们。Tester 如果新增测试文件，`tested_ref` 会自然包含它们。
-
-### Task commit
-
-活动 Task 的真实 Git index 由 `aiwf task close` 用来创建精确的 reviewed
-commit。AI 不要在此期间运行 `git add` 或 `git commit`；AIWF snapshots 使用
-独立的临时 index。没有 active Task 时，可以正常暂存 CLI 生成的治理变更。
-
-`aiwf task close` 会确认当前工作树与 `reviewed_ref` 完全一致，然后只为这份已审结果创建正式 Task commit。提交标题包含 Task ID，并附带 Plan/Goal trailers。
-
-Integration Task 只运行 `git merge --no-ff --no-commit <integration_base_ref>`。
-Executor 解决文件内容后保持 merge open；不要运行 `git add`、`git merge --continue`
-或 `git commit`，最终 merge commit 仍由 `aiwf task close` 创建。
-
-AIWF 不自动 push，也不会在用户选择前 merge Plan branch。用户选择合并后，
-`aiwf plan integrate` 负责精确候选、验证记录和 merge commit。
-
-### 外部或人类改动
-
-人类可以修改代码，AIWF 不要求一切都由 AI 完成。需要注意：
-
-- Task 激活前的项目改动会使 clean-worktree gate 阻止激活。
-- Testing 后修改项目文件，Reviewer 会要求重新记录 Testing。
-- Review 后修改项目文件，Task close 会要求重新运行 Tester 和 Reviewer。
-- 人类终端不经过 Claude hooks，但最终 snapshot、close gate 和 Git diff 仍会暴露多数变化。
-
-## Plan 并行与 Worktree
-
-AIWF 的并行单位是 Plan，不是同一 Task 内的多个角色。
-
-规则：
-
-- 一个主 Planner 维护全部治理状态。
-- 一个 Plan 绑定一个 branch 和一个 Git worktree。
-- 一个 worktree 同时最多一个 active Task。
-- 同一 Plan 的 Tasks 按顺序执行。
-- 不同 Plan 可以在不同 worktree 并行。
-- 每个 Task Agent prompt 只需包含一个 Task ID；AIWF 注入当前 Task.md 和 worktree。
-
-Planner 在 control root 为每个 Plan 创建或复用一个持久 worktree：
-
-```bash
-aiwf plan bind-worktree PLAN-001 --create
-```
-
-该命令可重复执行。Claude Code 默认使用 `.claude/worktrees/plan-001`，
-OpenCode 默认使用 `.opencode/worktrees/plan-001`；两者都使用
-`aiwf/plan-001` 分支。Control root 只保存共享治理状态和负责集成，不作为新的
-Plan worktree。
-
-如果人已经创建了 worktree，可以显式绑定：
-
-```bash
-aiwf plan bind-worktree PLAN-001 ../project-plan-001
-```
-
-派发 Executor、Tester、Reviewer 时，在 prompt 中写明 Task ID。只有用户提出了
-Task.md 中没有、且不改变执行方式、边界或验收的补充，才附加 `USER_DELTA`。
-实质变化必须 interrupt 并写回 MD。AIWF 会注入当前 Task.md 和已绑定的 worktree。
-Claude Hook 和 OpenCode Plugin 会把 Task Agent 的相对文件、搜索和 Bash 调用
-持续路由到该 worktree。不要在 worktree 之间复制 Task 改动；三种角色需要顺序
-处理同一份结果。
-
-所有 worktree 通过 Git common directory 找到主工作区中的同一个 `.aiwf` control root。`aiwf status` 会展示全部 active Tasks，并标记当前 worktree 对应的 Task。
-Planner 不需要在这些 worktree 之间切换。多个 Task active 时，
-`aiwf status --prompt` 给出每个 Task 的准确 worktree。
-
-`.aiwf` 治理文件始终从 control root 读取；项目代码、测试和构建命令才进入 Plan
-worktree。这样 Agent 不会把 worktree 中的历史 Task.md 当成当前契约。
-
-只有一个 active Task 时，Planner 的内联项目工具也会自动进入该 Task 的 worktree。
-多个 Task active 时，带 `--task-id` 的 AIWF 命令会进入该 Task 的 worktree；文件
-读写必须使用 `aiwf status --prompt` 给出的明确 worktree 路径。Hook/Plugin 不会猜测。
-
-### 什么时候可以并行
-
-Planner 必须先读相关 Plans 和真实代码，检查：
-
-- 是否修改同一文件。
-- 是否改变同一责任或共享机制。
-- 接口、输入输出和所有权是否已确定。
-- 数据流、控制流、共享状态和部署路径是否互相依赖。
-- 两个 Plan 能否各自实现、测试和 Review。
-- 合并顺序与组合验证是否明确。
-
-不同文件名不代表独立。只要两个 Plan 同时改变同一共享行为，就应重划边界或串行。
-
-### Plan dependency
-
-如果下游 Plan 需要上游 Plan 的结果：
-
-```bash
-aiwf plan dep add PLAN-DOWNSTREAM PLAN-UPSTREAM
-aiwf plan dep show PLAN-DOWNSTREAM
-```
-
-上游 Plan 必须合并并关闭，下游才可激活。删除依赖必须给原因：
-
-```bash
-aiwf plan dep remove PLAN-DOWNSTREAM PLAN-UPSTREAM \
-  --reason "原共享接口已被稳定替代"
-```
-
-### 并行常见陷阱
-
-- 新 worktree 只包含创建时已提交的 Git baseline，不包含主工作区未提交的项目改动。
-- 同一 Task 的 Executor、Tester、Reviewer 不能并行。
-- 两个 Plan 即使不碰同一文件，也可能竞争同一 schema、状态或运行入口。
-- 每个 Plan 必须在前序 Plan 已进入后的最新 base 上准备和验证，不能把多个旧候选一次合并。
-- 独立 Plan 合并并验证后逐个 close；只有组合后才成立的 Plans 在组合证明后 close。
-
-## Testing、Review 与 Fix-loop
-
-### Task record
-
-每个 Task 只有一份紧凑记录：
-
-```text
-.aiwf/records/tasks/TASK-001.json
-```
-
-它包含当前 implementation、testing、review 和 fix-loop。旧的全局 `evidence.json`、`testing.json` 和 `review.json` 不再是主路径。
-
-用户通常不需要直接读 JSON，优先运行：
-
-```bash
-aiwf task proof TASK-001
-```
-
-### Record 命令
-
-这些命令通常由对应角色调用。required role 未真实派发时，记录命令会拒绝伪造交付。
-
-Executor：
-
-```bash
-aiwf record implementation --task-id TASK-001 \
-  --summary "改了什么、谁消费、self-check 证明了什么" \
-  --command "最强的一条精确自查命令"
-```
-
-Tester：
-
-```bash
-aiwf record testing --task-id TASK-001 --status passed \
-  --check V-001 \
-  --observed "12 passed" \
-  --verdict matched \
-  --basis "重启恢复和增量更新均通过" \
-  --summary "验证了重启恢复和增量更新"
-```
-
-没有 `aiwf task test` 命令。`/aiwf-test` 负责派发测试工作，Tester 完成后用
-`aiwf record testing` 保存测试结果和 Git snapshot。
-
-Task.md 的 Verification Commands 通过稳定 ID（如 `V-001`）定义检查项；`--check`
-选择检查项，`--observed` 或 `--observed-file` 保存实际结果，`--verdict` 由 Tester
-判断 `matched`、`mismatched` 或 `blocked`，必要时用 `--basis` 说明依据。expected
-描述成功的可观察含义，不要求逐字等于 stdout。AIWF 只检查 ID 覆盖、证据非空、判断和
-snapshot 新鲜度，不替代 Tester 与 Reviewer 的判断。Task 测试记录不使用旧的
-`--command` 或 `--verification-result` 语法；后者只属于 Plan integration 的独立命令。
-Verification ID 是唯一身份；命令文本、引号和 expected 文案不会绑定结果。修改
-Task.md 的 Verification Commands 后必须重新收集当前 ID 的证据，旧契约结果不会拼接进来。
-多行或 shell 复杂输出优先使用 `--observed-file`。一次完整验证应尽量一次记录全部检查项。
-若漏了一条，只运行并补录缺失项；仅当 `implementation_ref` 和工作树内容都未变化时，
-AIWF 才保留同一 `tested_ref` 上已有的有效结果。
-
-Reviewer：
-
-```bash
-aiwf record review --task-id TASK-001 --result accepted \
-  --summary "合同、最终 diff、消费者路径和测试证据一致"
-```
-
-阻塞性 Review：
-
-```bash
-aiwf record review --task-id TASK-001 --result needs_fix \
-  --summary "service 入口仍绕过新 pipeline" \
-  --blocker "run_service_wrapper 未消费统一 pipeline"
-```
-
-### Reviewer observations
-
-Reviewer 可以记录非阻塞但必须可见的 observations。`critical` 和 `high` 不能与 accepted 同时记录；`warn` 和 `low` 可以交给 Planner 处置。
-
-如果问题能在本轮安全、有限地修复并立即验证，就直接修，不要为了尽快关闭 Task 而
-deferred。确实需要延后时，Planner 要向用户说明问题、影响、不现在修的原因和返回条件，
-征得同意后再写入下游 Task 或 `deferred-findings.md`。
-
-```bash
-aiwf record review --task-id TASK-001 --result accepted \
-  --summary "整体可信，但有一个不阻塞当前合同的风险" \
-  --adversarial-observations "warn:::migration:::旧数据迁移尚未在生产副本验证"
-
-aiwf record disposition ADV-001 --task-id TASK-001 \
-  --decision deferred \
-  --reason "不影响当前合同，纳入下一 Plan 的迁移工作"
-```
-
-关闭前不能有 pending observation。
-
-### Fix-loop
-
-以下情况会打开 Task-local fix-loop：
-
-- Testing 失败。
-- Review 返回 `needs_fix` 或 `rejected`。
-- Agent 发现合同需要 Planner 或用户决定。
-- Scope 或其他已记录问题需要恢复。
-
-查看：
-
-```bash
+aiwf experiment list --task-id TASK-001
+aiwf experiment show EXP-001
 aiwf fixloop status --task-id TASK-001
-aiwf status --prompt
-```
-
-Fix-loop 与 Task Testing 使用同一套稳定检查 ID。已有 Task 检查直接引用：
-
-```bash
-aiwf fixloop open --route executor --reason "service 入口仍绕过验证" \
-  --required-fix "接通受验证的 service 入口" \
-  --verify V-003
-```
-
-Reviewer 发现合同外的新回归点，但不改变 Task 责任时，可声明一个本轮检查：
-
-```bash
-aiwf fixloop open --route executor --reason "旧入口仍可绕过" \
-  --verify 'FIX-001:::pytest -q tests/test_old_entry.py:::旧入口被拒绝'
-```
-
-Tester 仍通过 `aiwf record testing --check V-003` 或 `--check FIX-001`
-记录实际输出与 verdict。机器只按 ID、当前实现快照和 `matched` 结果判断，
-不匹配命令文本或说明文字中的关键词。
-
-正常返工顺序是：
-
-```text
-确认问题
--> 小而明确的修复由 Planner 内联，否则在当前会话或恢复后的原会话中尝试一次恢复原 Executor
--> 原 Agent 不可用或恢复失败时，派新 Agent 读取 Task proof 和当前 finding
--> 记录 repaired implementation，系统进入 verification follow-up
--> 精确的小修可内联重测，否则重新派 Tester
--> 记录新的 Testing 后，普通 implementation repair 自动解决
--> 重新 Review 最终 tested snapshot
--> Close
-```
-
-Tester-route 的证据满足后，`record testing` 内部调用同一个 resolve 操作自动闭环。
-`RETURN_TO_PLANNER` 或 `EXTERNAL_FINDING` 产生的 Planner decision 不会被
-Testing 自动解决。Planner 做出真实决定并满足同一组机械门禁后显式运行：
-
-```bash
-aiwf fixloop resolve --task-id TASK-001 \
-  --resolution "修复 service 入口并重跑 service integration test"
-```
-
-`fixloop resolve` 没有 `--force`，不能用处置文字替代缺失的测试证据。
-
-同一 `tested_ref` 的失败只计为一次验证失败。达到重试上限后，AIWF 会阻止
-workflow Agent，直到人类在 TUI 选中该 Task 后按 `c`，或在终端运行：
-
-```bash
-aiwf fixloop continue --task-id TASK-001
-```
-
-`continue` 只允许当前 route 继续，不会清除失败历史或把 fix-loop 标为已解决。
-继续后的 escalation 只能由针对当前 Implementation 的 `passed` Testing 自动解除；
-`adequate` 不够。
-
-## 人工中断与紧急关闭
-
-这两个命令只能由人类在终端运行，AI 会被 command policy hook 阻止。
-
-### Interrupt
-
-暂停当前执行窗口，但不宣告完成：
-
-```bash
-aiwf task interrupt TASK-001 --reason "需要重新决定接口责任"
-```
-
-Task 变为 `suspended`。之后 Planner 可以修订、重新批判并激活，也可以取消：
-
-```bash
-aiwf task cancel TASK-001 --reason "方案已被 PLAN-002 替代"
-```
-
-Active Task 不能直接 cancel，必须先 interrupt。
-
-如果取消决定后来被人类撤回，只能由人类选择恢复方向：
-
-```bash
-aiwf task restore TASK-001 --status ready --reason "继续原任务"
-aiwf task restore TASK-001 --status closed --reason "确认工作已完成"
-```
-
-`ready` 会回到规划状态，并要求重新通过 activation critique；`closed` 会记录
-为 `human_restore`，不伪装成正常 Executor/Tester/Reviewer 闭合。取消原因和恢复
-原因都会保留。
-
-### Reopen
-
-正常闭合后来被新证据证明不成立时，不能直接改 JSON。若它仍是 open Plan 中
-最新、尚未合并且未被下游消费的 Task 结果，人类可以运行：
-
-```bash
-aiwf task reopen TASK-001 --reason "运行证据证明原闭合结论不成立"
-```
-
-AIWF 会归档原 closure 与 proof、让旧 Closure Calibration 失效、清除未合并的
-Plan integration 状态，并把 Task 放回 `ready`；Git 提交不会回滚。若已有后续
-Task、Plan merge 或 Milestone acceptance，命令会拒绝，此时应新建 corrective
-Task，原 Plan 已合并时则放入新 Plan。该命令只能由人类运行。
-
-### Force-close
-
-紧急把 active Task 标为 closed，并记录未满足的 gates：
-
-```bash
-aiwf task force-close TASK-001 --reason "人类接受不完整状态并结束该执行窗口"
-```
-
-它绕过测试、Review 和 snapshot gate，不等同于正常完成。真不要这项工作时应 interrupt 后 cancel，而不是 force-close。
-
-`--reason` 技术上可省略，但建议保留，因为这是以后判断异常关闭的唯一直接背景。
-
-## Architect 与 Critic
-
-### Architect
-
-Architect 是用户手动触发的独立结构审查。普通 Task Review 不替代它。
-
-在 Claude Code 中：
-
-```text
-/aiwf-architect
-```
-
-主会话会先向用户确认：
-
-- Review slice：全项目、Milestone、最近完成工作、某条能力路径或指定问题。
-- Lenses：
-  - `mission-mechanism`：当前技术路径是否真的通向固定 Mission，是否有更高杠杆结构。
-  - `code-reality`：调用者、消费者、主路径、旧路径、未接线和死代码。
-  - `governance-truth`：Goal/Plan/Task/Milestone 结构与机器状态是否真实。
-  - `milestone-acceptance`：真实验收一个 Milestone。
-- 是否需要外部标准、当前 benchmark 或 WebSearch。
-
-小切片可以由一个 Architect 完成。全项目、多 lens 或大量外部比较应先问用户是否拆成多个并行 Architect。每个 Agent 写入独立的：
-
-```text
-.aiwf/reports/architect/ARCH-YYYYMMDD/<lens>/
-```
-
-Architect 只报告，不创建 Task，不实现，也不替 Planner 决定后续。
-
-### Milestone acceptance
-
-Milestone 验收使用 Architect，但还需要机器记录和人类确认：
-
-```bash
-aiwf milestone integration-test MS-001 --status passed \
-  --coverage-mode end_to_end_flow --main-path-status passed \
-  --command "<command>:::<observed output>"
-
-aiwf milestone arch-review MS-001 --status intact --notes "interfaces remain intact"
-aiwf milestone assess MS-001 --verdict PASS --summary "Pass Standard 全部通过"
-aiwf milestone confirm MS-001 --summary "用户接受当前结果和列出的残余风险"
-aiwf milestone close MS-001
-```
-
-`confirm` 只能在用户看到验收结果并明确同意后运行。
-
-当 Milestone.md 明确选择源码级追踪时，可改用：
-
-```bash
-aiwf milestone integration-test MS-001 --status passed \
-  --coverage-mode function_reverse_trace --main-path-status passed \
-  --source-file src/protocol.py \
-  --function-trace "src/protocol.py::decode::receive_message::connected" \
-  --accounted-file src/generated.py \
-  --summary "声明范围内的函数均已连接或明确说明用途"
-```
-
-### Critic
-
-Critic 是用户主动调用的独立怀疑者：
-
-```text
-/aiwf-critic
-```
-
-它可以挑战全项目、Mission、Goal、Plan、Task、Milestone、技术决策、结果或指定 claim。Critic 不加入正常 workflow，不阻塞工作，也不修改文件。用户可以要求“只批判”或“批判并给更好方向”。
-
-## Hooks 与写保护
-
-Claude 安装会配置这些 hooks：
-
-| 时机 | 作用 |
-|---|---|
-| UserPromptSubmit | 状态或问题变化时发一条短提醒，让模型运行 `aiwf status --prompt` |
-| PreToolUse Read/Glob/Grep | 把 Task Agent 和明确的 Planner 内联工作持续路由到对应 Plan worktree |
-| PreToolUse Write/Edit/MultiEdit | 检查 active Task、角色写权限、Task freeze 和 forbidden write |
-| PreToolUse Bash | 先进入对应 Plan worktree，再检查写入并阻止危险命令、直接写机器真相和手工 commit |
-| PreToolUse Agent/Task | 检查所需 Skill 和阶段，按 Task ID 注入当前契约与 worktree，并阻止重复或替代派发 |
-| PostToolUse Skill/Agent | 记录 Skill load；Agent 返回时结束本次派发并给出下一步 |
-| PostToolUseFailure Agent/Task | Agent 调用失败时释放派发占用，并把真实错误交回当前会话 |
-| PostToolUse Write/Edit/MultiEdit | 治理 Markdown 变更后自动 sync |
-| SubagentStop | 记录关键子代理结束 |
-| Stop | 只在 Task 已进入 closing 且仍未正常关闭时阻止会话退出 |
-
-Hook 提醒故意很短。完整下一步始终来自：
-
-```bash
-aiwf status --prompt
-```
-
-### 默认写保护
-
-- 项目代码默认要求 active Task。
-- 当前 active Task.md 默认冻结。
-- `.aiwf/state/` 和 `.aiwf/records/` 只能通过 CLI 修改。
-- Mission、Goal、Plan、非活动 Task、Milestone 和 Memory 是 Planner 治理文档，不依赖 active Task。
-- Task 第一次实现可强制要求 Executor。
-- Tester 默认只能写明显的测试或验证资产。
-- Architect 默认只能写 `.aiwf/reports/architect/ARCH-*/` 下的 Markdown 报告。
-- Explorer 和 Critic 默认只读。
-- Reviewer 按角色合同只读。
-
-OpenCode Plugin 在 `tool.execute.before/after` 执行同一组写入、命令、角色顺序和
-sync 检查，并在上下文压缩时写入最新路由。OpenCode 当前没有等价的可阻塞 Stop
-事件，因此 Task 是否完成仍以 records 和 `aiwf task close` 为准。
-
-这些 Hook/Plugin 约束 Agent 工具，不限制人在终端或编辑器中的改动。没有活动 Task
-时，人可以在 TUI 中临时允许当前 AI 直接修改项目文件；AIWF 的机器真相和危险命令
-仍受保护，成功激活 Task 时该授权自动关闭。
-
-## 配置
-
-配置位于 `.aiwf/config/`。Planner 可以管理普通 AIWF 配置；`command-policy.json` 保护 human-only 命令，AI 不可自行修改。
-
-### write-policy.json
-
-默认值：
-
-```json
-{
-  "project_writes_require_active_task": true,
-  "freeze_active_task_md": true,
-  "first_implementation_requires_executor": true,
-  "governance_git_tracking": "tracked",
-  "tester_project_writes": "test_assets_only",
-  "architect_project_writes": "reports_only",
-  "explorer_project_writes": "deny",
-  "critic_project_writes": "deny"
-}
-```
-
-允许值：
-
-| 字段 | 允许值 | 含义 |
-|---|---|---|
-| `project_writes_require_active_task` | `true`, `false` | 项目文件是否必须在 active Task 中写 |
-| `freeze_active_task_md` | `true`, `false` | 执行时是否冻结当前 Task.md |
-| `first_implementation_requires_executor` | `true`, `false` | 当 Task 要求 Executor 时，首次实现是否机械强制子代理 |
-| `governance_git_tracking` | `tracked`, `local` | 治理层由 Git 聚合追踪，或只保留在本机；使用 `aiwf governance tracking` 切换 |
-| `tester_project_writes` | `deny`, `test_assets_only`, `allow_all` | Tester 可写范围 |
-| `architect_project_writes` | `deny`, `reports_only`, `allow` | Architect 可写范围 |
-| `explorer_project_writes` | `deny`, `allow` | Explorer 是否可写项目文件 |
-| `critic_project_writes` | `deny`, `allow` | Critic 是否可写项目文件 |
-
-`allowed_values` 是文件内帮助信息，不参与 gate 判断。配置缺失或损坏时，hook 回退到严格默认值。
-
-Task 自己的 `executor_required`、`tester_required`、`reviewer_required` 和可选 `tester_write` 写在 Task.md frontmatter 中，必须在激活前决定。
-
-### agent-models.json
-
-所有 Agent 默认使用：
-
-```json
-"aiwf-executor": "inherit"
-```
-
-`inherit` 表示继承当前后端模型。也可以填写该宿主支持的模型 alias 或完整 model ID。修改后重新安装生成 Agent frontmatter：
-
-```bash
-aiwf install claude --force
-# 或
-aiwf install codex --force
-# 或
-aiwf install opencode --force
-```
-
-Claude Agent 继承当前 Claude Code 的原生工具、MCP、网络和权限。Codex 从
-`.codex/agents/*.toml` 读取完整角色指令，所有角色使用 `workspace-write` 以便写入
-合法 records 或测试资产，项目文件边界继续由 AIWF scope hooks 管理。OpenCode Agent
-使用原生 permission 字段，Reviewer 禁止项目编辑；其他角色的项目写入仍由
-`write-policy.json` 精确限制。Bash、Skill 和宿主提供的网络能力由 OpenCode 配置决定。
-
-### skill-map.json
-
-它把 workflow phase 映射到 Skill。通常不需要修改。`CLAUDE.md` 只提供方向，`aiwf status --prompt` 和该文件共同决定当前 Required skills。
-
-### command-policy.json
-
-它记录额外的 AI 命令禁令。`task interrupt`、`task force-close` 和
-`fixloop continue` 还有硬编码的人类专属保护，因此不能通过删除普通配置让 AI 调用。
-
-## TUI 交互模式与诊断
-
-### 推荐的日常界面
-
-`aiwf ui` 是面向人的交互式治理入口：它把 Mission、Goal、Plan、Task、Milestone、运行状态和关键记录放在同一个终端界面中。Claude Code 继续完成规划、实现、测试和审查；TUI 用来观察全局、阅读结果，以及执行明确需要人参与的操作。
-
-```bash
-aiwf ui
-```
-
-界面由三部分组成：
-
-- 左侧是当前结构树，显示节点层级、状态和 active Task。
-- 右侧是选中节点的内容与关系，长文本会按终端宽度换行。
-- 底部显示活跃 Task、阶段、Plan 收口状态、临时写入状态和可用按键。
-
-按 `Tab` 可以在五种视图之间切换：
-
-- `Main`：Mission 到 Goal、Plan、Task 的主结构。
-- `Milestones`：从 Milestone 查看关联能力和工作。
-- `Tasks`：按 Plan 查看 Task 和依赖。
-- `PlanChain`：查看 Plan 依赖和集成顺序。
-- `GoalDeps`：查看 Goal 能力依赖。
-
-TUI 优先使用 `$VISUAL`，其次使用 `$EDITOR` 编辑 Markdown，并在编辑器退出后运行 `aiwf sync`。使用 GNU nano 时，AIWF 只为当前编辑会话启用软换行和按词换行，不修改 `~/.nanorc`；如果系统的 `nano` 实际是没有软换行能力的 Pico，退出编辑器后会显示安装 GNU nano 或改用其他编辑器的提示。机器状态仍由 CLI 维护；TUI 不直接修改 `.aiwf/state/` 或 `.aiwf/records/`。
-
-### 最常用的诊断顺序
-
-遇到问题时按这个顺序查看：
-
-```bash
-aiwf status
-aiwf status --prompt
-aiwf task proof [TASK-ID]
-aiwf fixloop status --task-id [TASK-ID]
-aiwf sync --check
 aiwf doctor
-aiwf status --debug
+aiwf doctor --host codex
+aiwf sync --check
 ```
 
-含义：
-
-- `status`：给人看的当前工作区、active Tasks 和下一角色。
-- `status --prompt`：给模型看的精确下一步与 Required skills。
-- `task proof`：某 Task 的 Git refs、实现、Testing 和 Review 真相。
-- `fixloop status`：返工原因、路由和 ID 化验证义务。
-- `sync --check`：Markdown 和机器索引是否可编译。
-- `doctor`：安装、hooks、skills、agents、scripts 和目录是否完整。
-- `status --debug`：完整 JSON 调试面板。
-
-### 交互操作
-
-主要按键：
-
-- `Tab`：切换五种结构视图。
-- `j` / `k` 或方向键：移动选择；`g` / `G`：跳到顶部或底部。
-- `J` / `K`：滚动右侧详情。
-- `Enter` 或 `e`：用 `$EDITOR` 编辑叙事 Markdown，随后 sync。
-- `r`：查看选中 Task 的实现、测试和 Review 记录。
-- `m`：查看和编辑 AIWF Memory。
-- `v`：选择精简 branch/merge 图或完整 commit 图；两者都不显示 AIWF 内部 snapshot。
-- `a`：手动开启或关闭临时 AI 项目写入；有活动 Task 时不能开启。
-- `c`：当选中 Task 因重复失败等待决定时，确认继续当前 fix-loop route。
-- `s`：sync。
-- `d`：切换详情。
-- `x`：显示或隐藏 cancelled 节点。
-- `q`：退出。
-
-`a` 是明确的人类操作：只在没有 active Task 时临时允许当前 AI 修改普通项目文件；成功激活 Task 后自动关闭。AIWF 状态、记录、受保护配置和危险命令不会因此放开。
-
-TUI 需要支持 curses 的交互终端。它是推荐的人类交互入口，但不是系统运行的前提；全部治理仍可通过 Claude Code 和 CLI 完成。Git 图使用现成的 `tig`，未安装时只有 `v` 功能不可用。macOS 可运行：
-
-```bash
-brew install tig
-```
-
-### Hook 日志
-
-如果 hook 明明安装却没有作用，查看：
+## 安装后主要文件
 
 ```text
-.aiwf/runtime/internal/hook-diag.log
-.aiwf/runtime/internal/skill-loads.jsonl
-.aiwf/runtime/internal/agent-dispatch.jsonl
-.aiwf/runtime/internal/status-hook-last.json
-```
-
-这些是诊断材料，不是 Planner 的项目事实。
-
-## 命令索引
-
-查看入口：
-
-```bash
-aiwf --help
-aiwf --help --all
-aiwf <command> --help
-```
-
-### 安装与状态
-
-```bash
-aiwf install claude [--force]
-aiwf install codex [--force]
-aiwf install opencode [--force]
-aiwf install reasonix [--force]
-aiwf doctor [--host claude|codex|opencode|reasonix]
-aiwf status [--prompt | --debug]
-aiwf sync [--check]
-aiwf ui
-```
-
-### Governance Git
-
-```bash
-aiwf governance status
-aiwf governance checkpoint
-aiwf governance tracking tracked|local  # 用户选择；Agent 不自行切换
-```
-
-`status` 只查看当前追踪模式和待固化的稳定治理文件；`checkpoint` 在 `tracked`
-模式下只提交 pending `.aiwf` 治理文件，不提交项目代码。通常在 Plan integration
-或治理收口边界使用，不需要每次写文件都运行。
-
-### Mission
-
-```bash
-aiwf mission show
-```
-
-Mission 语义通过 `.aiwf/mission.md` 编辑，再 `aiwf sync`。
-
-### Goal
-
-```bash
-aiwf goal create GOAL-001 --title "..."
-aiwf goal create GOAL-002 --parent GOAL-001 --title "..."
-aiwf goal show [GOAL-ID]
-aiwf goal list
-aiwf goal link GOAL-A GOAL-B --type supports
-aiwf goal unlink GOAL-A GOAL-B
-aiwf goal close GOAL-001 --summary "..."
-aiwf goal cancel GOAL-001 --reason "..."
-```
-
-关系类型：`depends_on`、`blocks`、`conflicts_with`、`invalidates`、`supports`。
-
-### Plan
-
-```bash
-aiwf plan create PLAN-001 --goal GOAL-001 --title "..."
-aiwf plan show PLAN-001
-aiwf plan list
-aiwf plan bind-worktree PLAN-001 --create
-aiwf plan bind-worktree PLAN-001 [EXISTING-PATH]
-aiwf plan link-task PLAN-001 TASK-001
-aiwf plan unlink-task PLAN-001 TASK-001
-aiwf plan dep add PLAN-002 PLAN-001
-aiwf plan dep remove PLAN-002 PLAN-001 --reason "..."
-aiwf plan dep show PLAN-002
-aiwf plan hold PLAN-001
-aiwf plan integrate PLAN-001
-aiwf plan integrate PLAN-001 --status passed \
-  --command "..." \
-  --result "...:::...:::matched"
-aiwf plan cancel PLAN-001 --reason "..."
-```
-
-### Task
-
-```bash
-aiwf task create TASK-001 --goal GOAL-001 --plan PLAN-001 --title "..."
-aiwf task show [TASK-ID]
-aiwf task proof [TASK-ID]
-aiwf task list
-aiwf task critique TASK-001
-aiwf task activate TASK-001
-aiwf task calibrate [TASK-ID] --summary "..."
-aiwf task close [TASK-ID]
-aiwf task interrupt [TASK-ID] --reason "..."      # human only
-aiwf task force-close [TASK-ID] --reason "..."    # human only
-aiwf task cancel TASK-001 --reason "..."
-aiwf task restore TASK-001 --status ready --reason "..."  # human only
-aiwf task reopen TASK-001 --reason "..."                  # human only, unconsumed close only
-```
-
-### Records
-
-```bash
-aiwf record implementation --help
-aiwf record testing --help
-aiwf record review --help
-aiwf record disposition --help
-```
-
-### Fix-loop
-
-```bash
-aiwf fixloop open --route executor --reason "..." --verify V-001
-aiwf fixloop open --route executor --reason "..." \
-  --verify 'FIX-001:::<exact command>:::<expected observable>'
-aiwf fixloop status [--task-id TASK-001]
-aiwf fixloop continue [--task-id TASK-001]          # human only
-aiwf fixloop resolve --resolution "..." [--task-id TASK-001]
-```
-
-### Milestone
-
-```bash
-aiwf milestone create MS-001 --goal GOAL-001 --title "..."
-aiwf milestone show MS-001
-aiwf milestone list
-aiwf milestone link-plan MS-001 PLAN-001
-aiwf milestone unlink-plan MS-001 PLAN-001
-aiwf milestone link-task MS-001 TASK-001
-aiwf milestone unlink-task MS-001 TASK-001
-aiwf milestone integration-test --help
-aiwf milestone arch-review --help
-aiwf milestone assess --help
-aiwf milestone confirm --help
-aiwf milestone close MS-001
-aiwf milestone cancel MS-001 --reason "..."
-```
-
-## 目录结构
-
-Claude Code 目标项目安装后：
-
-```text
-CLAUDE.md
-.claude/
-├── settings.json
-├── skills/
-│   ├── aiwf-planner/
-│   ├── aiwf-implement/
-│   ├── aiwf-test/
-│   ├── aiwf-review/
-│   ├── aiwf-close/
-│   ├── aiwf-architect/
-│   └── aiwf-critic/
-└── agents/
-    ├── aiwf-explorer.md
-    ├── aiwf-executor.md
-    ├── aiwf-tester.md
-    ├── aiwf-reviewer.md
-    ├── aiwf-architect.md
-    └── aiwf-critic.md
-
 .aiwf/
-├── mission.md
-├── goals/
-├── plans/
-├── tasks/
-├── milestones/
-├── memory/
-│   ├── project-facts.md
-│   ├── MEMORY.md
-│   └── notes/
-├── state/
-│   ├── mission.json
-│   ├── goals.json
-│   ├── plans.json
-│   ├── tasks.json
-│   ├── milestones.json
-│   └── state.json
+├── goals/ plans/ tasks/ milestones/   # Markdown meaning
+├── state/                             # runtime state
 ├── records/
-│   ├── tasks/<TASK-ID>.json
-│   └── events.json
+│   ├── tasks/                         # implementation/review/fix-loop records
+│   └── experiments/                   # empirical facts and immutable refs
 ├── config/
-│   ├── write-policy.json
-│   ├── command-policy.json
-│   ├── agent-models.json
-│   └── skill-map.json
-└── runtime/internal/
+└── memory/
 
-scripts/
-├── aiwf_status.py
-├── aiwf_scope_check.py
-├── aiwf_bash_guard.py
-├── aiwf_agent_gate.py
-├── aiwf_agent_log.py
-├── aiwf_skill_log.py
-├── aiwf_auto_sync.py
-└── aiwf_review_gate.py
+.claude/agents/aiwf-{executor,experimenter,reviewer}.md
+.claude/skills/aiwf-{implement,experiment,review}/
+
+.codex/agents/aiwf-{executor,experimenter,reviewer}.toml
+.agents/skills/aiwf-{implement,experiment,review}/
 ```
 
-OpenCode 版使用同一个 `.aiwf/` 和 `scripts/`，宿主资产改为：
-
-```text
-AGENTS.md
-opencode.json
-.opencode/
-├── agents/
-├── skills/
-└── commands/aiwf-planner.md
-scripts/aiwf_opencode_plugin.js  # OpenCode Plugin
-```
-
-Toolkit 自身源码：
-
-```text
-aiwf_core/
-├── commands/             # CLI 参数和用户输出
-├── core/                 # 状态、Task ledger、Git、records、sync
-├── hooks/common/         # 后端无关 gate
-├── adapters/claude/      # Claude / Reasonix 事件适配
-├── platform/             # POSIX / Windows 平台差异
-├── embedded_templates/   # 安装到目标项目的 skills、agents、config、scripts
-├── install_claude.py     # Claude / Reasonix 安装与 doctor
-├── install_codex.py      # Codex 安装与 doctor
-└── install_opencode.py   # OpenCode 安装与 doctor
-
-tests/embedded/           # 当前主链合同和端到端测试
-```
-
-`docs/legacy/` 是历史材料，不应作为当前操作指南。
-
-## 故障排除
-
-### `No embedded AIWF installation found`
-
-确认在目标项目或其子目录中运行：
+## 开发验证
 
 ```bash
-aiwf install claude
-aiwf doctor
-```
-
-如果刚安装，重启 Claude Code，让项目 settings 和 hooks 重新加载。
-
-### `aiwf: command not found`
-
-确认安装环境和 PATH：
-
-```bash
-python3 -m pip install -e /path/to/AI-Workflow-Toolkit
-python3 -m pip show aiwf
-which aiwf
-```
-
-### Doctor 报 Skill、Agent、Script 或 Hook 缺失
-
-刷新安装产物：
-
-```bash
-aiwf install claude --force
-# Codex 项目使用：aiwf install codex --force
-# OpenCode 项目使用：aiwf install opencode --force
-aiwf doctor
-```
-
-`--force` 会刷新 AIWF 托管区块、hooks、skills、agents 和 scripts，不会覆盖现有机器状态、Task records 或 Memory 内容。安装器会保留 `.claude/settings.json` 中不属于 AIWF 的 hooks。
-
-### Claude 没有按 workflow 路由
-
-运行：
-
-```bash
-aiwf status --prompt
-```
-
-确认 Claude 加载了输出中的 Required skills。必要时手动运行 `/aiwf-planner`。再检查：
-
-```text
-.aiwf/runtime/internal/skill-loads.jsonl
-.aiwf/runtime/internal/hook-diag.log
-```
-
-### Agent dispatch 被拒绝
-
-常见原因：
-
-- 当前阶段要求的 Skill 没有先加载。
-- prompt 没有写唯一 Task ID。
-- prompt 没有写唯一 Task ID，或 Task 尚未绑定 worktree。
-- Task 不在 active 状态。
-- 一个 worktree 已有另一个 active Task。
-
-先运行：
-
-```bash
-aiwf status --prompt
-aiwf task show TASK-001
-aiwf task proof TASK-001
-```
-
-然后按对应 Skill 重新派发，不要把多个 Task 塞进一个 Agent prompt。
-
-### 写项目文件时提示 `no active task`
-
-项目代码默认只能在 active Task 中修改。让 Planner 完成合同、两次批判和 Git 准备后运行：
-
-```bash
-aiwf task activate TASK-001
-```
-
-Mission、Goal、Plan、非活动 Task、Milestone 和 Memory 属于规划治理文件，不需要 active Task。机器 JSON 仍必须走 CLI。
-
-### 写 `.aiwf/state/*.json` 或 `.aiwf/records/*.json` 被拒绝
-
-这是正常保护。使用对应的 `aiwf goal`、`plan`、`task`、`record`、`fixloop`、`milestone` 或 `sync` 命令，不要用 Write/Edit/Bash 改 JSON。
-
-没有 active Task 时，`git add` 这些由 CLI 生成的文件是允许的；staging 不会修改其内容。
-
-### 修改 active Task.md 被拒绝
-
-Task 激活后合同被冻结。小的实现判断留给 Executor；实际结果写 Closure Calibration。
-
-如果合同确实错误：
-
-1. 人类运行 `aiwf task interrupt TASK-001`。
-2. Planner 修订 Task.md 并 `aiwf sync`。
-3. Planner 重新执行两次 activation critique。
-4. 再次激活。
-
-不要为了让当前实现通过而回写 Done When。
-
-### `first implementation must be performed by aiwf-executor`
-
-当前 Task 要求 Executor，并且还没有第一次实现记录。加载 `/aiwf-implement`，派发 `aiwf-executor`。
-
-第一次 Executor 完成后，微小、局部、完全理解的返工可以由 Planner 判断是否内联。涉及主路径、接口、状态、数据、并发、权限、安全或部署的返工仍应再派 Executor。
-
-如果该 Task 确实不需要独立 Executor，必须在激活前由 Planner 把 `executor_required: false` 写入 Task.md，而不是激活后绕门。
-
-### Tester 写测试文件被拒绝
-
-默认 `tester_project_writes: test_assets_only`。AIWF 会识别常见的 `tests/`、`test/`、`spec/`、`e2e/`、fixtures、snapshot 和测试文件名。
-
-特殊测试位置应在 Task 激活前写入 frontmatter：
-
-```yaml
-tester_write:
-  - path/to/project-specific/test-area/**
-```
-
-或者由人修改 `write-policy.json` 为 `allow_all`。Tester 不能借此修改实现代码。
-
-### Task 激活提示需要 Git 仓库或初始提交
-
-```bash
-git init -b main
-git add -A
-git commit -m "Initial project"
-```
-
-然后运行 `aiwf plan bind-worktree PLAN-001 --create`。Task 不允许在
-protected branch 上执行。
-
-### Task 激活提示 protected branch
-
-不要在 `main`、`master` 或 `trunk` 上开始 Task。让 Planner 从 control root
-创建 Plan worktree：
-
-```bash
-aiwf plan bind-worktree PLAN-001 --create
-```
-
-### Task 激活提示 worktree 不干净
-
-AIWF 不会猜这些改动属于哪个 Task。先查看：
-
-```bash
-git status --short
-git diff
-```
-
-然后由人决定提交、stash、移除，或把它们纳入新的规划。不要让 Planner擅自丢弃外部改动。
-
-`.aiwf/` 内部变化会被项目 diff gate 过滤，但普通项目文件、安装脚本、`CLAUDE.md` 和 `.claude/` 仍是正常 Git 改动。
-
-### Plan 已绑定其他 branch 或 worktree
-
-查看：
-
-```bash
-aiwf plan show PLAN-001
-git branch --show-current
-git worktree list
-```
-
-Plan 一旦绑定，不能静默换到另一个 branch/worktree。回到原路径，或取消旧 Plan 并创建清楚的新 Plan。
-
-### Plan dependency 阻止 Task 激活
-
-```bash
-aiwf plan dep show PLAN-002
-aiwf plan show PLAN-001
-```
-
-依赖 Plan 必须完成 Tasks、合并并 close。不要仅因为两个分支都“写完了”就删除依赖。
-
-### 当前 worktree 显示没有 active Task，但其他地方正在执行
-
-```bash
-aiwf status
-aiwf task list
-```
-
-`status` 会列出所有 Plan worktrees。进入对应 worktree，或在命令中明确传 `--task-id`。不要在错误 worktree 记录 Testing、Review 或 fix-loop。
-
-### Testing 提示没有 implementation record
-
-当 `executor_required: true` 时，Tester 只能在 Executor 已记录实现后开始。运行：
-
-```bash
-aiwf task proof TASK-001
-```
-
-如果实现存在但没记录，让原 Executor 在正确 worktree 运行 `aiwf record implementation`。不要由 Planner 补一条假的 handoff。
-
-### Review 提示没有 tested snapshot
-
-Reviewer 只审查 Tester 的最终 snapshot。先完成 Testing。若 Testing 后有任何项目文件变化，重新记录 Testing，再运行 Reviewer。
-
-### Testing 已通过，但 close 提示 Verification Command 缺失
-
-严格 Task 的每条 Verification Command 都需要：
-
-- Task.md 中的稳定 ID 和可直接执行的命令；不要写 `...` 或 `<maps_dir>` 之类的占位符。
-- 用 `--check <ID>` 记录实际 `--observed` 或 `--observed-file`。
-- 用 `--verdict matched|mismatched|blocked` 做明确判断；`blocked` 必须有 `--basis`。
-
-运行 `aiwf task proof TASK-001` 查看 `proof_validation`。不要把 summary 当作命令输出。
-
-### Review 几乎总是 accepted，怎样判断它是否真正工作
-
-不要只看 `result`。阅读 Reviewer 返回给 Planner 的 `REVIEW_REPORT`，并检查：
-
-- 它是否说明 Executor 实际修改。
-- 是否引用 Tester 命令和结果。
-- 是否写明自己追踪的调用者、消费者、旧路径和完整 diff。
-- 是否解释为什么整个 Task claim 成立。
-- 是否明确剩余 Unknown。
-
-`aiwf task proof` 保存的是精要机器记录；具体工作汇报存在当前会话 handoff 中。泛泛的“看起来很好”不符合 Reviewer Skill。
-
-### Close 提示 pending Reviewer observations
-
-Planner 必须逐条确认：
-
-```bash
-aiwf record disposition ADV-001 --task-id TASK-001 \
-  --decision resolved --reason "已修复并在新 tested snapshot 中验证"
-```
-
-也可以对非阻塞风险使用 `deferred`、`dismissed` 或 `accepted`，但必须给真实理由。能在
-本轮安全修复并验证的问题应先修复；选择 deferred 前必须向用户说明原因和返回条件并征得
-同意。critical/high 问题不能通过 accepted Review 留到以后。
-
-### Close 提示 open fix-loop
-
-```bash
-aiwf fixloop status --task-id TASK-001
-aiwf status --prompt
-```
-
-普通 implementation repair 会在修复记录和 Testing 通过后自动解决。如果仍是
-Planner decision，做出决定并满足所需证据后运行 `aiwf fixloop resolve`；如果仍路由
-Tester，说明某个 `V-*` 或 `FIX-*` 义务尚未在当前实现上得到 matched 证据。修复改变
-代码后仍需要新的 Testing 和 Review。
-
-### Close 提示 `project files changed after review`
-
-Close 会列出相对 `reviewed_ref` 缺少、多出或修改的路径。Snapshot 不在当前
-分支是正常的，不要先提交或 cherry-pick 它。确认列出的差异后，重新派 Tester，
-再派 Reviewer。
-
-### Close 提示 Git index 已有 staged files
-
-AIWF 要精确创建 reviewed Task commit，不能混入已有暂存。先查看：
-
-```bash
-git diff --cached
-```
-
-由人决定如何处理这些 staged files，再关闭 Task。不要使用破坏性 reset 丢改动。
-
-### Close 提示没有 reviewed project changes
-
-Task 的最终 snapshot 与 origin 没有项目差异。确认：
-
-- Task 是否本来只做治理变更。
-- 实现是否写在错误 worktree。
-- 改动是否已经被其他手工 commit 提前提交。
-- Task 是否应该 cancel，而不是伪造 evidence。
-
-### Close 警告缺少 Closure Calibration
-
-让 Planner 记录实际结果：
-
-```bash
-aiwf task calibrate TASK-001 --summary "..."
-```
-
-CLI 当前给出警告；正常 Skill 流程把 Calibration 作为收口必要步骤。它用于事后理解 Task 实际交付，不用于改写原合同。
-
-### Stop hook 不让 Claude Code 结束
-
-Stop 只在 Task 已进入 closing 但还没通过 `aiwf task close` 时阻止退出。运行：
-
-```bash
-aiwf status --prompt
-aiwf task proof TASK-001
-```
-
-完成缺失的 Planner disposition、Calibration 或 Close。如果人要暂停，使用终端中的 human-only `aiwf task interrupt`。
-
-### Plan 合并收口被阻止
-
-Plan 合并并关闭要求：
-
-- 全部 Task 已 closed 或 cancelled。
-- 项目工作树干净。
-- Plan 有 Git branch 历史。
-- 当前已经切到识别出的 base branch。
-- Plan 的最后 Task commit 已合并到当前 base HEAD。
-- 当前 base 包含通过验证的 integration candidate 和对应 merge commit。
-
-全部 Task 结束不等于自动合并。`aiwf status --prompt` 会先让 Planner 询问用户。
-如果用户想暂时保留当前 Plan：
-
-```bash
-aiwf plan hold PLAN-001
-```
-
-Plan 保持 open；只有结果变化或用户重新要求处理时才需要再次决定。
-
-典型顺序：
-
-```bash
-aiwf plan integrate PLAN-001
-# 按提示在精确 candidate 上运行组合验证
-# 在 Plan.md 写入简短的 ## Closure Calibration
-aiwf plan integrate PLAN-001 --status passed \
-  --command "<exact command>" \
-  --result "<expected>:::<observed>:::matched"
-```
-
-`Closure Calibration` 由 Planner 根据实际结果写入 Plan.md 正文。第一段说明 Plan
-实际交付了什么；只补充重要偏差和后续必须知道的剩余问题。`--status passed` 读取这段
-内容，将第一段保存为机器摘要，然后立即合并通过的候选并关闭 Plan。只有用户已经选择
-合并时才运行。合并成功会用独立 governance checkpoint 保存治理状态。如果命令在项目
-merge 后中断，原样重跑即可补完治理收口，不会重复合并。如果用户改为暂时保留，运行
-`aiwf plan hold PLAN-001`。
-
-用户明确接受未达结果时，使用：
-
-```bash
-aiwf plan integrate PLAN-001 --status accepted_with_gaps \
-  --command "<exact command>" \
-  --result "<expected>:::<observed>:::mismatched" \
-  --known-gap "<未达结果及其后果>" \
-  --acceptance-reason "<用户为什么接受现在合并关闭>"
-```
-
-每个验证命令仍必须有真实 observed 结果；`accepted_with_gaps` 不是跳过验证。它与
-`passed` 的区别是允许用户在看见具体偏差后接受限制。Plan 的
-`closure.mode=accepted_with_gaps`，`known_gaps` 和 `acceptance_reason` 会进入机器状态。
-后续修复应创建新 Plan，不能继续修改已经关闭的 Plan。
-
-`plan integrate` 第一次运行进入 Integration Stage：先审计 base 与 Plan worktree，再准备
-候选，不会合入 base。脏文件、未完成 Git 操作会作为可处理事实返回，而不是把 Planner
-锁在流程外；ignored 文件和空目录会作为环境完整性提示。Planner 可直接使用原生编辑和
-Git 处理本地残留、应交付资产、可重建产物或未知风险，然后重新运行同一个命令。候选形成
-后，任何修改只会令候选失效并要求重新 Prepare，不会被写入 guard 阻止。
-
-发生冲突时，Planner 先看真实 diff。Git、生成文件或环境类的小冲突直接解决，不创建 Task，
-也不派角色。只有解决方案会改变行为、接口、依赖或产品含义时，才创建 `kind=integration`
-Task。重要取舍和后果写入 Plan Closure Calibration。验证后带 `--status` 的第二次运行才会
-合并并关闭 Plan。
-
-Plan 总是合入其创建时记录的 base branch。AIWF 不规定 `develop` 或 `main`，也不根据分支名
-推断“开发完成”或“已经发布”；选择 base 以及之后是否把一个分支合到另一个分支都由用户决定。
-
-### MD 与 JSON 不同步
-
-```bash
-aiwf sync --check
-aiwf sync
-aiwf doctor
-```
-
-常见原因：
-
-- 使用外部编辑器，没有触发 PostToolUse hook。
-- frontmatter 无法解析。
-- ID 与文件名不一致。
-- link 指向不存在的 Goal、Plan、Task 或 Milestone。
-- active Task.md 被修改，sync 拒绝改变当前合同。
-
-修 Markdown 或使用正确 CLI，不要反向修 JSON。
-
-### Memory 越来越大或不可信
-
-删除临时进度、猜测和当前节点已说明的内容。`project-facts.md` 保持 3-7 条且少于约 100 字；详细稳定指导放 notes，并只在 `MEMORY.md` 留一行索引。所有事实必须可回到代码、证明、Review、完成 Task、Architect 报告或用户决定。
-
-### Architect 工作太大、太慢或只看局部
-
-触发前明确 slice、lenses 和外部比较。全项目审查时让主会话询问是否拆成多个独立 lens。不要让主会话自己搜索、又让一个 Architect 重复全量搜索；外部比较由被分配该 lens 的 Architect 完成。
-
-### 两个并行 Plan 发生冲突
-
-停止后续合并，回到 Planner 检查共享责任、接口和顺序。运行 `aiwf plan integrate`
-取得冲突事实。小型 Git、生成文件或环境冲突由 Planner 在 Plan worktree 直接解决，并在
-Plan Closure 记录重要取舍；同一机制、行为或接口被同时重写时才创建 `kind=integration` Task。Plan dependency 只能表达
-先后，不能自动修复设计冲突；设计本身不成立时应修改 Plan，而不是机械解决文本冲突。
-
-### TUI 无法启动
-
-使用普通终端并确认 curses 可用。即使 TUI 不可用，仍可使用：
-
-```bash
-aiwf status
-aiwf goal show
-aiwf plan list
-aiwf task list
-aiwf milestone list
-```
-
-## 升级、迁移与移除
-
-### 升级 Toolkit
-
-```bash
-cd /path/to/AI-Workflow-Toolkit
-git pull
-python3 -m pip install -e .
-```
-
-然后在每个目标项目刷新集成：
-
-```bash
-aiwf install claude --force
-aiwf doctor
-aiwf sync --check
-```
-
-安装器会迁移已识别的旧 flat state 和旧 singleton Task records，并删除已退休的安装产物。它不会恢复外部 orchestration、legacy runner 或旧的一次性 evidence 主链。
-
-升级前仍建议提交或备份项目状态，尤其是自定义配置和治理文档。
-
-### 切换 Agent 模型
-
-编辑 `.aiwf/config/agent-models.json`，然后：
-
-```bash
-aiwf install claude --force
-```
-
-安装器保留已有模型选择，并补充新 Agent 的默认键。
-
-### 移除 AIWF
-
-当前没有自动 `uninstall` 命令。移除前先提交或备份：
-
-1. 保留或归档 `.aiwf/` 中需要的 Mission、结构、Memory 和 Task 历史。
-2. 从 `CLAUDE.md` 删除 AIWF managed block。
-3. 从 `.claude/settings.json` 删除命令指向 `scripts/aiwf_*.py` 的 AIWF hook handlers，保留其他 hooks。
-4. 删除 `.claude/skills/aiwf-*`、`.claude/agents/aiwf-*` 和 `scripts/aiwf_*.py`。
-5. 确认 `git diff` 只包含计划移除的文件。
-
-不要直接删除整个 `.claude/settings.json`，其中可能有项目自己的权限和 hooks。
-
-## 开发与验证
-
-在 Toolkit 仓库中：
-
-```bash
-PYTHONPYCACHEPREFIX=/private/tmp/aiwf-pycache \
-  python3 -m pytest -q tests/embedded
-
-bash tests/run-embedded-self-test.sh
+python3 -m pytest tests/embedded -q
+python3 -m pytest tests/v1_core/test_v1_release_gate.py -q
 bash tests/release-audit.sh
 ```
 
-完成标准：
+每条新工作流规则都应有 contract test，覆盖正确路径、错误顺序、stale state、宿主安装
+产物和已删除旧运行时不会复活。
 
-- Embedded tests 通过。
-- Release audit 通过。
-- Claude 和 OpenCode 各自的 skills、agents、hooks/plugins 和 scripts 完整，并共享同一套治理语义。
-- 主链没有恢复 legacy external runtime。
-- 新 workflow 规则有正常路径、错误顺序、陈旧状态和安装产物合同测试。
-- 真实 CLI、Git snapshot 和临时项目 smoke test 与文案一致。
+## 明确不支持
 
-项目核心原则：
+不要重新引入：
 
-- Intelligence belongs to the coding agent.
-- Governance belongs to AIWF.
-- Markdown 保存语义，JSON 保存机器状态。
-- 状态变更走 CLI，语义变更走 Markdown + sync。
-- Testing 不是 Review checklist。
-- Reviewer observation 在 close 前必须处置。
-- 一个 Plan 一个 worktree，一个 worktree 一个 active Task。
-- 同一 Task 的 Executor、Tester、Reviewer 串行。
-- Task close 只提交 reviewed snapshot。
-
-## 安全边界
-
-AIWF hooks 是工程治理机制，不是恶意代码隔离沙箱。
-
-- 它能拦截 Claude Code 配置中的常见 Write/Edit/Bash/Agent 路径。
-- 它不能控制人类终端、外部进程、未接入的工具或操作系统权限。
-- `command-policy` 和危险 Bash 检查降低误操作风险，但不能替代 Git、备份、代码审查、最小权限和发布审批。
-- MCP 和网络工具是否可用由 Claude Code 配置决定。
-- 安全、数据迁移、生产部署和不可逆操作仍需要人类判断。
-
-## License
-
-MIT
+- `.ai-workflow/`；
+- 外部 runner 或 managed runtime；
+- fake terminal executor；
+- 外部 `aiwf planner` / `aiwf handoff` / `aiwf action`；
+- 首条用户消息自动生成 Task；
+- 把测试降为 checklist；
+- 把 Experimenter 变成实现后的固定阶段；
+- 由另一个角色补做 Executor 应完成的 V-* 义务。

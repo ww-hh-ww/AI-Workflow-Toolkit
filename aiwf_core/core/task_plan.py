@@ -32,7 +32,6 @@ SECTION_COMPAT = {
     "open-questions": "goal",
     "decisions": "decision",
     "implementation": "route",
-    "testing": "verification",
     "review": "verification",
     "evidence": "verification",
     "checklist": "next-steps",

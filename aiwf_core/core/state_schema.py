@@ -21,10 +21,10 @@ def default_state() -> Dict[str, Any]:
         "updated_at": "",
     }
 
-# V2 canonical phases: planning, executing, testing, reviewing, closing, blocked, closed
+# Canonical Task phases. Experiments are orthogonal records, never a Task phase.
 # V1 aliases kept for backward compat: discussing→planning, planned→planning, implementing→executing
 VALID_PHASES = {
-    "planning", "executing", "testing", "reviewing", "closing", "blocked", "closed",
+    "planning", "executing", "reviewing", "closing", "blocked", "closed",
     # V1 backward compat
     "discussing", "planned", "implementing",
 }
@@ -93,23 +93,10 @@ def default_implementation(task_id: str = "") -> Dict[str, Any]:
         "task_id": task_id,
         "summary": "",
         "implementation_ref": "",
-        "recorded_at": "",
-    }
-
-# ── testing.json ──────────────────────────────────────────────────────
-
-def default_testing(task_id: str = "") -> Dict[str, Any]:
-    return {
-        "task_id": task_id,
-        "status": "missing",
-        "commands": [],
-        "summary": "",
-        "tested_ref": "",
+        "verification_results": [],
         "proof_contract_fingerprint": "",
         "recorded_at": "",
     }
-
-VALID_TESTING_STATUSES = {"missing", "partial", "adequate", "passed", "failed"}
 # ── review.json ───────────────────────────────────────────────────────
 
 def default_review(task_id: str = "") -> Dict[str, Any]:
@@ -124,8 +111,9 @@ def default_review(task_id: str = "") -> Dict[str, Any]:
         "recorded_at": "",
     }
 
-VALID_REVIEW_RESULTS = {"unknown", "accepted", "needs_fix", "needs_more_testing",
-                         "evidence_insufficient", "scope_violation", "rejected"}
+VALID_REVIEW_RESULTS = {
+    "unknown", "accepted", "needs_change", "needs_experiment", "scope_violation", "rejected",
+}
 
 # ── claims.json ───────────────────────────────────────────────────────
 
@@ -150,6 +138,9 @@ def default_fix_loop() -> Dict[str, Any]:
         "escalation_reason": "",
         "rollback_recommended": False,
     }
+
+
+VALID_EXPERIMENT_CONCLUSIONS = {"supported", "falsified", "inconclusive"}
 
 VALID_FIX_LOOP_STATUSES = {"none", "open", "resolved"}
 

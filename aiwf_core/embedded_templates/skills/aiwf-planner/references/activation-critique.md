@@ -25,9 +25,10 @@ Ask whether Task.md is ready to hand to a new Executor:
 - Are dependencies and handoffs to other Tasks accurate?
 - Are required Skills, MCP tools, and role capabilities named only when the
   contract really depends on them?
-- Do Verification Commands exist or name the exact command that this Task must
-  create? Is each row executable and reproducible in the declared runtime, with
-  a stable ID, a distinct claim, and an observable result that can decide truth?
+- Do Verification Commands provide a real baseline probe, or name the exact
+  command that this Task must create? Is each row executable and reproducible in
+  the declared runtime, with a stable ID, a distinct claim, and an observable
+  result that lets Executor decide and record the construction obligation?
 - Is the Task small enough to complete and prove, but broad enough to cover all
   relevant entry points and consumers?
 
@@ -51,12 +52,14 @@ navigation, LSP, and focused file reads where they help.
 - Look for an old path, bypass, duplicate implementation, or unsupported
   runtime path that would make the Task appear complete while the product still
   behaves the old way.
-- Check Verification Commands against the real scripts and test runner. Confirm
+- Check Verification Command baselines against the real scripts and test runner. Confirm
   that selectors narrow the run, repeated full regressions are removed, and
   runtime tests exercise production code in the claimed runtime.
 - Do not accept a command merely because it looks concrete. If its runtime,
   target, setup, or observable was not verified from the project, revise the
-  Task instead of sending the uncertainty to Tester.
+  Task instead of deferring Executor's construction evidence. Open an EXP only
+  when the remaining issue is genuinely empirical and needs disposable
+  full-project work.
 - Challenge the weakest design assumption. When the Plan chose a technical
   method, compare it with the raw problem, representative inputs, and support
   boundary.

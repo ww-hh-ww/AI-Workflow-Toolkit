@@ -35,13 +35,13 @@ class TestInstall(unittest.TestCase):
         frontmatter = yaml.safe_load(
             "milestone_id:\n"
             "dependencies: []\n"
-            "tester_write:\n"
+            "promotion_candidates:\n"
             "  - tests/example.py\n"
         )
 
         self.assertIsNone(frontmatter["milestone_id"])
         self.assertEqual(frontmatter["dependencies"], [])
-        self.assertEqual(frontmatter["tester_write"], ["tests/example.py"])
+        self.assertEqual(frontmatter["promotion_candidates"], ["tests/example.py"])
 
     def test_v2_state_files_created_without_flat_runtime_state(self):
         expected = [
@@ -193,14 +193,14 @@ Ship the product safely.
         self.assertTrue(policy["freeze_active_task_md"])
         self.assertTrue(policy["first_implementation_requires_executor"])
         self.assertEqual(policy["governance_git_tracking"], "tracked")
-        self.assertEqual(policy["tester_project_writes"], "test_assets_only")
+        self.assertNotIn("tester_project_writes", policy)
         self.assertNotIn("reviewer_project_writes", policy)
         self.assertEqual(policy["architect_project_writes"], "reports_only")
         self.assertEqual(policy["explorer_project_writes"], "deny")
         self.assertEqual(policy["critic_project_writes"], "deny")
         allowed = policy["allowed_values"]
         self.assertEqual(allowed["governance_git_tracking"], ["tracked", "local"])
-        self.assertEqual(allowed["tester_project_writes"], ["deny", "test_assets_only", "allow_all"])
+        self.assertNotIn("tester_project_writes", allowed)
         self.assertNotIn("reviewer_project_writes", allowed)
         self.assertEqual(allowed["architect_project_writes"], ["deny", "reports_only", "allow"])
         self.assertEqual(allowed["explorer_project_writes"], ["deny", "allow"])
@@ -242,7 +242,7 @@ Ship the product safely.
             shutil.rmtree(tmp, ignore_errors=True)
 
     def test_aiwf_subagents_inherit_claude_code_tools(self):
-        for agent in ["aiwf-executor", "aiwf-tester", "aiwf-reviewer",
+        for agent in ["aiwf-executor", "aiwf-experimenter", "aiwf-reviewer",
                       "aiwf-architect", "aiwf-explorer", "aiwf-critic"]:
             content = (
                 PROJECT_ROOT
@@ -405,12 +405,12 @@ Ship the product safely.
         self.assertEqual(failure_matchers, ["Agent|Task"])
         start_matchers = [e.get("matcher", "") for e in s["hooks"]["SubagentStart"]]
         self.assertIn(
-            "aiwf-executor|aiwf-tester|aiwf-reviewer|aiwf-architect",
+            "aiwf-executor|aiwf-experimenter|aiwf-reviewer|aiwf-architect",
             start_matchers,
         )
         stop_matchers = [e.get("matcher", "") for e in s["hooks"]["SubagentStop"]]
         self.assertIn(
-            "aiwf-executor|aiwf-tester|aiwf-reviewer|aiwf-architect",
+            "aiwf-executor|aiwf-experimenter|aiwf-reviewer|aiwf-architect",
             stop_matchers,
         )
 
@@ -422,7 +422,7 @@ Ship the product safely.
 
     def test_skills_exist_with_frontmatter(self):
         """Expected top-level skills installed, with SKILL.md frontmatter."""
-        for skill in ["aiwf-planner", "aiwf-implement", "aiwf-test",
+        for skill in ["aiwf-planner", "aiwf-implement", "aiwf-experiment",
                       "aiwf-review", "aiwf-close", "aiwf-architect"]:
             path = self.tmp / ".claude" / "skills" / skill / "SKILL.md"
             self.assertTrue(path.exists(), f"Missing: {skill}")
@@ -473,7 +473,7 @@ Ship the product safely.
 
     def test_subagents_exist(self):
         """Expected Claude agents installed."""
-        for agent in ["aiwf-explorer", "aiwf-executor", "aiwf-tester",
+        for agent in ["aiwf-explorer", "aiwf-executor", "aiwf-experimenter",
                       "aiwf-reviewer", "aiwf-architect"]:
             path = self.tmp / ".claude" / "agents" / f"{agent}.md"
             self.assertTrue(path.exists(), f"Missing: {agent}")
@@ -482,7 +482,7 @@ Ship the product safely.
                         "aiwf-curator should not be installed")
 
     def test_claude_prompts_do_not_inject_interruption_protocol(self):
-        for agent in ["aiwf-executor", "aiwf-tester", "aiwf-reviewer", "aiwf-architect"]:
+        for agent in ["aiwf-executor", "aiwf-experimenter", "aiwf-reviewer", "aiwf-architect"]:
             content = (self.tmp / ".claude" / "agents" / f"{agent}.md").read_text()
             self.assertNotIn("Connection Recovery", content)
             self.assertNotIn("PAUSED_FOR_PLANNER", content)
@@ -582,10 +582,14 @@ Ship the product safely.
 
     def test_all_scripts_py_compile(self):
         """All generated scripts pass py_compile."""
-        import py_compile, sys
+        import py_compile
         for s in sorted((self.tmp / "scripts").glob("aiwf_*.py")):
             try:
-                py_compile.compile(str(s), doraise=True)
+                py_compile.compile(
+                    str(s),
+                    cfile=str(self.tmp / "pycache" / f"{s.stem}.pyc"),
+                    doraise=True,
+                )
             except py_compile.PyCompileError as e:
                 self.fail(f"{s.name} failed py_compile: {e}")
 
@@ -697,7 +701,7 @@ class TestReasonixInstall(unittest.TestCase):
             shutil.rmtree(tmp, ignore_errors=True)
 
     def test_reasonix_subagent_skills_have_no_hard_budget_or_interruption_protocol(self):
-        for skill in ["aiwf-implement", "aiwf-test", "aiwf-review", "aiwf-architect"]:
+        for skill in ["aiwf-implement", "aiwf-experiment", "aiwf-review", "aiwf-architect"]:
             content = (self.tmp / ".reasonix" / "skills" / skill / "SKILL.md").read_text()
             self.assertIn("runAs: subagent", content)
             self.assertNotIn("max-iters:", content)
@@ -716,9 +720,9 @@ class TestReasonixInstall(unittest.TestCase):
             "task create",
             "task critique",
             "task activate",
-            "records the implementation snapshot",
-            "records the tested snapshot",
-            "records review",
+            "records the stable implementation plus complete V evidence",
+            "open/start an EXP",
+            "Reviewer judges the current implementation",
             "task close",
         ]:
             self.assertIn(phrase, lifecycle)
@@ -742,12 +746,12 @@ class TestReasonixInstall(unittest.TestCase):
         self.assertFalse((shared / "connection_recovery_test.md").exists())
         handwritten_sources = [
             PROJECT_ROOT / "aiwf_core" / "embedded_templates" / "skills" / "aiwf-implement" / "SKILL.md",
-            PROJECT_ROOT / "aiwf_core" / "embedded_templates" / "skills" / "aiwf-test" / "SKILL.md",
+            PROJECT_ROOT / "aiwf_core" / "embedded_templates" / "skills" / "aiwf-experiment" / "SKILL.md",
             PROJECT_ROOT / "aiwf_core" / "embedded_templates" / "skills" / "aiwf-review" / "SKILL.md",
             PROJECT_ROOT / "aiwf_core" / "embedded_templates" / "skills" / "aiwf-architect" / "SKILL.md",
             PROJECT_ROOT / "aiwf_core" / "embedded_templates" / "skills" / "aiwf-planner" / "SKILL.md",
             PROJECT_ROOT / "aiwf_core" / "embedded_templates" / "agents" / "aiwf-executor.md",
-            PROJECT_ROOT / "aiwf_core" / "embedded_templates" / "agents" / "aiwf-tester.md",
+            PROJECT_ROOT / "aiwf_core" / "embedded_templates" / "agents" / "aiwf-experimenter.md",
             PROJECT_ROOT / "aiwf_core" / "embedded_templates" / "agents" / "aiwf-reviewer.md",
         ]
         for path in handwritten_sources:

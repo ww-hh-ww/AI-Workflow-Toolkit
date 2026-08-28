@@ -56,14 +56,13 @@ class TestStateCliOps(unittest.TestCase):
             "worktree_path": str(self.tmp),
             "requirements": {
                 "executor_required": True,
-                "tester_required": True,
                 "reviewer_required": True,
             },
         }]})
         value = record or {
             "task_id": task_id,
             "implementation": {"task_id": task_id},
-            "testing": {"task_id": task_id, "status": "missing"},
+            "experiment_ids": [],
             "review": {"task_id": task_id, "result": "unknown"},
             "fix_loop": {"status": "none"},
         }
@@ -107,12 +106,12 @@ class TestStateCliOps(unittest.TestCase):
         self._set_active_task()
 
         opened = self._run(
-            "fixloop", "open", "--route", "tester",
+            "fixloop", "open", "--route", "executor",
             "--reason", "new regression needs focused proof",
             "--verify", "FIX-REGRESSION:::pytest -q tests/test_regression.py:::test passes",
         )
         legacy = self._run(
-            "fixloop", "open", "--route", "tester",
+            "fixloop", "open", "--route", "executor",
             "--reason", "legacy input", "--required-verification", "pytest regression",
         )
 
@@ -134,14 +133,14 @@ class TestStateCliOps(unittest.TestCase):
         cases = {
             "planner": "/aiwf-planner",
             "executor": "/aiwf-implement",
-            "tester": "/aiwf-test",
+            "reviewer": "/aiwf-review",
             "environment": "/aiwf-planner",
         }
         for route, skill in cases.items():
             self._set_active_task(record={
                 "task_id": "TASK-ACTIVE",
                 "implementation": {"task_id": "TASK-ACTIVE"},
-                "testing": {"task_id": "TASK-ACTIVE", "status": "missing"},
+                "experiment_ids": [],
                 "review": {"task_id": "TASK-ACTIVE", "result": "unknown"},
                 "fix_loop": {
                     "status": "open", "route": route, "reason": "route test",
@@ -159,7 +158,7 @@ class TestStateCliOps(unittest.TestCase):
         self._set_active_task(record={
             "task_id": "TASK-ACTIVE",
             "implementation": {"task_id": "TASK-ACTIVE", "implementation_ref": "abc"},
-            "testing": {"task_id": "TASK-ACTIVE", "status": "failed"},
+            "experiment_ids": [],
             "review": {"task_id": "TASK-ACTIVE", "result": "unknown"},
             "fix_loop": {
                 "status": "open", "route": "executor", "reason": "repeated failure",
@@ -192,12 +191,10 @@ class TestStateCliOps(unittest.TestCase):
             "implementation": {
                 "task_id": "TASK-ACTIVE", "implementation_ref": "fresh-ref",
             },
-            "testing": {
-                "task_id": "TASK-ACTIVE", "status": "missing", "tested_ref": "",
-            },
+            "experiment_ids": [],
             "review": {"task_id": "TASK-ACTIVE", "result": "unknown"},
             "fix_loop": {
-                "status": "open", "route": "tester", "reason": "repeated failure",
+                "status": "open", "route": "executor", "reason": "repeated failure",
                 "escalation_required": True, "required_fixes": [],
                 "verification_obligations": [{
                     "verification_id": "FIX-PYTEST",
@@ -222,12 +219,12 @@ class TestStateCliOps(unittest.TestCase):
 
         self.assertIn("Required skills: /aiwf-planner", blocked_status.stdout)
         self.assertEqual(continued.returncode, 0, continued.stderr)
-        self.assertIn("Route: tester", continued.stdout)
+        self.assertIn("Route: executor", continued.stdout)
         self.assertEqual(repeated.returncode, 1)
         self.assertIn("not awaiting a human decision", repeated.stderr)
         self.assertEqual(status.returncode, 0, status.stderr)
-        self.assertIn("Required skills: /aiwf-test", status.stdout)
-        self.assertIn("dispatch aiwf-tester", status.stdout)
+        self.assertIn("Required skills: /aiwf-implement", status.stdout)
+        self.assertIn("dispatch aiwf-executor", status.stdout)
         record = json.loads(
             (self.tmp / ".aiwf/records/tasks/TASK-ACTIVE.json").read_text()
         )
@@ -239,10 +236,10 @@ class TestStateCliOps(unittest.TestCase):
         self._set_active_task(record={
             "task_id": "TASK-ACTIVE",
             "implementation": {"task_id": "TASK-ACTIVE"},
-            "testing": {"task_id": "TASK-ACTIVE", "status": "failed"},
+            "experiment_ids": [],
             "review": {"task_id": "TASK-ACTIVE", "result": "unknown"},
             "fix_loop": {
-                "status": "open", "route": "tester",
+                "status": "open", "route": "executor",
                 "escalation_required": True,
             },
         })
@@ -285,7 +282,7 @@ class TestStateCliOps(unittest.TestCase):
         self._set_active_task("TASK-ACTIVE", "reviewing", {
             "task_id": "TASK-ACTIVE",
             "implementation": {"task_id": "TASK-ACTIVE", "implementation_ref": "abc"},
-            "testing": {"task_id": "TASK-ACTIVE", "status": "failed"},
+            "experiment_ids": [],
             "review": {"task_id": "TASK-ACTIVE", "result": "unknown"},
             "fix_loop": {
                 "status": "open", "route": "executor", "reason": "repair defect",
@@ -372,25 +369,45 @@ class TestStateCliOps(unittest.TestCase):
     def test_status_routes_missing_calibration_before_close(self):
         self._set_active_task("TASK-CAL", "closing", {
             "task_id": "TASK-CAL",
-            "implementation": {"task_id": "TASK-CAL", "implementation_ref": "abc"},
-            "testing": {"task_id": "TASK-CAL", "status": "adequate", "tested_ref": "def"},
+            "implementation": {
+                "task_id": "TASK-CAL",
+                "implementation_ref": "abc",
+                "verification_results": [{
+                    "verification_id": "V-001",
+                    "command": "true",
+                    "expected": "exit 0",
+                    "observed": "exit 0",
+                    "verdict": "matched",
+                    "basis": "construction proof fixture",
+                }],
+            },
+            "experiment_ids": [],
             "review": {
                 "task_id": "TASK-CAL", "result": "accepted", "closure_allowed": True,
-                "reviewed_ref": "def", "blockers": [],
+                "reviewed_ref": "abc", "blockers": [],
             },
             "fix_loop": {"status": "none"},
         })
         task_doc = self.tmp / ".aiwf/tasks/TASK-CAL.md"
         task_doc.parent.mkdir(parents=True, exist_ok=True)
-        task_doc.write_text("---\nid: TASK-CAL\n---\n\n# TASK-CAL\n")
+        task_doc.write_text(
+            "---\nid: TASK-CAL\n---\n\n# TASK-CAL\n\n"
+            "## Fixed Contract\n\n"
+            "### Structural Home\n\nFixture.\n\n"
+            "### Objective\n\nClose the fixture.\n\n"
+            "### Contract Responsibility\n\nOwn the fixture result.\n\n"
+            "### Proof Standard\n\n"
+            "- [Built] The fixture result is present.\n\n"
+            "Verification Commands:\n\n"
+            "| ID | Command | Expected Observable Output |\n"
+            "| --- | --- | --- |\n"
+            "| V-001 | true | exit 0 |\n"
+        )
         missing = self._run("status", "--prompt")
         self.assertIn("Required skills: /aiwf-planner", missing.stdout)
         self.assertIn("aiwf task calibrate TASK-CAL", missing.stdout)
 
-        task_doc.write_text(
-            "---\nid: TASK-CAL\n---\n\n# TASK-CAL\n\n"
-            "## Closure Calibration\n\nActually done.\n"
-        )
+        task_doc.write_text(task_doc.read_text() + "\n## Closure Calibration\n\nActually done.\n")
         ready = self._run("status", "--prompt")
         self.assertIn("Required skills: /aiwf-close", ready.stdout)
         self.assertIn("close TASK-CAL", ready.stdout)

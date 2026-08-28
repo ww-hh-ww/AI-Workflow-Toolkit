@@ -124,11 +124,12 @@ TMP_CODEX="$(mktemp -d "${TMPDIR:-/tmp}/aiwf-embedded-codex-audit-XXXXXX")"
   test -f AGENTS.md
   test -f .agents/skills/aiwf-planner/SKILL.md
   test -f .codex/agents/aiwf-executor.toml
-  test -f .codex/agents/aiwf-tester.toml
+  test -f .codex/agents/aiwf-experimenter.toml
   test -f .codex/agents/aiwf-reviewer.toml
+  test ! -f .codex/agents/aiwf-tester.toml
   test -f .codex/hooks.json
   test -f scripts/aiwf_codex_hook.py
-  grep -q "Build a failure model" .codex/agents/aiwf-tester.toml
+  grep -q "immutable subject" .codex/agents/aiwf-experimenter.toml
   grep -q "apply_patch|Edit|Write" .codex/hooks.json
   PYTHONPATH="$ROOT" "$ROOT/bin/aiwf" doctor --host codex | grep -q "healthy"
 )

@@ -32,7 +32,7 @@ GOAL-001 / {plan_id}.
 
 ### Objective
 
-Deliver the tested result.
+Deliver the constructed result.
 
 ### Contract Responsibility
 
@@ -41,6 +41,16 @@ Own and prove the result described by this test.
 ### Proof Standard
 
 - [Built] The result exists in the reviewed snapshot.
+
+Verification Commands:
+
+| ID | Command | Expected Observable Output |
+| --- | --- | --- |
+| V-001 | git diff --check | exit 0 |
+
+## Closure Calibration
+
+The isolated Task result is present in its reviewed Plan worktree.
 """
 
 
@@ -318,7 +328,14 @@ class TestTaskParallelContract(unittest.TestCase):
         from aiwf_core.core.task_records import load_task_record, save_task_record
 
         record_b = load_task_record(self.tmp, "TASK-B1")
-        record_b["implementation"]["implementation_ref"] = "implementation-b"
+        record_b["implementation"].update({
+            "implementation_ref": "implementation-b",
+            "verification_results": [{
+                "verification_id": "V-001", "command": "git diff --check",
+                "expected": "exit 0", "observed": "exit 0",
+                "verdict": "matched", "basis": "parallel status fixture",
+            }],
+        })
         save_task_record(self.tmp, record_b)
 
         env = os.environ.copy()
@@ -332,10 +349,10 @@ class TestTaskParallelContract(unittest.TestCase):
         self.assertIn("TASK-B1", status)
         self.assertIn(str(self.worktree_b.resolve()), status)
         self.assertIn("next=Executor", status)
-        self.assertIn("next=Tester", status)
+        self.assertIn("next=Reviewer", status)
         self.assertIn("Independent Plans may run in parallel", status)
         self.assertNotIn("Before starting another Plan", status)
-        self.assertIn("Required skills: /aiwf-implement, /aiwf-test", status)
+        self.assertIn("Required skills: /aiwf-implement, /aiwf-review", status)
 
         status_from_plan_a = subprocess.run(
             [sys.executable, "-m", "aiwf_core.cli", "status", "--prompt"],
@@ -343,7 +360,7 @@ class TestTaskParallelContract(unittest.TestCase):
         ).stdout
         self.assertIn("TASK-A1 [current]", status_from_plan_a)
         self.assertIn("TASK-B1", status_from_plan_a)
-        self.assertIn("next=Tester", status_from_plan_a)
+        self.assertIn("next=Reviewer", status_from_plan_a)
         self.assertIn(str(self.worktree_b.resolve()), status_from_plan_a)
 
         from aiwf_core.aiwf_ui import build_tree, load_all
@@ -365,7 +382,14 @@ class TestTaskParallelContract(unittest.TestCase):
         self.assertTrue(activate_task(str(self.tmp), "TASK-A1")["activated"])
         self.assertTrue(activate_task(str(self.tmp), "TASK-B1")["activated"])
         record_b = load_task_record(self.tmp, "TASK-B1")
-        record_b["implementation"]["implementation_ref"] = "implementation-b"
+        record_b["implementation"].update({
+            "implementation_ref": "implementation-b",
+            "verification_results": [{
+                "verification_id": "V-001", "command": "git diff --check",
+                "expected": "exit 0", "observed": "exit 0",
+                "verdict": "matched", "basis": "parallel status fixture",
+            }],
+        })
         save_task_record(self.tmp, record_b)
         self.assertFalse(start_dispatch(
             self.tmp,
@@ -389,12 +413,11 @@ class TestTaskParallelContract(unittest.TestCase):
         self.assertIn("TASK-A1", status)
         self.assertIn("next=Agent running", status)
         self.assertIn("TASK-B1", status)
-        self.assertIn("next=Tester", status)
+        self.assertIn("next=Reviewer", status)
 
     def test_two_plan_worktrees_complete_independent_task_chains(self):
         from aiwf_core.core.state.context_ops import record_implementation
         from aiwf_core.core.state.review_ops import record_review
-        from aiwf_core.core.state.testing_ops import record_testing
         from aiwf_core.core.task_ledger import close_task
         from aiwf_core.core.task_records import load_task_record
 
@@ -408,17 +431,14 @@ class TestTaskParallelContract(unittest.TestCase):
             ("TASK-B1", self.worktree_b, "feature-b.txt"),
         ):
             record_implementation(
-                str(worktree), f"implemented {filename}", task_id=task_id,
-            )
-            record_testing(
-                str(worktree), status="passed",
-                commands=[f"test -f {filename}"],
-                coverage_summary=f"{filename} exists",
+                str(worktree), f"implemented {filename}",
                 verification_results=[{
-                    "command": f"test -f {filename}",
+                    "verification_id": "V-001",
+                    "command": "git diff --check",
                     "expected": "exit 0",
                     "observed": "exit 0",
-                    "matched": True,
+                    "verdict": "matched",
+                    "basis": f"{filename} was inspected in the assigned worktree",
                 }],
                 task_id=task_id,
             )
@@ -527,7 +547,7 @@ class TestTaskParallelContract(unittest.TestCase):
         self.assertEqual(resumed["task"]["git_origin_ref"], current_head)
         refreshed = load_task_record(self.tmp, "TASK-A1")
         self.assertFalse(refreshed["implementation"]["implementation_ref"])
-        self.assertEqual(refreshed["testing"]["status"], "missing")
+        self.assertEqual(refreshed["experiment_ids"], [])
         self.assertEqual(refreshed["review"]["result"], "unknown")
         self.assertEqual(
             refreshed["review"]["adversarial_observations"][0]["id"], "ADV-001",
@@ -569,17 +589,16 @@ class TestTaskParallelContract(unittest.TestCase):
             "id": "TASK-INLINE",
             "requirements": {
                 "executor_required": False,
-                "tester_required": False,
                 "reviewer_required": False,
             },
         }
         record = default_task_record("TASK-INLINE")
         self.assertEqual(_task_next(task, record)[0], "Inline implementation")
         record["implementation"]["implementation_ref"] = "impl"
-        self.assertEqual(_task_next(task, record)[0], "Inline testing")
-        record["testing"].update({"status": "passed", "tested_ref": "tested"})
         self.assertEqual(_task_next(task, record)[0], "Inline review")
-        record["review"].update({"result": "accepted", "closure_allowed": True})
+        record["review"].update({
+            "result": "accepted", "closure_allowed": True, "reviewed_ref": "impl",
+        })
         self.assertEqual(_task_next(task, record)[0], "Close")
 
         record["review"]["adversarial_observations"] = [{

@@ -1,4 +1,4 @@
-"""Scope checker — project writes require active task; executor dispatch per Task.requirements."""
+"""Scope checker for stable Task worktrees and disposable experiment worktrees."""
 from __future__ import annotations
 
 import json
@@ -28,7 +28,6 @@ DEFAULT_WRITE_POLICY: Dict[str, Any] = {
     "freeze_active_task_md": True,
     "first_implementation_requires_executor": True,
     "governance_git_tracking": "tracked",
-    "tester_project_writes": "test_assets_only",
     "architect_project_writes": "reports_only",
     "explorer_project_writes": "deny",
     "critic_project_writes": "deny",
@@ -66,8 +65,6 @@ def _read_write_policy(cwd: Path) -> Dict[str, Any]:
     ):
         if isinstance(raw.get(key), bool):
             policy[key] = raw[key]
-    if raw.get("tester_project_writes") in ("deny", "test_assets_only", "allow_all"):
-        policy["tester_project_writes"] = raw["tester_project_writes"]
     for key in ("explorer_project_writes", "critic_project_writes"):
         if raw.get(key) in ("deny", "allow"):
             policy[key] = raw[key]
@@ -152,15 +149,10 @@ def _get_active_task_requirements(cwd: Path, task_id: str) -> Optional[Dict[str,
         from ...core.yaml_compat import yaml
         fm = yaml.safe_load(text[4:end_idx]) or {}
         reqs = {}
-        for key in ("executor_required", "tester_required", "reviewer_required"):
+        for key in ("executor_required", "reviewer_required"):
             val = fm.get(key)
             if isinstance(val, bool):
                 reqs[key] = val
-        tester_write = fm.get("tester_write", [])
-        if isinstance(tester_write, list):
-            reqs["tester_write"] = [str(x).strip() for x in tester_write if str(x).strip()]
-        elif isinstance(tester_write, str) and tester_write.strip():
-            reqs["tester_write"] = [s.strip() for s in tester_write.replace(",", " ").split() if s.strip()]
         return reqs or None
     except Exception:
         return None
@@ -204,76 +196,10 @@ def _get_task_forbidden_write(cwd: Path, task_id: str) -> list:
         return []
 
 
-def _is_test_asset_path(path: str) -> bool:
-    """Return True for project test/verification assets a tester may write."""
-    p = path.strip().lstrip("./").replace("\\", "/")
-    parts = p.split("/")
-    filename = parts[-1] if parts else p
-    lowered = p.lower()
-    lower_name = filename.lower()
-    test_dirs = {
-        "test",
-        "tests",
-        "__tests__",
-        "spec",
-        "specs",
-        "e2e",
-        "integration",
-        "integration_tests",
-        "fixtures",
-        "__fixtures__",
-        "snapshots",
-        "__snapshots__",
-        "golden",
-        "goldens",
-        "expected",
-    }
-
-    if any(part.lower() in test_dirs for part in parts[:-1]):
-        return True
-    if lower_name.startswith("test_") or lower_name.startswith("test-"):
-        return True
-    if any(marker in lower_name for marker in (
-        ".test.", ".spec.",
-        "_test.", "-test.", "_spec.", "-spec.",
-        "_tests.", "-tests.",
-        ".e2e.", "_e2e.", "-e2e.",
-        ".integration.", "_integration.", "-integration.",
-        "_validation.", "-validation.", ".validation.",
-    )):
-        return True
-    if lower_name in {
-        "tests.rs",
-        "test.rs",
-        "conftest.py",
-        "pytest.ini",
-        "tox.ini",
-        "jest.config.js",
-        "jest.config.ts",
-        "vitest.config.js",
-        "vitest.config.ts",
-        "playwright.config.js",
-        "playwright.config.ts",
-    }:
-        return True
-    if lowered.endswith((".snap", ".snapshot", ".golden", ".expected")):
-        return True
-    return False
-
-
-def _tester_write_allowed(path: str, reqs: Dict[str, Any]) -> bool:
-    from ...core.scope_policy import _matches
-
-    tester_write = [str(p).strip() for p in (reqs.get("tester_write") or []) if str(p).strip()]
-    if tester_write:
-        return any(_matches(path, pattern) for pattern in tester_write)
-    return _is_test_asset_path(path)
-
-
 def _is_planner_inline_role(role: str) -> bool:
     if not role:
         return True
-    if any(blocked in role for blocked in ("executor", "tester", "reviewer", "architect")):
+    if any(blocked in role for blocked in ("executor", "experimenter", "reviewer", "architect")):
         return False
     return "planner" in role or "main" in role
 
@@ -395,6 +321,7 @@ def check_file_write(event: NormalizedEvent) -> ScopeResult:
                 break
     active_task_id = str((active_task or {}).get("id") or "")
     write_policy = _read_write_policy(control)
+    role = str(event.agent_type or "").lower()
     from ...core.scope_policy import _is_governance_file, _normalize_path
     normalized = _normalize_path(file_path, str(cwd))
     if Path(normalized).is_absolute() and control != cwd:
@@ -423,6 +350,54 @@ def check_file_write(event: NormalizedEvent) -> ScopeResult:
             reason="temporary AI project writes can be changed only by a human in `aiwf ui`.",
         )
 
+    from ...core.experiment_records import experiment_for_worktree
+
+    experiment = experiment_for_worktree(cwd)
+    if experiment and "experimenter" in role and not _is_governance_file(normalized):
+        assigned = Path(str(experiment.get("worktree_path") or cwd)).resolve()
+        target = Path(str(file_path)).expanduser()
+        if not target.is_absolute():
+            target = cwd / target
+        target = target.resolve()
+        if target != assigned and assigned not in target.parents:
+            return ScopeResult(
+                file_path=str(target),
+                allowed=False,
+                active_context_id=str(experiment.get("experiment_id") or ""),
+                reason=(
+                    f"Experiment {experiment.get('experiment_id')} may write only inside "
+                    f"its disposable worktree '{assigned}'. Target '{target}' belongs to "
+                    "stable project reality."
+                ),
+            )
+        return ScopeResult(
+            file_path=normalized,
+            allowed=True,
+            active_context_id=str(experiment.get("experiment_id") or ""),
+            reason="disposable experiment worktree permits full project writes",
+        )
+    if "experimenter" in role and not _is_governance_file(normalized):
+        return ScopeResult(
+            file_path=normalized,
+            allowed=False,
+            active_context_id=state.get("active_context_id") or "(none)",
+            reason=(
+                "aiwf-experimenter may change project files only inside the disposable "
+                "worktree created for a running EXP record. It must not change the stable "
+                "Task worktree."
+            ),
+        )
+    if "reviewer" in role and not _is_governance_file(normalized):
+        return ScopeResult(
+            file_path=normalized,
+            allowed=False,
+            active_context_id=state.get("active_context_id") or "(none)",
+            reason=(
+                "aiwf-reviewer judges the stable candidate and may not change project files. "
+                f"Route changes to aiwf-executor instead of writing '{normalized}'."
+            ),
+        )
+
     if active_task_id and not _is_governance_file(normalized):
         assigned = Path(str(active_task.get("worktree_path") or cwd))
         violation = foreign_worktree_target(
@@ -445,7 +420,6 @@ def check_file_write(event: NormalizedEvent) -> ScopeResult:
                 ),
             )
 
-    role = str(event.agent_type or "").lower()
     if (
         "architect" in role
         and _role_project_write_mode(role, write_policy) in ("reports_only", "allow")
@@ -479,11 +453,6 @@ def check_file_write(event: NormalizedEvent) -> ScopeResult:
                         and active_task_id
                     ):
                         reqs = _requirements_for_active_task(control, active_task)
-                        tester_test_write = (
-                            "tester" in role
-                            and reqs.get("tester_required")
-                            and _tester_write_allowed(normalized, reqs)
-                        )
                         if _role_project_write_mode(role, write_policy) != "allow":
                             role_name = _role_read_only_name(role)
                             return ScopeResult(
@@ -495,27 +464,11 @@ def check_file_write(event: NormalizedEvent) -> ScopeResult:
                                     f"but must not write '{normalized}'."
                                 ),
                             )
-                        tester_mode = write_policy.get("tester_project_writes")
-                        tester_can_write = (
-                            tester_mode == "allow_all"
-                            or (tester_mode == "test_assets_only" and tester_test_write)
-                        )
                         role_can_write = _configured_read_only_role_can_write(role, write_policy)
-                        if "tester" in role and not tester_can_write:
-                            return ScopeResult(
-                                file_path=normalized,
-                                allowed=False,
-                                active_context_id=state.get("active_context_id") or "(none)",
-                                reason=(
-                                    f"fix-loop tester repair may write test/verification assets only. "
-                                    f"Dispatch aiwf-executor for implementation writes to '{normalized}'."
-                                ),
-                            )
                         if (
                             write_policy.get("first_implementation_requires_executor")
                             and reqs.get("executor_required")
                             and "executor" not in role
-                            and not tester_can_write
                             and not role_can_write
                             and not _task_has_executor_evidence(cwd, active_task_id)
                         ):
@@ -706,40 +659,7 @@ def check_file_write(event: NormalizedEvent) -> ScopeResult:
             ),
         )
 
-    tester_mode = write_policy.get("tester_project_writes")
-    tester_test_write = (
-        "tester" in role
-        and tester_mode == "test_assets_only"
-        and _tester_write_allowed(normalized, reqs)
-    )
-    tester_can_write = (
-        "tester" in role
-        and (
-            tester_mode == "allow_all"
-            or tester_test_write
-        )
-    )
     role_can_write = _configured_read_only_role_can_write(role, write_policy)
-    if "tester" in role and not tester_can_write:
-        return ScopeResult(
-            file_path=normalized,
-            allowed=False,
-            active_context_id=state.get("active_context_id") or "(none)",
-            reason=(
-                f"aiwf-tester may write test/verification assets only. "
-                f"Dispatch aiwf-executor for implementation writes to '{normalized}'."
-            ),
-        )
-    if tester_test_write and not reqs.get("tester_required"):
-        return ScopeResult(
-            file_path=normalized,
-            allowed=False,
-            active_context_id=state.get("active_context_id") or "(none)",
-            reason=(
-                f"Task.requirements.tester_required is not true, so aiwf-tester may not write "
-                f"test asset '{normalized}'."
-            ),
-        )
 
     if (
         write_policy.get("first_implementation_requires_executor")
@@ -747,7 +667,7 @@ def check_file_write(event: NormalizedEvent) -> ScopeResult:
         and "executor" not in role
         and not _task_has_executor_evidence(cwd, active_task_id)
     ):
-        if tester_can_write or role_can_write:
+        if role_can_write:
             pass
         elif _is_planner_inline_role(role) and _task_has_executor_evidence(cwd, active_task_id):
             pass
@@ -876,7 +796,47 @@ def check_bash(event: NormalizedEvent) -> Dict:
     if base_result.get("decision") != "allow":
         return base_result
 
+    from ...core.experiment_records import experiment_for_worktree
+
+    experiment = experiment_for_worktree(cwd)
     project_targets = _project_shell_write_targets(command, cwd, control)
+    if experiment and "experimenter" in role:
+        assigned = Path(str(experiment.get("worktree_path") or cwd)).resolve()
+        for raw_target in project_targets:
+            target = Path(raw_target).resolve()
+            if target != assigned and assigned not in target.parents:
+                return {
+                    "allowed": False,
+                    "decision": "deny",
+                    "command": command[:200],
+                    "matched_pattern": str(target),
+                    "reason": (
+                        f"Experiment {experiment.get('experiment_id')} may write only inside "
+                        f"its disposable worktree '{assigned}'. Shell target '{target}' belongs "
+                        "to stable project reality."
+                    ),
+                }
+        return base_result
+    if project_targets and "reviewer" in role:
+        return {
+            "allowed": False,
+            "decision": "deny",
+            "command": command[:200],
+            "matched_pattern": project_targets[0],
+            "reason": (
+                "aiwf-reviewer judges the stable candidate and may not change project files. "
+                "Route the change to aiwf-executor."
+            ),
+        }
+    if project_targets and _role_project_write_mode(role, write_policy) != "allow":
+        return {
+            "allowed": False,
+            "decision": "deny",
+            "command": command[:200],
+            "matched_pattern": project_targets[0],
+            "reason": f"{_role_read_only_name(role)} is read-only for project files.",
+        }
+
     from ...core.plan_integration_context import integration_stage_for_path
 
     integration_stage = integration_stage_for_path(cwd) if not active_task_id else None
@@ -967,7 +927,7 @@ def check_bash(event: NormalizedEvent) -> Dict:
             if str((active_task or {}).get("kind") or "") == "integration":
                 reason = (
                     "Do not stage integration conflict resolutions. Edit the conflicted "
-                    "files and leave the merge open. AIWF records implementation, testing, "
+                    "files and leave the merge open. AIWF records implementation evidence "
                     "and review with a separate snapshot index; normal 'aiwf task close' "
                     "stages the reviewed tree, verifies the recorded base ref, and creates "
                     "the merge commit."
@@ -986,7 +946,7 @@ def check_bash(event: NormalizedEvent) -> Dict:
                 "command": command[:200],
                 "matched_pattern": "git commit",
                 "reason": (
-                    "The active Task is committed by 'aiwf task close' after testing and review. "
+                    "The active Task is committed by 'aiwf task close' after evidence and review. "
                     "Do not create an unreviewed commit during the Task."
                 ),
             }

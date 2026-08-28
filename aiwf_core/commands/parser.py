@@ -31,7 +31,6 @@ from .state_commands import (
     _cmd_record_disposition,
     _cmd_record_implementation,
     _cmd_record_review,
-    _cmd_record_testing,
 )
 from .goal_tree_commands import (
     _cmd_goal_cancel,
@@ -62,6 +61,14 @@ from .governance_commands import (
     _cmd_governance_checkpoint,
     _cmd_governance_status,
     _cmd_governance_tracking,
+)
+from .experiment_commands import (
+    _cmd_experiment_finish,
+    _cmd_experiment_list,
+    _cmd_experiment_open,
+    _cmd_experiment_record,
+    _cmd_experiment_show,
+    _cmd_experiment_start,
 )
 from .task_commands import (
     _cmd_task_activate,
@@ -170,7 +177,7 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
     p_fixloop = sub.add_parser("fixloop", help="fix-loop recovery")
     p_fl_sub = p_fixloop.add_subparsers(dest="fixloop_cmd")
     p_fl_open = p_fl_sub.add_parser("open", help="open a fix-loop")
-    p_fl_open.add_argument("--route", required=True, choices=["executor","tester","planner","environment"])
+    p_fl_open.add_argument("--route", required=True, choices=["executor","reviewer","planner","environment"])
     p_fl_open.add_argument("--reason", required=True, help="reason for opening")
     p_fl_open.add_argument("--required-fix", action="append", dest="required_fixes", default=[])
     p_fl_open.add_argument(
@@ -399,56 +406,30 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
     p_task.set_defaults(func=_show_help(p_task))
 
     # ── record ──
-    p_rec = sub.add_parser("record", help="Record implementation, testing, review")
+    p_rec = sub.add_parser("record", help="Record implementation evidence and review")
     p_rec_sub = p_rec.add_subparsers(dest="record_cmd")
     p_re_ev = p_rec_sub.add_parser("implementation", help="record Executor handoff and Git snapshot")
-    p_re_ev.add_argument("--summary", required=True, help="what changed and what the self-check showed")
-    p_re_ev.add_argument("--command", default="", help="command or action observed")
+    p_re_ev.add_argument("--summary", required=True, help="what stable reality changed")
+    p_re_ev.add_argument("--check", action="append", default=[], dest="checks", help="Task V-* or FIX-* ID")
+    p_re_ev.add_argument("--observed", action="append", default=[], dest="observed_results", help="observed result paired with --check")
+    p_re_ev.add_argument("--observed-file", action="append", default=[], dest="observed_files", help="file containing observed result")
+    p_re_ev.add_argument("--verdict", action="append", default=[], dest="verdicts", choices=["matched", "mismatched", "blocked"], help="Executor verdict paired with --check")
+    p_re_ev.add_argument("--basis", action="append", default=[], dest="bases", help="basis paired with --check")
+    p_re_ev.add_argument("--executed-command", action="append", default=[], dest="executed_commands", help="actual command when it differs from the Task baseline")
+    p_re_ev.add_argument("--proof-file", default="", dest="proof_file", help="JSON array/object containing V-ID results")
     p_re_ev.add_argument("--task-id", default="", help="task id (defaults to active)")
-    p_re_ev.add_argument("--exit-code", type=int, default=0, help="command exit code")
     p_re_ev.set_defaults(func=_cmd_record_implementation)
-    p_re_te = p_rec_sub.add_parser("testing", help="record testing results")
-    p_re_te.add_argument("--status", required=True, choices=["missing","partial","adequate","passed","failed"])
-    p_re_te.add_argument(
-        "--check", action="append", default=[], dest="checks",
-        help="stable Task.md verification ID, for example V-001",
-    )
-    p_re_te.add_argument(
-        "--observed", action="append", default=[], dest="observed_results",
-        help="actual output paired with --check; requires --verdict",
-    )
-    p_re_te.add_argument(
-        "--observed-file", action="append", default=[], dest="observed_files",
-        help="file containing actual output, paired with --check",
-    )
-    p_re_te.add_argument(
-        "--verdict", action="append", default=[], dest="verdicts",
-        choices=["matched", "mismatched", "blocked"],
-        help="Tester judgment paired with --check",
-    )
-    p_re_te.add_argument(
-        "--basis", action="append", default=[], dest="bases",
-        help="short Tester basis, paired with --check",
-    )
-    p_re_te.add_argument(
-        "--executed-command", action="append", default=[], dest="executed_commands",
-        help="actual command run when it differs from the Task.md command, paired with --check",
-    )
-    p_re_te.add_argument(
-        "--proof-file", default="", dest="proof_file",
-        help="JSON proof array with check, observed, verdict, and basis",
-    )
-    p_re_te.add_argument("--summary", default="", help="testing summary")
-    p_re_te.add_argument("--task-id", default="", help="Task ID (defaults to the current worktree)")
-    p_re_te.set_defaults(func=_cmd_record_testing)
     p_re_rv = p_rec_sub.add_parser("review", help="record review results")
-    p_re_rv.add_argument("--result", required=True, choices=["accepted","needs_fix","rejected"])
+    p_re_rv.add_argument("--result", required=True, choices=["accepted","needs_change","needs_experiment","rejected"])
     p_re_rv.add_argument("--summary", default="", help="review summary")
     p_re_rv.add_argument("--blocker", action="append", default=[], dest="blockers", help="specific blocker reason")
     p_re_rv.add_argument("--adversarial-observations", action="append", default=[], dest="adversarial_observations", help="adversarial observations: severity:::kind:::message")
     p_re_rv.add_argument("--cleanup-status", default="", help="cleanup status")
     p_re_rv.add_argument("--structure-status", default="", help="structure status")
     p_re_rv.add_argument("--task-id", default="", help="Task ID (defaults to the current worktree)")
+    p_re_rv.add_argument("--experiment-id", default="", help="EXP-* ID required by needs_experiment")
+    p_re_rv.add_argument("--experiment-question", default="", help="empirical unknown required by needs_experiment")
+    p_re_rv.add_argument("--experiment-hypothesis", default="", help="optional falsifiable hypothesis")
     p_re_rv.set_defaults(func=_cmd_record_review)
     p_re_disp = p_rec_sub.add_parser("disposition", help="record Planner decision on one reviewer observation")
     p_re_disp.add_argument("observation_id", help="observation ID, for example ADV-001")
@@ -457,6 +438,40 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
     p_re_disp.add_argument("--task-id", default="", help="Task ID (defaults to the current worktree)")
     p_re_disp.set_defaults(func=_cmd_record_disposition)
     p_rec.set_defaults(func=_show_help(p_rec))
+
+    # ── experiment ──
+    p_exp = sub.add_parser("experiment", help="Run disposable full-project experiments")
+    p_exp_sub = p_exp.add_subparsers(dest="experiment_cmd")
+    p_exp_open = p_exp_sub.add_parser("open", help="declare an empirical question")
+    p_exp_open.add_argument("experiment_id", help="EXP-* ID")
+    p_exp_open.add_argument("--question", required=True, help="unknown fact to resolve")
+    p_exp_open.add_argument("--hypothesis", default="", help="falsifiable hypothesis")
+    p_exp_open.add_argument("--task-id", default="", help="owning Task")
+    p_exp_open.add_argument("--plan-id", default="", help="owning Plan")
+    p_exp_open.add_argument("--subject-ref", default="", help="stable Git ref under investigation")
+    p_exp_open.add_argument("--timing", choices=["pre_implementation", "post_implementation"], default="")
+    p_exp_open.set_defaults(func=_cmd_experiment_open)
+    p_exp_start = p_exp_sub.add_parser("start", help="create the disposable experiment worktree")
+    p_exp_start.add_argument("experiment_id")
+    p_exp_start.set_defaults(func=_cmd_experiment_start)
+    p_exp_record = p_exp_sub.add_parser("record", help="freeze the experiment and record facts")
+    p_exp_record.add_argument("experiment_id")
+    p_exp_record.add_argument("--conclusion", required=True, choices=["supported", "falsified", "inconclusive"])
+    p_exp_record.add_argument("--summary", required=True)
+    p_exp_record.add_argument("--command", action="append", default=[], dest="commands")
+    p_exp_record.add_argument("--observation", action="append", default=[], dest="observations")
+    p_exp_record.add_argument("--promotion-candidate", action="append", default=[], dest="promotion_candidates")
+    p_exp_record.set_defaults(func=_cmd_experiment_record)
+    p_exp_finish = p_exp_sub.add_parser("finish", help="remove the disposable worktree")
+    p_exp_finish.add_argument("experiment_id")
+    p_exp_finish.set_defaults(func=_cmd_experiment_finish)
+    p_exp_show = p_exp_sub.add_parser("show", help="show one experiment record")
+    p_exp_show.add_argument("experiment_id")
+    p_exp_show.set_defaults(func=_cmd_experiment_show)
+    p_exp_list = p_exp_sub.add_parser("list", help="list experiment records")
+    p_exp_list.add_argument("--task-id", default="")
+    p_exp_list.set_defaults(func=_cmd_experiment_list)
+    p_exp.set_defaults(func=_show_help(p_exp))
 
     # ── milestone ──
     p_ms = sub.add_parser("milestone", help="Milestone node and acceptance")

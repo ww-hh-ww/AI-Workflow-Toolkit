@@ -29,7 +29,7 @@ COMMAND_MANIFEST: Dict[str, Dict] = {
     },
     "fixloop": {
         "tier": PRIMARY, "core": "recovery",
-        "caller": "planner/tester/reviewer", "trigger": "on-failure",
+        "caller": "planner/experimenter/reviewer", "trigger": "on-failure",
         "visible": True, "tested": "yes", "in_status_prompt": True,
         "keep": "fix-loop recovery",
     },
@@ -59,9 +59,15 @@ COMMAND_MANIFEST: Dict[str, Dict] = {
     },
     "record": {
         "tier": PRIMARY, "core": "verification",
-        "caller": "executor/tester/reviewer", "trigger": "on-task",
+        "caller": "executor/reviewer", "trigger": "on-task",
         "visible": True, "tested": "yes", "in_status_prompt": False,
-        "keep": "evidence/testing/review",
+        "keep": "construction evidence and review",
+    },
+    "experiment": {
+        "tier": PRIMARY, "core": "empirical_evidence",
+        "caller": "planner/experimenter/reviewer", "trigger": "on-unknown",
+        "visible": True, "tested": "yes", "in_status_prompt": True,
+        "keep": "disposable experiment lifecycle",
     },
     "ui": {
         "tier": PRIMARY, "core": "infra",

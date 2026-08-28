@@ -75,14 +75,7 @@ class TestHooks(unittest.TestCase):
                     "id: TASK-001\n"
                     "type: task\n"
                     f"executor_required: {str(bool(task_requirements.get('executor_required'))).lower()}\n"
-                    f"tester_required: {str(bool(task_requirements.get('tester_required'))).lower()}\n"
                     f"reviewer_required: {str(bool(task_requirements.get('reviewer_required'))).lower()}\n"
-                    + (
-                        "tester_write:\n"
-                        + "".join(f"  - {p}\n" for p in task_requirements.get("tester_write", []))
-                        if task_requirements.get("tester_write") else ""
-                    )
-                    +
                     "---\n\n"
                     "# TASK-001\n",
                     encoding="utf-8",
@@ -144,14 +137,13 @@ class TestHooks(unittest.TestCase):
             "worktree_path": str(self.tmp),
             "requirements": {
                 "executor_required": True,
-                "tester_required": True,
                 "reviewer_required": True,
             },
         }]})
         self._write_task_record(record or {
             "task_id": "TASK-001",
             "implementation": {"task_id": "TASK-001"},
-            "testing": {"task_id": "TASK-001", "status": "missing"},
+            "experiment_ids": [],
             "review": {"task_id": "TASK-001", "result": "unknown"},
             "fix_loop": {"status": "none"},
         })
@@ -188,10 +180,10 @@ class TestHooks(unittest.TestCase):
 
     def test_status_prompt_acknowledges_state_for_the_next_user_prompt(self):
         self.assertNotEqual(self._status().stdout.strip(), "")
-        self._set_active_task("testing", {
+        self._set_active_task("reviewing", {
             "task_id": "TASK-001",
             "implementation": {"task_id": "TASK-001", "implementation_ref": "abc"},
-            "testing": {"task_id": "TASK-001", "status": "missing"},
+            "experiment_ids": [],
             "review": {"task_id": "TASK-001", "result": "unknown"},
             "fix_loop": {"status": "none"},
         })
@@ -223,9 +215,10 @@ class TestHooks(unittest.TestCase):
         self._set_active_task("closing", {
             "task_id": "TASK-001",
             "implementation": {"task_id": "TASK-001", "implementation_ref": "abc"},
-            "testing": {"task_id": "TASK-001", "status": "passed", "commands": ["pytest"]},
+            "experiment_ids": [],
             "review": {
                 "task_id": "TASK-001", "result": "accepted", "closure_allowed": True,
+                "reviewed_ref": "abc",
             },
             "fix_loop": {"status": "none"},
         })
@@ -244,7 +237,7 @@ class TestHooks(unittest.TestCase):
         self._set_active_task("suspended", {
             "task_id": "TASK-001",
             "implementation": {"task_id": "TASK-001", "implementation_ref": "abc"},
-            "testing": {"task_id": "TASK-001", "status": "failed"},
+            "experiment_ids": [],
             "review": {"task_id": "TASK-001", "result": "unknown"},
             "fix_loop": {"status": "open", "route": "executor"},
         })
@@ -260,10 +253,10 @@ class TestHooks(unittest.TestCase):
         self.assertIn("aiwf status --prompt", context)
 
     def test_status_hook_emits_actionable_resume_packet(self):
-        self._set_active_task("testing", {
+        self._set_active_task("reviewing", {
             "task_id": "TASK-001",
             "implementation": {"task_id": "TASK-001", "implementation_ref": "abc"},
-            "testing": {"task_id": "TASK-001", "status": "missing"},
+            "experiment_ids": [],
             "review": {"task_id": "TASK-001", "result": "unknown"},
             "fix_loop": {"status": "none"},
         })
@@ -272,8 +265,8 @@ class TestHooks(unittest.TestCase):
 
         context = json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
         self.assertIn("Resume: task=TASK-001", context)
-        self.assertIn("Evidence: impl=recorded, test=missing, review=unknown", context)
-        self.assertIn("Decision: Tester - dispatch or resume aiwf-tester", context)
+        self.assertIn("Evidence: impl=recorded, experiments=0, review=unknown", context)
+        self.assertIn("Decision: Reviewer - dispatch or resume aiwf-reviewer", context)
         self.assertIn("Guardrail: use the native Agent/Task tool", context)
         self.assertIn("do not role-play or self-fill", context)
 
@@ -293,7 +286,7 @@ class TestHooks(unittest.TestCase):
             self._write_state(f"records/tasks/{task_id}.json", {
                 "task_id": task_id,
                 "implementation": {"task_id": task_id},
-                "testing": {"task_id": task_id, "status": "missing"},
+                "experiment_ids": [],
                 "review": {"task_id": task_id, "result": "unknown"},
                 "fix_loop": {"status": "none"},
             })
@@ -302,7 +295,7 @@ class TestHooks(unittest.TestCase):
         record_b = json.loads(
             (self.tmp / ".aiwf/records/tasks/TASK-B1.json").read_text()
         )
-        record_b["testing"]["status"] = "passed"
+        record_b["implementation"]["implementation_ref"] = "new-subject-ref"
         self._write_state("records/tasks/TASK-B1.json", record_b)
 
         result = self._status(cwd=self.tmp)
@@ -369,7 +362,7 @@ class TestHooks(unittest.TestCase):
     def test_claude_agent_posttooluse_is_not_treated_as_completion(self):
         self._set_active_task("implementing")
 
-        for role in ("aiwf-executor", "aiwf-tester", "aiwf-reviewer"):
+        for role in ("aiwf-executor", "aiwf-experimenter", "aiwf-reviewer"):
             with self.subTest(role=role):
                 result = self._agent_result(role, "Agent launched in the background.")
                 self.assertEqual(result.returncode, 0, result.stderr)
@@ -381,46 +374,44 @@ class TestHooks(unittest.TestCase):
         state = json.loads(tasks_path.read_text())
         other = self.tmp / "plan-b"
         state["tasks"].append({
-            "id": "TASK-B1", "status": "active", "phase": "testing",
+            "id": "TASK-B1", "status": "active", "phase": "reviewing",
             "worktree_path": str(other), "requirements": {},
         })
         tasks_path.write_text(json.dumps(state, indent=2) + "\n")
         self._write_state("records/tasks/TASK-B1.json", {
             "task_id": "TASK-B1",
             "implementation": {"task_id": "TASK-B1", "implementation_ref": "abc"},
-            "testing": {"task_id": "TASK-B1", "status": "passed"},
+            "experiment_ids": ["EXP-B1"],
             "review": {"task_id": "TASK-B1", "result": "unknown"},
             "fix_loop": {"status": "none"},
         })
 
         result = self._agent_result(
-            "aiwf-tester",
-            "Testing completed.",
-            prompt=f"Test TASK-B1 in assigned worktree {other}.",
+            "aiwf-experimenter",
+            "Experiment agent launched.",
+            prompt="Investigate EXP-B1 in its assigned experiment worktree.",
         )
 
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertFalse(result.stdout.strip())
 
-    def test_subagent_stop_routes_external_finding(self):
+    def test_experimenter_report_does_not_open_executor_fix_loop(self):
         self._set_active_task("reviewing")
         result = self._subagent_stop(
-            "aiwf-tester",
-            "EXTERNAL_FINDING: service mode does not start the real pipeline",
+            "aiwf-experimenter",
+            "Observation: service mode does not start the real pipeline",
         )
         self.assertEqual(result.returncode, 0, result.stderr)
 
         fix_loop = self._task_record()["fix_loop"]
-        self.assertEqual(fix_loop["route"], "planner")
-        self.assertEqual(fix_loop["source"], "tester")
-        self.assertIn("service mode", fix_loop["reason"])
+        self.assertNotEqual(fix_loop.get("status"), "open")
 
     def test_reviewer_posttooluse_does_not_duplicate_native_return(self):
         self._set_active_task("closing")
 
         result = self._agent_result(
             "aiwf-reviewer",
-            "REVIEW_REPORT\nAccepted after checking the final tested snapshot.",
+            "REVIEW_REPORT\nAccepted after judging the implementation and evidence.",
         )
 
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -435,10 +426,10 @@ class TestHooks(unittest.TestCase):
         self.assertEqual(r.stdout.strip(), "")
 
     def test_open_fix_loop_outside_closing_does_not_block_stop(self):
-        self._set_active_task("testing", {
+        self._set_active_task("reviewing", {
             "task_id": "TASK-001",
             "implementation": {"task_id": "TASK-001", "implementation_ref": "abc"},
-            "testing": {"task_id": "TASK-001", "status": "failed"},
+            "experiment_ids": [],
             "review": {"task_id": "TASK-001", "result": "unknown"},
             "fix_loop": {"status": "open", "route": "executor"},
         })
@@ -452,13 +443,10 @@ class TestHooks(unittest.TestCase):
         self._set_active_task("closing", {
             "task_id": "TASK-001",
             "implementation": {"task_id": "TASK-001", "implementation_ref": "abc"},
-            "testing": {
-                "task_id": "TASK-001", "status": "passed", "commands": ["pytest"],
-                "tested_ref": "def",
-            },
+            "experiment_ids": [],
             "review": {
                 "task_id": "TASK-001", "result": "accepted", "closure_allowed": True,
-                "blockers": [], "reviewed_ref": "def",
+                "blockers": [], "reviewed_ref": "abc",
             },
             "fix_loop": {"status": "none"},
         })
@@ -490,9 +478,9 @@ class TestHooks(unittest.TestCase):
         self.assertEqual(out.get("hookSpecificOutput", {}).get("permissionDecision"), "deny")
         self.assertIn("executor", out["hookSpecificOutput"]["permissionDecisionReason"].lower())
 
-    def test_l1_plus_planner_main_project_write_is_blocked_mid_task_testing(self):
+    def test_l1_plus_planner_main_project_write_is_blocked_mid_task_review(self):
         state = json.loads((self.tmp / ".aiwf" / "state" / "state.json").read_text())
-        state["phase"] = "testing"
+        state["phase"] = "reviewing"
         self._write_state("state/state.json", state)
 
         r = self._scope("Write", "src/lib.rs", allowed_write=["src/"],
@@ -525,90 +513,42 @@ class TestHooks(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(r.stdout.strip(), "")
 
-    def test_tester_can_write_test_asset_when_executor_required(self):
+    def test_experimenter_cannot_write_stable_project(self):
         r = self._scope(
             "Write",
             "tests/task-002-validation.spec.js",
             allowed_write=["src/", "tests/"],
             task_requirements={
                 "executor_required": True,
-                "tester_required": True,
                 "reviewer_required": True,
             },
-            agent_type="aiwf-tester",
-        )
-        self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertEqual(r.stdout.strip(), "")
-
-    def test_tester_cannot_write_implementation_when_executor_required(self):
-        r = self._scope(
-            "Write",
-            "src/lib.rs",
-            allowed_write=["src/", "tests/"],
-            task_requirements={
-                "executor_required": True,
-                "tester_required": True,
-                "reviewer_required": True,
-            },
-            agent_type="aiwf-tester",
+            agent_type="aiwf-experimenter",
         )
         out = json.loads(r.stdout.strip())
         self.assertEqual(out.get("hookSpecificOutput", {}).get("permissionDecision"), "deny")
-        self.assertIn("test/verification assets", out["hookSpecificOutput"]["permissionDecisionReason"])
+        self.assertIn("experiment", out["hookSpecificOutput"]["permissionDecisionReason"].lower())
 
-    def test_tester_write_frontmatter_allows_distributed_test_asset(self):
-        r = self._scope(
-            "Write",
-            "crates/agent/src/behavior_validation.rs",
-            allowed_write=["crates/"],
-            task_requirements={
-                "executor_required": True,
-                "tester_required": True,
-                "reviewer_required": True,
-                "tester_write": ["crates/*/src/*_validation.rs"],
-            },
-            agent_type="aiwf-tester",
-        )
-        self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertEqual(r.stdout.strip(), "")
-
-    def test_tester_write_frontmatter_blocks_unlisted_test_asset(self):
-        r = self._scope(
-            "Write",
-            "tests/unlisted.spec.js",
-            allowed_write=["tests/"],
-            task_requirements={
-                "executor_required": True,
-                "tester_required": True,
-                "reviewer_required": True,
-                "tester_write": ["crates/*/src/*_validation.rs"],
-            },
-            agent_type="aiwf-tester",
-        )
-        out = json.loads(r.stdout.strip())
-        self.assertEqual(out.get("hookSpecificOutput", {}).get("permissionDecision"), "deny")
-        self.assertIn("test/verification assets", out["hookSpecificOutput"]["permissionDecisionReason"])
-
-    def test_reviewer_project_write_is_not_controlled_by_write_policy(self):
+    def test_reviewer_cannot_write_stable_project(self):
         r = self._scope(
             "Write",
             "tests/review-fix.spec.js",
             allowed_write=["tests/"],
             task_requirements={
                 "executor_required": False,
-                "tester_required": True,
                 "reviewer_required": True,
             },
             agent_type="aiwf-reviewer",
         )
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertEqual(r.stdout.strip(), "")
+        out = json.loads(r.stdout.strip())
+        self.assertEqual(out.get("hookSpecificOutput", {}).get("permissionDecision"), "deny")
+        self.assertIn("judges", out["hookSpecificOutput"]["permissionDecisionReason"])
 
     def test_l1_plus_fix_loop_project_repair_requires_first_executor_evidence(self):
         self._write_task_record({
             "task_id": "TASK-001",
             "implementation": {"task_id": "TASK-001"},
-            "testing": {"task_id": "TASK-001", "status": "missing"},
+            "experiment_ids": [],
             "review": {"task_id": "TASK-001", "result": "unknown"},
             "fix_loop": {
                 "status": "open",
@@ -640,7 +580,7 @@ class TestHooks(unittest.TestCase):
         self._write_task_record({
             "task_id": "TASK-001",
             "implementation": {"task_id": "TASK-001", "implementation_ref": "abc"},
-            "testing": {"task_id": "TASK-001", "status": "missing"},
+            "experiment_ids": [],
             "review": {"task_id": "TASK-001", "result": "unknown"},
             "fix_loop": {
                 "status": "open", "route": "planner", "required_fixes": ["src/lib.rs"],
@@ -655,7 +595,7 @@ class TestHooks(unittest.TestCase):
         self._write_task_record({
             "task_id": "TASK-001",
             "implementation": {"task_id": "TASK-001", "implementation_ref": "abc"},
-            "testing": {"task_id": "TASK-001", "status": "missing"},
+            "experiment_ids": [],
             "review": {"task_id": "TASK-001", "result": "unknown"},
             "fix_loop": {"status": "none"},
         })
@@ -684,7 +624,6 @@ class TestHooks(unittest.TestCase):
         state["phase"] = "reviewing"
         self._write_state("state/state.json", state)
         self._write_state("records/evidence.jsonl", {"records": []})
-        self._write_state("records/testing.jsonl", {"status": "missing"})
         self._write_state("records/review.jsonl", {
             "result": "unknown",
             "closure_allowed": False,
@@ -794,7 +733,7 @@ class TestHooks(unittest.TestCase):
     def test_only_planner_may_edit_normal_aiwf_config(self):
         denied = self._scope(
             "Edit", ".aiwf/config/write-policy.json",
-            agent_type="aiwf-tester",
+            agent_type="aiwf-experimenter",
         )
         output = json.loads(denied.stdout.strip())
         self.assertEqual(output["hookSpecificOutput"]["permissionDecision"], "deny")
@@ -808,7 +747,7 @@ class TestHooks(unittest.TestCase):
         self.assertEqual(allowed.stdout.strip(), "")
 
     def test_only_planner_may_edit_aiwf_memory(self):
-        for role in ("aiwf-executor", "aiwf-tester", "aiwf-reviewer", "aiwf-architect"):
+        for role in ("aiwf-executor", "aiwf-experimenter", "aiwf-reviewer", "aiwf-architect"):
             with self.subTest(role=role):
                 denied = self._scope(
                     "Edit", ".aiwf/memory/project-facts.md", agent_type=role,
@@ -976,7 +915,7 @@ class TestHooks(unittest.TestCase):
     def test_non_planner_bash_cannot_rewrite_aiwf_config(self):
         result = self._bash(
             "sed -i '' 's/true/false/' .aiwf/config/write-policy.json",
-            agent_type="aiwf-tester",
+            agent_type="aiwf-experimenter",
         )
         self.assertIn("deny", result.stdout)
         self.assertIn("owned by Planner", result.stdout)

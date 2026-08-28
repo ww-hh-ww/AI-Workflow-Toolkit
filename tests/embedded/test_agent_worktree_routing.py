@@ -392,8 +392,8 @@ class TestAgentWorktreeRouting(unittest.TestCase):
                     tool_name="Bash",
                     tool_input={
                         "command": (
-                            "aiwf record testing --task-id TASK-B --status passed "
-                            "--command 'pytest -q'"
+                            "aiwf record implementation --task-id TASK-B "
+                            "--summary 'constructed candidate'"
                         ),
                     },
                     agent_type=agent_type,
@@ -418,7 +418,8 @@ class TestAgentWorktreeRouting(unittest.TestCase):
             tool_input={
                 "command": (
                     f"cd {self.worktree_a} && "
-                    "aiwf record testing --task-id=TASK-B --status passed"
+                    "aiwf record implementation --task-id=TASK-B "
+                    "--summary 'constructed candidate'"
                 ),
             },
         )
@@ -462,7 +463,6 @@ class TestAgentWorktreeHookIntegration(unittest.TestCase):
                 "worktree_path": str(worktree),
                 "requirements": {
                     "executor_required": True,
-                    "tester_required": False,
                     "reviewer_required": False,
                 },
             }]}), encoding="utf-8")
@@ -473,7 +473,7 @@ class TestAgentWorktreeHookIntegration(unittest.TestCase):
             task_doc.parent.mkdir(parents=True, exist_ok=True)
             task_doc.write_text(
                 "---\nid: TASK-A\ntype: task\nexecutor_required: true\n"
-                "tester_required: false\nreviewer_required: false\n---\n\n# TASK-A\n",
+                "reviewer_required: false\n---\n\n# TASK-A\n",
                 encoding="utf-8",
             )
 
@@ -551,7 +551,7 @@ class TestAgentWorktreeHookIntegration(unittest.TestCase):
 
             task_doc.write_text(
                 "---\nid: TASK-A\ntype: task\nexecutor_required: false\n"
-                "tester_required: false\nreviewer_required: false\n---\n\n# TASK-A\n",
+                "reviewer_required: false\n---\n\n# TASK-A\n",
                 encoding="utf-8",
             )
             inline_hook = run(

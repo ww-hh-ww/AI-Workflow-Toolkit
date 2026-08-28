@@ -17,6 +17,7 @@ from .install_claude import (
     _aiwf_toolkit_root,
     _migrate_legacy_paths,
     _remove_retired_skills,
+    _remove_retired_role_agents,
     _shared_agents_instruction_text,
     _template_text,
     _write_scripts,
@@ -103,7 +104,7 @@ user to interrupt. Revise and critique the contract before dispatching again.
         "Keep planning decisions in the control-root Planner session. Dispatch the named\n"
         "OpenCode subagent there with exactly one Task ID. AIWF binds the child session to\n"
         "that Task and routes its project tools to the assigned Plan worktree. Run Executor,\n"
-        "Tester, and Reviewer in the foreground. Independent Plans may use separate\n"
+        "Experimenter, and Reviewer in the foreground. Independent Plans may use separate\n"
         "control-root OpenCode sessions when they need to run at the same time.",
     )
     return converted
@@ -250,12 +251,13 @@ def install_opencode(force: bool = False) -> Dict[str, List[str]]:
     results["updated"].extend([rel(_write_instruction()), rel(_write_config())])
     for path in [*_write_skills(), *_write_agents(), *_write_opencode_assets()]:
         results["created"].append(rel(path))
-    if force:
-        # This helper only removes retired names inside the selected config tree.
-        class Target:
-            config_dir = ".opencode"
-        for path in _remove_retired_skills(Target()):
-            results["updated"].append(rel(path))
+    # These helpers only remove retired AIWF names inside the selected config tree.
+    class Target:
+        config_dir = ".opencode"
+    for path in _remove_retired_skills(Target()):
+        results["updated"].append(rel(path))
+    for path in _remove_retired_role_agents(".opencode"):
+        results["updated"].append(rel(path))
     state_paths = _write_state_files()
     from .core.governance_git import ensure_governance_gitignore
 
@@ -301,12 +303,19 @@ def doctor_opencode() -> Dict[str, object]:
             "exists": path.exists(),
             "has_frontmatter": path.exists() and path.read_text(encoding="utf-8").startswith("---"),
         }
+    try:
+        startup = json.loads((root / STARTUP_STATUS_PATH).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        startup = {}
     agents = {}
+    visible_agents = set(startup.get("visible_agents", []) or [])
+    startup_checked = bool(startup.get("startup_checked"))
     for name in ["aiwf-planner", *(Path(item).stem for item in AGENT_TEMPLATES)]:
         path = root / ".opencode" / "agents" / f"{name}.md"
         agents[name] = {
             "exists": path.exists(),
             "has_frontmatter": path.exists() and path.read_text(encoding="utf-8").startswith("---"),
+            "host_visible": name in visible_agents if startup_checked else None,
         }
     plugin = root / OPENCODE_PLUGIN_PATH
     plugin_text = plugin.read_text(encoding="utf-8") if plugin.exists() else ""
@@ -315,10 +324,6 @@ def doctor_opencode() -> Dict[str, object]:
     except (OSError, json.JSONDecodeError):
         config = {}
     plugin_configured = PLUGIN_SPEC in (config.get("plugin", []) or [])
-    try:
-        startup = json.loads((root / STARTUP_STATUS_PATH).read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        startup = {}
     hooks = {
         "chat.message": {
             "configured": '"chat.message"' in plugin_text,
@@ -376,6 +381,7 @@ def doctor_opencode() -> Dict[str, object]:
         sync = {"healthy": False, "error_count": 1, "errors": [str(exc)], "warning_count": 0, "warnings": []}
     warnings = memory_structure_warnings(root)
     memory = {"healthy": not warnings, "warning_count": len(warnings), "warnings": warnings[:10]}
+    missing_agents = startup.get("missing_agents", []) or []
     all_ok = (
         (root / "AGENTS.md").exists()
         and (root / "opencode.json").exists()
@@ -386,6 +392,7 @@ def doctor_opencode() -> Dict[str, object]:
         and all(item["exists"] for item in scripts.values())
         and index["healthy"]
         and sync["healthy"]
+        and not (startup_checked and missing_agents)
     )
     has_warnings = bool(warnings) or bool(sync.get("warning_count"))
     adapter_warnings = []
@@ -393,6 +400,11 @@ def doctor_opencode() -> Dict[str, object]:
         adapter_warnings.append(
             "AIWF OpenCode Plugin is disabled; Agents and Skills are available, but hook "
             "enforcement is not. " + str(startup.get("reason") or "rerun the installer")
+        )
+    if startup_checked and missing_agents:
+        adapter_warnings.append(
+            "OpenCode did not register these installed AIWF Agents: "
+            + ", ".join(str(item) for item in missing_agents)
         )
     return {
         "mode": "opencode",

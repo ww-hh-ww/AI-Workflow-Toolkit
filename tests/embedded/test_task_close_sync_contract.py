@@ -28,10 +28,8 @@ class TestTaskCloseSyncContract(unittest.TestCase):
             "goal_id": "GOAL-001",
             "plan_id": "PLAN-001",
             "executor_required": False,
-            "tester_required": False,
             "reviewer_required": True,
             "rollback_required": False,
-            "tester_write": [],
             "dependencies": [],
         }, "# TASK-001\n")
         tasks_path = base / ".aiwf/state/tasks.json"
@@ -49,10 +47,8 @@ class TestTaskCloseSyncContract(unittest.TestCase):
                 "doc_path": ".aiwf/tasks/TASK-001.md",
                 "requirements": {
                     "executor_required": True,
-                    "tester_required": True,
                     "reviewer_required": True,
                     "rollback_required": False,
-                    "tester_write": [],
                 },
                 "dependencies": [],
             }],
@@ -68,7 +64,6 @@ class TestTaskCloseSyncContract(unittest.TestCase):
             task = json.loads(tasks_path.read_text(encoding="utf-8"))["tasks"][0]
             self.assertEqual(task_id, "TASK-001")
             self.assertFalse(task["requirements"]["executor_required"])
-            self.assertFalse(task["requirements"]["tester_required"])
             self.assertTrue(task["requirements"]["reviewer_required"])
             self.assertEqual(task["activation_critique_count"], 2)
             return {"activated": True, "blockers": []}
@@ -103,10 +98,8 @@ class TestTaskCloseSyncContract(unittest.TestCase):
             "plan_id": "PLAN-001",
             "kind": "implementation",
             "executor_required": False,
-            "tester_required": False,
             "reviewer_required": False,
             "rollback_required": False,
-            "tester_write": [],
             "dependencies": [],
         }, "# TASK-001\n")
         tasks_path = base / ".aiwf/state/tasks.json"
@@ -122,10 +115,8 @@ class TestTaskCloseSyncContract(unittest.TestCase):
                 "doc_path": ".aiwf/tasks/TASK-001.md",
                 "requirements": {
                     "executor_required": True,
-                    "tester_required": True,
                     "reviewer_required": True,
                     "rollback_required": False,
-                    "tester_write": [],
                 },
                 "dependencies": [],
             }],
@@ -140,7 +131,6 @@ class TestTaskCloseSyncContract(unittest.TestCase):
         ))
         task = json.loads(tasks_path.read_text(encoding="utf-8"))["tasks"][0]
         self.assertTrue(task["requirements"]["executor_required"])
-        self.assertTrue(task["requirements"]["tester_required"])
         self.assertTrue(task["requirements"]["reviewer_required"])
 
     def test_close_updates_task_md_contract_status_before_sync(self):
@@ -159,7 +149,6 @@ class TestTaskCloseSyncContract(unittest.TestCase):
             "goal_id": "GOAL-001",
             "plan_id": "PLAN-001",
             "executor_required": False,
-            "tester_required": False,
             "reviewer_required": False,
             "rollback_required": False,
             "dependencies": [],
@@ -207,7 +196,6 @@ The completed task is represented in the reviewed snapshot.
                 "doc_path": ".aiwf/tasks/TASK-001.md",
                 "requirements": {
                     "executor_required": False,
-                    "tester_required": False,
                     "reviewer_required": False,
                 },
             }],
@@ -256,7 +244,6 @@ The completed task is represented in the reviewed snapshot.
                 "worktree_path": str(base),
                 "requirements": {
                     "executor_required": False,
-                    "tester_required": False,
                     "reviewer_required": False,
                 },
             }],
@@ -355,7 +342,7 @@ The completed task is represented in the reviewed snapshot.
             "plan_id": "PLAN-001",
         }, "# TASK-003\n")
         (base / ".aiwf/state/state.json").write_text(json.dumps({
-            "phase": "testing",
+            "phase": "reviewing",
             "active_task_id": "TASK-003",
         }), encoding="utf-8")
         (base / ".aiwf/state/fix-loop.json").write_text(
@@ -368,13 +355,13 @@ The completed task is represented in the reviewed snapshot.
                 "id": "TASK-003",
                 "status": "active",
                 "doc_path": ".aiwf/tasks/TASK-003.md",
-                "requirements": {"tester_required": True},
+                "requirements": {"reviewer_required": True},
             }],
         }), encoding="utf-8")
         record = default_task_record("TASK-003")
         record["fix_loop"].update({
             "status": "open",
-            "route": "tester",
+            "route": "reviewer",
             "attempt_count": 2,
             "escalation_required": True,
             "escalation_reason": "retry limit reached",
@@ -384,7 +371,7 @@ The completed task is represented in the reviewed snapshot.
         record_path.parent.mkdir(parents=True, exist_ok=True)
         record_path.write_text(json.dumps(record), encoding="utf-8")
         self.assertFalse(start_dispatch(
-            base, "TASK-003", "aiwf-tester", "session-1", "PLAN-001", str(base),
+            base, "TASK-003", "aiwf-reviewer", "session-1", "PLAN-001", str(base),
         ))
 
         result = force_close_task(str(base), reason="human override")

@@ -14,16 +14,15 @@ from .fixloop_verification import (
 )
 
 
-def _tester_verified_current_implementation(record: Dict[str, Any], source: str) -> bool:
+def _reviewer_verified_current_implementation(record: Dict[str, Any], source: str) -> bool:
     implementation = record.get("implementation", {}) or {}
-    testing = record.get("testing", {}) or {}
+    review = record.get("review", {}) or {}
     implementation_ref = str(implementation.get("implementation_ref") or "")
     return bool(
-        source == "tester"
+        source == "reviewer"
         and implementation_ref
-        and testing.get("status") == "passed"
-        and testing.get("tested_ref")
-        and str(testing.get("based_on_ref") or "") == implementation_ref
+        and review.get("result") == "accepted"
+        and str(review.get("reviewed_ref") or "") == implementation_ref
     )
 
 
@@ -49,7 +48,7 @@ def open_fix_loop(
 ) -> Dict[str, Any]:
     """Open a fix-loop with route, reason, required fixes, and verification.
 
-    A new Tester failure advances attempt_count. Repeated recording of the same
+    A new Experimenter or Reviewer finding advances attempt_count. Repeated recording of the same
     failure or a route change does not pretend to be another repair attempt.
     Uses a small fixed retry limit before asking for escalation.
     If attempt_count reaches max_attempts: escalation_required=true, rollback_recommended
@@ -72,12 +71,7 @@ def open_fix_loop(
         fix_loop = record["fix_loop"]
         was_open = fix_loop.get("status") == "open"
         implementation = record.get("implementation", {}) or {}
-        testing = record.get("testing", {}) or {}
-        evidence_ref = str((
-            testing.get("tested_ref")
-            if source == "tester"
-            else implementation.get("implementation_ref")
-        ) or "")
+        evidence_ref = str(implementation.get("implementation_ref") or "")
         history = list(fix_loop.get("route_history", []) or []) if was_open else []
         duplicate = bool(
             was_open
@@ -94,15 +88,15 @@ def open_fix_loop(
         seen_failed_refs = {
             str(entry.get("evidence_ref") or "")
             for entry in history
-            if str(entry.get("source") or "") == "tester"
+            if str(entry.get("source") or "") in ("experimenter", "reviewer")
             and entry.get("evidence_ref")
         }
-        new_tester_failure = bool(
-            source == "tester"
+        new_evidence_failure = bool(
+            source in ("experimenter", "reviewer")
             and evidence_ref
             and evidence_ref not in seen_failed_refs
         )
-        if new_tester_failure:
+        if new_evidence_failure:
             attempt = prior_attempt + 1
         else:
             attempt = prior_attempt
@@ -152,7 +146,7 @@ def open_fix_loop(
                 entry["evidence_ref"] = evidence_ref
             history.append(entry)
             fix_loop["route_history"] = history
-        if new_tester_failure and attempt >= fix_loop["max_attempts"]:
+        if new_evidence_failure and attempt >= fix_loop["max_attempts"]:
             fix_loop["escalation_required"] = True
             fix_loop["escalation_reason"] = (
                 f"fix-loop failed verification attempts ({attempt}) reached "
@@ -333,7 +327,7 @@ def resolve_fix_loop(
         raise ValueError("fix-loop is not open")
     blockers: List[str] = []
     scope_resolution = None
-    testing = record["testing"]
+    implementation = record["implementation"]
 
     # ── Re-validate required_fixes against current state ──
     required_fixes = fix_loop.get("required_fixes", []) or []
@@ -375,7 +369,7 @@ def resolve_fix_loop(
             scope_resolution = unresolved
     if (
         fix_loop.get("escalation_required")
-        and not _tester_verified_current_implementation(record, source)
+        and not _reviewer_verified_current_implementation(record, source)
     ):
         blockers.append(
             "escalation_required=true; Planner cannot self-resolve escalation. "
@@ -383,11 +377,11 @@ def resolve_fix_loop(
         )
     if (
         _continued_after_escalation(fix_loop)
-        and source == "tester"
-        and not _tester_verified_current_implementation(record, source)
+        and source == "reviewer"
+        and not _reviewer_verified_current_implementation(record, source)
     ):
         blockers.append(
-            "continued escalation requires passed testing against the current implementation"
+            "continued escalation requires Reviewer acceptance of the current implementation"
         )
     legacy_verification = fix_loop.get("required_verification", []) or []
     if legacy_verification:
@@ -397,14 +391,12 @@ def resolve_fix_loop(
         )
     obligations = fix_loop.get("verification_obligations", []) or []
     if obligations:
-        if testing.get("status") not in ("adequate", "passed"):
-            blockers.append("required verification has not produced adequate/passed testing")
         implementation_ref = str((record.get("implementation", {}) or {}).get("implementation_ref") or "")
-        if implementation_ref and str(testing.get("based_on_ref") or "") != implementation_ref:
-            blockers.append("required verification was not run against the current implementation")
-        uncovered = uncovered_verification_obligations(obligations, testing)
+        if not implementation_ref:
+            blockers.append("required verification has no current implementation")
+        uncovered = uncovered_verification_obligations(obligations, implementation)
         if uncovered:
-            blockers.append("required verification not matched in testing: " + ", ".join(uncovered[:5]))
+            blockers.append("required verification not matched in Executor evidence: " + ", ".join(uncovered[:5]))
     if blockers:
         raise ValueError("fix-loop resolution blocked: " + "; ".join(blockers))
     # P1-3: delta review/cleanup invalidation when fixes involved real code changes
@@ -457,7 +449,7 @@ def _invalidate_delta_review(
     """When a fix-loop involves real code changes, invalidate the old review/cleanup.
 
     Only triggers when:
-    - route is executor or tester (fixes were code-level, not planner/environment)
+    - route is executor or reviewer (the stable candidate changed or needs judgment)
     - required_fixes is non-empty OR invalidated_scope is non-empty
     - scope_violation path hasn't already handled this
 
@@ -466,7 +458,7 @@ def _invalidate_delta_review(
     invalidated_scope), not a full re-review from scratch.
     """
     route = str(fix_loop.get("route", "") or "").lower()
-    if route not in ("executor", "tester"):
+    if route not in ("executor", "reviewer"):
         return
     required_fixes = fix_loop.get("required_fixes", []) or []
     invalidated_scope = fix_loop.get("invalidated_scope") or {}

@@ -829,7 +829,6 @@ def _build_detail(node, data):
         lines.append(f" Goal: {task.get('goal_id', '-')}")
         lines.append(f" MS:   {task.get('milestone_id', '-')}")
         lines.append(f" Executor: {'required' if reqs.get('executor_required') else 'inline'}")
-        lines.append(f" Tester:   {'required' if reqs.get('tester_required') else 'inline'}")
         lines.append(f" Reviewer: {'required' if reqs.get('reviewer_required') else 'inline'}")
         if task.get("dependencies"):
             lines.append(f" Depends on: {', '.join(task['dependencies'])}")
@@ -1181,7 +1180,6 @@ def _show_records_inline(stdscr, data, task_id):
     h, w = stdscr.getmaxyx()
     record = data.get("task_records", {}).get(task_id, {})
     implementation = record.get("implementation", {}) or {}
-    testing = record.get("testing", {}) or {}
     review = record.get("review", {}) or {}
     fix_loop = record.get("fix_loop", {}) or {}
     task = _find_task(data, task_id) or {}
@@ -1194,12 +1192,17 @@ def _show_records_inline(stdscr, data, task_id):
     else:
         lines.append("  缺失")
     lines.append("")
-    tlabel = {"passed": "✓ 通过", "failed": "✗ 失败", "adequate": "△ 基本", "missing": "缺失"}
-    lines.append(f"测试: {tlabel.get(testing.get('status',''), testing.get('status','?'))}")
-    if testing.get("summary"):
-        lines.append(f"  {testing['summary'][:120]}")
+    experiment_ids = list(record.get("experiment_ids", []) or [])
+    lines.append(f"实验: {len(experiment_ids)} 个记录")
+    for experiment_id in experiment_ids[:5]:
+        lines.append(f"  {experiment_id}")
     lines.append("")
-    rvlabel = {"accepted": "✓ 已接受", "needs_fix": "✗ 需修复", "rejected": "✗ 已拒绝"}
+    rvlabel = {
+        "accepted": "✓ 已接受",
+        "needs_change": "✗ 需修改",
+        "needs_experiment": "△ 需实验",
+        "rejected": "✗ 已拒绝",
+    }
     lines.append(f"审查: {rvlabel.get(review.get('result',''), review.get('result','?'))}  允许闭合={review.get('closure_allowed')}")
     if review.get("blockers"):
         for b in review["blockers"]:

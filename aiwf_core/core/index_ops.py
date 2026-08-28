@@ -224,10 +224,8 @@ FRONTMATTER_TO_JSON_MAP = {
         "title": "title", "contract_status": "status", "goal_id": "goal_id",
         "plan_id": "plan_id", "milestone_id": "milestone_id", "kind": "kind",
         "executor_required": "requirements.executor_required",
-        "tester_required": "requirements.tester_required",
         "reviewer_required": "requirements.reviewer_required",
         "rollback_required": "requirements.rollback_required",
-        "tester_write": "requirements.tester_write",
         "report_policy": "report_policy", "dependencies": "dependencies",
     },
     "milestone": {
@@ -309,7 +307,6 @@ def _active_task_frontmatter_drift(
     current_requirements = entry.get("requirements", {}) or {}
     for key in (
         "executor_required",
-        "tester_required",
         "reviewer_required",
         "rollback_required",
     ):
@@ -319,12 +316,6 @@ def _active_task_frontmatter_drift(
         )
         if bool(current_requirements.get(key, False)) != parsed:
             drift.append(key)
-
-    tester_write = fm.get("tester_write")
-    if not isinstance(tester_write, list):
-        tester_write = _parse_list_field(str(tester_write or ""))
-    if list(current_requirements.get("tester_write", []) or []) != tester_write:
-        drift.append("tester_write")
 
     dependencies = fm.get("dependencies")
     if not isinstance(dependencies, list):
@@ -408,9 +399,8 @@ def sync_index(base_dir: str, dry_run: bool = False) -> Dict[str, Any]:
                 continue
 
             _LIST_KEYS = ("task_ids", "plan_ids", "covered_goal_ids",
-                         "attached_plan_ids", "child_goal_ids", "dependencies",
-                         "tester_write")
-            _BOOL_KEYS = ("executor_required", "tester_required",
+                         "attached_plan_ids", "child_goal_ids", "dependencies")
+            _BOOL_KEYS = ("executor_required",
                          "reviewer_required", "rollback_required",
                          "integration_test_required", "architecture_review_required",
                          "human_acceptance_required", "verification_task_required")
@@ -895,9 +885,13 @@ Unknown — blocks: each item tagged Built/Wired/Running
 
 Verification Commands:
 
-Use distinct final proof commands. Target specific tests first and run each
-necessary full regression once at the end. Do not list several commands that
-rerun the same suite under different labels.
+Use distinct runnable baseline probes for the minimum acceptance obligations.
+Executor owns these V-* obligations as construction evidence for the stable
+candidate. They are not deferred to another role. Experimenter may later run
+different probes only when an empirical unknown justifies an EXP record.
+Target specific tests first and run each necessary full regression once at the
+end. Do not list several commands that rerun the same suite under different
+labels.
 
 | ID | Command | Expected Observable Output |
 |----|---------|----------------------------|
@@ -913,7 +907,7 @@ briefly explain any non-obvious choice
 Write concise, source-backed bullets that let every participating role reach
 the real code and its first consequential judgment without repeating Planner's exploration.
 Derive the smallest useful anchors from what Executor must decide,
-Tester must observe, and Reviewer must trace. Keep shared facts once; do not
+Experimenter may need to discover, and Reviewer must trace. Keep shared facts once; do not
 create separate role manuals or paste logs, directory maps, whole-file
 summaries, or implementation recipes.
 
@@ -921,7 +915,7 @@ summaries, or implementation recipes.
 
 ## Open Judgment
 
-Add only questions that give Executor, Tester, or Reviewer meaningful room for
+Add only questions that give Executor, Experimenter, or Reviewer meaningful room for
 independent judgment. Remove this section when there is no open judgment.
 """
 
@@ -1057,10 +1051,8 @@ def create_narrative_for_entity(base_dir: str, entity_id: str, entity_type: str,
         fm["kind"] = kind or "implementation"
         is_milestone_verification = kind == "milestone_verification"
         fm["executor_required"] = not is_milestone_verification
-        fm["tester_required"] = not is_milestone_verification
         fm["reviewer_required"] = not is_milestone_verification
         fm["rollback_required"] = False
-        fm["tester_write"] = []
         fm["report_policy"] = "ask"
         fm["dependencies"] = []
         if kind == "milestone_verification":

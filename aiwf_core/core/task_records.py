@@ -1,4 +1,4 @@
-"""Per-Task implementation, testing, review, and fix-loop records."""
+"""Per-Task implementation, experiment links, review, and fix-loop records."""
 from __future__ import annotations
 
 import re
@@ -11,7 +11,6 @@ from .state_schema import (
     default_fix_loop,
     default_implementation,
     default_review,
-    default_testing,
 )
 from .worktree_context import resolve_control_root
 
@@ -33,7 +32,7 @@ def default_task_record(task_id: str) -> Dict[str, Any]:
         "task_id": task_id,
         "attempt_history": [],
         "implementation": default_implementation(task_id),
-        "testing": default_testing(task_id),
+        "experiment_ids": [],
         "review": default_review(task_id),
         "fix_loop": default_fix_loop(),
         "role_agents": {},
@@ -51,7 +50,6 @@ def _legacy_record(control: Path, task_id: str) -> Dict[str, Any]:
     matched = False
     for section, relative in (
         ("implementation", "records/implementation.json"),
-        ("testing", "records/testing.json"),
         ("review", "records/review.json"),
     ):
         value = _read_json(control / ".aiwf" / relative, {})
@@ -75,9 +73,11 @@ def load_task_record(base_dir: str | Path, task_id: str) -> Dict[str, Any]:
         control = resolve_control_root(base_dir)
         record = _legacy_record(control, task_id)
     defaults = default_task_record(task_id)
-    for key in ("implementation", "testing", "review", "fix_loop"):
+    for key in ("implementation", "review", "fix_loop"):
         if not isinstance(record.get(key), dict):
             record[key] = defaults[key]
+    if not isinstance(record.get("experiment_ids"), list):
+        record["experiment_ids"] = []
     if not isinstance(record.get("role_agents"), dict):
         record["role_agents"] = {}
     if not isinstance(record.get("attempt_history"), list):

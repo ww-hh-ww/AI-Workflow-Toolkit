@@ -220,10 +220,6 @@ def _task_unsatisfied_checks(base_dir: str, task: Dict[str, Any]) -> List[str]:
         implementation = record.get("implementation", {}) or {}
         if implementation.get("task_id") != task.get("id") or not implementation.get("implementation_ref"):
             unsatisfied.append("executor_required but no implementation recorded")
-    if reqs.get("tester_required"):
-        testing = record.get("testing", {}) or {"status": "missing"}
-        if testing.get("status") not in ("adequate", "passed"):
-            unsatisfied.append(f"tester_required but testing status={testing.get('status', 'missing')}")
     if reqs.get("reviewer_required"):
         review = record.get("review", {}) or {"result": "unknown"}
         if review.get("result") != "accepted":
@@ -400,7 +396,6 @@ def upsert_task(
             "doc_path": "",
             "requirements": {
                 "executor_required": False if kind == "milestone_verification" else True,
-                "tester_required": True,
                 "reviewer_required": True,
             },
             "report_policy": "ask",
@@ -1000,7 +995,6 @@ def _close_task_locked(base_dir: str, task_id: str = "", note: str = "") -> Dict
         record = load_task_record(base_dir, task_id)
         fix_loop = record.get("fix_loop", {}) or {}
         implementation = record.get("implementation", {}) or {}
-        testing = record.get("testing", {}) or {"status": "missing"}
         review = record.get("review", {}) or {"result": "unknown"}
         reqs = task.get("requirements", {})
 
@@ -1030,30 +1024,15 @@ def _close_task_locked(base_dir: str, task_id: str = "", note: str = "") -> Dict
                 or not implementation.get("implementation_ref")
             ):
                 blockers.append("executor_required but no current implementation record exists")
+            else:
+                from .task_proof import (
+                    construction_proof_gaps,
+                    validate_implementation_against_task,
+                )
 
-        if reqs.get("tester_required"):
-            test_status = testing.get("status")
-            if testing.get("task_id") != task_id or not testing.get("tested_ref"):
-                blockers.append("tester_required but no current tested snapshot exists")
-            if test_status not in ("adequate", "passed"):
-                blockers.append("tester_required but testing status is not adequate/passed")
-            elif test_status == "passed":
-                from .task_proof import validate_testing_against_task
-
-                proof = validate_testing_against_task(base_dir, task, testing)
-                for error in proof.get("contract_errors", []) or []:
-                    if str(error) not in blockers:
-                        blockers.append(str(error))
-                for key, label in (
-                    ("missing_commands", "missing Verification Command"),
-                    ("missing_verification_results", "missing expected/observed result"),
-                    ("mismatched_results", "mismatched observable result"),
-                    ("legacy_unbound_results", "testing result without Verification ID"),
-                    ("empty_observed_results", "empty observed result"),
-                ):
-                    values = proof.get(key, []) or []
-                    if proof.get("schema_recognized") and values:
-                        blockers.append(f"{label}: {', '.join(map(str, values[:5]))}")
+                proof = validate_implementation_against_task(base_dir, task, implementation)
+                for gap in construction_proof_gaps(proof):
+                    blockers.append(f"Executor V evidence incomplete: {gap}")
 
         if reqs.get("reviewer_required"):
             if review.get("result") != "accepted" or not review.get("closure_allowed", False):
@@ -1067,16 +1046,16 @@ def _close_task_locked(base_dir: str, task_id: str = "", note: str = "") -> Dict
             if pending:
                 blockers.append(f"{len(pending)} Reviewer observation(s) still need Planner disposition")
 
-        tested_ref = str(testing.get("tested_ref") or "")
+        implementation_ref = str(implementation.get("implementation_ref") or "")
         reviewed_ref = str(review.get("reviewed_ref") or "")
         worktree = str(task.get("worktree_path") or resolve_worktree_root(base_dir))
         if task.get("kind") == "integration":
-            if not tested_ref:
-                blockers.append("integration Task requires a current tested snapshot")
+            if not implementation_ref:
+                blockers.append("integration Task requires a current implementation snapshot")
             if not reviewed_ref:
                 blockers.append("integration Task requires a current reviewed snapshot")
-        if tested_ref and reviewed_ref != tested_ref:
-            blockers.append("Reviewer did not accept the current tested snapshot")
+        if implementation_ref and reviewed_ref != implementation_ref:
+            blockers.append("Reviewer did not accept the current implementation snapshot")
         if reviewed_ref:
             try:
                 from .git_snapshots import worktree_changes_from_ref, worktree_matches_ref
@@ -1124,7 +1103,6 @@ def _close_task_locked(base_dir: str, task_id: str = "", note: str = "") -> Dict
         "summary": note or "",
         "git_commit": git_commit,
         "implementation_ref": implementation.get("implementation_ref", ""),
-        "tested_ref": testing.get("tested_ref", ""),
         "reviewed_ref": review.get("reviewed_ref", ""),
     }
     if note:
@@ -1204,7 +1182,7 @@ def force_close_task(base_dir: str, reason: str = "", task_id: str = "") -> Dict
 
 def _force_close_task_locked(base_dir: str, reason: str = "", task_id: str = "") -> Dict[str, Any]:
     """Human-only emergency close of one active Task.
-    Bypasses ALL gates — no hash check, no evidence, no testing, no review.
+    Bypasses ALL gates — no hash check, no construction evidence, no review.
 
     AI is mechanically blocked from calling this by command-policy.json.
     """

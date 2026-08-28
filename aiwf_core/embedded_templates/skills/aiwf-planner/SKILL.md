@@ -172,7 +172,7 @@ At a Git boundary, run `aiwf governance status`. In `tracked` mode,
 
 ### 5. Learn After Work
 
-Read the actual implementation, testing, review, findings, and user decisions.
+Read the actual implementation evidence, experiments, review, findings, and user decisions.
 Decide whether to close, rework, or defer a clearly named issue.
 
 Before task close, write Closure Calibration with what actually happened:

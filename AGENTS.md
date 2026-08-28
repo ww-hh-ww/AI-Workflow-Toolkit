@@ -36,33 +36,46 @@ Install
 -> Planner discussion + pre-planning research
 -> Mission, Goal, Plan, and Task design
 -> Activation critique against project reality
--> Scoped implementation (Executor)
--> Independent testing (Tester)
--> Independent review (Reviewer)
+-> Optional empirical investigation (Experimenter)
+-> Stable implementation and complete V/FIX construction evidence (Executor)
+-> Optional post-implementation empirical investigation (Experimenter)
+-> Independent acceptance judgment (Reviewer)
 -> Planner disposition and Closure Calibration
 -> Fix loop if needed
 -> Closure (`aiwf task close` + Stop hook)
 -> Task.md records the actual outcome for the next cycle
 ```
 
-Testing must not be reduced to a review checklist.
+Executor-owned construction proof must not be deferred to another role.
+Experimenter is orthogonal empirical work, not a mandatory testing stage.
 Adversarial observations must be dispositioned before task close.
 
 ## Correct Mainlines
 
-The supported mainlines are embedded Claude Code and embedded Reasonix:
+The supported mainlines are embedded Claude Code, Codex, and OpenCode:
 
 ```bash
 aiwf install claude
 claude
-/aiwf-planner "describe the goal"
 ```
 
+Then start with `/aiwf-planner "describe the goal"`.
+
 ```bash
-aiwf install reasonix
-reasonix code .
-/skill aiwf-planner "describe the goal"
+aiwf install codex
+codex
 ```
+
+Then start with `$aiwf-planner "describe the goal"`.
+
+```bash
+aiwf install opencode
+opencode --agent aiwf-planner
+```
+
+Then start with `/aiwf-planner "describe the goal"`.
+
+Reasonix remains a compatibility target, not a primary mainline.
 
 Do not restore the removed external orchestration path. In particular, do not reintroduce:
 
@@ -78,7 +91,7 @@ Do not restore the removed external orchestration path. In particular, do not re
 
 ## Code Quality
 
-Keep modules small and separated. Do not mix planning, state operations, role dispatch, write policy, testing, review, closure, hooks, and UI.
+Keep modules small and separated. Do not mix planning, state operations, role dispatch, write policy, construction evidence, experiments, review, closure, hooks, and UI.
 
 A module approaching 300 lines should be split unless there is a clear reason.
 
@@ -92,6 +105,8 @@ Claude hooks, and absence of the removed external runtime.
 ## Key Modules
 
 - `task_ledger.py` — Multi-task ledger with execution-window gates
+- `experiment_records.py` — Disposable experiment worktrees, immutable refs, and empirical records
+- `construction_evidence.py` — Executor-owned V/FIX evidence parsing and validation
 - `closure_contract.py` — Stop hook enforcement while a reviewed Task still needs close
 - `state_ops.py` — State mutation helpers (skills call these, never hand-edit JSON)
 - `state_schema.py` — Schema defaults and validation for all .aiwf/*.json files

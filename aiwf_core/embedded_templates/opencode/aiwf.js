@@ -47,15 +47,23 @@ const toolNames = {
   apply_patch: "MultiEdit",
   bash: "Bash",
   task: "Task",
+  subagent: "Agent",
   skill: "Skill",
+}
+
+function isAgentTool(tool) {
+  return tool === "task" || tool === "subagent"
 }
 
 function normalizeArgs(tool, args) {
   const result = { ...(args || {}) }
   if (!result.file_path && result.filePath) result.file_path = result.filePath
   if (tool === "skill" && !result.skill) result.skill = result.name || ""
-  if (tool === "task" && !result.subagent_type) {
-    result.subagent_type = result.agent || result.agentName || ""
+  if (isAgentTool(tool) && !result.subagent_type) {
+    result.subagent_type = result.agent_type || result.agent || result.agentName || ""
+  }
+  if (isAgentTool(tool) && !result.prompt) {
+    result.prompt = result.message || result.description || ""
   }
   return result
 }
@@ -137,11 +145,30 @@ async function sessionAgent(client, input) {
 
 async function prepareTaskRole(input, args) {
   const role = String(args.subagent_type || "")
-  if (!["aiwf-executor", "aiwf-tester", "aiwf-reviewer"].includes(role)) return null
+  if (!["aiwf-executor", "aiwf-experimenter", "aiwf-reviewer"].includes(role)) return null
   if (args.background === true) {
     throw new Error(
       `AIWF ${role} must run in the foreground so its record is checked before the next Task role.`
     )
+  }
+  const prompt = [args.prompt, args.message, args.description].filter(Boolean).join("\n")
+  if (role === "aiwf-experimenter") {
+    const ids = [...new Set(prompt.match(/EXP-[A-Za-z0-9._-]+/g) || [])]
+    if (ids.length !== 1) return null
+    try {
+      const experiment = await Bun.file(
+        `${controlRoot}/.aiwf/records/experiments/${ids[0]}.json`,
+      ).json()
+      if (experiment.status !== "running" || !experiment.worktree_path) return null
+      return {
+        taskID: String(experiment.scope?.id || ids[0]),
+        role,
+        worktree: path.resolve(experiment.worktree_path),
+        experimentID: ids[0],
+      }
+    } catch {
+      return null
+    }
   }
   let ledger
   try {
@@ -149,7 +176,6 @@ async function prepareTaskRole(input, args) {
   } catch {
     return null
   }
-  const prompt = [args.prompt, args.description].filter(Boolean).join("\n")
   const matches = (ledger.tasks || []).filter((task) => {
     if (task.status !== "active" || !task.id) return false
     return new RegExp(`(^|[^A-Za-z0-9_-])${task.id}([^A-Za-z0-9_-]|$)`).test(prompt)
@@ -195,7 +221,19 @@ export const AIWFPlugin = async ({ client, directory, worktree }) => {
       if (event.type === "session.created") {
         const info = event.properties?.info
         const assignment = pendingAssignments.get(info?.parentID || "")
-        if (info?.id && assignment) sessionAssignments.set(info.id, assignment)
+        if (info?.id && assignment) {
+          sessionAssignments.set(info.id, assignment)
+          const body = payload(
+            "SubagentStart",
+            { sessionID: info.parentID || "" },
+            {},
+            null,
+            assignment.worktree,
+            assignment.role,
+          )
+          body.agent_id = info.id
+          await runHook("aiwf_agent_log.py", body)
+        }
         return
       }
       if (event.type === "session.deleted") {
@@ -231,9 +269,9 @@ export const AIWFPlugin = async ({ client, directory, worktree }) => {
 
     "tool.execute.before": async (input, output) => {
       const tool = input.tool
-      const agentType = await sessionAgent(client, input)
-      const hookCwd = assignedCwd(input, cwd)
       const assignment = sessionAssignments.get(sessionID(input))
+      const agentType = await sessionAgent(client, input) || assignment?.role || ""
+      const hookCwd = assignedCwd(input, cwd)
       if (tool === "apply_patch") {
         const key = output.args.patchText !== undefined ? "patchText" : "patch"
         output.args[key] = routePatchText(output.args[key], assignment)
@@ -254,9 +292,10 @@ export const AIWFPlugin = async ({ client, directory, worktree }) => {
         edit: "aiwf_scope_check.py",
         bash: "aiwf_bash_guard.py",
         task: "aiwf_agent_gate.py",
+        subagent: "aiwf_agent_gate.py",
       }[tool]
       if (!script) return
-      const taskRole = tool === "task"
+      const taskRole = isAgentTool(tool)
         ? await prepareTaskRole(input, normalizeArgs(tool, output.args))
         : null
       const result = await runHook(
@@ -269,12 +308,14 @@ export const AIWFPlugin = async ({ client, directory, worktree }) => {
 
     "tool.execute.after": async (input, output) => {
       const tool = input.tool
-      const agentType = await sessionAgent(client, input)
+      const assignment = sessionAssignments.get(sessionID(input))
+        || pendingAssignments.get(sessionID(input))
+      const agentType = await sessionAgent(client, input) || assignment?.role || ""
       if (tool === "skill") {
         await runHook(
           "aiwf_skill_log.py", payload("PostToolUse", input, input.args, output, cwd, agentType),
         )
-      } else if (tool === "task") {
+      } else if (isAgentTool(tool)) {
         const childID = output.metadata?.sessionId || output.metadata?.sessionID || ""
         const assignment = pendingAssignments.get(sessionID(input))
         if (childID && assignment) sessionAssignments.set(childID, assignment)

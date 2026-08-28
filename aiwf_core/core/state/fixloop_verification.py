@@ -71,12 +71,12 @@ def validate_verification_obligations(
 
 def uncovered_verification_obligations(
     obligations: List[Dict[str, Any]],
-    testing: Dict[str, Any],
+    evidence: Dict[str, Any],
 ) -> List[str]:
-    """Return obligation IDs without a matched, observable Tester result."""
+    """Return obligation IDs without a matched, observable Executor result."""
     result_by_id = {
         str(item.get("verification_id") or "").strip(): item
-        for item in testing.get("verification_results", []) or []
+        for item in evidence.get("verification_results", []) or []
         if isinstance(item, dict) and str(item.get("verification_id") or "").strip()
     }
     uncovered = []

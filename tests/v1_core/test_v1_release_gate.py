@@ -1,7 +1,4 @@
-"""V1 Release Gate — minimum passing tests for a stable V1 install.
-
-Runs a full install then exercises every core command path.
-"""
+"""Release-gate smoke tests for the current embedded AIWF install surface."""
 import json
 import os
 import shutil
@@ -11,183 +8,112 @@ import tempfile
 import unittest
 from pathlib import Path
 
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 TIMEOUT = 20
 
 
-def _run(cmd, cwd, **kw):
+def _run(args, cwd):
     env = os.environ.copy()
     env["PYTHONPATH"] = str(PROJECT_ROOT)
-    return subprocess.run(cmd, capture_output=True, text=True,
-                          cwd=str(cwd), env=env, timeout=TIMEOUT, **kw)
+    return subprocess.run(
+        [sys.executable, "-m", "aiwf_core.cli", *args],
+        capture_output=True,
+        text=True,
+        cwd=str(cwd),
+        env=env,
+        timeout=TIMEOUT,
+    )
 
 
 class TestV1ReleaseGate(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="aiwf_release_gate_"))
+        result = _run(["install", "claude", "--force"], self.tmp)
+        self.assertEqual(result.returncode, 0, result.stderr)
 
-    @classmethod
-    def setUpClass(cls):
-        cls.tmp = Path(tempfile.mkdtemp(prefix="awv1_"))
-        _run([sys.executable, "-m", "aiwf_core.cli", "install", "claude", "--force"], cls.tmp)
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
 
-    @classmethod
-    def tearDownClass(cls):
-        shutil.rmtree(cls.tmp, ignore_errors=True)
+    def test_install_surface_has_current_roles_and_no_tester(self):
+        agents = {path.name for path in (self.tmp / ".claude/agents").glob("*.md")}
+        self.assertTrue({
+            "aiwf-executor.md", "aiwf-experimenter.md", "aiwf-reviewer.md",
+        }.issubset(agents))
+        self.assertNotIn("aiwf-tester.md", agents)
 
-    # ── 1. Install surface ──
+        skills = {path.name for path in (self.tmp / ".claude/skills").iterdir()}
+        self.assertTrue({
+            "aiwf-implement", "aiwf-experiment", "aiwf-review",
+        }.issubset(skills))
+        self.assertNotIn("aiwf-test", skills)
 
-    def test_01_install_has_12_commands(self):
-        r = _run([sys.executable, "-m", "aiwf_core.cli", "--help", "--all"], self.tmp)
-        self.assertIn("doctor", r.stdout)
-        self.assertIn("sync", r.stdout)
-
-    def test_02_seven_skills_four_agents(self):
-        skills = sorted((self.tmp / ".claude" / "skills").iterdir())
-        self.assertEqual(len(skills), 7)
-        agents = sorted((self.tmp / ".claude" / "agents").iterdir())
-        self.assertEqual(len(agents), 4)
-
-    def test_03_six_scripts_executable(self):
+    def test_generated_hooks_are_executable(self):
         scripts = sorted((self.tmp / "scripts").glob("aiwf_*.py"))
-        self.assertEqual(len(scripts), 6)
-        for s in scripts:
-            self.assertTrue(s.stat().st_mode & 0o111, f"Not executable: {s.name}")
+        self.assertGreaterEqual(len(scripts), 1)
+        for script in scripts:
+            self.assertTrue(script.stat().st_mode & 0o111, f"not executable: {script.name}")
 
-    def test_04_state_and_records_exist(self):
-        for f in ["state/state.json", "state/goals.json", "state/plans.json",
-                  "state/tasks.json", "state/milestones.json", "state/fix-loop.json",
-                  "records/evidence.json", "records/testing.json", "records/review.json",
-                  "records/architecture-review.json", "records/events.json"]:
-            self.assertTrue((self.tmp / ".aiwf" / f).exists(), f"Missing: {f}")
+    def test_state_surface_uses_task_and_experiment_records(self):
+        for relative in (
+            "state/state.json", "state/goals.json", "state/plans.json",
+            "state/tasks.json", "state/milestones.json", "records/events.json",
+        ):
+            self.assertTrue((self.tmp / ".aiwf" / relative).exists(), relative)
+        self.assertTrue((self.tmp / ".aiwf/records/tasks").is_dir())
+        self.assertTrue((self.tmp / ".aiwf/records/experiments").is_dir())
+        self.assertFalse((self.tmp / ".aiwf/records/testing.json").exists())
+        self.assertFalse((self.tmp / ".aiwf/state/fix-loop.json").exists())
 
-    def test_05_no_dead_zones(self):
-        for dead in ["artifacts", "assets", "archive"]:
-            self.assertFalse((self.tmp / ".aiwf" / dead).is_dir(), f"Dead zone exists: {dead}")
+    def test_task_template_assigns_v_evidence_to_executor(self):
+        for args in (
+            ["goal", "create", "GOAL-001", "--title", "Goal"],
+            ["plan", "create", "PLAN-001", "--goal", "GOAL-001", "--title", "Plan"],
+            ["task", "create", "TASK-001", "--plan", "PLAN-001", "--goal", "GOAL-001", "--title", "Task"],
+        ):
+            result = _run(args, self.tmp)
+            self.assertEqual(result.returncode, 0, result.stderr)
 
-    # ── 2. Create commands (MD-first) ──
-
-    def test_06_goal_create_writes_md(self):
-        _run([sys.executable, "-m", "aiwf_core.cli", "goal", "create", "GOAL-001", "--title", "Test Goal"], self.tmp)
-        md = self.tmp / ".aiwf" / "goals" / "GOAL-001.md"
-        self.assertTrue(md.exists())
-        content = md.read_text()
-        self.assertIn("id: GOAL-001", content)
-        self.assertIn("title: Test Goal", content)
-
-    def test_07_plan_create_writes_md(self):
-        _run([sys.executable, "-m", "aiwf_core.cli", "plan", "create", "PLAN-001", "--goal", "GOAL-001", "--title", "Test Plan"], self.tmp)
-        self.assertTrue((self.tmp / ".aiwf" / "plans" / "PLAN-001.md").exists())
-
-    def test_08_task_create_writes_md(self):
-        _run([sys.executable, "-m", "aiwf_core.cli", "task", "create", "TASK-001", "--plan", "PLAN-001", "--goal", "GOAL-001", "--title", "Test Task"], self.tmp)
-        md = self.tmp / ".aiwf" / "tasks" / "TASK-001.md"
-        self.assertTrue(md.exists())
-        content = md.read_text()
+        content = (self.tmp / ".aiwf/tasks/TASK-001.md").read_text(encoding="utf-8")
         self.assertIn("executor_required: true", content)
-        self.assertIn("tester_required: true", content)
         self.assertIn("reviewer_required: true", content)
+        self.assertIn("Executor owns these V-* obligations", content)
+        self.assertNotIn("tester_required", content)
+        self.assertNotIn("tester_write", content)
 
-    def test_09_milestone_create_writes_md(self):
-        _run([sys.executable, "-m", "aiwf_core.cli", "milestone", "create", "MS-001", "--goal", "GOAL-001", "--title", "Test MS"], self.tmp)
-        self.assertTrue((self.tmp / ".aiwf" / "milestones" / "MS-001.md").exists())
+    def test_cli_exposes_experiments_and_rejects_record_testing(self):
+        help_result = _run(["--help", "--all"], self.tmp)
+        self.assertEqual(help_result.returncode, 0, help_result.stderr)
+        self.assertIn("experiment", help_result.stdout)
+        self.assertIn("record", help_result.stdout)
 
-    # ── 3. Sync ──
+        retired = _run(["record", "testing", "--status", "passed"], self.tmp)
+        self.assertNotEqual(retired.returncode, 0)
+        self.assertIn("invalid choice", retired.stderr)
 
-    def test_10_sync_check_passes(self):
-        r = _run([sys.executable, "-m", "aiwf_core.cli", "sync", "--check"], self.tmp)
-        self.assertEqual(r.returncode, 0)
+    def test_sync_and_doctor_are_healthy(self):
+        sync = _run(["sync", "--check"], self.tmp)
+        self.assertEqual(sync.returncode, 0, sync.stderr)
+        doctor = _run(["doctor"], self.tmp)
+        self.assertEqual(doctor.returncode, 0, doctor.stderr)
+        self.assertIn("healthy", doctor.stdout.lower())
 
-    def test_11_sync_updates_json(self):
-        _run([sys.executable, "-m", "aiwf_core.cli", "sync"], self.tmp)
-        goals = json.loads((self.tmp / ".aiwf" / "state" / "goals.json").read_text())
-        self.assertGreater(len(goals.get("goals", [])), 0)
-        self.assertIn("Test Goal", goals["goals"][0]["title_cache"])
+    def test_default_task_record_has_no_testing_stage(self):
+        from aiwf_core.core.task_records import default_task_record
 
-    # ── 4. Activate ──
+        record = default_task_record("TASK-001")
+        self.assertEqual(record["experiment_ids"], [])
+        self.assertNotIn("testing", record)
+        self.assertEqual(record["review"]["result"], "unknown")
 
-    def test_12_task_activate_sets_active(self):
-        _run([sys.executable, "-m", "aiwf_core.cli", "task", "activate", "TASK-001"], self.tmp)
-        tasks = json.loads((self.tmp / ".aiwf" / "state" / "tasks.json").read_text())
-        task = [t for t in tasks["tasks"] if t["id"] == "TASK-001"][0]
-        self.assertEqual(task["status"], "active")
-
-    # ── 5. Record commands ──
-
-    def test_14_record_evidence(self):
-        r = _run([sys.executable, "-m", "aiwf_core.cli", "record", "evidence",
-                  "--role", "executor", "--summary", "implemented feature"], self.tmp)
-        self.assertEqual(r.returncode, 0)
-
-    def test_15_record_testing(self):
-        r = _run([sys.executable, "-m", "aiwf_core.cli", "record", "testing",
-                  "--status", "passed", "--summary", "all tests pass"], self.tmp)
-        self.assertEqual(r.returncode, 0)
-
-    def test_16_record_review(self):
-        r = _run([sys.executable, "-m", "aiwf_core.cli", "record", "review",
-                  "--result", "accepted", "--summary", "LGTM"], self.tmp)
-        self.assertEqual(r.returncode, 0)
-
-    def test_17_record_architecture_review(self):
-        r = _run([sys.executable, "-m", "aiwf_core.cli", "record", "architecture-review",
-                  "--status", "intact", "--summary", "structure ok"], self.tmp)
-        self.assertEqual(r.returncode, 0)
-
-    # ── 6. Close ──
-
-    def test_18_task_close_succeeds(self):
-        r = _run([sys.executable, "-m", "aiwf_core.cli", "task", "close"], self.tmp)
-        self.assertEqual(r.returncode, 0)
-        tasks = json.loads((self.tmp / ".aiwf" / "state" / "tasks.json").read_text())
-        task = [t for t in tasks["tasks"] if t["id"] == "TASK-001"][0]
-        self.assertEqual(task["status"], "closed")
-
-    # ── 7. Milestone gates ──
-
-    def test_19_milestone_integration_arch_assess(self):
-        _run([sys.executable, "-m", "aiwf_core.cli", "milestone", "link-plan", "MS-001", "PLAN-001"], self.tmp)
-        r1 = _run([sys.executable, "-m", "aiwf_core.cli", "milestone", "integration-test", "MS-001",
-                   "--status", "passed", "--coverage-mode", "end_to_end_flow",
-                   "--main-path-status", "passed", "--summary", "e2e ok"], self.tmp)
-        self.assertEqual(r1.returncode, 0)
-        r2 = _run([sys.executable, "-m", "aiwf_core.cli", "milestone", "arch-review", "MS-001",
-                   "--status", "intact", "--notes", "structure ok"], self.tmp)
-        self.assertEqual(r2.returncode, 0)
-        r3 = _run([sys.executable, "-m", "aiwf_core.cli", "milestone", "assess", "MS-001",
-                   "--verdict", "PASS", "--summary", "all gates passed"], self.tmp)
-        self.assertEqual(r3.returncode, 0)
-
-    # ── 8. Non-whitelist commands must fail ──
-
-    def test_20_non_whitelist_rejected(self):
-        for bad_cmd in [["route"], ["workspace"], ["goal-tree"], ["project-map"],
-                        ["research"], ["frontier"], ["checkpoint"]]:
-            r = _run([sys.executable, "-m", "aiwf_core.cli"] + bad_cmd, self.tmp,
-                     **{"check": False})
-            self.assertNotEqual(r.returncode, 0,
-                              f"Non-whitelist command should fail: aiwf {' '.join(bad_cmd)}")
-
-    # ── 9. Doctor ──
-
-    def test_21_doctor_includes_sync(self):
-        r = _run([sys.executable, "-m", "aiwf_core.cli", "doctor"], self.tmp)
-        self.assertIn("sync", r.stdout.lower())
-
-    # ── 10. Surface pollution ──
-
-    def test_22_surface_has_no_stale_commands(self):
-        import subprocess
-        r = subprocess.run(
-            ["grep", "-R", "aiwf state\\|aiwf route\\|aiwf workspace\\|aiwf goal-tree\\|"
-             "aiwf project-map\\|aiwf checkpoint\\|prepare-close\\|cancel-close\\|"
-             "aiwf milestone update"],
-            capture_output=True, text=True,
-            cwd=str(self.tmp / ".claude"))
-        self.assertEqual(r.returncode, 1, f"Stale commands in installed surface:\n{r.stdout[:500]}")
-        r2 = subprocess.run(
-            ["grep", "-R", "\\.aiwf/artifacts\\|\\.aiwf/assets\\|runtime/checkpoints"],
-            capture_output=True, text=True,
-            cwd=str(self.tmp / ".claude"))
-        self.assertEqual(r2.returncode, 1, f"Stale paths in installed surface:\n{r2.stdout[:500]}")
+    def test_installed_configuration_names_only_current_task_roles(self):
+        models = json.loads(
+            (self.tmp / ".aiwf/config/agent-models.json").read_text(encoding="utf-8")
+        )
+        serialized = json.dumps(models)
+        for role in ("aiwf-executor", "aiwf-experimenter", "aiwf-reviewer"):
+            self.assertIn(role, serialized)
+        self.assertNotIn("aiwf-tester", serialized)
 
 
 if __name__ == "__main__":

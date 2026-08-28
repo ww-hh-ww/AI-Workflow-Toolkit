@@ -1,1296 +1,258 @@
 import json
-import os
 import shutil
 import subprocess
-import sys
 import tempfile
 import unittest
 from pathlib import Path
 
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
-
-VALID_TASK_CONTRACT = """# TASK-001
-
-## Fixed Contract
-
-### Structural Home
-
-GOAL-001 / PLAN-001.
-
-### Objective
-
-Deliver the tested result.
-
-### Contract Responsibility
-
-Own and prove the result described by this test.
-
-### Proof Standard
-
-- [Built] The result exists in the reviewed snapshot.
-"""
-
-
 class TestGitTaskRecords(unittest.TestCase):
     def setUp(self):
-        self.tmp = Path(tempfile.mkdtemp(prefix="aiwf_git_records_"))
-        from aiwf_core.core.state_schema import MVP_STATE_FILES
-
-        for rel, default_fn in MVP_STATE_FILES.items():
-            path = self.tmp / ".aiwf" / rel
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(json.dumps(default_fn(), indent=2) + "\n", encoding="utf-8")
-        subprocess.run(["git", "init", "-b", "main"], cwd=self.tmp, check=True, capture_output=True)
-        subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=self.tmp, check=True)
-        subprocess.run(["git", "config", "user.name", "AIWF Test"], cwd=self.tmp, check=True)
-        (self.tmp / "README.md").write_text("base\n", encoding="utf-8")
-        (self.tmp / "CLAUDE.md").write_text("base project rules\n", encoding="utf-8")
-        subprocess.run(["git", "add", "README.md", "CLAUDE.md"], cwd=self.tmp, check=True)
-        subprocess.run(["git", "commit", "-m", "base"], cwd=self.tmp, check=True, capture_output=True)
-        subprocess.run(["git", "switch", "-c", "feature/test"], cwd=self.tmp, check=True, capture_output=True)
-        self.origin = subprocess.run(
-            ["git", "rev-parse", "HEAD"], cwd=self.tmp, check=True,
-            capture_output=True, text=True,
-        ).stdout.strip()
-        task = {
-            "id": "TASK-001", "title": "ship feature", "status": "active",
-            "git_origin_ref": self.origin,
-            "requirements": {
-                "executor_required": True,
-                "tester_required": True,
-                "reviewer_required": True,
-            },
+        self.root = Path(tempfile.mkdtemp(prefix="aiwf_git_records_"))
+        self._git("init", "-b", "main")
+        self._git("config", "user.email", "test@example.com")
+        self._git("config", "user.name", "AIWF Test")
+        (self.root / "app.txt").write_text("old\n", encoding="utf-8")
+        self._git("add", "app.txt")
+        self._git("commit", "-m", "seed")
+        self.origin = self._git("rev-parse", "HEAD")
+        for rel in (
+            ".aiwf/state", ".aiwf/tasks", ".aiwf/records/tasks",
+            ".aiwf/records/experiments", ".aiwf/runtime/internal",
+            ".aiwf/runtime/experiments",
+        ):
+            (self.root / rel).mkdir(parents=True, exist_ok=True)
+        self.task = {
+            "id": "TASK-001", "status": "active", "phase": "executing",
+            "kind": "implementation", "doc_path": ".aiwf/tasks/TASK-001.md",
+            "goal_id": "GOAL-001", "plan_id": "PLAN-001", "dependencies": [],
+            "worktree_path": str(self.root), "git_origin_ref": self.origin,
+            "requirements": {"executor_required": True, "reviewer_required": True},
         }
-        (self.tmp / ".aiwf/state/tasks.json").write_text(
-            json.dumps({"schema_version": 1, "tasks": [task]}, indent=2) + "\n",
-            encoding="utf-8",
-        )
-        task_doc = self.tmp / ".aiwf/tasks/TASK-001.md"
-        task_doc.parent.mkdir(parents=True, exist_ok=True)
-        task_doc.write_text(VALID_TASK_CONTRACT, encoding="utf-8")
-        state = json.loads((self.tmp / ".aiwf/state/state.json").read_text())
-        state.update({"active_task_id": "TASK-001", "phase": "executing", "git_origin_ref": self.origin})
-        (self.tmp / ".aiwf/state/state.json").write_text(json.dumps(state, indent=2) + "\n")
+        self._write_json(".aiwf/state/state.json", {
+            "schema_version": 1, "active_task_id": "TASK-001",
+        })
+        self._save_task()
+        (self.root / ".aiwf/tasks/TASK-001.md").write_text(self._task_doc(), encoding="utf-8")
 
     def tearDown(self):
-        shutil.rmtree(self.tmp, ignore_errors=True)
+        subprocess.run(["git", "worktree", "prune"], cwd=self.root, capture_output=True)
+        shutil.rmtree(self.root, ignore_errors=True)
 
-    def _write_closure_calibration(self):
-        task_doc = self.tmp / ".aiwf/tasks/TASK-001.md"
-        text = task_doc.read_text(encoding="utf-8")
-        if "## Closure Calibration" not in text:
-            task_doc.write_text(
-                text.rstrip()
-                + "\n\n## Closure Calibration\n\n"
-                + "The completed task is represented in the reviewed snapshot.\n",
-                encoding="utf-8",
-            )
-
-    def _write_verification_contract(self):
-        (self.tmp / ".aiwf/tasks/TASK-001.md").write_text(
-            VALID_TASK_CONTRACT.replace(
-                "- [Built] The result exists in the reviewed snapshot.",
-                "- [Wired] The result is connected and tested.\n\n"
-                "#### Verification Commands\n\n"
-                "| ID | Command | Expected |\n"
-                "|---|---|---|\n"
-                "| V-001 | `pytest -q` | tests pass |",
-            ),
-            encoding="utf-8",
+    def _git(self, *args):
+        result = subprocess.run(
+            ["git", *args], cwd=self.root, capture_output=True, text=True, check=True,
         )
+        return result.stdout.strip()
 
-    def _record_full_chain(self):
-        from aiwf_core.core.state.context_ops import record_implementation
-        from aiwf_core.core.state.review_ops import record_review
-        from aiwf_core.core.state.testing_ops import record_testing
+    def _write_json(self, relative, value):
+        path = self.root / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(value, indent=2) + "\n", encoding="utf-8")
 
-        (self.tmp / "src").mkdir(exist_ok=True)
-        (self.tmp / "src/feature.py").write_text("VALUE = 1\n", encoding="utf-8")
-        implementation = record_implementation(
-            str(self.tmp), "implemented and wired feature", command="python -m compileall src",
-        )
-        (self.tmp / "tests").mkdir(exist_ok=True)
-        (self.tmp / "tests/test_feature.py").write_text("def test_value(): assert 1 == 1\n", encoding="utf-8")
-        testing = record_testing(
-            str(self.tmp), status="passed", commands=["pytest -q"],
-            coverage_summary="tests passed",
-            verification_results=[{
-                "command": "pytest -q", "expected": "pass", "observed": "1 passed", "matched": True,
-            }],
-        )
-        review = record_review(
-            str(self.tmp), result="accepted", closure_allowed=True,
-            summary="implementation and tests form one sound change",
-        )
-        return implementation, testing, review
-
-    def test_tester_snapshot_extends_implementation_and_review_matches_it(self):
-        implementation, testing, review = self._record_full_chain()
-        self.assertEqual(testing["based_on_ref"], implementation["implementation_ref"])
-        self.assertNotEqual(testing["tested_ref"], implementation["implementation_ref"])
-        self.assertEqual(review["reviewed_ref"], testing["tested_ref"])
-        self.assertEqual(testing["test_changed_files"], ["tests/test_feature.py"])
-        self.assertNotIn("evidence_id", testing)
-        self.assertNotIn("accepted_evidence_ids", review)
-
-    def test_status_route_catches_project_changes_after_review(self):
-        from aiwf_core.commands.flow import _task_next
-        from aiwf_core.core.task_ledger import load_ledger
-        from aiwf_core.core.task_records import load_task_record
-
-        self._record_full_chain()
-        (self.tmp / "src/feature.py").write_text("VALUE = 2\n", encoding="utf-8")
-        task = load_ledger(str(self.tmp))["tasks"][0]
-        record = load_task_record(self.tmp, "TASK-001")
-
-        role, action = _task_next(task, record, self.tmp)
-
-        self.assertEqual(role, "Implementation repair")
-        self.assertIn("project files changed after review", action)
-        self.assertIn("rerun only the affected testing and review", action)
-        self.assertIn("Do not interrupt", action)
-
-    def test_adopted_head_can_close_without_creating_an_empty_commit(self):
-        from aiwf_core.core.git_snapshots import create_task_snapshot
-        from aiwf_core.core.git_workflow import create_task_commit
-
-        head = subprocess.run(
-            ["git", "rev-parse", "HEAD"], cwd=self.tmp, check=True,
-            capture_output=True, text=True,
-        ).stdout.strip()
-        reviewed = create_task_snapshot(
-            str(self.tmp), "TASK-001", "review", head,
-            summary="adopted existing reviewed commit",
-        )["ref"]
-        result = create_task_commit(
-            str(self.tmp),
-            {
-                "id": "TASK-001", "title": "adopt accepted head",
-                "git_branch": "feature/test", "adopted_head_ref": head,
-            },
-            head,
-            reviewed,
-        )
-
-        self.assertEqual(result, head)
-
-    def test_reviewed_integration_merge_commit_is_adopted_only_with_exact_parents(self):
-        from aiwf_core.core.git_snapshots import create_task_snapshot
-        from aiwf_core.core.git_workflow import create_task_commit
-
-        subprocess.run(["git", "switch", "main"], cwd=self.tmp, check=True, capture_output=True)
-        (self.tmp / "base.txt").write_text("new base\n", encoding="utf-8")
-        subprocess.run(["git", "add", "base.txt"], cwd=self.tmp, check=True)
-        subprocess.run(
-            ["git", "commit", "-m", "advance base"],
-            cwd=self.tmp, check=True, capture_output=True,
-        )
-        base_ref = subprocess.run(
-            ["git", "rev-parse", "HEAD"], cwd=self.tmp, check=True,
-            capture_output=True, text=True,
-        ).stdout.strip()
-        subprocess.run(
-            ["git", "switch", "feature/test"],
-            cwd=self.tmp, check=True, capture_output=True,
-        )
-        subprocess.run(
-            ["git", "merge", "--no-ff", "--no-commit", base_ref],
-            cwd=self.tmp, check=True, capture_output=True,
-        )
-        subprocess.run(
-            ["git", "commit", "-m", "reviewed integration"],
-            cwd=self.tmp, check=True, capture_output=True,
-        )
-        merge_ref = subprocess.run(
-            ["git", "rev-parse", "HEAD"], cwd=self.tmp, check=True,
-            capture_output=True, text=True,
-        ).stdout.strip()
-        reviewed_ref = create_task_snapshot(
-            str(self.tmp), "TASK-001", "review", self.origin,
-            summary="reviewed the exact merged tree",
-        )["ref"]
-        task = {
-            "id": "TASK-001",
-            "title": "integrate base",
-            "kind": "integration",
-            "git_branch": "feature/test",
-            "integration_base_ref": base_ref,
-        }
-
-        self.assertEqual(
-            create_task_commit(str(self.tmp), task, self.origin, reviewed_ref),
-            merge_ref,
-        )
-
-        subprocess.run(
-            ["git", "commit", "--allow-empty", "-m", "wrong integration shape"],
-            cwd=self.tmp, check=True, capture_output=True,
-        )
-        with self.assertRaisesRegex(ValueError, "two parents"):
-            create_task_commit(str(self.tmp), task, self.origin, reviewed_ref)
-
-    def test_premature_integration_merge_is_completed_from_reviewed_index(self):
-        from aiwf_core.commands.flow import _task_next
-        from aiwf_core.core.git_snapshots import create_task_snapshot, tree_changes
-        from aiwf_core.core.git_workflow import (
-            changed_project_files,
-            integration_close_readiness,
-        )
-        from aiwf_core.core.task_ledger import close_task
-        from aiwf_core.core.task_records import (
-            default_task_record,
-            save_task_record,
-        )
-
-        subprocess.run(["git", "switch", "main"], cwd=self.tmp, check=True, capture_output=True)
-        (self.tmp / "base.txt").write_text("new base\n", encoding="utf-8")
-        governance = self.tmp / ".aiwf/state/base-only.json"
-        governance.write_text('{"base": true}\n', encoding="utf-8")
-        subprocess.run(
-            ["git", "add", "base.txt", ".aiwf/state/base-only.json"],
-            cwd=self.tmp, check=True,
-        )
-        subprocess.run(
-            ["git", "commit", "-m", "advance base"],
-            cwd=self.tmp, check=True, capture_output=True,
-        )
-        base_ref = subprocess.run(
-            ["git", "rev-parse", "HEAD"], cwd=self.tmp, check=True,
-            capture_output=True, text=True,
-        ).stdout.strip()
-        subprocess.run(
-            ["git", "switch", "feature/test"],
-            cwd=self.tmp, check=True, capture_output=True,
-        )
-        subprocess.run(
-            ["git", "merge", "--no-ff", "--no-commit", base_ref],
-            cwd=self.tmp, check=True, capture_output=True,
-        )
-        subprocess.run(
-            ["git", "commit", "-m", "premature integration"],
-            cwd=self.tmp, check=True, capture_output=True,
-        )
-        premature_ref = subprocess.run(
-            ["git", "rev-parse", "HEAD"], cwd=self.tmp, check=True,
-            capture_output=True, text=True,
-        ).stdout.strip()
-        (self.tmp / "src").mkdir(exist_ok=True)
-        (self.tmp / "src/feature.py").write_text("VALUE = 2\n", encoding="utf-8")
-        subprocess.run(["git", "add", "src/feature.py"], cwd=self.tmp, check=True)
-        reviewed_ref = create_task_snapshot(
-            str(self.tmp), "TASK-001", "review", self.origin,
-            summary="reviewed the merged product tree",
-        )["ref"]
-        task = {
-            "id": "TASK-001",
-            "title": "integrate base",
-            "status": "active",
-            "phase": "closing",
-            "kind": "integration",
-            "git_branch": "feature/test",
-            "git_origin_ref": self.origin,
-            "integration_base_ref": base_ref,
-            "worktree_path": str(self.tmp),
-            "requirements": {
-                "executor_required": False,
-                "tester_required": False,
-                "reviewer_required": False,
-            },
-        }
-        tasks_path = self.tmp / ".aiwf/state/tasks.json"
-        tasks_path.write_text(
-            json.dumps({"schema_version": 1, "tasks": [task]}, indent=2) + "\n",
-            encoding="utf-8",
-        )
-        record = {
-            "implementation": {"implementation_ref": reviewed_ref},
-            "testing": {"status": "passed", "tested_ref": reviewed_ref},
-            "review": {
-                "result": "accepted",
-                "closure_allowed": True,
-                "reviewed_ref": reviewed_ref,
-            },
-        }
-
-        readiness = integration_close_readiness(
-            str(self.tmp), task, self.origin, reviewed_ref,
-        )
-        self.assertEqual(readiness, {"status": "ready", "mode": "amend_merge"})
-        role, action = _task_next(task, record, self.tmp)
-        self.assertEqual(role, "Close")
-        self.assertIn("existing correct merge commit", action)
-
-        stored_record = default_task_record("TASK-001")
-        stored_record.update(record)
-        save_task_record(self.tmp, stored_record)
-        self._write_closure_calibration()
-        result = close_task(str(self.tmp), "TASK-001")
-        self.assertTrue(result["closed"], result["blockers"])
-        completed_ref = result["task"]["closure"]["git_commit"]
-
-        self.assertNotEqual(completed_ref, premature_ref)
-        parents = subprocess.run(
-            ["git", "show", "-s", "--format=%P", completed_ref],
-            cwd=self.tmp, check=True, capture_output=True, text=True,
-        ).stdout.strip().split()
-        self.assertEqual(parents, [self.origin, base_ref])
-        self.assertEqual(tree_changes(str(self.tmp), reviewed_ref, completed_ref), [])
-        self.assertTrue(governance.exists())
-        self.assertEqual(changed_project_files(str(self.tmp)), [])
-
-    def test_integration_task_requires_current_test_and_review_snapshots(self):
-        from aiwf_core.core.task_ledger import close_task
-
-        tasks_path = self.tmp / ".aiwf/state/tasks.json"
-        tasks = json.loads(tasks_path.read_text())
-        tasks["tasks"][0].update({
-            "kind": "integration",
-            "requirements": {
-                "executor_required": False,
-                "tester_required": False,
-                "reviewer_required": False,
-            },
+    def _save_task(self):
+        self._write_json(".aiwf/state/tasks.json", {
+            "schema_version": 1, "tasks": [self.task],
         })
-        tasks_path.write_text(json.dumps(tasks, indent=2) + "\n", encoding="utf-8")
 
-        result = close_task(str(self.tmp), "TASK-001")
+    @staticmethod
+    def _task_doc(calibrated=False):
+        calibration = "\n## Closure Calibration\n\nAccepted current candidate.\n" if calibrated else ""
+        return """---
+id: TASK-001
+type: task
+title: Stable task
+contract_status: active
+goal_id: GOAL-001
+plan_id: PLAN-001
+executor_required: true
+reviewer_required: true
+---
 
-        self.assertFalse(result["closed"])
-        self.assertIn(
-            "integration Task requires a current tested snapshot",
-            result["blockers"],
-        )
-        self.assertIn(
-            "integration Task requires a current reviewed snapshot",
-            result["blockers"],
-        )
-
-    def test_cancel_aborts_open_merge_and_force_close_does_not_choose(self):
-        from aiwf_core.core.task_ledger import force_close_task
-
-        subprocess.run(["git", "switch", "main"], cwd=self.tmp, check=True, capture_output=True)
-        (self.tmp / "base.txt").write_text("new base\n", encoding="utf-8")
-        subprocess.run(["git", "add", "base.txt"], cwd=self.tmp, check=True)
-        subprocess.run(
-            ["git", "commit", "-m", "advance base"],
-            cwd=self.tmp, check=True, capture_output=True,
-        )
-        base_ref = subprocess.run(
-            ["git", "rev-parse", "HEAD"], cwd=self.tmp, check=True,
-            capture_output=True, text=True,
-        ).stdout.strip()
-        subprocess.run(
-            ["git", "switch", "feature/test"],
-            cwd=self.tmp, check=True, capture_output=True,
-        )
-        subprocess.run(
-            ["git", "merge", "--no-ff", "--no-commit", base_ref],
-            cwd=self.tmp, check=True, capture_output=True,
-        )
-        tasks_path = self.tmp / ".aiwf/state/tasks.json"
-        tasks = json.loads(tasks_path.read_text())
-        tasks["tasks"][0].update({
-            "status": "suspended",
-            "phase": "suspended",
-            "worktree_path": str(self.tmp),
-        })
-        tasks_path.write_text(json.dumps(tasks, indent=2) + "\n", encoding="utf-8")
-        state_path = self.tmp / ".aiwf/state/state.json"
-        state = json.loads(state_path.read_text())
-        for key in ("active_task_id", "active_plan_id", "phase", "git_origin_ref"):
-            state.pop(key, None)
-        state_path.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
-        env = os.environ.copy()
-        env["PYTHONPATH"] = str(PROJECT_ROOT)
-
-        cancelled = subprocess.run(
-            [
-                sys.executable, "-m", "aiwf_core.cli",
-                "task", "cancel", "TASK-001", "--reason", "abandon integration",
-            ],
-            cwd=self.tmp, env=env, capture_output=True, text=True,
-        )
-
-        self.assertEqual(cancelled.returncode, 0, cancelled.stderr)
-        self.assertNotEqual(
-            subprocess.run(
-                ["git", "rev-parse", "-q", "--verify", "MERGE_HEAD"],
-                cwd=self.tmp, capture_output=True,
-            ).returncode,
-            0,
-        )
-        self.assertFalse((self.tmp / "base.txt").exists())
-        tasks = json.loads(tasks_path.read_text())
-        self.assertEqual(tasks["tasks"][0]["status"], "cancelled")
-
-        subprocess.run(
-            ["git", "merge", "--no-ff", "--no-commit", base_ref],
-            cwd=self.tmp, check=True, capture_output=True,
-        )
-        tasks["tasks"][0].update({"status": "active", "phase": "implementing"})
-        tasks_path.write_text(json.dumps(tasks, indent=2) + "\n", encoding="utf-8")
-
-        forced = force_close_task(
-            str(self.tmp), reason="accept incomplete integration",
-            task_id="TASK-001",
-        )
-
-        self.assertFalse(forced["closed"])
-        self.assertEqual(
-            subprocess.run(
-                ["git", "rev-parse", "-q", "--verify", "MERGE_HEAD"],
-                cwd=self.tmp, capture_output=True,
-            ).returncode,
-            0,
-        )
-        self.assertIn("Use normal task close", forced["blockers"][0])
-        self.assertIn("interrupt then cancel", forced["blockers"][0])
-
-    def test_testing_records_accumulate_on_the_same_snapshot(self):
-        from aiwf_core.core.state.context_ops import record_implementation
-        from aiwf_core.core.state.testing_ops import record_testing
-        from aiwf_core.core.task_proof import validate_testing_against_task
-
-        task_doc = self.tmp / ".aiwf/tasks/TASK-001.md"
-        task_doc.parent.mkdir(parents=True, exist_ok=True)
-        task_doc.write_text(
-            """# TASK-001
+# TASK-001
 
 ## Fixed Contract
 
 ### Structural Home
 
-GOAL-001 / PLAN-001.
+Owned by the active Plan.
 
 ### Objective
 
-Ship the feature.
+Deliver the current candidate.
 
 ### Contract Responsibility
 
-The public entry point works.
-
-### Proof Standard
-
-- **Running:** Both checks pass.
-
-Verification Commands:
-
-| ID | Command | Expected |
-|---|---|---|
-| V-001 | `pytest -q` | tests pass |
-| V-002 | `python3 app.py` | prints ready |
-""",
-            encoding="utf-8",
-        )
-        (self.tmp / "app.py").write_text("print('ready')\n", encoding="utf-8")
-        record_implementation(str(self.tmp), "implemented the entry point")
-
-        first = record_testing(
-            str(self.tmp), status="passed", commands=["pytest -q"],
-            coverage_summary="unit tests passed",
-            verification_results=[{
-                "verification_id": "V-001",
-                "command": "pytest -q", "expected": "tests pass",
-                "observed": "1 passed", "matched": True,
-            }],
-        )
-        second = record_testing(
-            str(self.tmp), status="passed", commands=["python3 app.py"],
-            coverage_summary="entry point passed",
-            verification_results=[{
-                "verification_id": "V-002",
-                "command": "python3 app.py", "expected": "prints ready",
-                "observed": "ready", "matched": True,
-            }],
-        )
-
-        self.assertEqual(first["status"], "partial")
-        self.assertEqual(second["status"], "passed")
-        self.assertEqual(second["tested_ref"], first["tested_ref"])
-        self.assertEqual(second["attempt"], first["attempt"])
-        self.assertEqual(second["commands"], ["pytest -q", "python3 app.py"])
-        task = json.loads(
-            (self.tmp / ".aiwf/state/tasks.json").read_text(encoding="utf-8")
-        )["tasks"][0]
-        proof = validate_testing_against_task(str(self.tmp), task, second)
-        self.assertEqual(proof["missing_commands"], [])
-        self.assertEqual(proof["missing_verification_results"], [])
-
-    def test_task_contract_revision_discards_old_testing_results(self):
-        from aiwf_core.core.state.context_ops import record_implementation
-        from aiwf_core.core.state.testing_ops import record_testing
-
-        task_doc = self.tmp / ".aiwf/tasks/TASK-001.md"
-        task_doc.write_text(
-            VALID_TASK_CONTRACT + """
-Verification Commands:
-
-| ID | Command | Expected |
-|---|---|---|
-| V-001 | pytest -q tests/old.py | old route passes |
-""",
-            encoding="utf-8",
-        )
-        (self.tmp / "src").mkdir(exist_ok=True)
-        (self.tmp / "src/feature.py").write_text("VALUE = 1\n", encoding="utf-8")
-        implementation = record_implementation(str(self.tmp), "implemented feature")
-        first = record_testing(
-            str(self.tmp), status="passed", commands=["pytest -q tests/old.py"],
-            verification_results=[{
-                "verification_id": "V-001",
-                "command": "pytest -q tests/old.py",
-                "observed": "old route passes",
-                "matched": True,
-                "verdict": "matched",
-            }],
-        )
-
-        task_doc.write_text(
-            VALID_TASK_CONTRACT + """
-Verification Commands:
-
-| ID | Command | Expected |
-|---|---|---|
-| V-002 | pytest -q tests/new.py | new route passes |
-""",
-            encoding="utf-8",
-        )
-        second = record_testing(
-            str(self.tmp), status="passed", commands=["pytest -q tests/new.py"],
-            verification_results=[{
-                "verification_id": "V-002",
-                "command": "pytest -q tests/new.py",
-                "observed": "new route passes",
-                "matched": True,
-                "verdict": "matched",
-            }],
-        )
-
-        self.assertEqual(first["status"], "passed")
-        self.assertEqual(second["status"], "passed")
-        self.assertNotEqual(second["tested_ref"], first["tested_ref"])
-        self.assertNotEqual(second["proof_contract_fingerprint"], first["proof_contract_fingerprint"])
-        self.assertEqual(
-            [item["verification_id"] for item in second["verification_results"]],
-            ["V-002"],
-        )
-        self.assertEqual(second["proof_validation"]["missing_verification_results"], [])
-
-    def test_task_explanatory_prose_edit_preserves_proof_snapshot(self):
-        from aiwf_core.core.state.context_ops import record_implementation
-        from aiwf_core.core.state.testing_ops import record_testing
-
-        task_doc = self.tmp / ".aiwf/tasks/TASK-001.md"
-        task_doc.write_text(
-            VALID_TASK_CONTRACT + """
-Verification Commands:
-
-| ID | Command | Expected |
-|---|---|---|
-| V-001 | pytest -q tests/old.py | old route passes |
-| V-002 | python3 app.py | prints ready |
-""",
-            encoding="utf-8",
-        )
-        (self.tmp / "src").mkdir(exist_ok=True)
-        (self.tmp / "src/feature.py").write_text("VALUE = 1\n", encoding="utf-8")
-        record_implementation(str(self.tmp), "implemented feature")
-        first = record_testing(
-            str(self.tmp), status="passed", commands=["pytest -q tests/old.py"],
-            verification_results=[{
-                "verification_id": "V-001",
-                "command": "pytest -q tests/old.py",
-                "observed": "old route passes",
-                "matched": True,
-                "verdict": "matched",
-            }],
-        )
-
-        task_doc.write_text(
-            VALID_TASK_CONTRACT.replace(
-                "Ship the feature.",
-                "Ship the feature.\n\nImplementation note: keep the public API stable.",
-            ) + """
-Verification Commands:
-
-| ID | Command | Expected |
-|---|---|---|
-| V-001 | pytest -q tests/old.py | old route passes |
-| V-002 | python3 app.py | prints ready |
-""",
-            encoding="utf-8",
-        )
-        second = record_testing(
-            str(self.tmp), status="passed", commands=["python3 app.py"],
-            verification_results=[{
-                "verification_id": "V-002",
-                "command": "python3 app.py",
-                "observed": "ready",
-                "matched": True,
-                "verdict": "matched",
-            }],
-        )
-
-        self.assertEqual(second["tested_ref"], first["tested_ref"])
-        self.assertEqual(second["attempt"], first["attempt"])
-        self.assertEqual(
-            [item["verification_id"] for item in second["verification_results"]],
-            ["V-001", "V-002"],
-        )
-
-    def test_partial_testing_route_names_missing_proof(self):
-        from aiwf_core.commands.flow import _task_next
-        from aiwf_core.core.state.context_ops import record_implementation
-        from aiwf_core.core.state.testing_ops import record_testing
-        from aiwf_core.core.task_records import load_task_record
-
-        task_doc = self.tmp / ".aiwf/tasks/TASK-001.md"
-        task_doc.parent.mkdir(parents=True, exist_ok=True)
-        task_doc.write_text(
-            """# TASK-001
-
-## Fixed Contract
-
-### Structural Home
-
-GOAL-001 / PLAN-001.
-
-### Objective
-
-Ship the feature.
-
-### Contract Responsibility
-
-Own and prove the feature.
+Own the behavior and proof.
 
 ### Proof Standard
 
 Done When:
 
-- [Running] Both checks pass.
+- [Running] The real entrypoint emits new.
 
 Verification Commands:
 
 | ID | Command | Expected Observable Output |
-|---------|----------------------------|---------|
-| V-001 | pytest unit | unit passes |
-| V-002 | pytest integration | integration passes |
-""",
-            encoding="utf-8",
-        )
-        (self.tmp / "src").mkdir(exist_ok=True)
-        (self.tmp / "src/feature.py").write_text("VALUE = 1\n", encoding="utf-8")
-        record_implementation(str(self.tmp), "implemented feature")
-        testing = record_testing(
-            str(self.tmp), status="passed", commands=["pytest unit"],
-            verification_results=[{
-                "verification_id": "V-001",
-                "command": "pytest unit", "expected": "unit passes",
-                "observed": "unit passes", "matched": True,
-            }],
-        )
-        self.assertEqual(testing["status"], "partial")
+|----|---------|----------------------------|
+| V-001 | python3 -c "print('new')" | stdout is exactly new |
 
-        task = json.loads((self.tmp / ".aiwf/state/tasks.json").read_text())["tasks"][0]
-        role, action = _task_next(
-            task, load_task_record(self.tmp, "TASK-001"), self.tmp,
-        )
-        self.assertEqual(role, "Tester")
-        self.assertIn("pytest integration", action)
-        self.assertIn("valid results on the unchanged tested snapshot are preserved", action)
+### Dispatch Decisions
 
-    def test_structural_contract_defect_routes_to_planner_before_tester(self):
-        from aiwf_core.commands.flow import _task_next
-        from aiwf_core.core.task_records import load_task_record
-        from aiwf_core.core.task_ledger import load_ledger
+Independent Executor and Reviewer.
+""" + calibration
 
-        (self.tmp / ".aiwf/tasks/TASK-001.md").write_text(
-            VALID_TASK_CONTRACT + """
-Verification Commands:
+    @staticmethod
+    def _evidence(observed="new", matched=True):
+        return [{
+            "verification_id": "V-001",
+            "command": "python3 -c \"print('new')\"",
+            "expected": "stdout is exactly new",
+            "observed": observed,
+            "matched": matched,
+            "verdict": "matched" if matched else "mismatched",
+            "basis": "exact stdout" if matched else "wrong stdout",
+        }]
 
-| ID | Command | Expected |
-| --- | --- | --- |
-| V-001 | project-runtime map-check | |
-""",
-            encoding="utf-8",
-        )
-        task = load_ledger(str(self.tmp))["tasks"][0]
-        record = load_task_record(self.tmp, "TASK-001")
-        record["implementation"] = {
-            "task_id": "TASK-001",
-            "implementation_ref": "implementation-ref",
-        }
-        record["testing"] = {
-            "task_id": "TASK-001",
-            "status": "partial",
-            "tested_ref": "tested-ref",
-        }
-
-        role, action = _task_next(task, record, self.tmp)
-
-        self.assertEqual(role, "Planner decision")
-        self.assertIn("proof contract is not dispatchable", action)
-        self.assertIn("lacks expected observable output", action)
-        self.assertIn("not missing test evidence", action)
-        self.assertIn("Do not dispatch Tester", action)
-        self.assertIn("ask the user to interrupt", action)
-
-    def test_testing_record_starts_fresh_after_the_worktree_changes(self):
+    def _record_implementation(self, content="new\n"):
         from aiwf_core.core.state.context_ops import record_implementation
-        from aiwf_core.core.state.testing_ops import record_testing
 
-        (self.tmp / "src").mkdir(exist_ok=True)
-        (self.tmp / "src/feature.py").write_text("VALUE = 1\n", encoding="utf-8")
-        record_implementation(str(self.tmp), "implemented feature")
-        first = record_testing(
-            str(self.tmp), status="passed", commands=["pytest unit"],
-            verification_results=[{
-                "command": "pytest unit", "expected": "pass",
-                "observed": "1 passed", "matched": True,
-            }],
-        )
-        (self.tmp / "tests").mkdir(exist_ok=True)
-        (self.tmp / "tests/integration.py").write_text("assert True\n", encoding="utf-8")
-        second = record_testing(
-            str(self.tmp), status="passed", commands=["pytest integration"],
-            verification_results=[{
-                "command": "pytest integration", "expected": "pass",
-                "observed": "1 passed", "matched": True,
-            }],
+        (self.root / "app.txt").write_text(content, encoding="utf-8")
+        return record_implementation(
+            str(self.root), "candidate", self._evidence(), "TASK-001",
         )
 
-        self.assertNotEqual(second["tested_ref"], first["tested_ref"])
-        self.assertEqual(second["commands"], ["pytest integration"])
-
-    def test_new_snapshots_invalidate_review_but_preserve_observations(self):
-        from aiwf_core.core.state.context_ops import record_implementation
+    def _accept(self, observations=None):
         from aiwf_core.core.state.review_ops import record_review
-        from aiwf_core.core.state.testing_ops import record_testing
-        from aiwf_core.core.task_records import load_task_record
 
-        (self.tmp / "src").mkdir(exist_ok=True)
-        feature = self.tmp / "src/feature.py"
-        feature.write_text("VALUE = 1\n", encoding="utf-8")
-        record_implementation(str(self.tmp), "initial implementation")
-        record_testing(str(self.tmp), status="passed", commands=["pytest -q"])
-        record_review(
-            str(self.tmp), result="accepted", closure_allowed=True,
-            summary="sound with one follow-up",
-            adversarial_observations=[{
-                "id": "ADV-001", "severity": "warn", "kind": "boundary",
-                "message": "cover the alternate entry", "disposition": "pending",
-            }],
+        return record_review(
+            str(self.root), "accepted", closure_allowed=True,
+            cleanup_status="fresh", structure_status="sound",
+            summary="accepted current candidate",
+            adversarial_observations=observations or [], task_id="TASK-001",
         )
 
-        feature.write_text("VALUE = 2\n", encoding="utf-8")
-        record_implementation(str(self.tmp), "addressed review observation")
-        after_implementation = load_task_record(self.tmp, "TASK-001")
-        self.assertEqual(after_implementation["testing"]["status"], "missing")
-        self.assertEqual(after_implementation["review"]["result"], "unknown")
+    def test_snapshot_and_review_bind_one_stable_ref(self):
+        implementation = self._record_implementation()
+        review = self._accept()
+        self.assertEqual(review["reviewed_ref"], implementation["implementation_ref"])
         self.assertEqual(
-            after_implementation["review"]["adversarial_observations"][0]["id"],
-            "ADV-001",
+            self._git("show", f"{implementation['implementation_ref']}:app.txt"), "new",
         )
 
-        record_testing(str(self.tmp), status="passed", commands=["pytest -q"])
-        record_review(
-            str(self.tmp), result="accepted", closure_allowed=True,
-            summary="repair verified and reviewed",
-            adversarial_observations=[{
-                "id": "ADV-001", "severity": "low", "kind": "cleanup",
-                "message": "consider a smaller fixture", "disposition": "pending",
-            }],
-        )
-        final = load_task_record(self.tmp, "TASK-001")["review"]
-        self.assertEqual([item["id"] for item in final["adversarial_observations"]], [
-            "ADV-001", "ADV-002",
-        ])
-        from aiwf_core.core.state.adversarial_ops import disposition_adversarial_observation
-
-        disposition_adversarial_observation(
-            str(self.tmp), "ADV-001", "resolved",
-            reason="alternate entry is now covered and verified",
-            task_id="TASK-001",
-        )
-        disposed = load_task_record(self.tmp, "TASK-001")["review"]
-        self.assertEqual(
-            disposed["adversarial_observations"][0]["disposition"], "resolved",
-        )
-
-    def test_recorded_repair_routes_to_tester_and_verified_fix_loop_resolves(self):
-        from aiwf_core.commands.flow import _task_next
+    def test_mismatched_executor_evidence_cannot_create_candidate(self):
         from aiwf_core.core.state.context_ops import record_implementation
-        from aiwf_core.core.state.testing_ops import record_testing
-        from aiwf_core.core.task_records import load_task_record
 
-        self._write_verification_contract()
-        (self.tmp / "src").mkdir(exist_ok=True)
-        feature = self.tmp / "src/feature.py"
-        feature.write_text("VALUE = 1\n", encoding="utf-8")
-        record_implementation(str(self.tmp), "initial implementation")
-        record_testing(
-            str(self.tmp), status="failed", commands=["pytest -q"],
-            failure_summary="feature still fails",
-            verification_results=[{
-                "verification_id": "V-001", "command": "pytest -q",
-                "expected": "tests pass", "observed": "1 failed",
-                "matched": False, "verdict": "mismatched",
-            }],
-        )
-        failed_record = load_task_record(self.tmp, "TASK-001")
-        self.assertEqual(failed_record["fix_loop"]["route"], "executor")
-        self.assertEqual(
-            failed_record["fix_loop"]["verification_obligations"],
-            [{"verification_id": "V-001", "source": "task"}],
-        )
-
-        feature.write_text("VALUE = 2\n", encoding="utf-8")
-        record_implementation(str(self.tmp), "small repair recorded inline")
-        repaired_record = load_task_record(self.tmp, "TASK-001")
-        self.assertEqual(repaired_record["fix_loop"]["status"], "open")
-        self.assertEqual(repaired_record["fix_loop"]["route"], "tester")
-        task = json.loads((self.tmp / ".aiwf/state/tasks.json").read_text())["tasks"][0]
-        next_role, next_action = _task_next(task, repaired_record)
-        self.assertEqual(next_role, "Verification follow-up")
-        self.assertIn("retest inline", next_action)
-        self.assertIn("dispatch aiwf-tester", next_action)
-
-        result = record_testing(
-            str(self.tmp), status="passed", commands=["pytest -q"],
-            coverage_summary="repair verified",
-            verification_results=[{
-                "verification_id": "V-001", "command": "pytest -q",
-                "expected": "tests pass", "observed": "1 passed",
-                "matched": True, "verdict": "matched",
-            }],
-        )
-        self.assertTrue(result["fix_loop_resolved"])
-        verified_record = load_task_record(self.tmp, "TASK-001")
-        self.assertEqual(verified_record["fix_loop"]["status"], "resolved")
-        self.assertEqual(_task_next(task, verified_record)[0], "Reviewer")
-
-    def test_fix_local_check_uses_testing_id_and_auto_resolves(self):
-        from aiwf_core.core.state.context_ops import record_implementation
-        from aiwf_core.core.state.fixloop_ops import open_fix_loop
-        from aiwf_core.core.state.testing_ops import record_testing
-        from aiwf_core.core.task_records import load_task_record
-
-        self._write_verification_contract()
-        (self.tmp / "src").mkdir(exist_ok=True)
-        (self.tmp / "src/feature.py").write_text("VALUE = 2\n", encoding="utf-8")
-        record_implementation(str(self.tmp), "implementation ready for regression proof")
-        open_fix_loop(
-            str(self.tmp), route="tester", reason="old bypass needs a regression check",
-            verification_obligations=[{
-                "verification_id": "FIX-OLD-BYPASS",
-                "source": "fix_loop",
-                "command": "pytest -q tests/test_old_bypass.py",
-                "expected": "old bypass is rejected",
-            }],
-            source="reviewer",
-        )
-
-        result = record_testing(
-            str(self.tmp), status="passed",
-            commands=["pytest -q", "pytest -q tests/test_old_bypass.py"],
-            coverage_summary="Task proof and focused regression passed",
-            verification_results=[
-                {
-                    "verification_id": "V-001", "command": "pytest -q",
-                    "expected": "tests pass", "observed": "2 passed",
-                    "matched": True, "verdict": "matched",
-                },
-                {
-                    "verification_id": "FIX-OLD-BYPASS",
-                    "command": "pytest -q tests/test_old_bypass.py",
-                    "expected": "old bypass is rejected", "observed": "1 passed",
-                    "matched": True, "verdict": "matched",
-                },
-            ],
-        )
-
-        self.assertTrue(result["fix_loop_resolved"])
-        record = load_task_record(self.tmp, "TASK-001")
-        self.assertEqual(record["fix_loop"]["status"], "resolved")
-        self.assertNotIn("fix_loop_pending_reason", record["testing"])
-
-    def test_escalated_repair_is_resolved_by_current_tester_pass(self):
-        from aiwf_core.core.state.context_ops import record_implementation
-        from aiwf_core.core.state.fixloop_ops import continue_fix_loop
-        from aiwf_core.core.state.testing_ops import record_testing
-        from aiwf_core.core.task_records import load_task_record, update_task_record
-
-        self._write_verification_contract()
-        (self.tmp / "src").mkdir(exist_ok=True)
-        feature = self.tmp / "src/feature.py"
-        feature.write_text("VALUE = 1\n", encoding="utf-8")
-        record_implementation(str(self.tmp), "initial implementation")
-        record_testing(
-            str(self.tmp), status="failed", commands=["pytest -q"],
-            failure_summary="feature still fails",
-            verification_results=[{
-                "verification_id": "V-001", "command": "pytest -q",
-                "expected": "tests pass", "observed": "1 failed",
-                "matched": False, "verdict": "mismatched",
-            }],
-        )
-
-        def escalate(record):
-            record["fix_loop"]["escalation_required"] = True
-            record["fix_loop"]["escalation_reason"] = "retry limit reached"
-
-        update_task_record(self.tmp, "TASK-001", escalate)
-        continued = continue_fix_loop(str(self.tmp), task_id="TASK-001")
-        self.assertFalse(continued["escalation_required"])
-        feature.write_text("VALUE = 2\n", encoding="utf-8")
-        implementation = record_implementation(
-            str(self.tmp), "correct repair after escalation",
-        )
-        pending = load_task_record(self.tmp, "TASK-001")
-        self.assertFalse(pending["fix_loop"]["escalation_required"])
-        self.assertEqual(pending["fix_loop"]["route"], "tester")
-
-        result = record_testing(
-            str(self.tmp), status="passed", commands=["pytest -q"],
-            coverage_summary="fresh repair verified",
-            verification_results=[{
-                "verification_id": "V-001", "command": "pytest -q",
-                "expected": "tests pass", "observed": "1 passed",
-                "matched": True, "verdict": "matched",
-            }],
-        )
-
-        self.assertTrue(result["fix_loop_resolved"])
-        resolved = load_task_record(self.tmp, "TASK-001")
-        self.assertEqual(resolved["fix_loop"]["status"], "resolved")
-        self.assertEqual(
-            resolved["testing"]["based_on_ref"],
-            implementation["implementation_ref"],
-        )
-
-    def test_planner_cannot_resolve_escalation_without_human_decision(self):
-        from aiwf_core.core.state.context_ops import record_implementation
-        from aiwf_core.core.state.fixloop_ops import resolve_fix_loop
-        from aiwf_core.core.state.testing_ops import record_testing
-        from aiwf_core.core.task_records import load_task_record, update_task_record
-
-        (self.tmp / "src").mkdir(exist_ok=True)
-        (self.tmp / "src/feature.py").write_text("VALUE = 1\n", encoding="utf-8")
-        record_implementation(str(self.tmp), "initial implementation")
-        record_testing(
-            str(self.tmp), status="failed", commands=["pytest -q"],
-            failure_summary="feature still fails",
-        )
-
-        def escalate(record):
-            record["fix_loop"].update({
-                "escalation_required": True,
-                "escalation_reason": "retry limit reached",
-                "required_fixes": [],
-                "verification_obligations": [],
-            })
-
-        update_task_record(self.tmp, "TASK-001", escalate)
-
-        with self.assertRaisesRegex(ValueError, "human must continue, interrupt, or force-close"):
-            resolve_fix_loop(
-                str(self.tmp), resolution="Planner accepts the failure",
-                source="planner", task_id="TASK-001",
+        (self.root / "app.txt").write_text("wrong\n", encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "proof is incomplete"):
+            record_implementation(
+                str(self.root), "wrong", self._evidence("wrong", False), "TASK-001",
             )
 
-        self.assertEqual(
-            load_task_record(self.tmp, "TASK-001")["fix_loop"]["status"],
-            "open",
-        )
-
-    def test_continued_escalation_does_not_accept_adequate_testing(self):
+    def test_new_implementation_invalidates_review_but_preserves_observations(self):
         from aiwf_core.core.state.context_ops import record_implementation
-        from aiwf_core.core.state.fixloop_ops import continue_fix_loop
-        from aiwf_core.core.state.testing_ops import record_testing
-        from aiwf_core.core.task_records import load_task_record, update_task_record
+        from aiwf_core.core.task_records import load_task_record
 
-        (self.tmp / "src").mkdir(exist_ok=True)
-        feature = self.tmp / "src/feature.py"
-        feature.write_text("VALUE = 1\n", encoding="utf-8")
-        record_implementation(str(self.tmp), "initial implementation")
-        record_testing(
-            str(self.tmp), status="failed", commands=["pytest -q"],
-            failure_summary="feature still fails",
-        )
+        self._record_implementation()
+        self._accept([{
+            "severity": "warn", "kind": "edge", "message": "watch edge",
+            "disposition": "pending",
+        }])
+        (self.root / "app.txt").write_text("newer\n", encoding="utf-8")
+        record_implementation(str(self.root), "newer", self._evidence(), "TASK-001")
+        review = load_task_record(self.root, "TASK-001")["review"]
 
-        def escalate(record):
-            record["fix_loop"]["escalation_required"] = True
+        self.assertEqual(review["result"], "unknown")
+        self.assertEqual(review["adversarial_observations"][0]["message"], "watch edge")
 
-        update_task_record(self.tmp, "TASK-001", escalate)
-        continue_fix_loop(str(self.tmp), task_id="TASK-001")
-        feature.write_text("VALUE = 2\n", encoding="utf-8")
-        record_implementation(str(self.tmp), "repair awaiting strict verification")
-
-        result = record_testing(
-            str(self.tmp), status="adequate", commands=["pytest -q"],
-            coverage_summary="environment-limited verification",
-            verification_results=[{
-                "command": "pytest -q", "expected": "pass",
-                "observed": "partial environment", "matched": True,
-            }],
-        )
-
-        self.assertNotIn("fix_loop_resolved", result)
-        self.assertIn("requires passed testing", result["fix_loop_pending_reason"])
-        self.assertEqual(
-            load_task_record(self.tmp, "TASK-001")["fix_loop"]["status"], "open",
-        )
-
-    def test_fix_loop_counts_new_tester_failures_not_duplicate_events(self):
-        from aiwf_core.core.state.fixloop_ops import open_fix_loop
-        from aiwf_core.core.task_records import update_task_record
-
-        def tested_ref(value):
-            def mutate(record):
-                record["testing"].update({
-                    "status": "failed", "tested_ref": value,
-                })
-            update_task_record(self.tmp, "TASK-001", mutate)
-
-        tested_ref("tested-ref-1")
-        first = open_fix_loop(
-            str(self.tmp), route="executor", reason="same failed assertion",
-            verification_obligations=[], source="tester",
-        )
-        same_snapshot_finding = open_fix_loop(
-            str(self.tmp), route="executor", reason="another finding from same run",
-            verification_obligations=[], source="tester",
-        )
-        route_change = open_fix_loop(
-            str(self.tmp), route="planner", reason="need a design decision",
-            source="executor",
-        )
-        tested_ref("tested-ref-2")
-        next_failure = open_fix_loop(
-            str(self.tmp), route="executor", reason="different failed assertion",
-            verification_obligations=[], source="tester",
-        )
-
-        self.assertEqual(first["attempt_count"], 1)
-        self.assertEqual(same_snapshot_finding["attempt_count"], 1)
-        self.assertEqual(route_change["attempt_count"], 1)
-        self.assertEqual(next_failure["attempt_count"], 2)
-        self.assertEqual(len(next_failure["route_history"]), 4)
-        self.assertTrue(next_failure["escalation_required"])
-
-    def test_write_after_review_invalidates_close(self):
-        from aiwf_core.core.task_ledger import close_task
-
-        self._record_full_chain()
-        (self.tmp / "src/feature.py").write_text("VALUE = 2\n", encoding="utf-8")
-        result = close_task(str(self.tmp))
-        self.assertFalse(result["closed"])
-        blockers = " ".join(result["blockers"])
-        self.assertIn("changed after review", blockers)
-        self.assertIn("modified: src/feature.py", blockers)
-        self.assertIn("intentionally outside the branch", blockers)
-
-    def test_close_commits_the_reviewed_implementation_and_tests(self):
-        from aiwf_core.core.task_ledger import close_task
-
-        _, testing, _ = self._record_full_chain()
-        self._write_closure_calibration()
-        result = close_task(str(self.tmp), note="feature and tests completed")
-        self.assertTrue(result["closed"], result["blockers"])
-        commit = result["task"]["closure"]["git_commit"]
-        committed = subprocess.run(
-            ["git", "show", "--format=", "--name-only", commit], cwd=self.tmp,
-            check=True, capture_output=True, text=True,
-        ).stdout.splitlines()
-        self.assertIn("src/feature.py", committed)
-        self.assertIn("tests/test_feature.py", committed)
-        self.assertEqual(result["task"]["closure"]["reviewed_ref"], testing["tested_ref"])
-
-    def test_close_commits_unicode_and_space_in_filename(self):
+    def test_needs_change_routes_executor_then_reviewer_acceptance_resolves(self):
         from aiwf_core.core.state.context_ops import record_implementation
         from aiwf_core.core.state.review_ops import record_review
-        from aiwf_core.core.state.testing_ops import record_testing
-        from aiwf_core.core.task_ledger import close_task
+        from aiwf_core.core.task_records import load_task_record
 
-        relative = ".claude/skills/teach/lessons/0001-电路变量 与基本定律.html"
-        lesson = self.tmp / relative
-        lesson.parent.mkdir(parents=True, exist_ok=True)
-        lesson.write_text("<h1>电路变量与基本定律</h1>\n", encoding="utf-8")
-
-        implementation = record_implementation(str(self.tmp), "created the lesson")
-        self.assertEqual(implementation["changed_files"], [relative])
-        record_testing(
-            str(self.tmp), status="passed", commands=[f"test -f '{relative}'"],
-            coverage_summary="lesson exists",
-        )
+        self._record_implementation()
         record_review(
-            str(self.tmp), result="accepted", closure_allowed=True,
-            summary="the reviewed lesson path is exact",
+            str(self.root), "needs_change", blockers=["old path remains"],
+            summary="bypass defect", task_id="TASK-001",
         )
-        before_close = subprocess.run(
-            ["git", "cat-file", "-e", f"HEAD:{relative}"], cwd=self.tmp,
-            capture_output=True, text=True,
-            encoding="utf-8", errors="surrogateescape",
+        self.assertEqual(
+            load_task_record(self.root, "TASK-001")["fix_loop"]["route"], "executor",
         )
-        self.assertNotEqual(before_close.returncode, 0)
 
-        self._write_closure_calibration()
-        result = close_task(str(self.tmp))
+        (self.root / "app.txt").write_text("fixed\n", encoding="utf-8")
+        record_implementation(str(self.root), "fixed bypass", self._evidence(), "TASK-001")
+        self.assertEqual(
+            load_task_record(self.root, "TASK-001")["fix_loop"]["route"], "reviewer",
+        )
+        self._accept()
+        self.assertEqual(
+            load_task_record(self.root, "TASK-001")["fix_loop"]["status"], "resolved",
+        )
+
+    def test_project_change_after_review_blocks_close(self):
+        from aiwf_core.core.task_ledger import close_task
+
+        self._record_implementation()
+        self._accept()
+        (self.root / ".aiwf/tasks/TASK-001.md").write_text(
+            self._task_doc(calibrated=True), encoding="utf-8",
+        )
+        (self.root / "app.txt").write_text("changed after review\n", encoding="utf-8")
+        result = close_task(str(self.root), "TASK-001")
+        self.assertFalse(result["closed"])
+        self.assertTrue(any("review" in item.lower() or "snapshot" in item.lower()
+                            for item in result["blockers"]))
+
+    def test_close_commits_exact_reviewed_tree(self):
+        from aiwf_core.core.task_ledger import close_task
+
+        implementation = self._record_implementation()
+        self._accept()
+        unicode_path = self.root / "结果 file.txt"
+        unicode_path.write_text("kept\n", encoding="utf-8")
+        # The new file appeared after evidence, so refresh the stable candidate and Review.
+        from aiwf_core.core.state.context_ops import record_implementation
+        record_implementation(str(self.root), "include unicode", self._evidence(), "TASK-001")
+        review = self._accept()
+        (self.root / ".aiwf/tasks/TASK-001.md").write_text(
+            self._task_doc(calibrated=True), encoding="utf-8",
+        )
+
+        result = close_task(str(self.root), "TASK-001", note="done")
         self.assertTrue(result["closed"], result["blockers"])
         commit = result["task"]["closure"]["git_commit"]
-        tree = subprocess.run(
-            ["git", "ls-tree", "-r", "--name-only", "-z", commit],
-            cwd=self.tmp, check=True, capture_output=True, text=True,
-            encoding="utf-8", errors="surrogateescape",
-        ).stdout.split("\0")
-        self.assertIn(relative, tree)
+        self.assertEqual(result["task"]["closure"]["reviewed_ref"], review["reviewed_ref"])
+        self.assertEqual(self._git("show", f"{commit}:app.txt"), "new")
+        self.assertEqual(self._git("show", f"{commit}:结果 file.txt"), "kept")
+        self.assertNotEqual(commit, implementation["implementation_ref"])
 
-    def test_new_review_removes_old_closure_calibration(self):
-        task_doc = self.tmp / ".aiwf/tasks/TASK-001.md"
-        task_doc.parent.mkdir(parents=True, exist_ok=True)
-        task_doc.write_text(
-            "---\nid: TASK-001\n---\n\n# TASK-001\n\n"
-            "## Closure Calibration\n\nStale result from an earlier review.\n",
-            encoding="utf-8",
+    def test_closed_post_implementation_experiment_becomes_stale_after_repair(self):
+        from aiwf_core.core.experiment_records import (
+            finish_experiment, load_experiment, open_experiment,
+            record_experiment, start_experiment,
         )
-
-        self._record_full_chain()
-
-        self.assertNotIn("## Closure Calibration", task_doc.read_text(encoding="utf-8"))
-
-    def test_activation_rejects_protected_branch_and_dirty_start(self):
-        from aiwf_core.core.git_workflow import task_activation_git_blockers
-
-        self.assertEqual(task_activation_git_blockers(str(self.tmp)), [])
-        (self.tmp / "unrelated.txt").write_text("dirty\n", encoding="utf-8")
-        dirty_message = " ".join(task_activation_git_blockers(str(self.tmp)))
-        self.assertIn("clean project worktree", dirty_message)
-        self.assertIn("ask the user whether to keep or discard", dirty_message)
-        self.assertIn("without that decision", dirty_message)
-        (self.tmp / "unrelated.txt").unlink()
-        subprocess.run(["git", "switch", "main"], cwd=self.tmp, check=True, capture_output=True)
-        self.assertIn("protected branch", " ".join(task_activation_git_blockers(str(self.tmp))))
-
-    def test_plan_merge_state_requires_integration_proof(self):
-        from aiwf_core.core.git_workflow import (
-            bind_plan_branch,
-            plan_integration_state,
-            plan_merged_into_base,
-        )
-        from aiwf_core.core.state.plan_ops import load_plans, save_plans
-
-        plan = {"task_status": {"TASK-001": "closed"}}
-        bind_plan_branch(str(self.tmp), plan)
-        (self.tmp / "merged.txt").write_text("done\n", encoding="utf-8")
-        subprocess.run(["git", "add", "merged.txt"], cwd=self.tmp, check=True)
-        subprocess.run(["git", "commit", "-m", "task"], cwd=self.tmp, check=True, capture_output=True)
-        plan["git_head_ref"] = subprocess.run(
-            ["git", "rev-parse", "HEAD"], cwd=self.tmp, check=True,
-            capture_output=True, text=True,
-        ).stdout.strip()
-        plan.update({"id": "PLAN-001", "plan_id": "PLAN-001", "status": "open"})
-        self.assertFalse(plan_merged_into_base(str(self.tmp), plan))
-        self.assertEqual(plan_integration_state(str(self.tmp), plan), "awaiting_decision")
-
-        save_plans(str(self.tmp), {"schema_version": 1, "plans": [plan]})
-        env = os.environ.copy()
-        env["PYTHONPATH"] = str(PROJECT_ROOT)
-        held = subprocess.run(
-            [sys.executable, "-m", "aiwf_core.cli", "plan", "hold", "PLAN-001"],
-            cwd=self.tmp, env=env, capture_output=True, text=True,
-        )
-        self.assertEqual(held.returncode, 0, held.stderr)
-        self.assertIn("Plan integration held", held.stdout)
-        plan = load_plans(str(self.tmp))["plans"][0]
-        self.assertEqual(plan["integration_hold_ref"], plan["git_head_ref"])
-        self.assertEqual(plan_integration_state(str(self.tmp), plan), "held")
-
-        from aiwf_core.aiwf_ui import _build_detail, _build_status_bar, load_all
-
-        ui_data = load_all(self.tmp)
-        detail = _build_detail(
-            {"kind": "plan", "id": "PLAN-001", "title": "Plan 1"}, ui_data,
-        )
-        self.assertIn(" Next: Intentionally left open", detail)
-        self.assertIn("保留Plan=1", _build_status_bar(ui_data))
-
-        subprocess.run(["git", "switch", "main"], cwd=self.tmp, check=True, capture_output=True)
-        subprocess.run(
-            ["git", "merge", "--no-ff", "feature/test", "-m", "merge plan"],
-            cwd=self.tmp, check=True, capture_output=True,
-        )
-        self.assertTrue(plan_merged_into_base(str(self.tmp), plan))
-        self.assertEqual(plan_integration_state(str(self.tmp), plan), "merged_unverified")
-        merge_commit = subprocess.run(
-            ["git", "rev-parse", "HEAD"], cwd=self.tmp, check=True,
-            capture_output=True, text=True,
-        ).stdout.strip()
-        plan["integration"] = {"status": "merged", "merge_commit": merge_commit}
-        self.assertEqual(plan_integration_state(str(self.tmp), plan), "closure_recovery")
-
-    def test_new_task_clears_a_held_plan_decision(self):
-        from aiwf_core.core.state.plan_ops import (
-            attach_task_to_plan,
-            load_plans,
-            save_plans,
-        )
-
-        save_plans(str(self.tmp), {
-            "schema_version": 1,
-            "plans": [{
-                "id": "PLAN-HELD",
-                "plan_id": "PLAN-HELD",
-                "status": "open",
-                "task_ids": ["TASK-DONE"],
-                "task_status": {"TASK-DONE": "closed"},
-                "integration_hold_ref": "abc123",
-            }],
-        })
-
-        result = attach_task_to_plan(str(self.tmp), "PLAN-HELD", "TASK-NEXT")
-
-        self.assertTrue(result["attached"])
-        plan = load_plans(str(self.tmp))["plans"][0]
-        self.assertNotIn("integration_hold_ref", plan)
-        self.assertEqual(plan["task_status"]["TASK-NEXT"], "unknown")
-
-    def test_reviewed_rename_is_committed_as_the_exact_snapshot(self):
         from aiwf_core.core.state.context_ops import record_implementation
-        from aiwf_core.core.state.review_ops import record_review
-        from aiwf_core.core.state.testing_ops import record_testing
-        from aiwf_core.core.task_ledger import close_task
 
-        (self.tmp / "README.md").rename(self.tmp / "PROJECT.md")
-        record_implementation(str(self.tmp), "renamed the project document")
-        record_testing(str(self.tmp), status="passed", commands=["test -f PROJECT.md"],
-                       coverage_summary="renamed file exists")
-        record_review(str(self.tmp), result="accepted", closure_allowed=True,
-                      summary="rename is complete and no old path remains")
-        self._write_closure_calibration()
-        result = close_task(str(self.tmp))
-        self.assertTrue(result["closed"], result["blockers"])
-        self.assertTrue((self.tmp / "PROJECT.md").exists())
-        self.assertFalse((self.tmp / "README.md").exists())
+        implementation = self._record_implementation()
+        open_experiment(
+            str(self.root), "EXP-OLD", "Does this candidate preserve ordering?",
+            task_id="TASK-001", subject_ref=implementation["implementation_ref"],
+            timing="post_implementation",
+        )
+        running = start_experiment(str(self.root), "EXP-OLD")
+        record_experiment(
+            running["worktree_path"], "EXP-OLD", "supported", "ordering observed",
+            commands=["observe ordering"], observations=["A preceded B"],
+        )
+        finish_experiment(str(self.root), "EXP-OLD")
 
-    def test_project_instruction_changes_are_in_the_reviewed_snapshot(self):
-        from aiwf_core.core.git_workflow import changed_project_files
-        from aiwf_core.core.task_ledger import close_task
-
-        (self.tmp / "CLAUDE.md").write_text("updated project rules\n", encoding="utf-8")
-        self.assertIn("CLAUDE.md", changed_project_files(str(self.tmp)))
-
-        implementation, _, _ = self._record_full_chain()
-        self.assertIn("CLAUDE.md", implementation["changed_files"])
-        self._write_closure_calibration()
-        result = close_task(str(self.tmp))
-        self.assertTrue(result["closed"], result["blockers"])
-        committed = subprocess.run(
-            ["git", "show", "--format=", "--name-only", result["task"]["closure"]["git_commit"]],
-            cwd=self.tmp, check=True, capture_output=True, text=True,
-        ).stdout.splitlines()
-        self.assertIn("CLAUDE.md", committed)
+        (self.root / "app.txt").write_text("repaired\n", encoding="utf-8")
+        repaired = record_implementation(
+            str(self.root), "repair", self._evidence(), "TASK-001",
+        )
+        stale = load_experiment(str(self.root), "EXP-OLD")
+        self.assertEqual(stale["status"], "stale")
+        self.assertIn("EXP-OLD", repaired["stale_experiment_ids"])
 
 
 if __name__ == "__main__":

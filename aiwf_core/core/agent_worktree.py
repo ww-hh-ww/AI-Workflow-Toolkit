@@ -14,7 +14,7 @@ from .task_ledger import active_tasks
 from .worktree_context import resolve_control_root
 
 
-TASK_ROLE_TYPES = frozenset({"aiwf-executor", "aiwf-tester", "aiwf-reviewer"})
+TASK_ROLE_TYPES = frozenset({"aiwf-executor", "aiwf-experimenter", "aiwf-reviewer"})
 NATIVE_SESSION_ENGINES = frozenset({"claude", "codex", "opencode"})
 
 PATCH_PATH_LINE = re.compile(
@@ -183,6 +183,39 @@ def resolve_agent_assignment(
         return None
 
     control = (control_root or resolve_control_root(event.cwd or Path.cwd())).resolve()
+    if str(event.agent_type or "").lower() == "aiwf-experimenter":
+        from .experiment_records import list_experiments
+
+        experiments = [
+            item for item in list_experiments(control)
+            if item.get("status") == "running" and item.get("worktree_path")
+        ]
+        if event.engine == "opencode":
+            current = Path(event.cwd).expanduser().resolve()
+            matches = [
+                item for item in experiments
+                if Path(str(item["worktree_path"])).expanduser().resolve() == current
+            ]
+            if len(matches) == 1:
+                item = matches[0]
+                return _assignment({
+                    "id": str((item.get("scope") or {}).get("id") or item["experiment_id"]),
+                    "worktree_path": item["worktree_path"],
+                }, control)
+        for transcript, _agent_specific in _transcript_candidates(event):
+            text = _read_transcript(transcript)
+            matches = [
+                item for item in experiments
+                if str(item.get("experiment_id") or "") in text
+            ]
+            if len(matches) == 1:
+                item = matches[0]
+                return _assignment({
+                    "id": str((item.get("scope") or {}).get("id") or item["experiment_id"]),
+                    "worktree_path": item["worktree_path"],
+                }, control)
+        return None
+
     tasks = [
         task for task in active_tasks(str(control))
         if str(task.get("worktree_path") or "").strip()

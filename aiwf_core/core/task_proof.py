@@ -2,7 +2,7 @@
 
 AIWF does not execute the project or decide whether an architecture is good.
 This module only reads the task's declared proof contract and checks whether
-the recorded testing surface covers it.
+the recorded Executor construction evidence covers it.
 """
 from __future__ import annotations
 
@@ -255,9 +255,9 @@ def task_contract_structure_errors(base_dir: str, task: Dict[str, Any]) -> List[
 
 
 def proof_contract_fingerprint(base_dir: str, task: Dict[str, Any]) -> str:
-    """Identify the proof-bearing part of Task.md that testing establishes.
+    """Identify the proof-bearing part of Task.md that Executor evidence establishes.
 
-    Ordinary task prose is not part of the testing identity. The Proof Standard
+    Ordinary task prose is not part of the construction-evidence identity. The Proof Standard
     section is: it contains the proof level, claims, and verification table.
     """
     contract = read_task_proof_contract(base_dir, task)
@@ -315,12 +315,12 @@ def activation_proof_blockers(base_dir: str, task: Dict[str, Any]) -> List[str]:
     return blockers
 
 
-def validate_testing_against_task(
+def validate_implementation_against_task(
     base_dir: str,
     task: Dict[str, Any],
-    testing: Dict[str, Any],
+    implementation: Dict[str, Any],
 ) -> Dict[str, Any]:
-    """Check proof coverage without treating command text as identity."""
+    """Check Executor proof coverage without treating command text as identity."""
     contract = read_task_proof_contract(base_dir, task)
     if not contract:
         return {
@@ -349,7 +349,7 @@ def validate_testing_against_task(
         if isinstance(item, dict)
     )
     verification_results = [
-        item for item in (testing.get("verification_results", []) or [])
+        item for item in (implementation.get("verification_results", []) or [])
         if isinstance(item, dict)
     ]
     result_by_id = {
@@ -414,8 +414,8 @@ def validate_testing_against_task(
     }
 
 
-def testing_proof_gaps(proof: Dict[str, Any]) -> List[str]:
-    """Return contract and proof gaps that still need Tester attention."""
+def construction_proof_gaps(proof: Dict[str, Any]) -> List[str]:
+    """Return contract and proof gaps that still need Executor attention."""
     gaps: List[str] = list(proof.get("contract_errors", []) or [])
     for key in (
         "missing_commands",
@@ -431,19 +431,17 @@ def testing_proof_gaps(proof: Dict[str, Any]) -> List[str]:
 
 
 def build_task_proof(base_dir: str, task: Dict[str, Any]) -> Dict[str, Any]:
-    """Return the concise implementation/testing/review truth for one Task."""
+    """Return the concise implementation/experiment/review truth for one Task."""
     from .task_records import load_task_record
 
     task_id = str(task.get("id") or "")
     record = load_task_record(base_dir, task_id)
     implementation = record["implementation"]
-    testing = record["testing"]
     review = record["review"]
     fix_loop = record["fix_loop"]
 
     origin = str(task.get("git_origin_ref") or "")
     implementation_ref = str(implementation.get("implementation_ref") or "")
-    tested_ref = str(testing.get("tested_ref") or "")
     reviewed_ref = str(review.get("reviewed_ref") or "")
     diffs = []
     if origin and implementation_ref:
@@ -451,15 +449,22 @@ def build_task_proof(base_dir: str, task: Dict[str, Any]) -> Dict[str, Any]:
             "name": "implementation",
             "command": f"git diff {origin}..{implementation_ref}",
         })
-    if implementation_ref and tested_ref:
-        diffs.append({
-            "name": "tester changes",
-            "command": f"git diff {implementation_ref}..{tested_ref}",
-        })
-    if origin and tested_ref:
-        diffs.append({
-            "name": "final task",
-            "command": f"git diff {origin}..{tested_ref}",
+    from .experiment_records import load_experiment
+
+    experiments = []
+    for experiment_id in record.get("experiment_ids", []) or []:
+        item = load_experiment(base_dir, str(experiment_id))
+        if not item:
+            experiments.append({"experiment_id": experiment_id, "status": "missing"})
+            continue
+        experiments.append({
+            key: item.get(key)
+            for key in (
+                "experiment_id", "timing", "question", "hypothesis", "subject_ref",
+                "status", "experiment_ref", "commands", "observations", "conclusion",
+                "summary", "promotion_candidates", "stale_reason",
+            )
+            if item.get(key) not in (None, "", [])
         })
     return {
         "task_id": task_id,
@@ -469,7 +474,6 @@ def build_task_proof(base_dir: str, task: Dict[str, Any]) -> Dict[str, Any]:
             "branch": task.get("git_branch", ""),
             "origin_ref": origin,
             "implementation_ref": implementation_ref,
-            "tested_ref": tested_ref,
             "reviewed_ref": reviewed_ref,
             "commit": (task.get("closure", {}) or {}).get("git_commit", ""),
             "integration_base_ref": task.get("integration_base_ref", ""),
@@ -477,7 +481,7 @@ def build_task_proof(base_dir: str, task: Dict[str, Any]) -> Dict[str, Any]:
             "diffs": diffs,
         },
         "implementation": implementation,
-        "testing": testing,
+        "experiments": experiments,
         "review": review,
         "fix_loop": fix_loop,
         "reopen_context": record.get("reopen_context", {}) or {},

@@ -1,222 +1,172 @@
 # Task Contract Reference
 
-Task.md is the execution contract. Once activated, it is frozen and the model
-must not edit it.
+Task.md is the stable meaning of one execution unit. Once activated it is
+frozen; runtime facts go to machine records, and a material contract change
+requires human interruption, revision, fresh critique, and reactivation.
 
-Before writing Task.md, read its owning Goal, parent Plan, and any completed
-Task Calibration it depends on. Carry forward the capability boundary,
-technical direction, shared constraints, Task order, and proof. If they conflict
-with each other or project reality, correct the planning first.
+Before writing it, read the owning Goal, Plan, relevant Milestone, completed
+Task Calibrations, and project reality. Correct contradictions in planning
+instead of asking a downstream role to guess.
 
 ## Frontmatter
 
-An implementation Task needs a real `goal_id` and `plan_id`. A milestone
-verification Task uses `kind=milestone_verification` and `milestone_id` instead.
-Use `kind=integration` only after `aiwf plan integrate <PLAN-ID>` reports a Git
-conflict and Planner confirms that resolving it changes project behavior,
-interfaces, dependencies, or product meaning. Non-semantic conflicts use the
-Plan worktree and native Git directly and never create a Task or repair
-workflow. For a semantic Task, state
-the combined behavior that must survive, conflict surfaces, and integration
-checks. Do not prescribe a line-by-line resolution.
+An implementation Task has a real `goal_id` and `plan_id`. A milestone
+verification Task uses `kind=milestone_verification` and `milestone_id`.
+`kind=integration` is reserved for semantic conflict resolution after Plan
+integration identifies a real behavior, interface, dependency, or product
+meaning conflict.
 
-Set `executor_required`, `tester_required`, and `reviewer_required` from the
-work's real need. When true, the role must be dispatched. When false, the role
-may be performed inline. First implementation requires Executor only when
-`executor_required=true`; later repair may be inline when it is tiny and clear.
+Set only these workflow role requirements:
 
-Before activation, inspect where the project keeps tests, fixtures, snapshots,
-expected outputs, and validation harnesses.
+- `executor_required`: stable project changes require an independent Executor;
+- `reviewer_required`: acceptance benefits from independent judgment.
 
-- Leave `tester_write` empty when all likely writes use common test directories
-  or recognizable test file names.
-- If any required test asset belongs elsewhere, list narrow, verified path
-  patterns in `tester_write`. A non-empty list is the complete whitelist for
-  this Task, so include every test location the Tester may need.
-- Do not add broad implementation directories or implementation files merely to
-  avoid a write rejection. Precise co-located test patterns are valid. Inspect
-  the project instead of guessing. If an unexpected location becomes necessary
-  after activation, the Tester must return to Planner.
+When false, Planner may perform the same responsibility inline. Experimenter has
+no requirement boolean because it is orthogonal: open an EXP record when a real
+empirical unknown exists, before or after implementation. It receives its own
+disposable full-project worktree and never writes the stable Task worktree.
 
 ## Fixed Contract
 
-Keep `## Fixed Contract` and its required `### Structural Home`,
-`### Objective`, `### Contract Responsibility`, and `### Proof Standard`
-headings exact. AIWF reads these headings to enforce activation and proof.
+Keep `## Fixed Contract` and its `### Structural Home`, `### Objective`,
+`### Contract Responsibility`, and `### Proof Standard` headings exact. AIWF
+parses them for activation and evidence gates.
 
-Every Task must say:
+Every Task states:
 
-- Structural Home: why this Task belongs under its Goal and Plan, or milestone.
-- Objective: the outcome, not a file-edit recipe.
-- Contract Responsibility: the result this Task owns and must prove.
-- Done When: observable criteria marked Built, Wired, or Running.
-- Verification Commands: stable IDs plus exact commands and expected observable
-  results for Wired and Running claims.
-- Dispatch Decisions: which independent roles are worth using.
+- why it belongs under this Goal and Plan;
+- the observable outcome, not a file-edit recipe;
+- the result it owns and must prove;
+- Done When clauses tagged Built, Wired, or Running;
+- stable V-* rows with runnable baseline probes and expected observables;
+- Executor and Reviewer dispatch decisions.
 
-State each requirement once. Carry into Task.md the chosen direction and
-constraints Executor needs, but keep the design history and detailed rationale
-in the Plan. Do not repeat a hard requirement in Known Context, Open Judgment,
-or a second delivery list.
+Add Forbidden Write, Rollback Strategy, or Unsupported Cases only when they are
+real. Omit empty optional sections. Keep design history in Plan.md and state
+each hard requirement once.
 
-Add these only when real:
+## V-* Is Construction Evidence
 
-- Forbidden Write for explicit user or project no-go paths.
-- Rollback Strategy for schema, directory layout, install, parser, broad
-  removal, or batch rename.
-- Unsupported Cases when the chosen support boundary is intentional and known
-  before failure.
+Planner owns the quality of the proof contract; Executor owns executing it for
+the stable candidate. Do not write guessed commands and defer discovery to a
+later role.
 
-Omit empty optional sections.
+Every Verification Command row needs:
 
-## Author The Proof Contract
+- a stable ID (`V-001`, `V-002`, ...);
+- a command directly runnable in the declared environment, or the exact command
+  this Task is responsible for creating;
+- an expected observable that expresses semantic success rather than a copied
+  transcript or exit code.
 
-The author owns proof quality; the activation check is only a last-resort
-structural guard. Before writing a Verification Command, locate the real
-script, selector, entry point, and runtime, and run or inspect enough of it to
-know the command is usable. Do not write a guessed command and wait for the
-Tester or validator to discover that it is shorthand, unavailable, or aimed at
-the wrong suite. Write Expected as the observable meaning of success, not a
-copied transcript or a promised count. If the command or observable cannot yet
-be made concrete, keep the Task in planning and fix the contract first.
+Before activation, verify scripts, selectors, entrypoints, setup, and runtime.
+Target distinct obligations: focused probes first, each necessary full
+regression once. Runtime claims must exercise the real production path.
+
+Executor records one result for every V-* and active FIX-* ID with the actual
+observation, verdict, basis, and `executed_command` when it used an equivalent
+probe. `matched`, `mismatched`, and `blocked` are honest construction states;
+only complete matched evidence can reach Reviewer. A new implementation snapshot
+replaces the old V evidence and invalidates Review.
+
+The machine gate checks stable identities, current-snapshot ownership, evidence
+presence, and verdict shape. Reviewer checks whether the observation actually
+proves the expected meaning.
+
+## Experiments
+
+Do not make Experimenter a mandatory phase or a second owner for V-*.
+
+Open an Experiment only when a decision depends on an empirical fact that
+ordinary planning inspection, Executor implementation work, required V-* runs,
+or Reviewer reasoning cannot answer cleanly. Good questions are specific and
+decision-relevant: actual API behavior, environment constraints, performance
+baseline, competing mechanism viability, a suspected bypass, or a runtime
+failure surface requiring disposable instrumentation.
+
+Each EXP record binds:
+
+- exactly one Task or Plan scope;
+- an immutable subject commit;
+- a question and optional falsifiable hypothesis;
+- a disposable full-project worktree;
+- commands/operations, concrete observations, conclusion, experiment snapshot,
+  and optional promotion candidates.
+
+An Experiment may occur before Executor, after Executor, both, or not at all.
+Its conclusion describes the question or hypothesis; it does not accept or
+reject the Task. Reviewer/Planner decides the consequence. If an experimental
+asset should survive, Executor recreates or promotes it in the stable worktree
+and records fresh construction evidence.
 
 ## Known Context
 
-Known Context is the shared cold-start handoff for every role that will actually
-participate, whether inline or independent. It should let each role reach the
-real code and its first consequential judgment without repeating Planner's
-exploration.
+Known Context is the cold-start handoff. Include only verified facts that help a
+participating role reach its first consequential judgment:
 
-Derive it from those judgments, not from the volume of facts Planner learned:
-where Executor must choose or preserve behavior, how Tester can observe failure
-or a false pass, and what relationship or downstream effect Reviewer must
-trace. Keep shared facts once. Do not require role headings or write a separate
-manual for each role.
+- real paths, symbols, entrypoints, callers, consumers, tests, or commands;
+- established decisions and where they were proved;
+- invariants, owners, interfaces, main paths, and old-path expectations;
+- environment traps, likely false paths, and important unresolved facts.
 
-Use free bullets. There is no required bullet format. Record only verified
-facts that help the next role start in the right place, reuse an established
-conclusion, or avoid a likely wrong edit. Give each non-obvious fact a usable
-source such as a file and symbol, command result, completed Task Calibration,
-proof record, or user decision.
+Use concise source-backed bullets. Do not paste logs, inventories, whole-file
+summaries, exploration history, repeated Goal/Plan text, or implementation
+recipes. Unknown consumer, invariant, owner, main path, or baseline proof means
+the Task is not ready.
 
-Useful facts may include:
-
-- where to start: real paths, symbols, runtime entry points, tests, or commands;
-- what is already established and where it was proved;
-- what must remain true: consumer, interface, invariant, owner, main path,
-  old-path expectation, and proof;
-- what may mislead the next role: representative cases, environment traps,
-  rejected dead ends worth remembering, and important Unknowns.
-
-Do not include exploration history, directory inventories, pasted logs or
-diffs, whole-file descriptions, repeated Goal or Plan text, or facts that do
-not affect this Task. Do not repeat a completed Task's report; cite the useful
-conclusion and its source. Omit facts the next role can get from one obvious
-lookup unless the exact anchor prevents meaningful rediscovery. Keep rejected
-approaches only when they prevent a likely repeated mistake.
-
-These are anchors, not instructions. Do not list every function or choose local
-implementation details for Executor. Do not invent facts to complete the
-section. If consumer, invariant, owner, main path, or proof is important and
-Unknown, the implementation Task is not ready.
-
-When a Task crosses a boundary, include the smallest shared slice later roles
-must not guess: Input, Output, Consumer, Invariant, Owner, Proof, and Basis.
-
-Before activation, reread Known Context as each participating role. Every
-bullet should help at least one of them locate the work, reuse a trustworthy
-conclusion, avoid a real trap, or recognize an unresolved question. Remove the
-rest.
+For a crossed boundary, preserve the smallest slice later roles must not guess:
+Input, Output, Consumer, Invariant, Owner, Proof, and Basis.
 
 ## Open Judgment
 
-Leave room for independent roles to think. Write only useful questions:
+Leave useful decisions open without scripting answers:
 
-- Executor: what local implementation choice needs code-based judgment?
-- Tester: how could the promised behavior fail or false-pass?
-- Reviewer: what connection, semantic change, old path, or complexity should be
-  doubted?
+- Executor: which local implementation choice requires code-based judgment?
+- Experimenter: if an EXP is already known to be needed, what observation would
+  decide its question?
+- Reviewer: which relationship, semantic change, old path, or complexity needs
+  independent doubt?
 
-Omit a role's questions when there is no meaningful open judgment. Do not
-script the answer.
+Do not invent an Experiment question merely to populate this section.
 
-## Proof
+## Proof Levels
 
 | Level | Meaning | Use for |
 |-------|---------|---------|
 | Built | code exists and compiles | private helpers and internal refactors |
-| Wired | expected caller or consumer uses it | APIs, modules, config, registration |
+| Wired | the intended caller or consumer uses it | APIs, config, registration |
 | Running | a real action produces the result | user behavior and cross-component flows |
 
-One easy case does not prove a broad support claim. Verification must cover the
-representative cases named by the Plan and the Task.
+One easy case does not prove broad support. Name representative cases in Plan
+or Task when the claim needs them.
 
-Verification Commands are final proof, not a log of the development loop. Every
-row must have a stable ID (`V-001`, `V-002`, ...). The ID is the machine identity
-of the check; the command text is only the command to execute and display.
-Commands must be directly executable in the declared runtime. Do not write
-prose shorthand or unresolved setup into the command cell; put the runnable
-command there and explain required environment setup in Known Context.
-Changing this table changes the proof contract: interrupt and reactivate the
-Task, then collect fresh results for the current IDs. Do not combine results
-from the old table with the new one.
-Before activation, check them against the project's real test runner and
-scripts:
-
-- each command proves a distinct observable claim;
-- a selector really targets the named test instead of rerunning the full suite;
-- targeted checks come first and each necessary full regression runs once at
-  the end;
-- several labels do not invoke the same underlying suite;
-- runtime claims use the production path in the claimed runtime, not a copied
-  implementation or a simulated environment.
-
-When the Task must create a new script or harness, name the exact test file,
-production entry, and runtime it must execute. Do not pretend an unbuilt command
-already exists.
-
-Executor leaves one concise implementation evidence record with git refs and a
-strong self-check. Tester records one validation result for every required check
-ID, containing the Task-owned expected result, observed result, verdict, and a
-short basis.
-Reviewer judges the contract, diff, callers, evidence, testing, and old paths.
-
-Expected output should describe the observable meaning of success, not prescribe
-a transcript. Tester decides whether the actual result satisfies it and records
-`matched` or `mismatched`; Reviewer checks that judgment against the evidence.
-The machine gate only checks check-ID coverage, current-snapshot ownership,
-non-empty evidence or an explicit environment block, and valid verdict values.
-It does not compare natural-language expected and observed text or infer a
-semantic pass from non-empty output. Reviewer independently checks the Tester
-verdict.
-
-## Dispatch
+## Dispatch Decisions
 
 Ask:
 
-1. Does implementation need code exploration, design judgment, or impact
-   tracing? If yes, require Executor.
-2. Could independent testing find meaningful failure modes? If yes, require
-   Tester.
-3. Could relational review catch missing wiring, interface drift, or unjustified
-   complexity? If yes, require Reviewer.
+1. Does stable implementation need meaningful code exploration, design, or
+   impact tracing? Require Executor.
+2. Does acceptance need independent relational/structural judgment? Require
+   Reviewer.
+3. Is there a concrete empirical unknown whose apparatus should be disposable?
+   Open an Experiment; do not add a role boolean.
 
 File count is not the deciding signal.
 
-## Failure And Close
+## Failure and close
 
-Record failures when found. Confirmed implementation defects route to Executor.
-Contract or user decisions return to Planner. Do not soften a failure into a
-pass.
+Executor mismatches remain Executor work. Experiment conclusions remain facts.
+Reviewer converts facts and code findings into `accepted`, `needs_change`,
+`needs_experiment`, or `rejected`. Contract or user decisions return to Planner.
 
-Before close, Planner writes Closure Calibration with what actually happened.
-`task interrupt` and `task force-close` remain human-only.
+Before close, Planner dispositions Reviewer observations and writes Closure
+Calibration with the actual outcome. `task interrupt`, `task force-close`,
+`task restore`, `task reopen`, and escalated `fixloop continue` remain human-only.
 
-## Quality Check
+## Quality check
 
-- Is the responsibility broad enough to justify the real change?
-- Can Executor find the main path without being told how to code?
-- Do commands prove consumption or behavior rather than artifact existence?
-- Are shared interfaces and old paths visible where they matter?
-- Can Tester write the needed test assets without broadly opening implementation code?
-- Do independent roles still have a real question to answer?
+- Can Executor find the stable main path and own all V evidence?
+- Are runtime claims proved through real consumers rather than artifact existence?
+- Are shared interfaces, invariants, old paths, and failure ownership visible?
+- Is every proposed Experiment a real unknown rather than deferred execution?
+- Does Reviewer still have a meaningful whole-change judgment?

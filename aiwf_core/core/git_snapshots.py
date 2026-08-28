@@ -1,4 +1,4 @@
-"""Immutable local Git snapshots for Executor and Tester handoffs."""
+"""Immutable local Git snapshots for stable implementation and experiments."""
 from __future__ import annotations
 
 import os
@@ -75,6 +75,36 @@ def create_task_snapshot(
     existing = _required(base, "for-each-ref", "--format=%(refname)", prefix).splitlines()
     attempt = len([item for item in existing if item.strip()]) + 1
     message = f"aiwf {task_id} {kind} {attempt}"
+    if summary.strip():
+        message += f"\n\n{summary.strip()[:500]}"
+    commit = _required(
+        base, "commit-tree", tree, "-p", parent_ref, "-m", message,
+        env=_snapshot_env(""),
+    )
+    ref = f"{prefix}{attempt:03d}"
+    _required(base, "update-ref", ref, commit)
+    return {
+        "ref": commit,
+        "named_ref": ref,
+        "attempt": attempt,
+        "parent_ref": parent_ref,
+        "files": diff_files(base_dir, parent_ref, commit),
+    }
+
+
+def create_experiment_snapshot(
+    base_dir: str, experiment_id: str, parent_ref: str, summary: str = "",
+) -> Dict[str, Any]:
+    """Freeze a disposable experiment tree without changing HEAD or the index."""
+    base = Path(base_dir)
+    if not parent_ref:
+        raise ValueError("experiment snapshot parent ref is missing")
+    _required(base, "rev-parse", f"{parent_ref}^{{commit}}")
+    tree = _worktree_tree(base, parent_ref)
+    prefix = f"refs/aiwf/experiments/{_safe_ref_part(experiment_id)}/"
+    existing = _required(base, "for-each-ref", "--format=%(refname)", prefix).splitlines()
+    attempt = len([item for item in existing if item.strip()]) + 1
+    message = f"aiwf {experiment_id} experiment {attempt}"
     if summary.strip():
         message += f"\n\n{summary.strip()[:500]}"
     commit = _required(

@@ -32,7 +32,7 @@ Ask:
 
 - Do `ready`, `cancelled`, `closed`, `interrupted`, and other visible states
   match the Markdown story?
-- Do completed Tasks and Milestones still lack evidence, testing, review, or
+- Do completed Tasks and Milestones still lack construction evidence, relevant experiments, review, or
   architecture proof?
 - Were structure changes made in Markdown but not through the supported
   CLI/state path?

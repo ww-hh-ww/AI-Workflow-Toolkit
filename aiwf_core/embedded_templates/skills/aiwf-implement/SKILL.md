@@ -1,109 +1,54 @@
 ---
 name: aiwf-implement
-description: Use only when `aiwf status --prompt` lists `aiwf-implement` under Required skills.
+description: Route or perform Executor work when AIWF status requires implementation or construction evidence for a Task.
 ---
 
 # AIWF Implement
 
-## Role
+Executor changes stable project reality. This skill routes that responsibility;
+it does not move ordinary implementation work into an Experiment.
 
-Route implementation for the selected Task.md. When an independent Executor is
-required, dispatch it; when inline work is allowed, perform the same contract in
-this session. Do not plan, test independently, review, close, or edit the active
-Task.md.
+## Start
 
-The Task.md is the baseline. Give Executor its path; do not recopy the whole
-contract or turn the dispatch prompt into separate coding instructions.
+Run `aiwf task proof <TASK-ID>` and read the Task contract. Treat its objective,
+boundaries, Done When clauses, and V-* rows as the stable obligation. V-* is
+Executor-owned construction evidence: implementation is not complete until every
+required V-* or current FIX-* ID has an honest matched, mismatched, or blocked
+result.
 
-## Dispatch
+When `executor_required=true`, dispatch `aiwf-executor` with exactly the Task ID
+and any explicit user clarification that is absent from Task.md. AIWF injects the
+contract and assigned worktree. Do not recopy Task.md or prescribe an
+implementation. When Executor is optional, perform the same contract inline.
 
-Dispatch one project-writing Executor at a time for this Task. Other Plans may
-run in their own worktrees. Wait for this Executor before starting this Task's
-Tester.
+## Decisions
 
-1. Run `aiwf task proof <TASK-ID>` and note its assigned worktree. For first
-   implementation, read the entire Task.md. For a fix loop, read the current
-   finding, latest records and diff, and only the affected Task clauses.
-   If proof and `aiwf status --prompt` disagree about the next role, stop and
-   rerun status; do not continue from memory.
-2. If this is the first implementation and `executor_required` is true,
-   dispatch `aiwf-executor` with the Task ID. Add `USER_DELTA: <requirement>`
-   only for an explicit user clarification that Task.md does not contain. AIWF
-   adds the current control-root Task.md path and assigned worktree without
-   removing your prompt.
-3. `USER_DELTA` must not change execution, boundaries, or acceptance. A
-   material change requires human interrupt, write-back to the relevant MD,
-   sync, critique, and reactivation. Otherwise state it faithfully; do not add
-   Planner-created fallbacks or interpretations.
-4. Do not paste Fixed Contract or Known Context into the prompt unless the
-   agent cannot access Task.md. Duplicated packets become stale and crowd out
-   code exploration.
-5. Let the subagent record its own implementation. Do not record it again.
+- Executor owns production code, formal tests, build/config changes, diagnosis,
+  repair, and self-checks needed to make the Task true.
+- Do not request an Experiment merely to postpone work Executor can resolve while
+  implementing. An Experiment is appropriate only for a distinct empirical
+  unknown whose disposable full-project changes or measurements should remain
+  outside the stable candidate.
+- If such an unknown blocks implementation, return it to Planner as a concrete,
+  falsifiable question. Do not open or answer it by contaminating the Task
+  worktree with a spike.
+- A changed implementation invalidates the previous Review and makes
+  post-implementation experiments about an older ref stale.
 
-A new implementation record invalidates the earlier testing verdict and Review
-snapshot. Follow `aiwf status --prompt`; do not recreate the old Review record.
-Reviewer observations remain available for Planner disposition after the new
-snapshot is tested and reviewed.
+## Record
 
-If `executor_required` is false, do not dispatch Executor. Read
-`inline-execution.md`, follow its Implement section in this session, and record
-the result for this Task. With one active Task, AIWF routes this session's
-relative project tools to its assigned worktree. Do not change
-`executor_required`, enter a worktree, or request temporary writes to make an
-inline write pass.
-With several active Tasks, use the exact assigned worktree path shown by
-`aiwf status --prompt`; AIWF will not guess between Tasks.
+The Executor records the candidate once its V evidence is complete:
 
-The Agent prompt must name exactly one active Task ID. AIWF adds the current
-contract path and worktree, then routes project tools there. Do not use `EnterWorktree`,
-`isolation: worktree`, or copy Task changes between worktrees.
+```text
+aiwf record implementation --task-id <TASK-ID> --summary "<change>" \
+  --check V-001 --observed "<actual result>" --verdict matched \
+  --basis "<why the observable satisfies the row>"
+```
 
-Read `.aiwf` governance from the control root. A Plan worktree owns project
-code, not an independent `.aiwf` directory or copy of the Task contract.
+Use `--executed-command` when the actual probe differs from the Task baseline,
+or `--proof-file` for multiple results. A blocked result needs a concrete basis
+and will keep the Task from review. Never invent output or rerun successful work
+only to rephrase its record.
 
-For `kind=integration`, Executor merges the exact base ref shown by
-`aiwf task proof` with `git merge --no-ff --no-commit <ref>`, resolves the Task
-contract, and leaves the merge open. AIWF records the reviewed project snapshot
-and `task close` creates the merge commit. Do not run `git add`,
-`git merge --continue`, or `git commit`.
-
-If Executor returns `RETURN_TO_PLANNER`, stop normal progress and surface the
-verified conflict. The hook opens a Planner fix-loop. Run `aiwf status --prompt`
-and load `aiwf-planner`; do not dispatch Tester.
-
-Ask the user before changing the Task contract, widening scope, downgrading a
-required role, bypassing a gate, or accepting a material unverified risk.
-
-## Follow-Up Repairs
-
-After the Task has an implementation record, choose the smallest route that
-still preserves independent work where the risk requires it:
-
-- Dispatch Executor again for changes to main paths, interfaces, state, data
-  conversion, concurrency, permissions, safety, deployment, or unclear design.
-- Use inline repair only for a tiny, well-understood correction. Follow the
-  Implement section of `inline-execution.md` and record the repaired
-  implementation. That record hands the fix-loop to Tester.
-- If `executor_required` is false, follow `inline-execution.md`.
-
-When `aiwf status --prompt` names a previous Executor ID, resume that Agent for
-a non-trivial repair only if it is available in the current session or the
-resumed original session. Read the fix-loop facts and current diff, then write
-a concise repair brief that names the confirmed finding and source, affected
-expected behavior, what remains valid, and the focused proof. Be concrete
-about the problem and outcome without prescribing the implementation. Send the
-Task ID and this brief with `SendMessage` once. If resume is unavailable or
-fails, dispatch a new Executor with the same brief. Do not retry the resume.
-
-The hook enforces the first Executor. Planner remains responsible for deciding
-whether later inline repair is actually simpler and safe.
-
-Keep any valid `USER_DELTA` separate from the repair brief. It is only an
-explicit user clarification missing from Task.md, not a label for fix-loop
-evidence. The Agent confirms current records with `task proof`; do not paste
-the original Task, complete proof, or earlier report into the prompt.
-
-## Boundaries
-
-- Do not change Task.md, Done When, acceptance criteria, or Forbidden Write.
-- Stop after the implementation is recorded.
+After the record succeeds, return the Executor report and run
+`aiwf status --prompt` in the main session.

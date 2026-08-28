@@ -10,7 +10,6 @@ from typing import Any, Dict, List
 def closure_conditions_met(
     state: Dict[str, Any],
     implementation: Dict[str, Any],
-    testing: Dict[str, Any],
     review: Dict[str, Any],
     fix_loop: Dict[str, Any],
 ) -> Dict[str, Any]:
@@ -29,17 +28,9 @@ def closure_conditions_met(
         missing.append("task_close")
 
     if closing_task:
-        if not implementation.get("implementation_ref") and not testing.get("based_on_ref"):
+        if not implementation.get("implementation_ref"):
             blockers.append("implementation not recorded")
             missing.append("implementation")
-
-        tstat = testing.get("status", "missing")
-        if tstat == "missing":
-            blockers.append("testing not recorded")
-            missing.append("testing")
-        elif tstat not in ("passed", "adequate"):
-            blockers.append(f"testing status is '{tstat}', not passed/adequate")
-            missing.append("testing")
 
         rstat = review.get("result", "unknown")
         if rstat == "unknown":
@@ -53,13 +44,10 @@ def closure_conditions_met(
             blockers.append("review closure_allowed is false")
             missing.append("review")
 
-        tested_ref = str(testing.get("tested_ref") or "")
+        implementation_ref = str(implementation.get("implementation_ref") or "")
         reviewed_ref = str(review.get("reviewed_ref") or "")
-        if not tested_ref:
-            blockers.append("tested snapshot is missing")
-            missing.append("testing")
-        elif reviewed_ref != tested_ref:
-            blockers.append("review does not match the tested snapshot")
+        if implementation_ref and reviewed_ref != implementation_ref:
+            blockers.append("review does not match the implementation snapshot")
             missing.append("review")
 
         pending = [

@@ -323,7 +323,7 @@ SKILL_TEMPLATES = {
     "aiwf-critic": "skills/aiwf-critic/SKILL.md",
     "aiwf-planner": "skills/aiwf-planner/SKILL.md",
     "aiwf-implement": "skills/aiwf-implement/SKILL.md",
-    "aiwf-test": "skills/aiwf-test/SKILL.md",
+    "aiwf-experiment": "skills/aiwf-experiment/SKILL.md",
     "aiwf-review": "skills/aiwf-review/SKILL.md",
     "aiwf-close": "skills/aiwf-close/SKILL.md",
     "aiwf-architect": "skills/aiwf-architect/SKILL.md",
@@ -340,15 +340,6 @@ SKILL_REFERENCE_TEMPLATES = {
         "references/activation-critique.md": "skills/aiwf-planner/references/activation-critique.md",
         "references/lifecycle.md": "skills/aiwf-planner/references/lifecycle.md",
     },
-    "aiwf-implement": {
-        "inline-execution.md": "shared/inline-execution.md",
-    },
-    "aiwf-test": {
-        "inline-execution.md": "shared/inline-execution.md",
-    },
-    "aiwf-review": {
-        "inline-execution.md": "shared/inline-execution.md",
-    },
     "aiwf-architect": {
         "references/code-review.md": "skills/aiwf-architect/references/code-review.md",
         "references/design-review.md": "skills/aiwf-architect/references/design-review.md",
@@ -361,7 +352,7 @@ AGENT_TEMPLATES = {
     "aiwf-explorer.md": "agents/aiwf-explorer.md",
     "aiwf-executor.md": "agents/aiwf-executor.md",
     "aiwf-critic.md": "agents/aiwf-critic.md",
-    "aiwf-tester.md": "agents/aiwf-tester.md",
+    "aiwf-experimenter.md": "agents/aiwf-experimenter.md",
     "aiwf-reviewer.md": "agents/aiwf-reviewer.md",
     "aiwf-architect.md": "agents/aiwf-architect.md",
 }
@@ -415,7 +406,7 @@ def _target_template_text(relative_path: str, target: EmbedTarget) -> str:
 
 REASONIX_ROLE_SKILL_TEMPLATES = {
     "skills/aiwf-implement/SKILL.md": "agents/aiwf-executor.md",
-    "skills/aiwf-test/SKILL.md": "agents/aiwf-tester.md",
+    "skills/aiwf-experiment/SKILL.md": "agents/aiwf-experimenter.md",
     "skills/aiwf-review/SKILL.md": "agents/aiwf-reviewer.md",
     "skills/aiwf-architect/SKILL.md": "agents/aiwf-architect.md",
     "skills/aiwf-critic/SKILL.md": "agents/aiwf-critic.md",
@@ -436,7 +427,7 @@ def _reasonix_role_skill_text(relative_path: str, skill_text: str) -> str:
 REASONIX_SUBAGENT_SKILL_CONFIG = {
     "aiwf-planner": {"runAs": "inline"},
     "aiwf-implement": {"runAs": "subagent", "description": "Implement the active Task.md contract."},
-    "aiwf-test": {"runAs": "subagent", "description": "Independently test the active Task.md claim."},
+    "aiwf-experiment": {"runAs": "subagent", "description": "Investigate one empirical question in a disposable project worktree."},
     "aiwf-review": {"runAs": "subagent", "description": "Independently review the active Task.md result."},
     "aiwf-close": {"runAs": "inline"},
     "aiwf-architect": {"runAs": "subagent", "description": "Independently review completed work against the fixed mission."},
@@ -446,7 +437,7 @@ REASONIX_SUBAGENT_SKILL_CONFIG = {
 
 REASONIX_SKILL_AGENT = {
     "aiwf-implement": "aiwf-executor",
-    "aiwf-test": "aiwf-tester",
+    "aiwf-experiment": "aiwf-experimenter",
     "aiwf-review": "aiwf-reviewer",
     "aiwf-architect": "aiwf-architect",
     "aiwf-critic": "aiwf-critic",
@@ -579,7 +570,8 @@ def _write_state_files() -> List[Path]:
                 "",
                 "Zones:",
                 "- `state/` — machine truth (JSON): registries, canonical state, gate inputs.",
-                "- `records/tasks/` — implementation, testing, review, and fix-loop records by Task.",
+                "- `records/tasks/` — implementation evidence, experiment links, review, and fix-loop records by Task.",
+                "- `records/experiments/` — empirical questions, immutable refs, observations, and conclusions.",
                 "- `records/events.json` — concise workflow events.",
                 "- `reports/architect/` — user-requested Architect review reports.",
                 "- `goals/` — goal narrative docs (Markdown).",
@@ -766,7 +758,6 @@ def _migrate_singleton_task_records(aiwf_dir: Path) -> List[Path]:
 
     legacy = {
         "implementation": aiwf_dir / "records/implementation.json",
-        "testing": aiwf_dir / "records/testing.json",
         "review": aiwf_dir / "records/review.json",
     }
     values = {name: read_json(path, {}) for name, path in legacy.items()}
@@ -897,7 +888,6 @@ def _migrate_legacy_paths():
         "task-ledger.json": "state/tasks.json",
         "evidence.json": "",
         "implementation.json": "records/implementation.json",
-        "testing.json": "records/testing.json",
         "review.json": "records/review.json",
     }
 
@@ -921,7 +911,7 @@ def _migrate_legacy_paths():
     # Clean up flat orphans
     orphan_cleanup = [
         "state.json", "contexts.json", "fix-loop.json",
-        "evidence.json", "testing.json", "review.json",
+        "evidence.json", "review.json",
         "task-history.json", "task-ledger.json",
         "current-state.md", "report.md", "quality-digest.md", "PROJECT-MAP.md",
         "baseline.json", "ideas.md",
@@ -950,7 +940,7 @@ def _migrate_legacy_paths():
 
 def _remove_retired_skills(target: EmbedTarget) -> List[Path]:
     removed: List[Path] = []
-    for name in ["aiwf-milestone", "aiwf-project"]:
+    for name in ["aiwf-milestone", "aiwf-project", "aiwf-test"]:
         path = _skills_dir(target) / name
         if path.exists():
             import shutil
@@ -968,6 +958,17 @@ def _remove_retired_skills(target: EmbedTarget) -> List[Path]:
         references_dir = path.parent
         if references_dir.exists() and not any(references_dir.iterdir()):
             references_dir.rmdir()
+    return removed
+
+
+def _remove_retired_role_agents(config_dir: str) -> List[Path]:
+    removed: List[Path] = []
+    root = _project_root() / config_dir / "agents"
+    for filename in ("aiwf-tester.md", "aiwf-tester.toml"):
+        path = root / filename
+        if path.exists():
+            path.unlink()
+            removed.append(path)
     return removed
 
 def install_embedded(mode: str = "claude", force: bool = False) -> Dict[str, Any]:
@@ -988,9 +989,10 @@ def install_embedded(mode: str = "claude", force: bool = False) -> Dict[str, Any
 
     for p in _write_skills(target):
         results["created"].append(rel(p))
-    if force:
-        for p in _remove_retired_skills(target):
-            results["updated"].append(rel(p))
+    for p in _remove_retired_skills(target):
+        results["updated"].append(rel(p))
+    for p in _remove_retired_role_agents(target.config_dir):
+        results["updated"].append(rel(p))
     if target.mode == "claude":
         for p in _write_agents(target):
             results["created"].append(rel(p))
@@ -1066,7 +1068,7 @@ def doctor(mode: str | None = None) -> Dict[str, Any]:
         "scripts": {},
     }
 
-    for skill in ["aiwf-planner", "aiwf-implement", "aiwf-test", "aiwf-review",
+    for skill in ["aiwf-planner", "aiwf-implement", "aiwf-experiment", "aiwf-review",
         "aiwf-close", "aiwf-architect"]:
         path = root / target.config_dir / "skills" / skill / "SKILL.md"
         exists = path.exists()
@@ -1077,7 +1079,7 @@ def doctor(mode: str | None = None) -> Dict[str, Any]:
         checks["skills"][skill] = {"exists": exists, "has_frontmatter": has_frontmatter}
 
     if target.mode == "claude":
-        for agent in ["aiwf-explorer", "aiwf-executor", "aiwf-tester", "aiwf-reviewer", "aiwf-critic", "aiwf-architect"]:
+        for agent in ["aiwf-explorer", "aiwf-executor", "aiwf-experimenter", "aiwf-reviewer", "aiwf-critic", "aiwf-architect"]:
             path = root / target.config_dir / "agents" / f"{agent}.md"
             exists = path.exists()
             has_frontmatter = False

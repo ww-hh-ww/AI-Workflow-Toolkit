@@ -167,7 +167,7 @@ class TestMilestoneContract(unittest.TestCase):
             "id": "TASK-VERIFY", "status": "active",
             "kind": "milestone_verification", "milestone_id": "MS-001",
             "requirements": {
-                "executor_required": False, "tester_required": False,
+                "executor_required": False,
                 "reviewer_required": False,
             },
         }
@@ -214,7 +214,7 @@ class TestMilestoneContract(unittest.TestCase):
             "id": "TASK-VERIFY", "status": "active", "phase": "reviewing",
             "kind": "milestone_verification", "milestone_id": "MS-001",
             "requirements": {
-                "executor_required": False, "tester_required": False,
+                "executor_required": False,
                 "reviewer_required": False,
             },
         }]}), encoding="utf-8")

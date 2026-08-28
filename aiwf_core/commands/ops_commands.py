@@ -180,7 +180,7 @@ def _cmd_install(args: argparse.Namespace) -> None:
         print("Before starting AIWF work: initialize Git and create the initial commit.")
     if hygiene["tracked_residue"]:
         print(
-            "WARNING: tracked local residue can invalidate testing/review snapshots: "
+            "WARNING: tracked local residue can invalidate implementation/review snapshots: "
             + ", ".join(hygiene["tracked_residue"][:8])
         )
         print("  Review these paths and untrack them deliberately; AIWF will not modify the index.")

@@ -6,7 +6,6 @@
     "planned": ["aiwf-planner"],
     "executing": ["aiwf-implement"],
     "implementing": ["aiwf-implement"],
-    "testing": ["aiwf-test"],
     "reviewing": ["aiwf-review"],
     "closing": ["aiwf-close"],
     "closed": ["aiwf-planner"],
@@ -14,6 +13,7 @@
     "milestone_verification": ["aiwf-architect"]
   },
   "signal_skills": {
+    "experiment_pending": ["aiwf-experiment"],
     "milestone_due": ["aiwf-architect"]
   }
 }

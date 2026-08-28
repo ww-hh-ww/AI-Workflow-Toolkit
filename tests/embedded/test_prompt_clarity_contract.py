@@ -2,586 +2,86 @@ import unittest
 from pathlib import Path
 
 
-ROOT = Path(__file__).resolve().parent.parent.parent
-TEMPLATES = ROOT / "aiwf_core" / "embedded_templates"
+ROOT = Path(__file__).resolve().parents[2] / "aiwf_core" / "embedded_templates"
 
 
 def read(relative):
-    return (TEMPLATES / relative).read_text(encoding="utf-8")
+    return (ROOT / relative).read_text(encoding="utf-8")
 
 
 class TestPromptClarityContract(unittest.TestCase):
-    def test_planner_keeps_the_full_loop_without_repeating_every_guide(self):
-        planner = read("skills/aiwf-planner/SKILL.md")
-        lifecycle = read("skills/aiwf-planner/references/lifecycle.md")
-        lifecycle_text = " ".join(lifecycle.split())
-        for required in [
-            "Discussion is the default",
-            "Read the relevant code",
-            "aiwf-explorer",
-            "references/structure-guide.md",
-            "references/writing-guide.md",
-            "references/goal-writing.md",
-            "references/plan-writing.md",
-            "references/task-contract.md",
-            "references/milestone-writing.md",
-            "references/activation-critique.md",
-            "references/lifecycle.md",
-            "two real critique passes",
-            "changes execution, boundaries, interfaces, or",
-            "Do not record the critique or activate the Task",
-            "Run `aiwf status --prompt` when Planner starts work",
-            "aiwf governance status",
-            "aiwf governance checkpoint",
-            "tracked` versus",
-            "The narrow exception is a user-approved Plan Integration Stage",
-            "environment hygiene and non-semantic conflict resolution",
-            "Closure Calibration",
-            "Add, correct, or delete",
-        ]:
-            self.assertIn(required, planner)
-        for required in [
-            "## After A Task",
-            "## Close Out A Plan",
-            "## SendMessage",
-            "new verified information",
-            "Do not repeat",
-            "real return",
-            "concise repair or verification brief",
-            "Keep `USER_DELTA` separate",
-            "Compare the actual result",
-            "Do not modify a closed Plan",
-            "shared files",
-            "shared mechanism",
-            "implementable, testable, and reviewable",
-            "combined proof",
-            "Record the repaired implementation",
-            "When status says `Planner decision`",
-            "aiwf fixloop resolve --task-id <TASK-ID>",
-            "do not use Reviewer observation",
-            "may be retested inline",
-            "Always record a fresh testing snapshot",
-            "If escalation blocks further Agents",
-            "aiwf fixloop continue --task-id <TASK-ID>",
-            "aiwf task interrupt <TASK-ID>",
-            "aiwf task force-close <TASK-ID>",
-            "These commands are human-only",
-            "Write `## Closure Calibration` in Plan.md",
-            "`--status accepted_with_gaps`",
-            "`--known-gap`",
-            "`--acceptance-reason`",
-            "`closure.mode=accepted_with_gaps`",
-            "native editing and Git",
-            "without dispatching roles or creating a repair workflow",
-            "Only semantic conflicts become a",
-            "does not choose",
-        ]:
-            self.assertIn(required, lifecycle)
-        self.assertIn("do not relabel it passed", lifecycle_text)
-        self.assertIn("Do not checkpoint this edit separately", lifecycle_text)
-        self.assertIn("classify the repair by the same Integration Stage rule", lifecycle_text)
-        self.assertIn("create a Task in an appropriate open Plan only", lifecycle_text)
-        for required in [
-            "current session or the resumed original session",
-            "with `SendMessage` once",
-            "dispatch a new Agent",
-        ]:
-            self.assertIn(required, lifecycle_text)
-
-        implement = read("skills/aiwf-implement/SKILL.md")
-        implement_text = " ".join(implement.split())
-        for required in [
-            "current session or the resumed original session",
-            "with `SendMessage` once",
-            "If resume is unavailable or fails",
-            "Do not retry the resume",
-            "concise repair brief",
-            "Keep any valid `USER_DELTA` separate",
-            "without prescribing the implementation",
-        ]:
-            self.assertIn(required, implement_text)
-
-    def test_tester_is_mandatory_once_but_follow_up_uses_risk(self):
-        test_skill = " ".join(read("skills/aiwf-test/SKILL.md").split())
-        for required in [
-            "For the first validation",
-            "when `tester_required` is true",
-            "Wait for Executor to return when `executor_required=true`",
-            "## Follow-Up Verification",
-            "Retest inline",
-            "Dispatch Tester again",
-            "record a fresh testing snapshot",
-            "concise verification brief",
-            "which results remain valid",
-            "Keep `USER_DELTA` separate",
-            "The testing role must judge each actual observable against the contract",
-            "Do not rewrite Task.md merely to make a record pass",
-            "If `aiwf record testing` rejects a result",
-            "return `RETURN_TO_PLANNER:` when it is a contract, snapshot, or tool problem",
-        ]:
-            self.assertIn(required, test_skill)
-
-        tester_agent = " ".join(read("agents/aiwf-tester.md").split())
-        for required in [
-            "If `aiwf record testing` rejects a result",
-            "do not rewrite Task.md",
-            "start the report with `RETURN_TO_PLANNER:`",
-            "contract, snapshot, or recording tool",
-        ]:
-            self.assertIn(required, tester_agent)
-
-    def test_workflow_agents_use_proof_without_scope_shirking(self):
-        for relative in [
-            "agents/aiwf-executor.md",
-            "agents/aiwf-tester.md",
-            "agents/aiwf-reviewer.md",
-        ]:
-            text = " ".join(read(relative).split())
-            self.assertIn("## Start Gate", text)
-            self.assertIn("run `aiwf task proof <TASK-ID>`", text)
-            self.assertIn("Proof tells you the current workflow entry", text)
-            self.assertIn("not a permission to ignore other evidence", text)
-            self.assertIn("continuing from memory", text)
-
-    def test_planner_and_guides_preserve_design_and_consistency_judgment(self):
-        combined = "\n".join([
-            read("skills/aiwf-planner/SKILL.md"),
-            read("skills/aiwf-planner/references/plan-writing.md"),
-            read("skills/aiwf-planner/references/task-contract.md"),
-        ])
-        for required in [
-            "source-backed basis",
-            "credible alternatives",
-            "Consistency Contract",
-            "shared truth",
-            "consumer",
-            "old path",
-            "Built",
-            "Wired",
-            "Running",
-            "expected observable",
-            "independent roles",
-        ]:
-            self.assertIn(required, combined)
-
-    def test_task_planning_reads_parent_direction_before_writing(self):
-        task = " ".join(
-            read("skills/aiwf-planner/references/task-contract.md").split()
-        )
-        for required in [
-            "read its owning Goal, parent Plan",
-            "completed Task Calibration",
-            "capability boundary",
-            "technical direction",
-            "correct the planning first",
-        ]:
-            self.assertIn(required, task)
-
-    def test_task_planning_sets_tester_write_from_real_test_layout(self):
-        task = " ".join(
-            read("skills/aiwf-planner/references/task-contract.md").split()
-        )
-        for required in [
-            "inspect where the project keeps tests",
-            "Leave `tester_write` empty",
-            "complete whitelist for this Task",
-            "Do not add broad implementation directories",
-            "Precise co-located test patterns are valid",
-            "Tester must return to Planner",
-        ]:
-            self.assertIn(required, task)
-
-    def test_known_context_is_a_concise_cold_start_handoff(self):
-        task = " ".join(
-            read("skills/aiwf-planner/references/task-contract.md").split()
-        )
-        template = (ROOT / "aiwf_core" / "core" / "index_ops.py").read_text(
-            encoding="utf-8"
-        )
-        executor = " ".join(read("agents/aiwf-executor.md").split())
-
-        for required in [
-            "cold-start handoff",
-            "There is no required bullet format",
-            "Do not include exploration history",
-            "cite the useful conclusion and its source",
-            "Remove the rest",
-        ]:
-            self.assertIn(required, task)
-        self.assertIn("without repeating Planner's exploration", template)
-        self.assertIn("inspect only the code needed", executor)
-        self.assertIn("stop broad orientation and begin work", executor)
-        self.assertIn("instead of reproducing Planner's exploration", executor)
-        critique = " ".join(
-            read("skills/aiwf-planner/references/activation-critique.md").split()
-        )
-        self.assertIn("Does Known Context contain reliable entry points", critique)
-        self.assertIn("Remove exploration history", critique)
-
-    def test_task_proof_commands_are_distinct_and_real(self):
-        task = " ".join(
-            read("skills/aiwf-planner/references/task-contract.md").split()
-        )
-        critique = " ".join(
-            read("skills/aiwf-planner/references/activation-critique.md").split()
-        )
-        executor = " ".join(read("agents/aiwf-executor.md").split())
-
-        for required in [
-            "State each requirement once",
-            "Carry into Task.md the chosen direction",
-            "keep the design history and detailed rationale in the Plan",
-            "The author owns proof quality",
-            "run or inspect enough of it to know the command is usable",
-            "Expected as the observable meaning of success",
-            "keep the Task in planning and fix the contract first",
-            "Keep `## Fixed Contract`",
-            "headings exact",
-            "Verification Commands are final proof",
-            "selector really targets the named test",
-            "each necessary full regression runs once",
-            "production path in the claimed runtime",
-        ]:
-            self.assertIn(required, task)
-        self.assertIn("Check Verification Commands against the real scripts", critique)
-        self.assertIn("selectors narrow the run", critique)
-        self.assertIn("This pass owns whether the proof is real", critique)
-        self.assertIn("Do not accept a command merely because it looks concrete", critique)
-        self.assertIn("required Fixed Contract headings", critique)
-        self.assertIn("Do not load AIWF routing skills", executor)
-        self.assertIn("run the smallest relevant checks", executor)
-        self.assertIn("actual compiler, test, and build configuration", executor)
-        self.assertIn("group failures by root cause", executor)
-        self.assertIn("Do not rebuild unchanged prerequisites", executor)
-        self.assertIn("reread the Fixed Contract once", executor)
-
-    def test_fix_loop_roles_do_not_restart_the_whole_task(self):
-        executor = " ".join(read("agents/aiwf-executor.md").split())
-        implement = " ".join(read("skills/aiwf-implement/SKILL.md").split())
-        tester = " ".join(read("agents/aiwf-tester.md").split())
-        testing = " ".join(read("skills/aiwf-test/SKILL.md").split())
-
-        self.assertIn("First implementation: read the entire Task.md", executor)
-        self.assertIn("Repair: do not restart the Task", executor)
-        self.assertIn("only the affected Task clauses", implement)
-        self.assertIn("do not paste the original Task", implement)
-        self.assertIn("First validation: read the entire Task.md", tester)
-        self.assertIn("Follow-up verification: do not restart the Task", tester)
-        self.assertIn("do not repeat the whole Task by default", tester)
-        self.assertIn("Do not paste or reread the whole Task", testing)
-
-    def test_planning_separates_capabilities_from_code_architecture(self):
-        planner = read("skills/aiwf-planner/SKILL.md")
-        goal = read("skills/aiwf-planner/references/goal-writing.md")
-        plan = read("skills/aiwf-planner/references/plan-writing.md")
-        critique = read("skills/aiwf-planner/references/activation-critique.md")
+    def test_three_roles_have_distinct_authority(self):
         executor = read("agents/aiwf-executor.md")
+        experimenter = read("agents/aiwf-experimenter.md")
         reviewer = read("agents/aiwf-reviewer.md")
 
-        plan_text = " ".join(plan.split())
-        critique_text = " ".join(critique.split())
-        executor_text = " ".join(executor.split())
-        reviewer_text = " ".join(reviewer.split())
+        self.assertIn("You change stable reality", executor)
+        self.assertIn("every Task V-*", executor)
+        self.assertIn("You learn about reality", experimenter)
+        self.assertIn("disposable worktree", experimenter)
+        self.assertIn("You judge stable reality", reviewer)
+        self.assertIn("needs_experiment", reviewer)
 
-        self.assertIn("Goal tree describes capabilities, not code modules", planner)
-        self.assertIn("short, low-risk", planner)
-        self.assertIn("conditions that can change the architecture", goal)
-        for required in [
-            "Do not mirror the Goal tree in code",
-            "data and state each part owns",
-            "dependency direction",
-            "failure ownership",
-            "real condition, expected response or threshold",
-        ]:
-            self.assertIn(required, plan_text)
-        self.assertIn("module boundaries follow ownership", critique_text)
-        self.assertIn("Do not create modules that mirror Goal or Task names", executor_text)
-        self.assertIn("likely-to-change decisions have clear boundaries", reviewer_text)
-
-    def test_md_guides_require_decisions_without_required_forms(self):
-        guides = "\n".join([
-            read("skills/aiwf-planner/references/goal-writing.md"),
-            read("skills/aiwf-planner/references/plan-writing.md"),
-            read("skills/aiwf-planner/references/task-contract.md"),
-            read("skills/aiwf-planner/references/milestone-writing.md"),
-        ])
-        self.assertNotIn("Required Form", guides)
-        self.assertNotIn("None — reason:", guides)
-        self.assertIn("Omit empty optional sections", guides)
-        for required in [
-            "Mission Capability",
-            "Target Mechanism",
-            "Contract Responsibility",
-            "Pass Standard",
-            "Real Verification",
-        ]:
-            self.assertIn(required, guides)
-
-    def test_generated_docs_are_small_starting_contracts_not_blank_forms(self):
-        source = (ROOT / "aiwf_core" / "core" / "index_ops.py").read_text(encoding="utf-8")
-        for required in [
-            "## Mission Capability",
-            "## Target Mechanism",
-            "## Fixed Contract",
-            "## Known Context",
-            "## Open Judgment",
-            "## Pass Standard",
-            "## Real Verification",
-        ]:
-            self.assertIn(required, source)
-        self.assertNotIn("None — reason:", source)
-        self.assertNotIn("### Consistency Contract", source)
-
-    def test_architect_common_prompt_routes_only_selected_lenses(self):
-        skill = read("skills/aiwf-architect/SKILL.md")
-        agent = read("agents/aiwf-architect.md")
-        self.assertLess(len(agent.split()), 700)
-        self.assertIn("Read only the references selected for this run", agent)
-        self.assertIn("Do not carry other lenses into a split review", agent)
-        self.assertIn("unique directory", skill)
-        self.assertIn("Do not turn findings into Tasks", skill)
-        self.assertIn("one or several completed Plans", skill)
-        self.assertIn("review each Plan separately", skill)
-        self.assertIn("combined capability path", skill)
-        self.assertIn("exact prepared candidate", skill)
-        self.assertIn("Review root:", skill)
-        self.assertIn("exact review root", agent)
-        self.assertIn("Do not combine unrelated branch tips", skill)
-
-    def test_architect_references_preserve_all_review_capabilities(self):
-        combined = "\n".join([
-            read("skills/aiwf-architect/references/design-review.md"),
-            read("skills/aiwf-architect/references/code-review.md"),
-            read("skills/aiwf-architect/references/structure-review.md"),
-            read("skills/aiwf-architect/references/milestone-acceptance.md"),
-        ])
-        normalized = " ".join(combined.split())
-        for required in [
-            "Mission Fit",
-            "Mission Leverage",
-            "Capability Gaps",
-            "WebSearch",
-            "zero-caller",
-            "old path",
-            "Goal tree",
-            "Goal, Plan, Task, Milestone",
-            "Pass Standard",
-            "aiwf milestone integration-test",
-            "aiwf milestone arch-review",
-            "explicit human approval",
-        ]:
-            self.assertIn(required, normalized)
-
-    def test_planner_surfaces_material_capabilities_at_the_decision_point(self):
-        planner = read("skills/aiwf-planner/SKILL.md")
-        milestone = read("skills/aiwf-planner/references/milestone-writing.md")
-
-        self.assertIn("Surface Meaningful Choices", planner)
-        self.assertIn("Recommend one from project reality", " ".join(planner.split()))
-        self.assertIn("Do not dump unrelated CLI options", " ".join(planner.split()))
-        self.assertIn("Choose Verification Coverage With The User", milestone)
-        self.assertIn("end_to_end_flow", milestone)
-        self.assertIn("function_reverse_trace", milestone)
-        self.assertIn(
-            "Do not select reverse trace silently", " ".join(milestone.split())
-        )
-
-    def test_executor_tester_reviewer_keep_independent_judgment_and_handoff(self):
-        executor = read("agents/aiwf-executor.md")
-        tester = read("agents/aiwf-tester.md")
-        reviewer = read("agents/aiwf-reviewer.md")
-        executor_text = " ".join(executor.split())
-        tester_text = " ".join(tester.split())
-        reviewer_text = " ".join(reviewer.split())
-        for required in [
-            "follow the real main path",
-            "Trace before editing",
-            "work through Task.md",
-            "use the Executor questions in Open Judgment",
-            "code-based choices that answer them",
-            "RETURN_TO_PLANNER:",
-            "aiwf record implementation",
-        ]:
-            self.assertIn(required, executor_text)
-        for required in [
-            "Build a failure model",
-            "false pass",
-            "grounding in the Task contract and Known Context",
-            "use the Tester questions in Open Judgment",
-            "as failure hypotheses or false-pass probes",
-            "EXTERNAL_FINDING:",
-            "expected observable; the Tester supplies actual evidence",
-        ]:
-            self.assertIn(required, tester_text)
-        for required in [
-            "complete story holds",
-            "Trace callers and consumers",
-            "reading the Task contract, context, and proof",
-            "use the Reviewer questions in Open Judgment",
-            "adversarial lenses",
-            "REVIEW_REPORT",
-            "what Executor actually changed",
-            "what Tester ran and proved",
-            "assumptions used by remaining Tasks",
-            "--adversarial-observations",
-            "Report every concrete, evidence-backed problem",
-            "do not present speculation as a defect",
-            "only for concrete non-blocking findings",
-            "Do not record a current contract failure",
-        ]:
-            self.assertIn(required, reviewer_text)
-
-    def test_role_skills_dispatch_without_recopying_the_task_packet(self):
-        implement = read("skills/aiwf-implement/SKILL.md")
-        testing = read("skills/aiwf-test/SKILL.md")
-        review = read("skills/aiwf-review/SKILL.md")
-        self.assertIn("do not recopy the whole contract", " ".join(implement.split()))
-        self.assertIn("Do not paste the Task Packet", testing)
-        self.assertIn("Do not paste the complete Task Packet", review)
-        self.assertIn("The report must tell Planner what Executor changed", review)
-        self.assertIn("Every concrete finding must stay visible", review)
-        self.assertIn("one project-writing Executor at a time", implement)
-        self.assertIn(
-            "Do not run Tester beside Executor or another Tester",
-            " ".join(testing.split()),
-        )
-        self.assertIn("Do not run it in parallel with Executor or Tester", review)
-
-    def test_dispatch_uses_task_baseline_and_only_explicit_user_delta(self):
-        planner = read("skills/aiwf-planner/SKILL.md")
-        lifecycle = read("skills/aiwf-planner/references/lifecycle.md")
-        role_skills = [
-            read("skills/aiwf-implement/SKILL.md"),
-            read("skills/aiwf-test/SKILL.md"),
-            read("skills/aiwf-review/SKILL.md"),
-        ]
-        agents = [
-            read("agents/aiwf-executor.md"),
-            read("agents/aiwf-tester.md"),
-            read("agents/aiwf-reviewer.md"),
-        ]
-
-        lifecycle_words = " ".join(lifecycle.split())
-        self.assertIn("references/lifecycle.md", planner)
-        self.assertIn("Executor, Tester, and Reviewer", lifecycle_words)
-        self.assertIn("Explorer, Architect, and Critic use their own prompts", lifecycle_words)
-        self.assertIn("Task.md is the baseline", lifecycle_words)
-        self.assertIn("Add `USER_DELTA` only", lifecycle_words)
-        self.assertIn("Pass it faithfully", lifecycle_words)
-        self.assertIn("Do not add a Planner fallback", lifecycle_words)
-        for source in role_skills:
-            self.assertIn("USER_DELTA", source)
-            self.assertIn("must not change execution", source)
-            self.assertNotIn("verified fact not yet", source)
-            self.assertNotIn("fresh facts not yet", source)
-        for source in agents:
-            self.assertIn("Other dispatch wording does", source)
-            self.assertIn("not change the contract", source)
-            self.assertIn("fix-loop", source)
-            self.assertIn("verification obligations", source)
-
-        executor = agents[0]
-        self.assertIn("requires a named skill or tool", executor)
-        self.assertIn("do not imitate its output", executor)
-
-    def test_workflow_agents_reuse_the_bound_plan_worktree(self):
-        lifecycle = read("skills/aiwf-planner/references/lifecycle.md")
-        planner = read("skills/aiwf-planner/SKILL.md")
-        self.assertIn("aiwf plan bind-worktree <PLAN-ID> --create", planner)
-        self.assertIn("Every Plan worktree is a peer", lifecycle)
-        self.assertIn("The command is idempotent", lifecycle)
-        self.assertIn("routes every project tool call to that worktree", lifecycle)
-        self.assertIn("Task roles share the Plan worktree", lifecycle)
-        for path in (
-            "agents/aiwf-executor.md",
-            "agents/aiwf-tester.md",
-            "agents/aiwf-reviewer.md",
-        ):
-            agent = read(path)
-            self.assertIn("Treat the assigned worktree as the project root", agent)
-            self.assertIn("Run `pwd` once", agent)
-            self.assertNotIn("Call `EnterWorktree", agent)
-        for path in ("agents/aiwf-executor.md", "agents/aiwf-tester.md"):
-            agent = read(path)
-            self.assertIn("changes to another worktree", agent)
-
-    def test_activation_checks_only_explicit_capability_dependencies(self):
-        critique = read("skills/aiwf-planner/references/activation-critique.md")
-        structure = read("skills/aiwf-planner/references/structure-guide.md")
-        critique_words = " ".join(critique.split())
-
-        self.assertIn("explicitly requires a named Skill, MCP, or tool", critique_words)
-        self.assertIn("assigned role can use it", critique_words)
-        self.assertIn("Do not try to predict every possible runtime failure", critique_words)
-        self.assertIn("Executor must return", critique_words)
-        self.assertNotIn("Task Activation Readiness", structure)
-        self.assertIn(
-            "aiwf record disposition",
-            read("skills/aiwf-planner/references/lifecycle.md"),
-        )
-        lifecycle = read("skills/aiwf-planner/references/lifecycle.md")
-        lifecycle_words = " ".join(lifecycle.split())
-        self.assertIn("Before marking a finding `deferred`", lifecycle)
-        self.assertIn("Do not defer it merely", lifecycle_words)
-        self.assertIn("Ask the user to agree", lifecycle_words)
-        self.assertIn("notes/deferred-findings.md", lifecycle)
-        self.assertIn("Do not silently discard a concrete finding", lifecycle_words)
-        self.assertIn("Task closeout to the user", lifecycle_words)
-        self.assertIn("For each pending observation", lifecycle_words)
-        self.assertIn("check only enough evidence to route it", lifecycle_words)
-        self.assertIn("Open a fix-loop with the observation", lifecycle_words)
-
-    def test_testing_skill_uses_the_real_public_commands(self):
-        testing = read("skills/aiwf-test/SKILL.md")
-        self.assertIn("Do not run `aiwf task test`", testing)
-        self.assertIn("`aiwf record testing`", testing)
-        self.assertIn("--executed-command", testing)
-        self.assertIn("actual command", testing)
-        self.assertIn("named `V-*` or", testing)
-        self.assertIn("`FIX-*` checks", testing)
-        lifecycle = read("skills/aiwf-planner/references/lifecycle.md")
-        self.assertIn("--verify V-003", lifecycle)
-        self.assertIn("FIX-001:::<exact command>:::<expected observable>", lifecycle)
-
-    def test_integration_roles_use_the_plan_worktree_stage(self):
-        tester = read("agents/aiwf-tester.md")
-        reviewer = read("agents/aiwf-reviewer.md")
-        inline = read("shared/inline-execution.md")
-        testing = read("skills/aiwf-test/SKILL.md")
+    def test_experiment_is_orthogonal_not_a_phase(self):
+        runtime = read("CLAUDE.md")
+        task_contract = read("skills/aiwf-planner/references/task-contract.md")
         lifecycle = read("skills/aiwf-planner/references/lifecycle.md")
 
-        for text in (tester, reviewer, inline):
-            self.assertIn("integration_base_ref", text)
-            self.assertIn("MERGE_HEAD", text)
-            self.assertIn("main", text)
-        self.assertIn("Do not dispatch Executor for that", testing)
-        self.assertIn("record the narrow testing correction inline", testing)
-        self.assertIn("record the narrow", lifecycle)
-        self.assertIn("testing correction inline", lifecycle)
+        self.assertIn("capabilities,\n  not a fixed three-stage pipeline", runtime)
+        self.assertIn("no requirement boolean because it is orthogonal", task_contract)
+        self.assertIn("before Executor, after Executor, both, or not at all", task_contract)
+        self.assertIn("pre-implementation unknown", lifecycle)
+        self.assertIn("post-implementation empirical unknown", lifecycle)
 
-    def test_optional_agents_keep_the_full_inline_record_chain(self):
-        implement = read("skills/aiwf-implement/SKILL.md")
-        test = read("skills/aiwf-test/SKILL.md")
-        review = read("skills/aiwf-review/SKILL.md")
-        inline = read("shared/inline-execution.md")
+    def test_executor_skill_owns_construction_evidence(self):
+        skill = read("skills/aiwf-implement/SKILL.md")
+        self.assertIn("V-* is\nExecutor-owned construction evidence", skill)
+        self.assertIn("--check V-001", skill)
+        self.assertIn("--verdict matched", skill)
+        self.assertIn("Do not request an Experiment merely to postpone work", skill)
 
-        self.assertIn("`executor_required` is false, do not dispatch Executor", implement)
-        self.assertIn("`tester_required` is false, do not dispatch Tester", test)
-        self.assertIn("`reviewer_required` is false, do not dispatch Reviewer", review)
+    def test_experiment_skill_exposes_full_ref_lifecycle(self):
+        skill = read("skills/aiwf-experiment/SKILL.md")
         for command in (
-            "record implementation --task-id <TASK-ID>",
-            "record testing --task-id <TASK-ID>",
-            "record review --task-id <TASK-ID>",
+            "aiwf experiment open EXP-001",
+            "aiwf experiment start EXP-001",
+            "aiwf experiment record EXP-001",
+            "aiwf experiment finish EXP-001",
         ):
-            self.assertIn(command, inline)
+            self.assertIn(command, skill)
+        self.assertIn("immutable subject commit", skill)
+        self.assertIn("does not move files into stable reality", skill)
 
-    def test_critic_is_manual_and_does_not_join_the_workflow(self):
-        skill = read("skills/aiwf-critic/SKILL.md")
-        agent = read("agents/aiwf-critic.md")
-        self.assertIn("Critic is manual", skill)
-        self.assertIn("does not join the normal workflow", skill)
-        self.assertIn("Do not manufacture objections", agent)
-        self.assertIn("project reality", agent)
+    def test_reviewer_verdicts_separate_defect_from_unknown(self):
+        skill = read("skills/aiwf-review/SKILL.md")
+        self.assertIn("`needs_change`: a concrete repairable defect", skill)
+        self.assertIn("`needs_experiment`: acceptance depends on one important empirical fact", skill)
+        self.assertIn("Do not use `needs_experiment` for a missing V-* result", skill)
+        self.assertIn("`rejected`", skill)
+
+    def test_experimenter_records_but_does_not_dispose_or_promote(self):
+        agent = read("agents/aiwf-experimenter.md")
+        self.assertIn("at least one concrete `--observation`", agent)
+        self.assertIn("do not make more project changes", agent)
+        self.assertIn("Do not\nrun `aiwf experiment finish`", agent)
+        self.assertIn("Never copy or\nsync them into the stable", agent)
+
+    def test_removed_role_has_no_instruction_surface(self):
+        surfaces = [
+            read("CLAUDE.md"),
+            read("skills/aiwf-implement/SKILL.md"),
+            read("skills/aiwf-experiment/SKILL.md"),
+            read("skills/aiwf-review/SKILL.md"),
+            read("agents/aiwf-executor.md"),
+            read("agents/aiwf-experimenter.md"),
+            read("agents/aiwf-reviewer.md"),
+            read("skills/aiwf-planner/references/task-contract.md"),
+            read("skills/aiwf-planner/references/lifecycle.md"),
+        ]
+        retired = ("aiwf-tester", "aiwf-test", "record testing", "tester_required", "tested_ref")
+        for text in surfaces:
+            for token in retired:
+                self.assertNotIn(token, text)
 
 
 if __name__ == "__main__":

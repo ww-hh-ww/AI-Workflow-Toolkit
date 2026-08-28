@@ -175,7 +175,6 @@ Verification Commands:
             "git_branch": "plan-005",
             "requirements": {
                 "executor_required": False,
-                "tester_required": False,
                 "reviewer_required": False,
             },
         }]
@@ -203,14 +202,11 @@ Verification Commands:
         implementation = run_record(
             "record", "implementation", "--task-id", "TASK-004",
             "--summary", "created the feature file",
+            "--check", "V-001", "--observed", "feature file exists",
+            "--verdict", "matched",
+            "--basis", "the assigned worktree contains src/feature.txt",
         )
         self.assertEqual(implementation.returncode, 0, implementation.stderr)
-        testing = run_record(
-            "record", "testing", "--task-id", "TASK-004", "--status", "passed",
-            "--check", "V-001", "--observed", "feature exists",
-            "--verdict", "matched", "--basis", "the assigned worktree contains the file",
-        )
-        self.assertEqual(testing.returncode, 0, testing.stderr)
         review = run_record(
             "record", "review", "--task-id", "TASK-004", "--result", "accepted",
             "--summary", "records and evidence use the assigned worktree",

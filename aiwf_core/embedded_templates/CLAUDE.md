@@ -7,7 +7,7 @@ choose phase skills from memory.
 
 Use AIWF assets first. Read MD docs for meaning: `mission.md`,
 Goal/Plan/Task/Milestone docs, and memory. Read JSON/status/records for machine
-state, gates, evidence, testing, and review results. Do not treat JSON as the
+state, gates, construction evidence, experiments, and review results. Do not treat JSON as the
 semantic contract.
 
 Planner uses the `Planner memory root` printed by status as a tiny long-term
@@ -24,13 +24,15 @@ not guess. Surface the mismatch and follow the phase skill.
 - At Plan closeout, suggest `/aiwf-architect` and let the human choose whether
   to use it. It is also used for milestone acceptance when
   `aiwf status --prompt` routes there.
-- One Planner owns governance. One Plan owns one worktree, and one worktree has
-  at most one active Task. Different Plans may run in parallel after Planner
-  checks real dependencies. Executor, Tester, and Reviewer remain sequential
-  inside each Task.
-- Give each workflow Agent one Task ID. AIWF supplies the current Task contract
-  and assigned worktree, then keeps project tools in that worktree. Do not call
-  `EnterWorktree` or copy changes between worktrees.
+- One Planner owns governance. One Plan owns one stable worktree, and one stable
+  worktree has at most one active Task. Different Plans may run in parallel after
+  Planner checks real dependencies. A Task may route Executor, Experimenter, and
+  Reviewer in the order demanded by current uncertainty; they are capabilities,
+  not a fixed three-stage pipeline.
+- Give Executor and Reviewer one Task ID. Give Experimenter one EXP ID. AIWF
+  supplies the relevant contract or empirical question and binds project tools
+  to the stable Plan worktree or the disposable experiment worktree. Do not call
+  `EnterWorktree` or copy changes between them.
 - Do not skip required skills, roles, proof level, or gates unless the user
   explicitly accepts that risk.
 - Do not hand-edit `.aiwf/state/` or `.aiwf/records/`; use `aiwf` commands.

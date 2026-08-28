@@ -10,7 +10,7 @@ description: Use only when `aiwf status --prompt` lists `aiwf-close` under Requi
 Close the selected active Task through the machine gate. You do not implement,
 test, review, plan, interrupt, or force-close.
 
-Implementation and testing snapshots live outside the branch. This is normal.
+Implementation and experiment snapshots live under immutable AIWF refs. This is normal.
 Do not commit, cherry-pick, merge, or reset them; `task close` creates the Task
 commit.
 
@@ -24,7 +24,7 @@ commit.
 
 2. Confirm the Task ID, phase, assigned worktree, and `aiwf task proof <TASK-ID>`.
 3. If Planner has not yet recorded what actually happened in Task.md, stop and
-   ask Planner to use the implementation, testing, review, and relevant user
+   ask Planner to use the implementation evidence, experiments, review, and relevant user
    decisions to run:
 
    ```bash

@@ -398,9 +398,6 @@ def record_milestone_assessment(
     milestone["updated_at"] = _now()
     save_milestones(base_dir, data)
 
-    # Auto-fill review record on active verification task
-    _auto_fill_verification_task_review(base_dir, milestone_id, verdict, summary)
-
     return {"recorded": True, "milestone": milestone}
 
 def _get_active_verification_task(base_dir: str, milestone_id: str) -> Optional[Dict[str, Any]]:
@@ -415,63 +412,6 @@ def _get_active_verification_task(base_dir: str, milestone_id: str) -> Optional[
         and task.get("milestone_id") == milestone_id
     ]
     return matches[0] if len(matches) == 1 else None
-
-def _auto_fill_verification_task_testing(base_dir: str, milestone_id: str, status: str, summary: str) -> None:
-    """When milestone integration-test runs under an active verification task,
-    auto-fill a testing record so the task can close without manual record-testing."""
-    task = _get_active_verification_task(base_dir, milestone_id)
-    if not task:
-        return
-    testing_status = "passed" if status == "passed" else "failed"
-    command = f"aiwf milestone integration-test {milestone_id}"
-    from .testing_ops import record_testing
-
-    record_testing(
-        str(task.get("worktree_path") or base_dir),
-        status=testing_status,
-        commands=[command],
-        coverage_summary=f"milestone integration {status}: {summary}",
-        failure_summary=summary if testing_status == "failed" else "",
-        failed_commands=[command] if testing_status == "failed" else None,
-        verification_results=[{
-            "command": command,
-            "expected": "milestone pass standard holds in the real environment",
-            "observed": summary,
-            "matched": testing_status == "passed",
-        }],
-        task_id=str(task.get("id") or ""),
-    )
-
-def _auto_fill_verification_task_review(base_dir: str, milestone_id: str, verdict: str, summary: str) -> None:
-    """When milestone assess runs under an active verification task,
-    auto-fill a review record so the task can close without manual record-review."""
-    task = _get_active_verification_task(base_dir, milestone_id)
-    if not task:
-        return
-    review_result = "accepted" if verdict in ("PASS", "PASS_WITH_RISK") else "needs_fix"
-    accepted = review_result == "accepted"
-    from .review_ops import record_review
-
-    record_review(
-        str(task.get("worktree_path") or base_dir),
-        result=review_result,
-        closure_allowed=accepted,
-        blockers=[] if accepted else [summary or f"milestone assessment {verdict}"],
-        cleanup_status="fresh",
-        structure_status="accepted" if accepted else "needs_work",
-        summary=f"milestone assessment {verdict}: {summary}",
-        task_id=str(task.get("id") or ""),
-    )
-    if not accepted:
-        from .fixloop_ops import open_fix_loop
-        open_fix_loop(
-            str(task.get("worktree_path") or base_dir),
-            route="planner",
-            reason=summary or f"Milestone assessment {verdict}",
-            required_fixes=[summary] if summary else [],
-            source="architect",
-            task_id=str(task.get("id") or ""),
-        )
 
 @_governance_locked
 def record_milestone_integration(
@@ -569,9 +509,6 @@ def record_milestone_integration(
     _invalidate_user_acceptance(milestone)
     milestone["updated_at"] = _now()
     save_milestones(base_dir, data)
-
-    # Auto-fill testing record on active verification task
-    _auto_fill_verification_task_testing(base_dir, milestone_id, status, summary)
 
     return {"recorded": True, "milestone_id": milestone_id, "integration_test": it}
 

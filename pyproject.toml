@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "aiwf"
 version = "1.0"
-description = "Embedded Claude Code, Codex, OpenCode, and Reasonix governance for long-horizon engineering work."
+description = "Embedded Claude Code, Codex, and OpenCode governance with Reasonix compatibility for long-horizon engineering work."
 readme = "README.md"
 requires-python = ">=3.9"
 dependencies = [

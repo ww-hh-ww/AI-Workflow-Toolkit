@@ -16,6 +16,15 @@ STARTUP_CHECK_ENV = "AIWF_OPENCODE_STARTUP_CHECK"
 WARM_STARTUP_TIMEOUT = 8.0
 COLD_STARTUP_TIMEOUT = 120.0
 FALLBACK_STARTUP_TIMEOUT = 15.0
+AIWF_AGENT_NAMES = frozenset({
+    "aiwf-planner",
+    "aiwf-explorer",
+    "aiwf-executor",
+    "aiwf-critic",
+    "aiwf-experimenter",
+    "aiwf-reviewer",
+    "aiwf-architect",
+})
 
 
 def set_plugin_enabled(root: Path, enabled: bool) -> Path:
@@ -130,7 +139,22 @@ def probe_opencode_startup(
     except OSError as exc:
         return {"checked": True, "ok": False, "reason": str(exc)}
     if result.returncode == 0:
-        return {"checked": True, "ok": True, "reason": "startup probe passed"}
+        try:
+            resolved = json.loads(result.stdout or "{}")
+        except json.JSONDecodeError:
+            resolved = {}
+        configured_agents = resolved.get("agent", {}) if isinstance(resolved, dict) else {}
+        visible_agents = sorted(
+            name for name in AIWF_AGENT_NAMES
+            if isinstance(configured_agents, dict) and name in configured_agents
+        )
+        return {
+            "checked": True,
+            "ok": True,
+            "reason": "startup probe passed",
+            "visible_agents": visible_agents,
+            "missing_agents": sorted(AIWF_AGENT_NAMES.difference(visible_agents)),
+        }
     detail = (result.stderr or result.stdout or "OpenCode config load failed").strip()
     return {"checked": True, "ok": False, "reason": detail[-800:]}
 
@@ -169,6 +193,8 @@ def finalize_plugin_startup(root: Path, results: Dict[str, List[str]]) -> Path:
                 "reason": str(probe.get("reason") or ""),
                 "fallback_startup_ok": bool(fallback.get("ok")),
                 "fallback_reason": str(fallback.get("reason") or ""),
+                "visible_agents": probe.get("visible_agents", []),
+                "missing_agents": probe.get("missing_agents", []),
             },
             ensure_ascii=False,
             indent=2,
@@ -176,4 +202,11 @@ def finalize_plugin_startup(root: Path, results: Dict[str, List[str]]) -> Path:
         + "\n",
         encoding="utf-8",
     )
+    missing_agents = probe.get("missing_agents", []) or []
+    if enabled and missing_agents:
+        results.setdefault("warnings", []).append(
+            "OpenCode started, but did not register these AIWF Agents: "
+            + ", ".join(str(item) for item in missing_agents)
+            + ". Rerun `aiwf install opencode --force` and inspect `opencode debug config`."
+        )
     return status_path

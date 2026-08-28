@@ -122,7 +122,7 @@ def _cmd_task_activate(args: argparse.Namespace) -> None:
         if result.get("adopted_head_ref"):
             print(
                 "  Current Git HEAD adopted as the resumed Task baseline; "
-                "old implementation/testing/review proof was invalidated."
+                "old implementation evidence, experiment freshness, and review were invalidated."
             )
             print("  The open fix-loop and Reviewer observations were preserved.")
         print("  Next: aiwf status --prompt")
@@ -499,7 +499,10 @@ def _cmd_task_show(args: argparse.Namespace) -> None:
     print(f"  Milestone: {task.get('milestone_id', '') or task.get('milestone', '') or '(none)'}")
     print(f"  Dependencies: {', '.join(task.get('dependencies', []) or []) or '(none)'}")
     reqs = task.get("requirements", {}) or {}
-    print(f"  Requirements: executor={reqs.get('executor_required', True)}, tester={reqs.get('tester_required', True)}, reviewer={reqs.get('reviewer_required', True)}")
+    print(
+        f"  Requirements: executor={reqs.get('executor_required', True)}, "
+        f"reviewer={reqs.get('reviewer_required', True)}"
+    )
     if task.get("close_mode"):
         print(f"  Close mode: {task['close_mode']}")
         print(f"  Closed by: {task.get('closed_by', '')}")

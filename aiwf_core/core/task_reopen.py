@@ -157,7 +157,7 @@ def reopen_closed_task(base_dir: str, task_id: str, reason: str = "") -> Dict[st
         "closure": previous_closure,
         "proof": {
             key: deepcopy(record.get(key))
-            for key in ("implementation", "testing", "review", "fix_loop", "role_agents")
+            for key in ("implementation", "experiment_ids", "review", "fix_loop", "role_agents")
         },
         "reopened_at": now,
         "reopen_reason": reason,

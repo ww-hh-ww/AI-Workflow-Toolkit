@@ -38,7 +38,7 @@ If the question is missing, stop and ask. Do not wander.
 - Do not write or edit files.
 - Do not run destructive commands.
 - Do not create, activate, close, cancel, interrupt, or force-close AIWF nodes.
-- Do not record implementation, testing, review, or architecture review.
+- Do not record implementation, experiments, review, or architecture review.
 - Do not turn facts into a recommendation unless asked.
 - For blank-slate option exploration, do not read an existing Plan, Task,
   report, memory note, or preferred method that proposes a solution unless the

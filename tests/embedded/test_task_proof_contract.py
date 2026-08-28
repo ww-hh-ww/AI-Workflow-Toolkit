@@ -1,645 +1,163 @@
-import json
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
 
 
-def _write_task(base: Path, task_id: str, body: str) -> dict:
-    (base / ".aiwf/tasks").mkdir(parents=True, exist_ok=True)
-    (base / ".aiwf/state").mkdir(parents=True, exist_ok=True)
-    path = base / ".aiwf/tasks" / f"{task_id}.md"
-    path.write_text(body, encoding="utf-8")
-    task = {"id": task_id, "status": "ready", "doc_path": f".aiwf/tasks/{task_id}.md"}
-    (base / ".aiwf/state/tasks.json").write_text(
-        json.dumps({"schema_version": 1, "tasks": [task]}),
-        encoding="utf-8",
-    )
-    return task
-
-
 class TestTaskProofContract(unittest.TestCase):
-    def test_activation_does_not_guess_command_executability(self):
-        from aiwf_core.core.task_proof import activation_proof_blockers
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp(prefix="aiwf_proof_"))
+        (self.root / ".aiwf/tasks").mkdir(parents=True)
+        (self.root / ".aiwf/records/tasks").mkdir(parents=True)
+        self.task = {"id": "TASK-001", "doc_path": ".aiwf/tasks/TASK-001.md"}
+        self.path = self.root / self.task["doc_path"]
+        self.path.write_text(self._doc(), encoding="utf-8")
 
-        base = Path(tempfile.mkdtemp(prefix="awproof_command_"))
-        task = _write_task(
-            base,
-            "TASK-COMMAND",
-            """# TASK-COMMAND
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
 
-## Fixed Contract
+    @staticmethod
+    def _doc(command="python3 -c \"print('ok')\"", expected="stdout is ok", row_id="V-001", note=""):
+        return f"""---
+id: TASK-001
+type: task
+title: Proof
+contract_status: ready
+goal_id: GOAL-001
+plan_id: PLAN-001
+executor_required: true
+reviewer_required: true
+---
 
-### Structural Home
-
-Goal and Plan.
-
-### Objective
-
-Run the map check.
-
-### Contract Responsibility
-
-Own the map check.
-
-### Proof Standard
-
-Done When:
-
-- [Running] map check is run.
-
-Verification Commands:
-
-| ID | Command | Expected |
-|----|---------|----------|
-| V-002 | project-runtime map-check | map check succeeds |
-| V-005 | project-runtime map-save | map exists |
-""",
-        )
-
-        blockers = activation_proof_blockers(str(base), task)
-        self.assertEqual(blockers, [])
-
-    def test_verification_id_is_identity_not_natural_language_output(self):
-        from aiwf_core.core.task_proof import validate_testing_against_task
-
-        base = Path(tempfile.mkdtemp(prefix="awproof_ids_"))
-        task = _write_task(
-            base,
-            "TASK-IDS",
-            """# TASK-IDS
+# TASK-001
 
 ## Fixed Contract
 
 ### Structural Home
 
-Goal and Plan.
+Plan-owned behavior.
 
 ### Objective
 
-Two distinct claims use the same command.
+Prove the entrypoint.
 
 ### Contract Responsibility
 
-Own both claims.
+Own behavior and construction evidence.
 
 ### Proof Standard
 
 Done When:
 
-- [Running] both claims are verified.
+- [Running] The real entrypoint works.
 
 Verification Commands:
 
 | ID | Command | Expected Observable Output |
 |----|---------|----------------------------|
-| V-001 | printf ready | output means the route is ready |
-| V-002 | printf ready | output means the consumer is ready |
-""",
-        )
+| {row_id} | {command} | {expected} |
 
-        proof = validate_testing_against_task(str(base), task, {
-            "status": "passed",
-            "commands": ["printf ready", "printf ready"],
-            "verification_results": [
-                {"verification_id": "V-001", "command": "printf ready",
-                 "observed": "route token", "matched": True, "verdict": "matched"},
-                {"verification_id": "V-002", "command": "printf ready",
-                 "observed": "consumer token", "matched": True, "verdict": "matched"},
-            ],
-        })
+### Dispatch Decisions
 
-        self.assertEqual(proof["missing_verification_results"], [])
-        self.assertEqual(proof["mismatched_results"], [])
-        self.assertEqual(proof["required_verification_ids"], ["V-001", "V-002"])
+Independent roles.
 
-    def test_command_text_cannot_bind_an_unidentified_result(self):
-        from aiwf_core.core.task_proof import validate_testing_against_task
+## Known Context
 
-        base = Path(tempfile.mkdtemp(prefix="awproof_unbound_"))
-        task = _write_task(
-            base,
-            "TASK-UNBOUND",
-            """# TASK-UNBOUND
+{note}
+"""
 
-## Fixed Contract
-
-### Structural Home
-
-Goal and Plan.
-
-### Objective
-
-Prove the route.
-
-### Contract Responsibility
-
-Own the route proof.
-
-### Proof Standard
-
-- [Running] The route passes.
-
-Verification Commands:
-
-| ID | Command | Expected |
-|---|---|---|
-| V-001 | pytest -q | route passes |
-""",
-        )
-        proof = validate_testing_against_task(str(base), task, {
-            "commands": ["pytest -q"],
-            "verification_results": [{
-                "command": "pytest -q",
-                "observed": "route passes",
-                "matched": True,
-                "verdict": "matched",
-            }],
-        })
-
-        self.assertEqual(proof["missing_verification_results"], ["pytest -q"])
-        self.assertEqual(proof["legacy_unbound_results"], ["pytest -q"])
-
-    def test_activation_rejects_duplicate_verification_ids(self):
-        from aiwf_core.core.task_proof import activation_proof_blockers
-
-        base = Path(tempfile.mkdtemp(prefix="awproof_duplicate_"))
-        task = _write_task(
-            base,
-            "TASK-DUPLICATE",
-            """# TASK-DUPLICATE
-
-## Fixed Contract
-
-### Structural Home
-
-Goal and Plan.
-
-### Objective
-
-Prove two routes.
-
-### Contract Responsibility
-
-Own both proofs.
-
-### Proof Standard
-
-- [Running] Both routes pass.
-
-Verification Commands:
-
-| ID | Command | Expected |
-|---|---|---|
-| V-001 | pytest -q tests/a.py | route A passes |
-| V-001 | pytest -q tests/b.py | route B passes |
-""",
-        )
-
-        blockers = activation_proof_blockers(str(base), task)
-        self.assertTrue(any("reuse stable ID V-001" in item for item in blockers))
-
-    def test_missing_task_document_blocks_activation_and_testing_proof(self):
-        from aiwf_core.core.task_proof import (
-            activation_proof_blockers,
-            testing_proof_gaps,
-            validate_testing_against_task,
-        )
-
-        base = Path(tempfile.mkdtemp(prefix="awproof_"))
-        task = {
-            "id": "TASK-MISSING",
-            "doc_path": ".aiwf/tasks/TASK-MISSING.md",
+    @staticmethod
+    def _result(identity="V-001", matched=True, observed="ok"):
+        return {
+            "verification_id": identity,
+            "command": "python3 -c \"print('ok')\"",
+            "expected": "stdout is ok",
+            "observed": observed,
+            "matched": matched,
+            "verdict": "matched" if matched else "mismatched",
+            "basis": "semantic comparison",
         }
 
-        blockers = activation_proof_blockers(str(base), task)
-        self.assertIn("Task.md proof contract is missing", blockers[0])
-        proof = validate_testing_against_task(
-            str(base), task, {"status": "passed", "commands": []},
-        )
-        self.assertFalse(proof["schema_recognized"])
-        self.assertIn("Task.md proof contract is missing", testing_proof_gaps(proof))
-
-    def test_malformed_current_contract_fails_closed(self):
+    def test_structured_v_id_is_executor_evidence_identity(self):
         from aiwf_core.core.task_proof import (
-            activation_proof_blockers,
-            testing_proof_gaps,
-            validate_testing_against_task,
+            construction_proof_gaps,
+            read_task_proof_contract,
+            validate_implementation_against_task,
         )
 
-        base = Path(tempfile.mkdtemp(prefix="awproof_"))
-        task = _write_task(
-            base,
-            "TASK-MALFORMED",
-            """# TASK-MALFORMED
+        contract = read_task_proof_contract(str(self.root), self.task)
+        proof = validate_implementation_against_task(
+            str(self.root), self.task,
+            {"verification_results": [self._result()]},
+        )
+        self.assertEqual(contract.verification_commands[0].verification_id, "V-001")
+        self.assertEqual(construction_proof_gaps(proof), [])
 
-## Fixed Contracts
-
-### Structural Home
-
-GOAL-001 / PLAN-001.
-
-### Objective
-
-Ship the route.
-
-### Contract Responsibility
-
-Own the route.
-
-### Proof Standards
-
-- [Running] The route works.
-""",
+    def test_command_text_cannot_replace_stable_id(self):
+        from aiwf_core.core.task_proof import (
+            construction_proof_gaps, validate_implementation_against_task,
         )
 
-        blockers = activation_proof_blockers(str(base), task)
-        joined = "\n".join(blockers)
-        self.assertIn("contract structure is malformed", joined)
-        self.assertIn("## Fixed Contract", joined)
-        self.assertIn("### Proof Standard", joined)
-
-        proof = validate_testing_against_task(
-            str(base), task, {"status": "passed", "commands": []},
+        result = self._result()
+        result.pop("verification_id")
+        proof = validate_implementation_against_task(
+            str(self.root), self.task, {"verification_results": [result]},
         )
-        self.assertFalse(proof["schema_recognized"])
-        self.assertTrue(proof["contract_errors"])
-        self.assertEqual(testing_proof_gaps(proof), proof["contract_errors"])
+        self.assertTrue(proof["legacy_unbound_results"])
+        self.assertTrue(construction_proof_gaps(proof))
 
-    def test_chinese_task_contract_keeps_structured_command_validation(self):
-        from aiwf_core.core.task_proof import validate_testing_against_task
-
-        base = Path(tempfile.mkdtemp(prefix="awproof_"))
-        task = _write_task(
-            base,
-            "TASK-ZH",
-            """# TASK-ZH
-
-## 固定契约
-
-### 结构归属
-
-GOAL-001 / PLAN-001。
-
-### 目标
-
-交付可运行入口。
-
-### 契约责任
-
-入口必须通过公开边界运行。
-
-### 证明标准
-
-完成条件：
-
-- **Running：** 入口输出 ready。
-
-验证命令：
-
-| ID | 命令 | 预期可观察结果 |
-|----|------|----------------|
-| V-001 | `pnpm test` | 测试通过。 |
-| V-002 | `pnpm build` | 构建通过。 |
-""",
+    def test_mismatched_and_blocked_results_are_gaps(self):
+        from aiwf_core.core.task_proof import (
+            construction_proof_gaps, validate_implementation_against_task,
         )
 
-        proof = validate_testing_against_task(str(base), task, {
-            "status": "passed",
-            "commands": ["pnpm test"],
-            "verification_results": [{
-                "verification_id": "V-001",
-                "command": "pnpm test",
-                "expected": "测试通过。",
-                "observed": "10 passed",
-                "matched": True,
-            }],
-        })
-
-        self.assertTrue(proof["schema_recognized"])
-        self.assertEqual(proof["required_commands"], ["pnpm test", "pnpm build"])
-        self.assertEqual(proof["missing_commands"], ["pnpm build"])
-        self.assertEqual(proof["missing_verification_results"], ["pnpm build"])
-
-    def test_task_proof_exposes_current_fix_loop_to_follow_up_roles(self):
-        from aiwf_core.core.task_proof import build_task_proof
-
-        base = Path(tempfile.mkdtemp(prefix="awproof_"))
-        record_path = base / ".aiwf/records/tasks/TASK-FIX.json"
-        record_path.parent.mkdir(parents=True)
-        record_path.write_text(json.dumps({
-            "task_id": "TASK-FIX",
-            "implementation": {"task_id": "TASK-FIX", "implementation_ref": "abc"},
-            "testing": {"task_id": "TASK-FIX", "status": "missing"},
-            "review": {"task_id": "TASK-FIX", "result": "unknown"},
-            "fix_loop": {
-                "status": "open",
-                "route": "tester",
-                "reason": "old path still bypasses the fix",
-                "verification_obligations": [{
-                    "verification_id": "FIX-OLD-PATH",
-                    "source": "fix_loop",
-                    "command": "pytest -q tests/test_old_path.py",
-                    "expected": "old path cannot bypass the fix",
-                }],
-            },
-        }), encoding="utf-8")
-
-        proof = build_task_proof(str(base), {"id": "TASK-FIX", "status": "active"})
-
-        self.assertEqual(proof["fix_loop"]["route"], "tester")
-        self.assertEqual(
-            proof["fix_loop"]["verification_obligations"][0]["verification_id"],
-            "FIX-OLD-PATH",
+        mismatch = validate_implementation_against_task(
+            str(self.root), self.task,
+            {"verification_results": [self._result(matched=False, observed="wrong")]},
         )
+        blocked_result = self._result(observed="")
+        blocked_result.update({"matched": False, "verdict": "blocked", "basis": "no runtime"})
+        blocked = validate_implementation_against_task(
+            str(self.root), self.task, {"verification_results": [blocked_result]},
+        )
+        self.assertTrue(mismatch["mismatched_results"])
+        self.assertTrue(blocked["blocked_results"])
+        self.assertTrue(construction_proof_gaps(mismatch))
+        self.assertTrue(construction_proof_gaps(blocked))
 
-    def test_forbidden_write_is_optional(self):
+    def test_unknown_id_does_not_satisfy_required_row(self):
+        from aiwf_core.core.task_proof import validate_implementation_against_task
+
+        proof = validate_implementation_against_task(
+            str(self.root), self.task,
+            {"verification_results": [self._result(identity="V-999")]},
+        )
+        self.assertEqual(proof["unknown_verification_ids"], ["V-999"])
+        self.assertTrue(proof["missing_verification_results"])
+
+    def test_missing_or_unidentified_rows_fail_activation(self):
         from aiwf_core.core.task_proof import activation_proof_blockers
 
-        base = Path(tempfile.mkdtemp(prefix="aiwf_proof_"))
-        task_dir = base / ".aiwf/tasks"
-        task_dir.mkdir(parents=True)
-        (task_dir / "TASK-OPTIONAL.md").write_text(
-            "# TASK-OPTIONAL\n\n"
-            "## Fixed Contract\n\n"
-            "### Structural Home\n\nGoal and Plan.\n\n"
-            "### Objective\n\nObservable output.\n\n"
-            "### Contract Responsibility\n\nOwn the entry path.\n\n"
-            "### Proof Standard\n\n"
-            "Done When:\n\n- Running: command prints hello.\n\n"
-            "Verification Commands:\n\n"
-            "| ID | Command | Expected Observable Output |\n"
-            "|---|---|---|\n| V-001 | python3 app.py | hello |\n",
-            encoding="utf-8",
+        self.path.unlink()
+        self.assertTrue(activation_proof_blockers(str(self.root), self.task))
+        self.path.write_text(self._doc(row_id=""), encoding="utf-8")
+        self.assertTrue(any(
+            "stable ID" in item
+            for item in activation_proof_blockers(str(self.root), self.task)
+        ))
+
+    def test_proof_fingerprint_ignores_explanatory_prose_but_tracks_v_table(self):
+        from aiwf_core.core.task_proof import proof_contract_fingerprint
+
+        first = proof_contract_fingerprint(str(self.root), self.task)
+        self.path.write_text(self._doc(note="A later explanatory note."), encoding="utf-8")
+        second = proof_contract_fingerprint(str(self.root), self.task)
+        self.path.write_text(
+            self._doc(command="python3 -c \"print('different')\""), encoding="utf-8",
         )
-        task = {"id": "TASK-OPTIONAL", "doc_path": ".aiwf/tasks/TASK-OPTIONAL.md"}
-        self.assertEqual(activation_proof_blockers(str(base), task), [])
-
-    def test_strict_task_packet_blocks_unfilled_proof_before_activation(self):
-        from aiwf_core.core.task_proof import activation_proof_blockers
-
-        base = Path(tempfile.mkdtemp(prefix="awproof_"))
-        task = _write_task(
-            base,
-            "TASK-001",
-            """# TASK-001
-
-## Fixed Contract
-
-### Structural Home
-
-(fill)
-
-### Objective
-
-Ship the route.
-
-### Contract Responsibility
-
-(fill)
-
-### Forbidden Write
-
-(fill)
-
-### Proof Standard
-
-Done When:
-
-(fill - each item tagged Built/Wired/Running)
-
-Verification Commands:
-
-| ID | Command | Expected Observable Output |
-|----|----------------------------|
-| V-001 | (fill) | (fill) |
-""",
-        )
-
-        blockers = activation_proof_blockers(str(base), task)
-        joined = "\n".join(blockers)
-        self.assertIn("unfilled proof contract fields", joined)
-        self.assertIn("no Built/Wired/Running proof level", joined)
-
-    def test_wired_or_running_proof_requires_recorded_verification_commands(self):
-        from aiwf_core.core.task_proof import (
-            activation_proof_blockers,
-            validate_testing_against_task,
-        )
-
-        base = Path(tempfile.mkdtemp(prefix="awproof_"))
-        task = _write_task(
-            base,
-            "TASK-002",
-            """# TASK-002
-
-## Fixed Contract
-
-### Structural Home
-
-Goal GOAL-001 / Plan PLAN-001; this task wires the CLI route.
-
-### Objective
-
-CLI route is reachable from the supported entry path.
-
-### Contract Responsibility
-
-The CLI status route is reachable and proves prompt routing from the supported entry path.
-
-### Forbidden Write
-
-legacy-runner/**
-
-### Proof Standard
-
-Done When:
-
-- [Wired] `aiwf status` consumes the new route from the CLI parser.
-
-Verification Commands:
-
-| ID | Command | Expected Observable Output |
-|----|----------------------------|
-| V-001 | python3 -m aiwf_core.cli status --prompt | lists required skill routing |
-""",
-        )
-
-        self.assertEqual(activation_proof_blockers(str(base), task), [])
-        proof = validate_testing_against_task(
-            str(base),
-            task,
-            {"status": "passed", "commands": ["python3 -m pytest tests/embedded -q"]},
-        )
-        self.assertEqual(
-            proof["missing_commands"],
-            ["python3 -m aiwf_core.cli status --prompt"],
-        )
-        self.assertEqual(
-            proof["missing_verification_results"],
-            ["python3 -m aiwf_core.cli status --prompt"],
-        )
-
-        proof = validate_testing_against_task(
-            str(base),
-            task,
-            {
-                "status": "passed",
-                "commands": ["python3 -m aiwf_core.cli status --prompt"],
-                "verification_results": [{
-                    "verification_id": "V-001",
-                    "command": "python3 -m aiwf_core.cli status --prompt",
-                    "expected": "lists required skill routing",
-                    "observed": "lists required skill routing",
-                    "matched": True,
-                }],
-            },
-        )
-        self.assertEqual(proof["missing_commands"], [])
-        self.assertEqual(proof["missing_verification_results"], [])
-        self.assertEqual(proof["mismatched_results"], [])
-
-    def test_task_close_blocks_passed_testing_missing_task_command(self):
-        from aiwf_core.core.task_ledger import close_task
-        base = Path(tempfile.mkdtemp(prefix="awproof_"))
-        for rel in (".aiwf/state", ".aiwf/records", ".aiwf/tasks"):
-            (base / rel).mkdir(parents=True, exist_ok=True)
-        (base / "README.md").write_text("test\n", encoding="utf-8")
-        task = _write_task(
-            base,
-            "TASK-003",
-            """# TASK-003
-
-## Fixed Contract
-
-### Structural Home
-
-Goal GOAL-001 / Plan PLAN-001.
-
-### Objective
-
-CLI route is reachable from the supported entry path.
-
-### Contract Responsibility
-
-The installed CLI status prompt route is reachable and produces prompt routing.
-
-### Forbidden Write
-
-legacy-runner/**
-
-### Proof Standard
-
-Done When:
-
-- [Running] `aiwf status --prompt` runs through the installed CLI.
-
-Verification Commands:
-
-| Command | Expected Observable Output |
-|---------|----------------------------|
-| python3 -m aiwf_core.cli status --prompt | prints prompt routing |
-""",
-        )
-        task["status"] = "active"
-        task["requirements"] = {"tester_required": True, "reviewer_required": True}
-        (base / ".aiwf/state/tasks.json").write_text(
-            json.dumps({"schema_version": 1, "tasks": [task]}),
-            encoding="utf-8",
-        )
-        (base / ".aiwf/state/state.json").write_text(json.dumps({
-            "phase": "reviewing",
-            "active_task_id": "TASK-003",
-            "scope_violation": False,
-        }), encoding="utf-8")
-        (base / ".aiwf/state/fix-loop.json").write_text(
-            json.dumps({"status": "none"}),
-            encoding="utf-8",
-        )
-        (base / ".aiwf/state/goals.json").write_text(json.dumps({
-            "goals": [{
-                "id": "GOAL-001",
-                "meta_critique": {"status": "recorded"},
-            }],
-        }), encoding="utf-8")
-        (base / ".aiwf/records/implementation.json").write_text(json.dumps({
-            "task_id": "TASK-003", "implementation_ref": "abc",
-        }), encoding="utf-8")
-        (base / ".aiwf/records/testing.json").write_text(json.dumps({
-            "status": "passed",
-            "commands": ["python3 -m pytest tests/embedded -q"],
-            "task_id": "TASK-003", "based_on_ref": "abc", "tested_ref": "def",
-        }), encoding="utf-8")
-        (base / ".aiwf/records/review.json").write_text(json.dumps({
-            "result": "accepted",
-            "closure_allowed": True,
-            "cleanup_status": "fresh",
-            "blockers": [],
-            "stale_items": [],
-            "task_id": "TASK-003", "reviewed_ref": "def",
-        }), encoding="utf-8")
-
-        result = close_task(str(base), "TASK-003")
-
-        self.assertFalse(result["closed"])
-        self.assertTrue(
-            any("missing Verification Command" in blocker for blocker in result["blockers"]),
-            result["blockers"],
-        )
-
-    def test_proof_validation_reports_mismatched_result(self):
-        from aiwf_core.core.task_proof import validate_testing_against_task
-
-        base = Path(tempfile.mkdtemp(prefix="awproof_"))
-        task = _write_task(
-            base,
-            "TASK-004",
-            """# TASK-004
-
-## Fixed Contract
-
-### Structural Home
-
-Goal GOAL-001 / Plan PLAN-001.
-
-### Objective
-
-Route runs.
-
-### Contract Responsibility
-
-The route command runs and reports the expected passing test result.
-
-### Forbidden Write
-
-none
-
-### Proof Standard
-
-Done When:
-
-- [Running] route runs.
-
-Verification Commands:
-
-| ID | Command | Expected Observable Output |
-|----|----------------------------|
-| V-001 | pytest tests/test_route.py | 1 passed |
-""",
-        )
-        proof = validate_testing_against_task(str(base), task, {
-            "status": "passed",
-            "commands": ["pytest tests/test_route.py"],
-            "verification_results": [{
-                "verification_id": "V-001",
-                "command": "pytest tests/test_route.py",
-                "expected": "1 passed",
-                "observed": "failed",
-                "matched": False,
-            }],
-        })
-
-        self.assertEqual(proof["missing_commands"], [])
-        self.assertEqual(proof["mismatched_results"], ["pytest tests/test_route.py"])
+        third = proof_contract_fingerprint(str(self.root), self.task)
+        self.assertEqual(first, second)
+        self.assertNotEqual(second, third)
 
 
 if __name__ == "__main__":

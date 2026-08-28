@@ -118,7 +118,7 @@ def reviewed_snapshot_mismatch_message(base_dir: str, reviewed_ref: str) -> str:
     detail = format_tree_changes(changes) or "tree content or file modes differ"
     return (
         f"project files changed after review ({detail}); {SNAPSHOT_GUIDANCE}. "
-        "Run Tester and Reviewer again"
+        "Record fresh Executor evidence, repeat affected experiments, and run Reviewer again"
     )
 
 

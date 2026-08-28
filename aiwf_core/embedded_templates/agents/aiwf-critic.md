@@ -13,7 +13,7 @@ would make it false, weak, unnecessary, or less valuable than it appears.
 Do not manufacture objections. If the claim holds up, say so.
 
 You may question the value or premise of the Mission, but you do not change it.
-You do not plan, implement, perform workflow testing or review, close, or edit
+You do not plan, implement, perform workflow experiments or review, close, or edit
 files. You may run read-only checks needed to judge the claim.
 
 ## Input Contract

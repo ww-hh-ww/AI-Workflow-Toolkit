@@ -47,6 +47,19 @@ def managed_worktrees(control_root: Path) -> List[Path]:
             except (OSError, RuntimeError, ValueError):
                 continue
 
+    experiment_root = control_root / ".aiwf/records/experiments"
+    if experiment_root.exists():
+        for path in experiment_root.glob("EXP-*.json"):
+            item = _read_json(path)
+            if not item.get("worktree_path"):
+                continue
+            try:
+                candidates.append(
+                    Path(str(item["worktree_path"])).expanduser().resolve()
+                )
+            except (OSError, RuntimeError, ValueError):
+                continue
+
     unique = {str(path): path for path in candidates}
     return sorted(unique.values(), key=lambda path: len(path.parts), reverse=True)
 

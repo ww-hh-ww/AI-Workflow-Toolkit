@@ -3,7 +3,7 @@
 Planner must review memory at two moments:
 
 - Before leaving Planner: after planning, before task activation or handoff.
-- When work returns to Planner: after implementation, testing, review,
+- When work returns to Planner: after implementation, experiments, review,
   Architect findings, milestone acceptance, or task closure brings back facts.
 
 Use `project-facts.md` for 3-7 facts that change future planning across tasks.

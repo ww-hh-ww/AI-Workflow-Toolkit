@@ -1,4 +1,4 @@
-"""CLI handlers for implementation, testing, and review records."""
+"""CLI handlers for Executor construction evidence and Reviewer judgments."""
 from __future__ import annotations
 
 import argparse
@@ -6,10 +6,11 @@ import json
 import sys
 from pathlib import Path
 
+from ..core.construction_evidence import load_construction_proof_file
+
 
 ROLE_SUBAGENTS = {
     "executor": ("executor_required", "aiwf-executor", "aiwf-implement"),
-    "tester": ("tester_required", "aiwf-tester", "aiwf-test"),
     "reviewer": ("reviewer_required", "aiwf-reviewer", "aiwf-review"),
 }
 
@@ -130,56 +131,10 @@ def _parse_paired_verification_results(
     return results
 
 
-def _load_testing_proof_file(path: str) -> list[dict]:
-    proof_path = Path(path).expanduser()
-    try:
-        payload = json.loads(proof_path.read_text(encoding="utf-8"))
-    except OSError as exc:
-        raise ValueError(f"cannot read proof file {proof_path}: {exc}") from exc
-    except json.JSONDecodeError as exc:
-        raise ValueError(f"proof file is not valid JSON: {proof_path}: {exc}") from exc
-    if isinstance(payload, dict):
-        payload = payload.get("results", [])
-    if not isinstance(payload, list) or not payload:
-        raise ValueError("proof file must contain a non-empty JSON array or {\"results\": [...]}")
-    results = []
-    for index, item in enumerate(payload, start=1):
-        if not isinstance(item, dict):
-            raise ValueError(f"proof file result {index} must be an object")
-        verification_id = str(
-            item.get("verification_id") or item.get("check") or item.get("id") or ""
-        ).strip()
-        if not verification_id:
-            raise ValueError(f"proof file result {index} is missing verification_id/check")
-        observed = item.get("observed", "")
-        observed_file = str(item.get("observed_file") or "").strip()
-        if observed_file:
-            try:
-                observed = Path(observed_file).expanduser().read_text(encoding="utf-8")
-            except OSError as exc:
-                raise ValueError(f"cannot read observed_file for {verification_id}: {exc}") from exc
-        verdict = str(item.get("verdict") or "").strip().lower()
-        if verdict not in {"matched", "mismatched", "blocked"}:
-            raise ValueError(f"proof file result {verification_id} has invalid verdict")
-        if verdict != "blocked" and not str(observed).strip():
-            raise ValueError(f"proof file result {verification_id} has empty observed output")
-        if verdict == "blocked" and not str(item.get("basis") or item.get("reason") or "").strip():
-            raise ValueError(f"blocked proof result {verification_id} requires basis/reason")
-        results.append({
-            "verification_id": verification_id,
-            "observed": str(observed),
-            "verdict": verdict,
-            "basis": str(item.get("basis") or item.get("reason") or "").strip(),
-            "executed_command": str(item.get("executed_command") or "").strip(),
-        })
-    return results
-
-
-def _task_verification_results(
+def _construction_verification_results(
     base: Path,
     task_id: str,
     observed_results: list[str],
-    status: str,
     checks: list[str] | None = None,
     verdicts: list[str] | None = None,
     bases: list[str] | None = None,
@@ -206,7 +161,7 @@ def _task_verification_results(
         raise ValueError("--executed-command must appear once for each --check")
     if not verdicts:
         raise ValueError(
-            "recorded observations need an explicit --verdict; Tester must judge "
+            "recorded observations need an explicit --verdict; Executor must judge "
             "matched, mismatched, or blocked"
         )
     if len(verdicts) != len(checks):
@@ -251,8 +206,8 @@ def _task_verification_results(
             )
         if not contract_item.explicit_id:
             raise ValueError(
-                "Task.md Verification Commands need an explicit ID column before testing "
-                "can be recorded"
+                "Task.md Verification Commands need an explicit ID column before "
+                "Executor construction evidence can be recorded"
             )
         verdict = str(verdict).strip().lower()
         if verdict not in {"matched", "mismatched", "blocked"}:
@@ -277,92 +232,6 @@ def _task_verification_results(
             result["basis"] = str(basis).strip()
         results.append(result)
     return results
-
-
-def _cmd_record_testing(args: argparse.Namespace) -> None:
-    from ..core.state_ops import record_testing
-
-    try:
-        root = _invocation_root()
-        executed_commands = list(getattr(args, "executed_commands", []) or [])
-        task_id = _require_role_dispatch(root, "tester", args.task_id)
-        if args.proof_file and (
-            args.observed_results or args.observed_files or args.checks
-            or args.verdicts or args.bases or executed_commands
-        ):
-            raise ValueError("--proof-file cannot be combined with inline verification arguments")
-        if args.observed_results and args.observed_files:
-            raise ValueError("use either --observed or --observed-file, not both")
-        if args.proof_file:
-            proof_entries = _load_testing_proof_file(
-                str(_invocation_file(args.proof_file, root))
-            )
-            verification_results = _task_verification_results(
-                root, task_id,
-                [item["observed"] for item in proof_entries], args.status,
-                checks=[item["verification_id"] for item in proof_entries],
-                verdicts=[item["verdict"] for item in proof_entries],
-                bases=[item.get("basis", "") for item in proof_entries],
-                executed_commands=[item.get("executed_command", "") for item in proof_entries],
-            )
-        else:
-            if not args.checks:
-                raise ValueError(
-                    "record testing requires declared --check IDs; update Task.md's "
-                    "Verification Commands table before recording"
-                )
-            observed_results = list(args.observed_results or [])
-            if args.observed_files:
-                observed_results = []
-                for observed_file in args.observed_files:
-                    try:
-                        observed_results.append(_invocation_file(observed_file, root).read_text(encoding="utf-8"))
-                    except OSError as exc:
-                        raise ValueError(f"cannot read observed file {observed_file}: {exc}") from exc
-            verification_results = _task_verification_results(
-                root, task_id, observed_results, args.status,
-                checks=args.checks, verdicts=args.verdicts or [], bases=args.bases or [],
-                executed_commands=executed_commands,
-            )
-        recorded_commands = [item["command"] for item in verification_results]
-        if args.status == "passed" and not recorded_commands:
-            raise ValueError(
-                "passed testing requires at least one --check with observed output"
-            )
-        if args.status == "failed" and not args.summary:
-            raise ValueError("failed testing requires a concise --summary")
-        testing = record_testing(
-            str(root),
-            status=args.status,
-            commands=recorded_commands or None,
-            coverage_summary=args.summary or "",
-            failure_summary=args.summary if args.status == "failed" else "",
-            failed_commands=recorded_commands if args.status == "failed" else None,
-            verification_results=verification_results or None,
-            task_id=task_id,
-        )
-    except ValueError as exc:
-        print(f"Testing record blocked: {exc}", file=sys.stderr)
-        raise SystemExit(1)
-
-    print(f"Testing recorded: status={testing.get('status', args.status)}")
-    if testing.get("tested_ref"):
-        print(f"  Tested ref: {testing['tested_ref']}")
-    if getattr(args, "checks", None):
-        print(f"  Checks: {len(args.checks)}")
-    if verification_results:
-        print(f"  Verification results: {len(verification_results)}")
-    if testing.get("fix_loop_resolved"):
-        print("  Fix-loop: resolved by this verification")
-    elif testing.get("fix_loop_pending_reason"):
-        print(f"  Fix-loop remains open: {testing['fix_loop_pending_reason'][:240]}")
-    if testing.get("status") == "partial":
-        from ..core.task_proof import testing_proof_gaps
-
-        missing = testing_proof_gaps(testing.get("proof_validation", {}) or {})
-        if missing:
-            print(f"  Missing proof: {', '.join(missing[:5])}")
-    _print_record_handoff()
 
 
 def _parse_observations(raw_observations: list[str]) -> list[dict]:
@@ -397,9 +266,13 @@ def _cmd_record_review(args: argparse.Namespace) -> None:
         if args.result == "accepted" and any(
             item["severity"] in ("critical", "high") for item in observations
         ):
-            raise ValueError("critical/high observations require needs_fix or rejected")
-        if args.result in ("needs_fix", "rejected") and not args.blockers:
+            raise ValueError("critical/high observations require needs_change or rejected")
+        if args.result in ("needs_change", "rejected") and not args.blockers:
             raise ValueError("a blocking review requires at least one --blocker")
+        if args.result == "needs_experiment" and (
+            not args.experiment_id or not args.experiment_question
+        ):
+            raise ValueError("needs_experiment requires --experiment-id and --experiment-question")
         review = record_review(
             str(root),
             result=args.result,
@@ -409,6 +282,11 @@ def _cmd_record_review(args: argparse.Namespace) -> None:
             cleanup_status=args.cleanup_status or "",
             structure_status=args.structure_status or "",
             summary=args.summary or "",
+            experiment_request={
+                "experiment_id": args.experiment_id,
+                "question": args.experiment_question,
+                "hypothesis": args.experiment_hypothesis or "",
+            } if args.result == "needs_experiment" else None,
             task_id=task_id,
         )
     except ValueError as exc:
@@ -430,11 +308,46 @@ def _cmd_record_implementation(args: argparse.Namespace) -> None:
     try:
         root = _invocation_root()
         task_id = _require_role_dispatch(root, "executor", args.task_id)
+        executed_commands = list(getattr(args, "executed_commands", []) or [])
+        if args.proof_file and (
+            args.observed_results or args.observed_files or args.checks
+            or args.verdicts or args.bases or executed_commands
+        ):
+            raise ValueError("--proof-file cannot be combined with inline verification arguments")
+        if args.observed_results and args.observed_files:
+            raise ValueError("use either --observed or --observed-file, not both")
+        if args.proof_file:
+            proof_entries = load_construction_proof_file(
+                str(_invocation_file(args.proof_file, root))
+            )
+            verification_results = _construction_verification_results(
+                root, task_id,
+                [item["observed"] for item in proof_entries],
+                checks=[item["verification_id"] for item in proof_entries],
+                verdicts=[item["verdict"] for item in proof_entries],
+                bases=[item.get("basis", "") for item in proof_entries],
+                executed_commands=[item.get("executed_command", "") for item in proof_entries],
+            )
+        else:
+            observed_results = list(args.observed_results or [])
+            if args.observed_files:
+                observed_results = []
+                for observed_file in args.observed_files:
+                    try:
+                        observed_results.append(
+                            _invocation_file(observed_file, root).read_text(encoding="utf-8")
+                        )
+                    except OSError as exc:
+                        raise ValueError(f"cannot read observed file {observed_file}: {exc}") from exc
+            verification_results = _construction_verification_results(
+                root, task_id, observed_results,
+                checks=args.checks, verdicts=args.verdicts or [], bases=args.bases or [],
+                executed_commands=executed_commands,
+            )
         implementation = record_implementation(
             str(root),
             summary=args.summary,
-            command=args.command,
-            exit_code=args.exit_code,
+            verification_results=verification_results,
             task_id=task_id,
         )
     except ValueError as exc:
@@ -444,6 +357,7 @@ def _cmd_record_implementation(args: argparse.Namespace) -> None:
     print(f"Implementation recorded: {implementation['task_id']}")
     print(f"  Implementation ref: {implementation['implementation_ref']}")
     print(f"  Changed files: {len(implementation.get('changed_files', []) or [])}")
+    print(f"  V evidence: {len(implementation.get('verification_results', []) or [])}")
     _print_record_handoff()
 
 

@@ -2,6 +2,9 @@
 from __future__ import annotations
 
 import json
+import re
+import shutil
+import subprocess
 from pathlib import Path
 from typing import Dict
 
@@ -100,6 +103,29 @@ def doctor_codex(start: Path) -> Dict[str, object]:
         "warning_count": len(memory_warnings),
         "warnings": memory_warnings[:10],
     }
+    adapter_warnings = ["Confirm project hook trust with /hooks in Codex."]
+    codex = shutil.which("codex")
+    if not codex:
+        adapter_warnings.append(
+            "Codex executable was not found; Agent registration and hooks were not host-checked."
+        )
+    else:
+        try:
+            features = subprocess.run(
+                [codex, "features", "list"],
+                cwd=str(root), capture_output=True, text=True, encoding="utf-8",
+                errors="surrogateescape", timeout=10,
+            )
+            if features.returncode != 0 or not re.search(
+                r"^multi_agent\s+\S+\s+true$", features.stdout, re.MULTILINE,
+            ):
+                adapter_warnings.append(
+                    "Codex multi_agent is unavailable or disabled; custom AIWF roles cannot dispatch."
+                )
+        except (OSError, subprocess.SubprocessError):
+            adapter_warnings.append(
+                "Codex runtime capability probe failed; files are installed but dispatch is unverified."
+            )
     all_ok = (
         (root / "AGENTS.md").exists()
         and all(item["exists"] and item["has_frontmatter"] for item in skills.values())
@@ -126,6 +152,6 @@ def doctor_codex(start: Path) -> Dict[str, object]:
         "index": index,
         "sync": sync,
         "memory": memory,
-        "adapter_warnings": ["Confirm project hook trust with /hooks in Codex."],
+        "adapter_warnings": adapter_warnings,
         "overall": "healthy_with_warnings" if all_ok else "issues_found",
     }

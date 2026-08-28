@@ -43,7 +43,7 @@ def _show_planner_facade() -> None:
     print("  aiwf install claude      # Claude Code")
     print("  aiwf install codex       # Codex")
     print("  aiwf install opencode    # OpenCode")
-    print("  aiwf install reasonix    # Reasonix")
+    print("  aiwf install reasonix    # Reasonix compatibility")
     print()
     print("Useful checks after install:")
     print("  aiwf doctor")
@@ -142,7 +142,7 @@ def _show_tiered_help(show_all: bool = False) -> None:
     print("  aiwf install claude      # Claude Code")
     print("  aiwf install codex       # Codex")
     print("  aiwf install opencode    # OpenCode")
-    print("  aiwf install reasonix    # Reasonix")
+    print("  aiwf install reasonix    # Reasonix compatibility")
 
 
 if __name__ == "__main__":

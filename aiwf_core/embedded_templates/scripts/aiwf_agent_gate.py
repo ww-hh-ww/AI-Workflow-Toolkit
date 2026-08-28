@@ -12,8 +12,15 @@ from aiwf_core.core.worktree_context import resolve_control_root
 
 ROLE_ACTION = {
     "aiwf-executor": "Implement the contract, verify your work, and record implementation.",
-    "aiwf-tester": "Test the current result independently and record testing.",
-    "aiwf-reviewer": "Review the tested result independently and record review.",
+    "aiwf-experimenter": "Resolve the assigned empirical unknown and record experiment evidence.",
+    "aiwf-reviewer": "Judge the stable implementation and relevant evidence, then record review.",
+}
+
+CODEX_NEXT_ROLE = {
+    "Executor": "aiwf-executor",
+    "Implementation repair": "aiwf-executor",
+    "Experimenter": "aiwf-experimenter",
+    "Reviewer": "aiwf-reviewer",
 }
 
 def _read_json(path, default=None):
@@ -49,7 +56,45 @@ def _task_matches(tasks, text):
             matches.append(task)
     return matches
 
-def _enriched_prompt(base, task, subagent_type, original_prompt):
+
+def _experiment_match(base, text):
+    from aiwf_core.core.experiment_records import list_experiments
+
+    matches = [
+        item for item in list_experiments(base)
+        if item.get("status") == "running"
+        and re.search(
+            rf"(?<![A-Za-z0-9_-]){re.escape(str(item.get('experiment_id') or ''))}(?![A-Za-z0-9_-])",
+            text,
+        )
+    ]
+    return matches[0] if len(matches) == 1 else {}
+
+def _codex_inferred_role(base, task):
+    from aiwf_core.commands.flow import _task_next
+
+    task_id = str(task.get("id") or "")
+    record = load_task_record(base, task_id)
+    next_role, _action = _task_next(task, record, base, host="codex")
+    return CODEX_NEXT_ROLE.get(next_role, ""), next_role
+
+
+def _codex_role_contract(base, subagent_type):
+    path = base / ".codex" / "agents" / f"{subagent_type}.toml"
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return ""
+    marker = "developer_instructions = '''"
+    start = text.find(marker)
+    if start < 0:
+        return ""
+    start += len(marker)
+    end = text.find("\n'''", start)
+    return text[start:end].strip() if end >= 0 else ""
+
+
+def _enriched_prompt(base, task, subagent_type, original_prompt, *, codex_fallback=False):
     task_id = str(task.get("id") or "")
     worktree = str(task.get("worktree_path") or "")
     task_path = base / str(task.get("doc_path") or f".aiwf/tasks/{task_id}.md")
@@ -65,6 +110,20 @@ def _enriched_prompt(base, task, subagent_type, original_prompt):
     ]
     if str(original_prompt or "").strip():
         lines.extend(["", "Planner context:", str(original_prompt).strip()])
+    if codex_fallback:
+        role_contract = _codex_role_contract(base, subagent_type)
+        lines.extend([
+            "",
+            "Codex host adaptation:",
+            "This runtime exposed a generic child tool. AIWF derived the only valid next role "
+            f"from Task state and bound this independent child as {subagent_type}.",
+        ])
+        if role_contract:
+            lines.extend([
+                "The installed role contract below is authoritative for this child:",
+                "",
+                role_contract,
+            ])
     return "\n".join(lines)
 
 def _workflow_dispatch_blocker(base, task_id, subagent_type):
@@ -86,14 +145,14 @@ def _workflow_dispatch_blocker(base, task_id, subagent_type):
         route = str(fix_loop.get("route") or "planner")
         expected = {
             "aiwf-executor": "executor",
-            "aiwf-tester": "tester",
+            "aiwf-reviewer": "reviewer",
         }.get(subagent_type, "")
         if route != expected:
             if route == "executor":
                 return (
                     f"Cannot dispatch {subagent_type}: an implementation repair is still pending. "
                     "Load /aiwf-implement. Repair inline when it is tiny and fully understood; "
-                    "otherwise dispatch aiwf-executor. Record the repaired implementation before Tester."
+                    "otherwise dispatch aiwf-executor. Record the repaired implementation before judgment."
                 )
             return (
                 f"Cannot dispatch {subagent_type}: the open fix-loop routes to {route}. "
@@ -103,44 +162,47 @@ def _workflow_dispatch_blocker(base, task_id, subagent_type):
     task = _active_task(base, task_id)
     requirements = task.get("requirements", {}) or {}
     implementation = record.get("implementation", {}) or {}
-    testing = record.get("testing", {}) or {}
 
-    if subagent_type == "aiwf-tester" and requirements.get("executor_required", True):
+    if subagent_type == "aiwf-reviewer":
         if (
             implementation.get("task_id") != task_id
             or not implementation.get("implementation_ref")
         ):
             return (
-                "Cannot dispatch aiwf-tester before the active Task has a current "
-                "Executor implementation record. Finish Executor first."
-            )
-
-    if subagent_type == "aiwf-reviewer":
-        if (
-            testing.get("task_id") != task_id
-            or testing.get("status") not in ("adequate", "passed")
-            or not testing.get("tested_ref")
-        ):
-            return (
                 "Cannot dispatch aiwf-reviewer before the active Task has a current "
-                "adequate/passed tested snapshot. Finish Tester first."
+                "Executor implementation snapshot and V evidence. Finish Executor first."
             )
-        if testing.get("status") == "passed":
-            from aiwf_core.core.task_proof import (
-                testing_proof_gaps,
-                validate_testing_against_task,
-            )
+        from aiwf_core.core.experiment_records import pending_experiments
 
-            gaps = testing_proof_gaps(
-                validate_testing_against_task(str(base), task, testing)
-            )
-            if gaps:
+        empirical_work = pending_experiments(
+            str(base), task_id, str(implementation.get("implementation_ref") or ""),
+        )
+        if empirical_work:
+            item = empirical_work[0]
+            experiment_id = str(item.get("experiment_id") or "")
+            status = str(item.get("status") or "")
+            if status == "recorded":
                 return (
-                    "Cannot dispatch aiwf-reviewer: Tester proof is incomplete for "
-                    f"{task_id}: {', '.join(gaps[:5])}. Complete only the missing or "
-                    "mismatched verification; valid results on the unchanged snapshot "
-                    "are preserved."
+                    f"Cannot dispatch aiwf-reviewer while {experiment_id} still owns a "
+                    "disposable worktree. Finish that experiment, then review its immutable evidence."
                 )
+            return (
+                f"Cannot dispatch aiwf-reviewer while experiment {experiment_id} is {status}. "
+                "Complete the empirical question first."
+            )
+        from aiwf_core.core.task_proof import (
+            construction_proof_gaps,
+            validate_implementation_against_task,
+        )
+
+        gaps = construction_proof_gaps(
+            validate_implementation_against_task(str(base), task, implementation)
+        )
+        if gaps:
+            return (
+                "Cannot dispatch aiwf-reviewer: Executor V evidence is incomplete for "
+                f"{task_id}: {', '.join(gaps[:5])}."
+            )
     return ""
 
 def main():
@@ -155,6 +217,8 @@ def main():
     subagent_type = str(
         event.tool_input.get("subagent_type")
         or event.tool_input.get("agent_type")
+        or event.tool_input.get("agent")
+        or event.tool_input.get("agentName")
         or ""
     )
     base = resolve_control_root(Path(__file__).resolve().parent.parent)
@@ -163,9 +227,27 @@ def main():
     original_prompt = str(event.tool_input.get(prompt_key) or "")
     dispatch_text = "\n".join(
         str(event.tool_input.get(key) or "")
-        for key in ("prompt", "message", "description", "name")
+        for key in ("prompt", "message", "description", "name", "task_name")
     )
     matches = _task_matches(ledger.get("tasks", []) or [], dispatch_text)
+    matched_experiment = _experiment_match(base, dispatch_text)
+    codex_fallback = False
+    if event.engine == "codex" and not subagent_type and matched_experiment:
+        subagent_type = "aiwf-experimenter"
+        codex_fallback = True
+    elif event.engine == "codex" and not subagent_type and matches:
+        if len(matches) != 1:
+            deny_pre_tool_use(
+                "Cannot infer a Codex AIWF role: the spawn message must name exactly one active Task."
+            )
+        subagent_type, next_role = _codex_inferred_role(base, matches[0])
+        if not subagent_type:
+            deny_pre_tool_use(
+                "Cannot bind a generic Codex child for this Task. Its current AIWF next role is "
+                f"{next_role}, which is not an independent Executor, Experimenter, or Reviewer dispatch. "
+                "Run 'aiwf status --prompt' and follow that route."
+            )
+        codex_fallback = True
     if subagent_type == "general-purpose" and matches:
         deny_pre_tool_use(
             "Cannot use general-purpose as a substitute for an active Task role. "
@@ -205,6 +287,50 @@ def main():
         ).strip()
         allow_with_updated_input(updated)
 
+    if subagent_type == "aiwf-experimenter":
+        experiment = matched_experiment
+        if not experiment:
+            deny_pre_tool_use(
+                "Cannot dispatch aiwf-experimenter: prompt must name exactly one running EXP-* ID. "
+                "Open and start the experiment first."
+            )
+        experiment_id = str(experiment.get("experiment_id") or "")
+        scope = experiment.get("scope", {}) or {}
+        scope_id = str(scope.get("id") or experiment_id)
+        worktree_path = str(experiment.get("worktree_path") or "")
+        if not worktree_path:
+            deny_pre_tool_use(f"Experiment {experiment_id} has no disposable worktree.")
+        plan_id = ""
+        if scope.get("kind") == "task":
+            task = _active_task(base, scope_id)
+            plan_id = str(task.get("plan_id") or task.get("parent_plan") or "")
+        try:
+            running = start_dispatch(
+                base, scope_id, subagent_type, event.session_id, plan_id,
+                worktree_path, experiment_id=experiment_id,
+            )
+            if running:
+                deny_pre_tool_use(
+                    f"Cannot dispatch aiwf-experimenter: {running} is still running for {scope_id}."
+                )
+        except TimeoutError as exc:
+            deny_pre_tool_use(f"Cannot dispatch aiwf-experimenter: {exc}. Retry once.")
+        lines = [
+            "AIWF experiment assignment:",
+            f"Experiment: {experiment_id}",
+            f"Question: {experiment.get('question')}",
+            f"Hypothesis: {experiment.get('hypothesis') or '(none)'}",
+            f"Subject ref: {experiment.get('subject_ref')}",
+            f"Disposable worktree: {worktree_path}",
+            "Modify and probe the full disposable project as needed. Do not promote changes into the stable Plan worktree.",
+            f"Record evidence with aiwf experiment record {experiment_id}, then return. The stable workflow disposes the worktree separately.",
+        ]
+        if original_prompt.strip():
+            lines.extend(["", "Planner/Reviewer context:", original_prompt.strip()])
+        updated = dict(event.tool_input or {})
+        updated[prompt_key] = "\n".join(lines)
+        allow_with_updated_input(updated)
+
     if len(matches) != 1:
         deny_pre_tool_use(
             f"Cannot dispatch {subagent_type}: prompt must name exactly one active Task ID. "
@@ -242,7 +368,9 @@ def main():
         deny_pre_tool_use(f"Cannot dispatch {subagent_type}: {exc}. Retry once.")
 
     updated = dict(event.tool_input or {})
-    updated[prompt_key] = _enriched_prompt(base, task, subagent_type, original_prompt)
+    updated[prompt_key] = _enriched_prompt(
+        base, task, subagent_type, original_prompt, codex_fallback=codex_fallback,
+    )
     allow_with_updated_input(updated)
 
 if __name__ == "__main__":

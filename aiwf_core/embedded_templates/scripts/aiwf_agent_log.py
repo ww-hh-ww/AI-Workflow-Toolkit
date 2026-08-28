@@ -19,18 +19,17 @@ RETURN_MARKER = re.compile(r"(?m)^\s*(RETURN_TO_PLANNER|EXTERNAL_FINDING)\b\s*:?
 TASK_ROLES = WORKFLOW_ROLES
 ROLE_LABELS = {
     "aiwf-executor": "Executor",
-    "aiwf-tester": "Tester",
+    "aiwf-experimenter": "Experimenter",
     "aiwf-reviewer": "Reviewer",
 }
 REPORT_LABELS = {
     "aiwf-executor": "the implementation report",
-    "aiwf-tester": "the testing report",
+    "aiwf-experimenter": "the experiment evidence",
     "aiwf-reviewer": "REVIEW_REPORT",
 }
 
 ROLE_RECORD = {
     "aiwf-executor": ("implementation", "implementation_ref", "aiwf record implementation"),
-    "aiwf-tester": ("testing", "tested_ref", "aiwf record testing"),
     "aiwf-reviewer": ("review", "reviewed_ref", "aiwf record review"),
 }
 
@@ -98,6 +97,48 @@ def _task_from_text(base, text):
     return active[0] if len(active) == 1 else ""
 
 
+def _experiment_from_text(base, text):
+    """Resolve exactly one live experiment named in host prompt text."""
+    from aiwf_core.core.experiment_records import list_experiments
+
+    text = str(text or "")
+    matches = []
+    for item in list_experiments(base):
+        experiment_id = str(item.get("experiment_id") or "")
+        if (
+            experiment_id
+            and item.get("status") in ("open", "running")
+            and re.search(
+                rf"(?<![A-Za-z0-9_-]){re.escape(experiment_id)}(?![A-Za-z0-9_-])",
+                text,
+            )
+        ):
+            matches.append(item)
+    return matches[0] if len(matches) == 1 else {}
+
+
+def _scope_from_text(base, text, agent_type):
+    if agent_type == "aiwf-experimenter":
+        experiment = _experiment_from_text(base, text)
+        return str((experiment.get("scope") or {}).get("id") or "")
+    return _task_from_text(base, text)
+
+
+def _running_role(base, session_id, task_id="", agent_id=""):
+    candidates = running_dispatches(base, task_id=task_id, session_id=session_id)
+    if agent_id:
+        candidates = [
+            item for item in candidates
+            if not item.get("agent_id") or item.get("agent_id") == agent_id
+        ]
+    roles = {
+        str(item.get("subagent_type") or "")
+        for item in candidates
+        if item.get("subagent_type") in TRACKED_ROLES
+    }
+    return next(iter(roles)) if len(roles) == 1 else ""
+
+
 def _open_planner_fix_loop(base, task_id, source, reason):
     if not task_id:
         return
@@ -154,6 +195,33 @@ def _was_cancelled(value):
     )
 
 
+def _explicit_spawn_failure(value):
+    """Recognize a host-reported spawn failure without guessing event order."""
+    if not isinstance(value, dict):
+        return False
+    if value.get("is_error") is True or value.get("success") is False:
+        return True
+    state = str(value.get("status") or value.get("state") or "").lower()
+    if state in ("error", "failed", "failure", "rejected"):
+        return True
+    return bool(value.get("error"))
+
+
+def _spawned_agent_id(value):
+    """Read a concrete child ID only from structured host launch output."""
+    if not isinstance(value, dict):
+        return ""
+    for key in ("agent_id", "agentId"):
+        if value.get(key):
+            return str(value[key])
+    nested = value.get("metadata")
+    if isinstance(nested, dict):
+        for key in ("agent_id", "agentId"):
+            if nested.get(key):
+                return str(nested[key])
+    return ""
+
+
 def _was_background_launch(value):
     return bool(
         isinstance(value, dict)
@@ -172,8 +240,7 @@ def _timestamp(value):
 
 
 def _completion_blocker(base, task_id, agent_type, agent_id="", session_id=""):
-    requirement = ROLE_RECORD.get(agent_type)
-    if not requirement or not task_id:
+    if agent_type not in TASK_ROLES or not task_id:
         return ""
     if not agent_id and not session_id:
         return ""
@@ -190,6 +257,47 @@ def _completion_blocker(base, task_id, agent_type, agent_id="", session_id=""):
         ]
         dispatch = candidates[0] if len(candidates) == 1 else None
     if not dispatch:
+        return ""
+
+    if agent_type == "aiwf-experimenter":
+        from aiwf_core.core.experiment_records import load_experiment
+
+        experiment_id = str(dispatch.get("experiment_id") or "")
+        experiment = load_experiment(base, experiment_id) if experiment_id else {}
+        started_at = _timestamp(dispatch.get("started_at"))
+        recorded_at = _timestamp(experiment.get("recorded_at"))
+        fresh = bool(
+            experiment
+            and experiment.get("experiment_id") == experiment_id
+            and experiment.get("experiment_ref")
+            and experiment.get("status") in ("recorded", "closed")
+            and started_at
+            and recorded_at
+            and recorded_at >= started_at
+        )
+        if fresh:
+            try:
+                from aiwf_core.core.git_snapshots import worktree_matches_ref
+
+                worktree = str(dispatch.get("worktree_path") or "")
+                fresh = bool(
+                    worktree
+                    and worktree_matches_ref(worktree, str(experiment["experiment_ref"]))
+                )
+            except Exception:
+                fresh = False
+        if fresh:
+            return ""
+        return (
+            f"This Experimenter run for {experiment_id or task_id} has no fresh experiment "
+            "snapshot and evidence record. If the experiment is complete, run "
+            f"`aiwf experiment record {experiment_id}` from its disposable worktree with "
+            "the commands, observations, conclusion, and summary already obtained. Then "
+            "return the final report."
+        )
+
+    requirement = ROLE_RECORD.get(agent_type)
+    if not requirement:
         return ""
 
     from aiwf_core.core.task_records import load_task_record
@@ -211,34 +319,6 @@ def _completion_blocker(base, task_id, agent_type, agent_id="", session_id=""):
             fresh = bool(worktree and worktree_matches_ref(worktree, str(section[ref_name])))
         except Exception:
             fresh = False
-    if (
-        fresh
-        and agent_type == "aiwf-tester"
-        and section.get("status") in ("partial", "passed")
-    ):
-        from aiwf_core.core.task_ledger import load_ledger
-        from aiwf_core.core.task_proof import validate_testing_against_task
-
-        task = next(
-            (
-                item for item in load_ledger(str(base)).get("tasks", []) or []
-                if isinstance(item, dict) and item.get("id") == task_id
-            ),
-            None,
-        )
-        proof = validate_testing_against_task(str(base), task, section) if task else {}
-        from aiwf_core.core.task_proof import testing_proof_gaps
-
-        missing = testing_proof_gaps(proof)
-        if missing:
-            named = ", ".join(dict.fromkeys(missing[:5]))
-            return (
-                f"The testing record for {task_id} is fresh, but it does not prove the "
-                f"complete Verification Commands contract: {named}. Run only the missing "
-                "or mismatched proof, then record each Verification Command ID, verdict, "
-                "and observed result. Existing valid results are preserved while the "
-                "tested worktree stays unchanged."
-            )
     if fresh:
         return ""
 
@@ -261,6 +341,11 @@ def main():
         event = normalize(data)
         agent_type = str(event.agent_type or "")
         agent_id = str(event.agent_id or "")
+        if event.engine == "codex" and agent_type not in TRACKED_ROLES:
+            agent_type = _running_role(
+                base, str(data.get("session_id") or ""), agent_id=agent_id,
+            )
+            event.agent_type = agent_type
         if agent_type not in TRACKED_ROLES:
             sys.exit(0)
         resumed_task = start_resumed_dispatch(
@@ -284,16 +369,28 @@ def main():
             session_id=str(data.get("session_id") or ""),
         )
         if event.engine == "codex" and assignment is not None:
+            experiment = (
+                _experiment_from_text(base, str(data))
+                if agent_type == "aiwf-experimenter" else {}
+            )
+            experiment_id = str(experiment.get("experiment_id") or "")
             task_doc = base / ".aiwf" / "tasks" / f"{task_id}.md"
+            context = (
+                f"AIWF assignment: Experiment {experiment_id}. Question: "
+                f"{experiment.get('question', '')} Subject ref: "
+                f"{experiment.get('subject_ref', '')}. Disposable project worktree: "
+                f"{assignment.worktree}. Record evidence with `aiwf experiment record "
+                f"{experiment_id}` before returning."
+                if experiment_id else
+                f"AIWF assignment: Task {task_id}. Read {task_doc}. "
+                f"Project worktree: {assignment.worktree}. Read `aiwf task proof {task_id}` "
+                "before acting. Follow your installed AIWF role instructions; if the "
+                "contract conflicts with reality, return RETURN_TO_PLANNER."
+            )
             print(json.dumps({
                 "hookSpecificOutput": {
                     "hookEventName": "SubagentStart",
-                    "additionalContext": (
-                        f"AIWF assignment: Task {task_id}. Read {task_doc}. "
-                        f"Project worktree: {assignment.worktree}. Read `aiwf task proof {task_id}` "
-                        "before acting. Follow your installed AIWF role instructions; if the "
-                        "contract conflicts with reality, return RETURN_TO_PLANNER."
-                    ),
+                    "additionalContext": context,
                 }
             }))
         sys.exit(0)
@@ -301,6 +398,13 @@ def main():
     if data.get("hook_event_name") == "SubagentStop":
         event = normalize(data)
         agent_type = str(event.agent_type or "")
+        if event.engine == "codex" and agent_type not in TRACKED_ROLES:
+            agent_type = _running_role(
+                base,
+                str(data.get("session_id") or ""),
+                agent_id=str(data.get("agent_id") or ""),
+            )
+            event.agent_type = agent_type
         if agent_type not in TRACKED_ROLES:
             sys.exit(0)
         task_id = ""
@@ -379,52 +483,48 @@ def main():
     subagent_type = str(
         event.tool_input.get("subagent_type")
         or event.tool_input.get("agent_type")
+        or event.tool_input.get("agent")
+        or event.tool_input.get("agentName")
         or ""
     )
+    if not subagent_type and event.engine == "codex":
+        prompt = "\n".join(
+            str(event.tool_input.get(key) or "")
+            for key in ("prompt", "message", "description", "name")
+        )
+        inferred_task = _scope_from_text(base, prompt, "aiwf-experimenter") or _task_from_text(base, prompt)
+        subagent_type = _running_role(
+            base, event.session_id, task_id=inferred_task,
+        )
     if not subagent_type:
         sys.exit(0)
 
     tool_failed = data.get("hook_event_name") == "PostToolUseFailure"
+    if event.engine == "codex" and _explicit_spawn_failure(event.tool_response):
+        tool_failed = True
 
     if subagent_type in TASK_ROLES:
         prompt = "\n".join(
             str(event.tool_input.get(key) or "")
             for key in ("prompt", "message", "description", "name")
         )
-        task_id = _task_from_text(base, prompt)
+        task_id = _scope_from_text(base, prompt, subagent_type)
     else:
         task_id = ""
 
-    # Codex reports spawn failures through PostToolUse too. A successful spawn
-    # has already produced SubagentStart and bound a concrete agent_id.
+    # Codex emits a dedicated failure event when spawning fails. Successful
+    # PostToolUse and SubagentStart can race, so only SubagentStart/Stop own
+    # normal lifecycle binding and completion.
     if event.engine == "codex" and not tool_failed:
-        candidates = [
-            item for item in running_dispatches(
-                base, task_id=task_id, session_id=event.session_id,
-            )
-            if item["subagent_type"] == subagent_type
-        ]
-        if any(item.get("agent_id") for item in candidates):
-            sys.exit(0)
-        if candidates:
-            finish_dispatch(
+        child_agent_id = _spawned_agent_id(event.tool_response)
+        if subagent_type in TASK_ROLES and child_agent_id:
+            bind_dispatch_agent(
                 base,
                 subagent_type,
+                child_agent_id,
                 task_id=task_id,
                 session_id=event.session_id,
-                status="cancelled",
-                source="spawn_return_without_subagent_start",
             )
-            print(json.dumps({
-                "hookSpecificOutput": {
-                    "hookEventName": "PostToolUse",
-                    "additionalContext": (
-                        f"[AIWF] {ROLE_LABELS.get(subagent_type, 'Agent')} did not start "
-                        f"for {task_id}; its slot was released. Read the spawn result, then "
-                        "run `aiwf status --prompt` before retrying."
-                    ),
-                }
-            }))
         sys.exit(0)
 
     # Claude emits PostToolUse when a background Agent launch succeeds. That

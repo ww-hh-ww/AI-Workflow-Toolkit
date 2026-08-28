@@ -65,13 +65,14 @@ class TestOpenCodeInstall(unittest.TestCase):
         self.assertTrue((self.root / ".opencode/skills/aiwf-planner/SKILL.md").exists())
         self.assertTrue((self.root / ".opencode/commands/aiwf-planner.md").exists())
         self.assertIn(
-            "`FIX-*` checks",
-            (self.root / ".opencode/skills/aiwf-test/SKILL.md").read_text(encoding="utf-8"),
+            "immutable subject commit",
+            (self.root / ".opencode/skills/aiwf-experiment/SKILL.md").read_text(encoding="utf-8"),
         )
         self.assertIn(
-            "verification obligations",
-            (self.root / ".opencode/agents/aiwf-tester.md").read_text(encoding="utf-8"),
+            "disposable worktree",
+            (self.root / ".opencode/agents/aiwf-experimenter.md").read_text(encoding="utf-8"),
         )
+        self.assertFalse((self.root / ".opencode/agents/aiwf-tester.md").exists())
         self.assertFalse((self.root / ".claude/settings.json").exists())
 
     def test_status_recognizes_opencode_only_install(self):
@@ -117,10 +118,14 @@ class TestOpenCodeInstall(unittest.TestCase):
         self.assertIn('"tool.execute.after"', plugin)
         self.assertIn('"experimental.session.compacting"', plugin)
         self.assertIn("prepareTaskRole", plugin)
+        self.assertIn('subagent: "Agent"', plugin)
+        self.assertIn("isAgentTool", plugin)
         self.assertIn("sessionAssignments", plugin)
         self.assertNotIn("must run from its Plan worktree", plugin)
         self.assertIn("must run in the foreground", plugin)
         self.assertIn("sessionAgents", plugin)
+        self.assertIn('body.agent_id = info.id', plugin)
+        self.assertIn('assignment?.role', plugin)
         self.assertIn("client.session.messages", plugin)
         self.assertIn("const cwd = directory || worktree", plugin)
         self.assertIn("OpenCode child task_id", plugin)
@@ -155,6 +160,68 @@ class TestOpenCodeInstall(unittest.TestCase):
             })
         self.assertEqual(event.engine, "opencode")
         self.assertEqual(event.agent_type, "aiwf-executor")
+
+    def test_open_code_plugin_binds_child_before_role_metadata_arrives(self):
+        bun = shutil.which("bun")
+        if not bun:
+            self.skipTest("Bun is required for the native OpenCode Plugin contract")
+        self.install()
+        task_doc = self.root / ".aiwf/tasks/TASK-001.md"
+        task_doc.parent.mkdir(parents=True, exist_ok=True)
+        task_doc.write_text("# TASK-001\n", encoding="utf-8")
+        tasks = {
+            "tasks": [{
+                "id": "TASK-001",
+                "status": "active",
+                "phase": "implementing",
+                "plan_id": "PLAN-001",
+                "doc_path": ".aiwf/tasks/TASK-001.md",
+                "worktree_path": str(self.root),
+                "requirements": {
+                    "executor_required": True,
+                    "reviewer_required": True,
+                },
+            }],
+        }
+        (self.root / ".aiwf/state/tasks.json").write_text(
+            json.dumps(tasks), encoding="utf-8",
+        )
+        runtime = self.root / ".aiwf/runtime/internal"
+        runtime.mkdir(parents=True, exist_ok=True)
+        (runtime / "skill-loads.jsonl").write_text(
+            json.dumps({"skill": "aiwf-implement", "session_id": "parent-1"}) + "\n",
+            encoding="utf-8",
+        )
+        plugin_uri = (self.root / "scripts/aiwf_opencode_plugin.js").as_uri()
+        harness = self.root / "opencode-plugin-lifecycle.mjs"
+        harness.write_text(f'''const {{ AIWFPlugin }} = await import({json.dumps(plugin_uri)})
+const client = {{ session: {{ messages: async () => ({{ data: [] }}) }} }}
+const plugin = await AIWFPlugin({{
+  client,
+  directory: {json.dumps(str(self.root))},
+  worktree: {json.dumps(str(self.root))},
+}})
+const input = {{ tool: "task", sessionID: "parent-1", callID: "call-1" }}
+const output = {{ args: {{ subagent_type: "aiwf-executor", prompt: "Implement TASK-001" }} }}
+await plugin["tool.execute.before"](input, output)
+await plugin.event({{ event: {{
+  type: "session.created",
+  properties: {{ info: {{ id: "child-1", parentID: "parent-1" }} }},
+}} }})
+const dispatch = await Bun.file({json.dumps(str(runtime / "agent-dispatch.jsonl"))}).text()
+console.log(JSON.stringify({{ prompt: output.args.prompt, dispatch }}))
+''', encoding="utf-8")
+        result = _run([bun, str(harness)], self.root)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        captured = json.loads(result.stdout)
+        self.assertIn("Task: TASK-001", captured["prompt"])
+        entries = [json.loads(line) for line in captured["dispatch"].splitlines()]
+        self.assertTrue(any(
+            item.get("status") == "bound"
+            and item.get("agent_id") == "child-1"
+            and item.get("subagent_type") == "aiwf-executor"
+            for item in entries
+        ))
 
     def test_reinstall_preserves_user_config(self):
         (self.root / "opencode.json").write_text(
@@ -205,12 +272,19 @@ class TestOpenCodeInstall(unittest.TestCase):
         )
 
         completed = subprocess.CompletedProcess(
-            ["opencode", "debug", "config"], 0, "{}", ""
+            ["opencode", "debug", "config"], 0,
+            json.dumps({"agent": {
+                "aiwf-planner": {}, "aiwf-executor": {}, "aiwf-experimenter": {},
+            }}),
+            ""
         )
         with patch("aiwf_core.opencode_startup.shutil.which", return_value="opencode"), patch(
             "aiwf_core.opencode_startup._run_probe", return_value=completed
         ) as run_probe:
-            self.assertTrue(probe_opencode_startup(self.root)["ok"])
+            result = probe_opencode_startup(self.root)
+            self.assertTrue(result["ok"])
+            self.assertIn("aiwf-executor", result["visible_agents"])
+            self.assertIn("aiwf-reviewer", result["missing_agents"])
             self.assertEqual(run_probe.call_args.args[3], COLD_STARTUP_TIMEOUT)
 
             sdk = self.root / ".opencode/node_modules/@opencode-ai/plugin/package.json"
@@ -264,7 +338,6 @@ class TestOpenCodeInstall(unittest.TestCase):
             "worktree_path": str(self.root),
             "requirements": {
                 "executor_required": True,
-                "tester_required": True,
                 "reviewer_required": True,
             },
         }]}), encoding="utf-8")

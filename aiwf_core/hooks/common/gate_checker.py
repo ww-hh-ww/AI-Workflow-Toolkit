@@ -39,7 +39,6 @@ def load_all_state(cwd: Path) -> Dict[str, Any]:
     return {
         "state": state,
         "implementation": record.get("implementation", {}),
-        "testing": record.get("testing", {}),
         "review": record.get("review", {}),
         "fix_loop": record.get("fix_loop", {}),
     }
@@ -50,8 +49,7 @@ def eval_closure_gates(cwd: Path) -> Dict[str, Any]:
     s = load_all_state(cwd)
 
     result = closure_conditions_met(
-        s["state"], s["implementation"], s["testing"],
-        s["review"], s["fix_loop"],
+        s["state"], s["implementation"], s["review"], s["fix_loop"],
     )
 
     return result

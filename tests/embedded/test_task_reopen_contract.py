@@ -66,7 +66,6 @@ class TestTaskReopenContract(unittest.TestCase):
                 "accepted": True,
                 "git_commit": self.task_commit,
                 "implementation_ref": "impl-ref",
-                "tested_ref": "tested-ref",
                 "reviewed_ref": "reviewed-ref",
             },
         }
@@ -93,7 +92,7 @@ class TestTaskReopenContract(unittest.TestCase):
         })
         record = default_task_record("TASK-001")
         record["implementation"]["implementation_ref"] = "impl-ref"
-        record["testing"].update({"status": "passed", "tested_ref": "tested-ref"})
+        record["experiment_ids"] = ["EXP-OLD"]
         record["review"].update({"result": "accepted", "reviewed_ref": "reviewed-ref"})
         save_task_record(self.base, record)
 
@@ -134,9 +133,9 @@ class TestTaskReopenContract(unittest.TestCase):
 
         record = load_task_record(self.base, "TASK-001")
         self.assertEqual(record["implementation"]["implementation_ref"], "")
-        self.assertEqual(record["testing"]["status"], "missing")
+        self.assertEqual(record["experiment_ids"], [])
         self.assertEqual(record["review"]["result"], "unknown")
-        self.assertEqual(record["attempt_history"][0]["proof"]["testing"]["status"], "passed")
+        self.assertEqual(record["attempt_history"][0]["proof"]["experiment_ids"], ["EXP-OLD"])
         from aiwf_core.core.task_proof import build_task_proof
         proof = build_task_proof(str(self.base), task)
         self.assertEqual(proof["attempt_history"][0]["closure"]["git_commit"], self.task_commit)
