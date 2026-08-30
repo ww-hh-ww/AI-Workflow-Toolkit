@@ -44,6 +44,7 @@ def _empty_plan(plan_id: str, goal_id: str = "", task_ids: Optional[List[str]] =
         "milestone_id": milestone_id or None,
         "dependencies": [],
         "task_ids": ids,
+        "experiment_ids": [],
         "task_status": {tid: "unknown" for tid in ids},
         "closed_task_ids": [],
         "remaining_task_ids": ids,
@@ -240,6 +241,9 @@ def load_plans(base_dir: str, migrate: bool = False) -> Dict[str, Any]:
     data.setdefault("legacy_goal_id", LEGACY_GOAL_ID)
     data.pop("active_plan_id", None)
     data.setdefault("plans", [])
+    for plan in data["plans"]:
+        if isinstance(plan, dict):
+            plan.setdefault("experiment_ids", [])
     if not path.exists():
         _write(path, data)
     return migrate_legacy_plans(base_dir, data) if migrate else data
@@ -305,6 +309,7 @@ def upsert_plan(base_dir: str, plan_id: str, goal_id: str = "", task_ids: Option
         plan.setdefault("doc_path", "")
         plan.setdefault("report_policy", "ask")
         plan.setdefault("task_ids", [])
+        plan.setdefault("experiment_ids", [])
         plan.setdefault("task_status", {})
         plan.setdefault("closed_task_ids", [])
         plan.setdefault("remaining_task_ids", [])
@@ -369,6 +374,24 @@ def upsert_plan(base_dir: str, plan_id: str, goal_id: str = "", task_ids: Option
     if milestone_id:
         attach_plan_to_milestone(base_dir, milestone_id, plan_id, task_ids=plan.get("task_ids", []) or [])
     return {"plan": plan, "plans": plans}
+
+
+@_governance_locked
+def attach_experiment_to_plan(
+    base_dir: str, plan_id: str, experiment_id: str,
+) -> Dict[str, Any]:
+    """Link one empirical record into the owning Plan index."""
+    plans = load_plans(base_dir)
+    plan = _find_plan(plans, plan_id)
+    if not plan:
+        raise ValueError(f"plan not found: {plan_id}")
+    _require_open_plan(plan, "link an Experiment")
+    experiment_ids = plan.setdefault("experiment_ids", [])
+    if experiment_id not in experiment_ids:
+        experiment_ids.append(experiment_id)
+        plan["updated_at"] = _now()
+        save_plans(base_dir, plans)
+    return {"plan": plan, "experiment_id": experiment_id}
 
 @_governance_locked
 def attach_task_to_plan(base_dir: str, plan_id: str, task_id: str) -> Dict[str, Any]:

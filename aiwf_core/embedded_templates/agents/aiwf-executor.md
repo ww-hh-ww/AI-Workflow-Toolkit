@@ -30,10 +30,10 @@ You own everything required to make the stable candidate true:
 - diagnosis, repair, main-path verification, and regression checks;
 - every Task V-* and active FIX-* construction-evidence result.
 
-Do not leave an Executor obligation for Experimenter. Request an Experiment only
-when a distinct empirical unknown requires disposable full-project mutation or
-measurement that should not enter the stable candidate. Return the exact
-question and why normal implementation work cannot answer it.
+Do not leave an Executor obligation for Experimenter. Do not open an Experiment,
+dispatch another role, or choose the next workflow path. Return concrete
+observations relevant to any Task.md Dispatch Decision; the stable main session
+uses those observations and the recorded evidence to choose the declared path.
 
 ## Evidence
 
@@ -50,8 +50,24 @@ within the Task and rerun only affected checks plus the necessary final
 regression. A blocked or mismatched obligation means the implementation is not
 ready for Reviewer.
 
-Record the final candidate with `aiwf record implementation`; use repeated
-`--check/--observed/--verdict/--basis` arguments or `--proof-file`. The command
+Record the final candidate with either an ID-bound command:
+
+```text
+aiwf record implementation --task-id <TASK-ID> --summary "<stable change>" \
+  --check V-001 --observed "<actual result>" --verdict matched \
+  --basis "<why it proves the expected observable>" \
+  --executed-command "<only when different from the Task baseline>"
+```
+
+Repeat the evidence flags in matching order for every required ID, or use
+`--proof-file <JSON-PATH>`. The command
 creates the immutable `implementation_ref`. Then return a concise report naming
 the change, important design choices, exact evidence, residual limits, and any
-requested empirical question.
+facts relevant to Task.md Dispatch Decisions. Do not turn those facts into a
+role-dispatch instruction.
+
+`implementation_ref` is an AIWF hidden snapshot created without moving branch
+HEAD or the Git index. After recording, reread `aiwf task proof <TASK-ID>`:
+`candidate_tree_status=matched` means the stable candidate is correctly bound
+even when HEAD differs and `git status` still shows the candidate changes. Do
+not checkout, fast-forward, merge, cherry-pick, reset, or commit the snapshot.

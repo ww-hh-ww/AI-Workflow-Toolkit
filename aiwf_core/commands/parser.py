@@ -63,6 +63,7 @@ from .governance_commands import (
     _cmd_governance_tracking,
 )
 from .experiment_commands import (
+    _cmd_experiment_disposition,
     _cmd_experiment_finish,
     _cmd_experiment_list,
     _cmd_experiment_open,
@@ -426,6 +427,10 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
     p_re_rv.add_argument("--adversarial-observations", action="append", default=[], dest="adversarial_observations", help="adversarial observations: severity:::kind:::message")
     p_re_rv.add_argument("--cleanup-status", default="", help="cleanup status")
     p_re_rv.add_argument("--structure-status", default="", help="structure status")
+    p_re_rv.add_argument(
+        "--story-complete", action="store_true",
+        help="explicit Reviewer assertion required by accepted: the whole Task story is complete",
+    )
     p_re_rv.add_argument("--task-id", default="", help="Task ID (defaults to the current worktree)")
     p_re_rv.add_argument("--experiment-id", default="", help="EXP-* ID required by needs_experiment")
     p_re_rv.add_argument("--experiment-question", default="", help="empirical unknown required by needs_experiment")
@@ -465,11 +470,22 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
     p_exp_finish = p_exp_sub.add_parser("finish", help="remove the disposable worktree")
     p_exp_finish.add_argument("experiment_id")
     p_exp_finish.set_defaults(func=_cmd_experiment_finish)
+    p_exp_disposition = p_exp_sub.add_parser(
+        "disposition", help="record Planner meaning for a closed planning experiment",
+    )
+    p_exp_disposition.add_argument("experiment_id")
+    p_exp_disposition.add_argument(
+        "--decision", required=True,
+        choices=["proceed", "replan", "no_action", "promote"],
+    )
+    p_exp_disposition.add_argument("--reason", required=True)
+    p_exp_disposition.set_defaults(func=_cmd_experiment_disposition)
     p_exp_show = p_exp_sub.add_parser("show", help="show one experiment record")
     p_exp_show.add_argument("experiment_id")
     p_exp_show.set_defaults(func=_cmd_experiment_show)
     p_exp_list = p_exp_sub.add_parser("list", help="list experiment records")
     p_exp_list.add_argument("--task-id", default="")
+    p_exp_list.add_argument("--plan-id", default="")
     p_exp_list.set_defaults(func=_cmd_experiment_list)
     p_exp.set_defaults(func=_show_help(p_exp))
 

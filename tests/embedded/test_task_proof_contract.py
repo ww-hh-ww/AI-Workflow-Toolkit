@@ -80,7 +80,7 @@ Independent roles.
 
     def test_structured_v_id_is_executor_evidence_identity(self):
         from aiwf_core.core.task_proof import (
-            construction_proof_gaps,
+            build_task_proof, construction_proof_gaps,
             read_task_proof_contract,
             validate_implementation_against_task,
         )
@@ -92,6 +92,10 @@ Independent roles.
         )
         self.assertEqual(contract.verification_commands[0].verification_id, "V-001")
         self.assertEqual(construction_proof_gaps(proof), [])
+        self.assertEqual(
+            build_task_proof(str(self.root), self.task)["dispatch_decisions"],
+            "Independent roles.",
+        )
 
     def test_command_text_cannot_replace_stable_id(self):
         from aiwf_core.core.task_proof import (

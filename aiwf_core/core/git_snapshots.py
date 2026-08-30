@@ -134,6 +134,43 @@ def worktree_matches_ref(base_dir: str, ref: str) -> bool:
     return bool(expected) and _worktree_tree(Path(base_dir), ref) == expected
 
 
+def snapshot_binding(base_dir: str, ref: str) -> Dict[str, Any]:
+    """Describe candidate tree freshness without treating branch HEAD as the snapshot."""
+    base = Path(base_dir)
+    expected_tree = ref_tree(base_dir, ref)
+    head = _run(base, "rev-parse", "HEAD")
+    branch = _run(base, "branch", "--show-current")
+    result: Dict[str, Any] = {
+        "snapshot_kind": "aiwf_hidden_commit",
+        "implementation_ref": ref,
+        "branch_head_ref": head.stdout.strip() if head.returncode == 0 else "",
+        "branch": branch.stdout.strip() if branch.returncode == 0 else "",
+        "head_equals_implementation": bool(
+            head.returncode == 0 and head.stdout.strip() == ref
+        ),
+        "implementation_tree": expected_tree,
+        "candidate_tree": "",
+        "candidate_tree_status": "unavailable",
+        "candidate_tree_error": "",
+        "branch_update_required": None,
+        "tree_changes": [],
+    }
+    if not expected_tree:
+        return result
+    try:
+        actual_tree = _worktree_tree(base, ref)
+    except (OSError, ValueError) as error:
+        result["candidate_tree_error"] = str(error)
+        return result
+    matched = actual_tree == expected_tree
+    result["candidate_tree"] = actual_tree
+    result["candidate_tree_status"] = "matched" if matched else "changed"
+    result["branch_update_required"] = False if matched else None
+    if not matched:
+        result["tree_changes"] = tree_changes(base_dir, ref, actual_tree)
+    return result
+
+
 def tree_changes(base_dir: str, start_ref: str, end_ref: str) -> List[Dict[str, str]]:
     """Return path-level changes from one commit/tree to another."""
     result = _run(

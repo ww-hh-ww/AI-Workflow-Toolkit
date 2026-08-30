@@ -11,11 +11,18 @@ promote assets, edit governance, or close workflow state.
 
 ## Subject and boundary
 
-Read the injected Experiment ID, question, hypothesis, immutable subject ref,
-and disposable worktree. Confirm project work occurs only in that worktree. It
+Run `aiwf experiment show <EXP-ID>`. For Task scope, also read Task.md and run
+`aiwf task proof <TASK-ID>`; for Plan scope, read Plan.md. Treat the injected
+assignment as routing context, not the sole proof source. Confirm the immutable subject
+ref and that project work occurs only in the disposable worktree. It
 is a complete detached project, so you may modify any project file there when
 the experiment needs a prototype, reproducer, benchmark, fixture, fault
 injection, instrumentation, or environmental adaptation.
+
+For a post-implementation EXP, the subject may be an AIWF hidden snapshot whose
+commit differs from the stable Plan branch HEAD. That is expected. The main
+session validates project-tree equality before opening the EXP; do not ask it
+to move, merge, or commit the snapshot.
 
 Those changes are experimental apparatus, not production work. Never copy or
 sync them into the stable Task/Plan worktree. Never hand-edit `.aiwf/state/` or
@@ -35,8 +42,18 @@ an implementation failure.
 
 ## Record
 
-Before returning, run `aiwf experiment record <EXP-ID>` from the disposable
-worktree with:
+Before returning, run this shape from the disposable worktree:
+
+```text
+aiwf experiment record <EXP-ID> \
+  --conclusion supported|falsified|inconclusive \
+  --summary "<decision-relevant fact>" \
+  --command "<material command or operation>" \
+  --observation "<concrete observed result>" \
+  --promotion-candidate "<optional asset worth considering>"
+```
+
+Include:
 
 - `--conclusion supported|falsified|inconclusive`;
 - a decision-relevant `--summary`;

@@ -21,8 +21,19 @@ conclusions:
 - code structure, real callers, old paths, error paths, and downstream effects;
 - prior Reviewer observations and the current fix-loop.
 
-The assigned stable worktree must match `implementation_ref`. If it does not,
-return the stale-state conflict instead of judging a moving candidate.
+The assigned stable worktree's project tree must match `implementation_ref`.
+Read `snapshot_binding` from Task proof: `candidate_tree_status=matched` is
+fresh even when branch HEAD differs and Git reports uncommitted candidate
+changes. AIWF hidden snapshots intentionally live outside the branch. Never move HEAD
+to a snapshot. Return a stale-state conflict only for `changed` or `unavailable`.
+
+On Codex only, a Reviewer child has a fixed sandbox and may receive
+`candidate_tree_status=unavailable` even after the stable main task completed a
+permission-bearing freshness preflight. Continue only when the dispatch includes
+the exact current `implementation_ref`, equal non-empty `implementation_tree` and
+`candidate_tree`, and `candidate_tree_status=matched`. Treat that packet as a
+mechanical input, not an acceptance conclusion. A bare `unavailable`, a different
+ref, unequal trees, or `changed` still requires return without Review.
 
 ## Judgment
 
@@ -35,8 +46,10 @@ assets.
 
 Use the narrowest honest verdict:
 
-- `accepted` when the whole current story holds and no critical/high issue is
-  unresolved;
+- `accepted` only when the whole current story holds and no critical/high issue
+  is unresolved. This includes an explicit complete-story assertion; never
+  combine `accepted` with language saying an implementation, evidence,
+  empirical, structural, or contract link remains incomplete;
 - `needs_change` for a concrete repairable defect in code, structure, formal
   tests, wiring, or Executor evidence;
 - `needs_experiment` only when one important empirical fact remains unknown and
@@ -48,9 +61,27 @@ Executor check, or a defect already visible in code.
 
 ## Record and report
 
-Use `aiwf record review` with the selected verdict. `needs_change` and
-`rejected` require specific blockers. `needs_experiment` requires a unique EXP
-ID and precise question. Record adversarial observations as
+Use one of these command shapes:
+
+```text
+aiwf record review --task-id <TASK-ID> --result accepted \
+  --story-complete \
+  --summary "<why the complete story holds>" \
+  --cleanup-status fresh --structure-status sound
+
+aiwf record review --task-id <TASK-ID> --result needs_change \
+  --summary "<judgment>" --blocker "<specific repairable defect>"
+
+aiwf record review --task-id <TASK-ID> --result needs_experiment \
+  --summary "<why judgment depends on reality>" \
+  --experiment-id EXP-002 --experiment-question "<unknown>" \
+  --experiment-hypothesis "<optional prediction>"
+
+aiwf record review --task-id <TASK-ID> --result rejected \
+  --summary "<fundamental mismatch>" --blocker "<specific mismatch>"
+```
+
+`needs_change` and `rejected` require specific blockers. Record adversarial observations as
 `severity:::kind:::message`; use pending disposition unless already resolved by
 the current candidate.
 

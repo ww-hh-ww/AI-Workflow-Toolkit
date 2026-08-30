@@ -34,7 +34,7 @@ def _print_record_handoff() -> None:
 
 
 def _require_role_dispatch(base: Path, role: str, task_id: str = "") -> str:
-    """Fail early when a required role has not been dispatched for this task."""
+    """Require a host-stable role marker; native Codex markers are advisory."""
     requirement = ROLE_SUBAGENTS.get(role)
     if not requirement:
         return task_id
@@ -60,6 +60,16 @@ def _require_role_dispatch(base: Path, role: str, task_id: str = "") -> str:
     if not bool((task.get("requirements", {}) or {}).get(requirement_key, True)):
         return effective_task
 
+    from ..core.project_root import codex_dispatch_markers_advisory
+
+    codex = codex_dispatch_markers_advisory(control)
+    if codex:
+        # Native Codex child-tool events are not a stable CLI identity surface.
+        # Role separation remains an instruction-level contract; construction,
+        # experiment, review, freshness, and worktree gates still validate the
+        # evidence itself below this adapter boundary.
+        return effective_task
+
     dispatch_path = control / ".aiwf/runtime/internal/agent-dispatch.jsonl"
     if dispatch_path.exists():
         for line in dispatch_path.read_text(encoding="utf-8").splitlines():
@@ -72,9 +82,6 @@ def _require_role_dispatch(base: Path, role: str, task_id: str = "") -> str:
                 and entry.get("subagent_type") == subagent_type
             ):
                 return effective_task
-    from ..core.project_root import has_codex_adapter, in_codex_session
-
-    codex = in_codex_session() and has_codex_adapter(control)
     skill = ("$" if codex else "/") + skill_name
     raise ValueError(
         f"{role} record requires a task-scoped {subagent_type} dispatch. "
@@ -267,6 +274,13 @@ def _cmd_record_review(args: argparse.Namespace) -> None:
             item["severity"] in ("critical", "high") for item in observations
         ):
             raise ValueError("critical/high observations require needs_change or rejected")
+        if args.result == "accepted" and not args.story_complete:
+            raise ValueError(
+                "accepted requires --story-complete; use a non-accepted verdict when any "
+                "implementation, evidence, empirical, structural, or contract link is incomplete"
+            )
+        if args.result != "accepted" and args.story_complete:
+            raise ValueError("--story-complete is valid only with --result accepted")
         if args.result in ("needs_change", "rejected") and not args.blockers:
             raise ValueError("a blocking review requires at least one --blocker")
         if args.result == "needs_experiment" and (
@@ -276,7 +290,7 @@ def _cmd_record_review(args: argparse.Namespace) -> None:
         review = record_review(
             str(root),
             result=args.result,
-            closure_allowed=args.result == "accepted" and not args.blockers,
+            closure_allowed=args.story_complete,
             blockers=args.blockers or None,
             adversarial_observations=observations or None,
             cleanup_status=args.cleanup_status or "",

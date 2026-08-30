@@ -266,8 +266,28 @@ class TestHooks(unittest.TestCase):
         context = json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
         self.assertIn("Resume: task=TASK-001", context)
         self.assertIn("Evidence: impl=recorded, experiments=0, review=unknown", context)
-        self.assertIn("Decision: Reviewer - dispatch or resume aiwf-reviewer", context)
-        self.assertIn("Guardrail: use the native Agent/Task tool", context)
+        self.assertIn("Decision: Main-session dispatch", context)
+        self.assertIn("read Task.md Dispatch Decisions", context)
+        self.assertIn("do not delegate it to a child role", context)
+
+    def test_status_hook_routes_inconsistent_acceptance_to_reviewer_reconciliation(self):
+        self._set_active_task("reviewing", {
+            "task_id": "TASK-001",
+            "implementation": {"task_id": "TASK-001", "implementation_ref": "abc"},
+            "experiment_ids": [],
+            "review": {
+                "task_id": "TASK-001", "result": "accepted",
+                "closure_allowed": False, "reviewed_ref": "abc",
+            },
+            "fix_loop": {"status": "none"},
+        })
+
+        result = self._status()
+
+        context = json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("Attention: TASK-001 accepted review lacks complete-story assertion", context)
+        self.assertIn("Decision: Reviewer reconciliation", context)
+        self.assertIn("accepted record lacks its explicit complete-story assertion", context)
         self.assertIn("do not role-play or self-fill", context)
 
     def test_status_hook_names_the_parallel_task_that_changed(self):

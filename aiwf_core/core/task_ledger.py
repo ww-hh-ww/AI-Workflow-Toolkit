@@ -1012,6 +1012,32 @@ def _close_task_locked(base_dir: str, task_id: str = "", note: str = "") -> Dict
 
         blockers.extend(task_contract_structure_errors(base_dir, task))
 
+        from .experiment_records import (
+            live_experiments,
+            pending_experiment_dispositions,
+        )
+
+        live_empirical_work = live_experiments(base_dir, task_id)
+        if live_empirical_work:
+            blockers.append(
+                "unfinished Task experiment(s) block close: "
+                + ", ".join(
+                    f"{item.get('experiment_id')}={item.get('status')}"
+                    for item in live_empirical_work
+                )
+            )
+        pending_dispositions = pending_experiment_dispositions(
+            base_dir, task_id=task_id,
+        )
+        if pending_dispositions:
+            blockers.append(
+                "planning experiment(s) need Planner disposition before close: "
+                + ", ".join(
+                    str(item.get("experiment_id") or "")
+                    for item in pending_dispositions
+                )
+            )
+
         if task.get("kind") == "milestone_verification":
             milestone_id = str(task.get("milestone_id") or "")
             from .state.milestone_ops import check_milestone_readiness

@@ -21,6 +21,7 @@ HEADING_ALIASES = {
     "Objective": ("Objective", "目标"),
     "Contract Responsibility": ("Contract Responsibility", "契约责任"),
     "Proof Standard": ("Proof Standard", "证明标准"),
+    "Dispatch Decisions": ("Dispatch Decisions", "分发决策"),
 }
 VERIFICATION_LABELS = ("Verification Commands", "验证命令")
 PLACEHOLDERS = {"", "fill", "(fill)", "tbd", "todo", "n/a"}
@@ -275,6 +276,16 @@ def proof_contract_fingerprint(base_dir: str, task: Dict[str, Any]) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
+def read_task_dispatch_decisions(base_dir: str, task: Dict[str, Any]) -> str:
+    """Return Task.md's semantic routing guidance without interpreting it."""
+    from .worktree_context import resolve_control_root
+
+    path = _task_doc_path(resolve_control_root(base_dir), task)
+    if not path.exists():
+        return ""
+    return _section(path.read_text(encoding="utf-8"), "Dispatch Decisions")
+
+
 def activation_proof_blockers(base_dir: str, task: Dict[str, Any]) -> List[str]:
     """Block activation when the current Task contract is missing or incomplete."""
     contract = read_task_proof_contract(base_dir, task)
@@ -443,6 +454,12 @@ def build_task_proof(base_dir: str, task: Dict[str, Any]) -> Dict[str, Any]:
     origin = str(task.get("git_origin_ref") or "")
     implementation_ref = str(implementation.get("implementation_ref") or "")
     reviewed_ref = str(review.get("reviewed_ref") or "")
+    snapshot = {}
+    if implementation_ref:
+        from .git_snapshots import snapshot_binding
+
+        worktree = str(task.get("worktree_path") or base_dir)
+        snapshot = snapshot_binding(worktree, implementation_ref)
     diffs = []
     if origin and implementation_ref:
         diffs.append({
@@ -460,9 +477,9 @@ def build_task_proof(base_dir: str, task: Dict[str, Any]) -> Dict[str, Any]:
         experiments.append({
             key: item.get(key)
             for key in (
-                "experiment_id", "timing", "question", "hypothesis", "subject_ref",
+                "experiment_id", "scope", "timing", "question", "hypothesis", "subject_ref",
                 "status", "experiment_ref", "commands", "observations", "conclusion",
-                "summary", "promotion_candidates", "stale_reason",
+                "summary", "promotion_candidates", "stale_reason", "disposition",
             )
             if item.get(key) not in (None, "", [])
         })
@@ -470,6 +487,7 @@ def build_task_proof(base_dir: str, task: Dict[str, Any]) -> Dict[str, Any]:
         "task_id": task_id,
         "status": task.get("status", ""),
         "kind": task.get("kind", ""),
+        "dispatch_decisions": read_task_dispatch_decisions(base_dir, task),
         "git": {
             "branch": task.get("git_branch", ""),
             "origin_ref": origin,
@@ -480,6 +498,7 @@ def build_task_proof(base_dir: str, task: Dict[str, Any]) -> Dict[str, Any]:
             "integration_plan_ref": task.get("integration_plan_ref", ""),
             "diffs": diffs,
         },
+        "snapshot_binding": snapshot,
         "implementation": implementation,
         "experiments": experiments,
         "review": review,

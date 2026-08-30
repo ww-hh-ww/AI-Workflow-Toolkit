@@ -134,7 +134,10 @@ class TestRecordDispatchContract(unittest.TestCase):
             cwd=Path(__file__).resolve().parents[2], capture_output=True, text=True,
         )
         self.assertEqual(help_result.returncode, 0)
-        for token in ("needs_change", "needs_experiment", "--experiment-question"):
+        for token in (
+            "needs_change", "needs_experiment", "--experiment-question",
+            "--story-complete",
+        ):
             self.assertIn(token, help_result.stdout)
         self.assertNotIn("needs_more_testing", help_result.stdout)
 

@@ -96,27 +96,59 @@ def record_review(
     if not worktree or not same_path(resolve_worktree_root(base), worktree):
         raise ValueError(f"run review in Task {task_id}'s assigned worktree")
 
-    from ..git_snapshots import worktree_matches_ref
+    from ..git_snapshots import snapshot_binding
 
-    if not worktree_matches_ref(worktree, implementation_ref):
+    binding = snapshot_binding(worktree, implementation_ref)
+    binding_status = str(binding.get("candidate_tree_status") or "unavailable")
+    if not binding.get("implementation_tree"):
+        raise ValueError("review implementation_ref is unavailable or invalid")
+    if binding_status == "changed":
         raise ValueError(
-            "project files changed after implementation evidence; record implementation again before review"
+            "candidate project tree differs from implementation_ref; branch HEAD may "
+            "differ from the AIWF hidden snapshot and does not need to be moved. Record "
+            "implementation again only for an actual project-tree change"
         )
+    if binding_status != "matched":
+        from ..project_root import codex_dispatch_markers_advisory
+
+        control = resolve_control_root(base)
+        if not codex_dispatch_markers_advisory(control):
+            detail = str(binding.get("candidate_tree_error") or "Git tree check failed")
+            raise ValueError(
+                "candidate freshness is unavailable; review requires a matched tree: "
+                + detail
+            )
+        # A Codex child cannot elevate its fixed sandbox. The stable main Codex
+        # task performs and supplies the exact-ref freshness preflight; only this
+        # unavailable result is advisory. A detected tree change and an invalid
+        # implementation ref remain hard failures above.
     from ..task_proof import construction_proof_gaps, validate_implementation_against_task
 
     proof = validate_implementation_against_task(base_dir, task, implementation)
     gaps = construction_proof_gaps(proof)
     if gaps:
         raise ValueError("review requires complete Executor V evidence: " + "; ".join(gaps[:8]))
-    from ..experiment_records import pending_experiments
+    from ..experiment_records import live_experiments, pending_experiment_dispositions
 
-    empirical_work = pending_experiments(base_dir, task_id, implementation_ref)
+    empirical_work = live_experiments(base_dir, task_id)
     if empirical_work:
         item = empirical_work[0]
         raise ValueError(
             "review requires empirical work to be recorded and disposed first: "
             f"{item.get('experiment_id')} is {item.get('status')}"
         )
+    empirical_decisions = pending_experiment_dispositions(base_dir, task_id=task_id)
+    if empirical_decisions:
+        raise ValueError(
+            "review requires Planner disposition of planning experiment: "
+            f"{empirical_decisions[0].get('experiment_id')}"
+        )
+    if result == "accepted" and not closure_allowed:
+        raise ValueError(
+            "accepted requires an explicit complete-story assertion"
+        )
+    if result != "accepted" and closure_allowed:
+        raise ValueError("only accepted review can assert a complete story")
 
     observations = _merge_observations(
         list((task_record.get("review", {}) or {}).get("adversarial_observations", []) or []),
@@ -205,12 +237,13 @@ def record_review(
 
     if result in BLOCKING_REVIEW_RESULTS:
         current = (load_task_record(base_dir, task_id).get("fix_loop", {}) or {})
-        if not (current.get("status") == "open" and current.get("route") == "planner"):
+        route = "executor" if result == "needs_change" else "planner"
+        if not (current.get("status") == "open" and current.get("route") == route):
             from .fixloop_ops import open_fix_loop
 
             open_fix_loop(
                 base_dir,
-                route="executor",
+                route=route,
                 reason=review["summary"],
                 required_fixes=review["blockers"],
                 source="reviewer",

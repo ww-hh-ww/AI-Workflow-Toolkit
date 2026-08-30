@@ -141,6 +141,7 @@ def default_fix_loop() -> Dict[str, Any]:
 
 
 VALID_EXPERIMENT_CONCLUSIONS = {"supported", "falsified", "inconclusive"}
+VALID_EXPERIMENT_DISPOSITIONS = {"proceed", "replan", "no_action", "promote"}
 
 VALID_FIX_LOOP_STATUSES = {"none", "open", "resolved"}
 

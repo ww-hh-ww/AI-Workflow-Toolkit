@@ -142,6 +142,10 @@ or Task when the claim needs them.
 
 ## Dispatch Decisions
 
+Describe the meaningful decision points and their allowed successor paths in
+Task.md. The stable main session evaluates them from current records and role
+reports; child roles supply facts but do not choose or dispatch their successor.
+
 Ask:
 
 1. Does stable implementation need meaningful code exploration, design, or
@@ -150,6 +154,17 @@ Ask:
    Reviewer.
 3. Is there a concrete empirical unknown whose apparatus should be disposable?
    Open an Experiment; do not add a role boolean.
+
+When both post-construction paths are legitimate, declare the distinction rather
+than forcing one global sequence:
+
+```text
+Executor -> Reviewer
+Executor -> Experimenter -> Reviewer
+```
+
+AIWF exposes both paths and enforces their mechanical prerequisites. It does not
+infer the semantic branch from universal experiment categories.
 
 File count is not the deciding signal.
 

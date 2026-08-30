@@ -175,6 +175,15 @@ At a Git boundary, run `aiwf governance status`. In `tracked` mode,
 Read the actual implementation evidence, experiments, review, findings, and user decisions.
 Decide whether to close, rework, or defer a clearly named issue.
 
+After a Plan-scoped or pre-implementation Experiment is finished, read its full
+record with `aiwf experiment show <EXP-ID>` and disposition the conclusion.
+Do not change Task.md merely because an experiment produced a fact: use
+`proceed` when it only changes implementation method, `no_action` when nothing
+stable follows, and `promote` when Executor should recreate a useful asset.
+Use `replan` only when the Plan or active Task contract is invalid; an active
+Task must be interrupted by the user before `replan` is recorded or its
+contract is revised.
+
 Before task close, write Closure Calibration with what actually happened:
 
 ```bash

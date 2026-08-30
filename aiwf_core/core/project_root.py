@@ -38,6 +38,17 @@ def in_codex_session() -> bool:
     )
 
 
+def codex_dispatch_markers_advisory(path: PathLike) -> bool:
+    """Return whether native Codex role markers are visibility-only on this host."""
+    return bool(
+        (
+            in_codex_session()
+            or str(os.environ.get("AIWF_HOST") or "").lower() == "codex"
+        )
+        and has_codex_adapter(path)
+    )
+
+
 def is_installed_aiwf_root(path: PathLike) -> bool:
     root = Path(path).expanduser().resolve()
     state = root / ".aiwf" / "state" / "state.json"

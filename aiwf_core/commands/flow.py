@@ -31,6 +31,8 @@ def _hook_problem(task: Dict[str, Any], record: Dict[str, Any]) -> str:
     if fix_loop.get("status") == "open":
         return f"{task['id']} fix-loop routes to {fix_loop.get('route') or 'planner'}"
     review = record.get("review", {}) or {}
+    if review.get("result") == "accepted" and not review.get("closure_allowed", False):
+        return f"{task['id']} accepted review lacks complete-story assertion"
     if review.get("result") in (
         "rejected", "needs_change", "needs_experiment", "scope_violation",
     ):
@@ -51,6 +53,7 @@ def _acknowledge_status_hook(control: Path) -> None:
     tasks: List[Dict[str, Any]] = []
     for task in workflow_tasks:
         record = load_task_record(control, str(task.get("id") or ""))
+        review = record.get("review", {}) or {}
         problem = _hook_problem(task, record)
         if problem:
             problems.append(problem)
@@ -62,7 +65,8 @@ def _acknowledge_status_hook(control: Path) -> None:
                 "implementation_ref", ""
             ),
             "experiments": list(record.get("experiment_ids", []) or []),
-            "review": (record.get("review", {}) or {}).get("result", "unknown"),
+            "review": review.get("result", "unknown"),
+            "review_story_complete": bool(review.get("closure_allowed", False)),
             "fix": (record.get("fix_loop", {}) or {}).get("status", "none"),
         })
     tasks.sort(key=lambda task: str(task.get("id") or ""))
@@ -79,6 +83,107 @@ def _acknowledge_status_hook(control: Path) -> None:
         pass
 
 
+def _live_experiment_next(control: Path, task_id: str) -> Tuple[str, str] | None:
+    from ..core.experiment_records import live_experiments
+
+    empirical_work = live_experiments(str(control), task_id)
+    if not empirical_work:
+        return None
+    experiment = empirical_work[0]
+    experiment_id = str(experiment.get("experiment_id") or "")
+    state = str(experiment.get("status") or "open")
+    action = (
+        f"run aiwf experiment start {experiment_id}, then dispatch aiwf-experimenter "
+        f"for {experiment_id}"
+        if state == "open"
+        else f"run aiwf experiment finish {experiment_id}, then rerun aiwf status --prompt"
+        if state == "recorded"
+        else f"dispatch or resume aiwf-experimenter for {experiment_id}"
+    )
+    return ("Experiment cleanup" if state == "recorded" else "Experimenter"), action
+
+
+def _post_construction_next(
+    task_id: str, reviewer_required: bool, codex_binding: Dict[str, Any] | None = None,
+) -> Tuple[str, str]:
+    review_action = (
+        f"dispatch aiwf-reviewer for {task_id}"
+        if reviewer_required
+        else f"review {task_id} inline and record it"
+    )
+    freshness = ""
+    if codex_binding:
+        freshness = (
+            " If it selects review, copy this exact Codex main-session freshness packet "
+            "into the Reviewer dispatch: "
+            f"implementation_ref={codex_binding.get('implementation_ref')}, "
+            f"implementation_tree={codex_binding.get('implementation_tree')}, "
+            f"candidate_tree={codex_binding.get('candidate_tree')}, "
+            "candidate_tree_status=matched."
+        )
+    return (
+        "Main-session dispatch",
+        f"run aiwf task proof {task_id}, read Task.md Dispatch Decisions, and use the "
+        "recorded implementation and experiment evidence to choose the declared next path "
+        "in this main session. If it selects Experimenter, open and start the declared "
+        "post-implementation EXP against the current implementation_ref, load "
+        f"/aiwf-experiment, and dispatch aiwf-experimenter with its EXP ID. If it selects "
+        f"review, load /aiwf-review and {review_action}.{freshness} Do not delegate this route choice "
+        "to a child Agent or infer a universal experiment rule outside Task.md",
+    )
+
+
+def _codex_freshness_preflight(
+    task: Dict[str, Any], implementation: Dict[str, Any], control: Path,
+) -> Tuple[str, str] | Dict[str, Any]:
+    """Preflight the stable candidate where Codex can request host permission."""
+    from ..core.git_snapshots import format_tree_changes, snapshot_binding
+
+    task_id = str(task.get("id") or "")
+    implementation_ref = str(implementation.get("implementation_ref") or "")
+    worktree = str(task.get("worktree_path") or control)
+    binding = snapshot_binding(worktree, implementation_ref)
+    status = str(binding.get("candidate_tree_status") or "unavailable")
+    if status == "matched":
+        return binding
+    if status == "changed":
+        changes = format_tree_changes(binding.get("tree_changes", []) or [])
+        return (
+            "Implementation repair",
+            f"load /aiwf-implement for {task_id}; the stable candidate tree changed after "
+            f"implementation_ref {implementation_ref}. Inspect and record the intended current "
+            f"candidate before any Experiment or Review"
+            + (f": {changes}" if changes else ""),
+        )
+    detail = " ".join(str(binding.get("candidate_tree_error") or "").split())
+    suffix = f" Reported Git error: {detail[:500]}." if detail else ""
+    return (
+        "Main-session freshness preflight",
+        f"in the stable Codex main task, run aiwf task proof {task_id} with the permission "
+        f"needed to inspect Plan worktree {worktree}. Confirm its implementation_ref is exactly "
+        f"{implementation_ref}. If candidate_tree_status=matched, continue directly with the "
+        "Task.md Dispatch Decisions and copy the exact implementation/tree binding into any "
+        "Reviewer dispatch; if changed, route Executor; do not dispatch a child while the result "
+        f"is unavailable.{suffix}",
+    )
+
+
+def _post_construction_route(
+    task: Dict[str, Any], implementation: Dict[str, Any], control: Path,
+    host: str, reviewer_required: bool,
+) -> Tuple[str, str]:
+    if host == "codex":
+        freshness = _codex_freshness_preflight(task, implementation, control)
+        if isinstance(freshness, tuple):
+            return freshness
+        return _post_construction_next(
+            str(task.get("id") or ""), reviewer_required, freshness,
+        )
+    return _post_construction_next(
+        str(task.get("id") or ""), reviewer_required,
+    )
+
+
 def _task_next(
     task: Dict[str, Any],
     record: Dict[str, Any],
@@ -88,6 +193,8 @@ def _task_next(
     host = (host or os.environ.get("AIWF_HOST", "claude")).lower()
     task_id = str(task.get("id") or "")
     requirements = task.get("requirements", {}) or {}
+    implementation = record.get("implementation", {}) or {}
+    review = record.get("review", {}) or {}
     fix_loop = record.get("fix_loop", {}) or {}
     if fix_loop.get("status") == "open":
         if fix_loop.get("escalation_required"):
@@ -137,6 +244,18 @@ def _task_next(
                 f"and clear; {agent_route}",
             )
         if route == "reviewer":
+            empirical_next = _live_experiment_next(control, task_id) if control else None
+            if empirical_next:
+                return empirical_next
+            if (
+                control
+                and implementation.get("implementation_ref")
+                and str(review.get("result") or "unknown") == "unknown"
+            ):
+                return _post_construction_route(
+                    task, implementation, control, host,
+                    requirements.get("reviewer_required", True),
+                )
             previous = (
                 resumable_agent(
                     control, task_id=task_id, subagent_type="aiwf-reviewer",
@@ -171,8 +290,6 @@ def _task_next(
             "then resolve the decided issue or reroute remaining work",
         )
 
-    implementation = record.get("implementation", {}) or {}
-    review = record.get("review", {}) or {}
     if task.get("kind") == "milestone_verification":
         milestone_id = str(task.get("milestone_id") or "")
         from ..core.state.milestone_ops import get_milestone
@@ -211,26 +328,41 @@ def _task_next(
             f"then load /aiwf-close and close the verification Task. After it closes, run "
             f"aiwf milestone close {milestone_id}",
         )
-    current_subject_ref = str(
-        implementation.get("implementation_ref") or task.get("git_origin_ref") or ""
-    )
-    if control and current_subject_ref:
-        from ..core.experiment_records import pending_experiments
+    if control:
+        from ..core.experiment_records import (
+            list_experiments,
+            pending_experiment_dispositions,
+        )
 
-        empirical_work = pending_experiments(str(control), task_id, current_subject_ref)
-        if empirical_work:
-            experiment = empirical_work[0]
-            experiment_id = str(experiment.get("experiment_id") or "")
-            state = str(experiment.get("status") or "open")
-            action = (
-                f"run aiwf experiment start {experiment_id}, then dispatch aiwf-experimenter "
-                f"for {experiment_id}"
-                if state == "open"
-                else f"run aiwf experiment finish {experiment_id}, then rerun aiwf status --prompt"
-                if state == "recorded"
-                else f"dispatch or resume aiwf-experimenter for {experiment_id}"
+        empirical_next = _live_experiment_next(control, task_id)
+        if empirical_next:
+            return empirical_next
+        pending_dispositions = pending_experiment_dispositions(
+            str(control), task_id=task_id,
+        )
+        if pending_dispositions:
+            experiment_id = str(pending_dispositions[0].get("experiment_id") or "")
+            return (
+                "Planner decision",
+                f"load /aiwf-planner, run aiwf experiment show {experiment_id}, then record "
+                f"what the fact means with aiwf experiment disposition {experiment_id} "
+                "--decision proceed|no_action|promote --reason '<why>'. If the fact invalidates "
+                f"the contract, ask the user to interrupt {task_id} first, then record replan; "
+                "do not edit active Task.md",
             )
-            return ("Experiment cleanup" if state == "recorded" else "Experimenter"), action
+        promotion = next((
+            item for item in list_experiments(str(control), task_id=task_id)
+            if (item.get("disposition", {}) or {}).get("decision") == "promote"
+            and str((item.get("disposition", {}) or {}).get("recorded_at") or "")
+            > str(implementation.get("recorded_at") or "")
+        ), None)
+        if promotion:
+            return (
+                "Executor",
+                f"load /aiwf-implement and dispatch aiwf-executor for {task_id}; recreate the "
+                f"approved promotion candidate from {promotion.get('experiment_id')} in stable "
+                "reality, then record a fresh implementation and complete V evidence",
+            )
     reviewed_ref = str(review.get("reviewed_ref") or "")
     if review.get("result") == "accepted" and reviewed_ref and control:
         try:
@@ -317,6 +449,30 @@ def _task_next(
         return (
             "Executor",
             f"load /aiwf-implement and complete Executor-owned V evidence for {task_id}: {missing}",
+        )
+    if control and str(review.get("result") or "unknown") == "unknown":
+        return _post_construction_route(
+            task, implementation, control, host,
+            requirements.get("reviewer_required", True),
+        )
+    if review.get("result") == "accepted" and not review.get("closure_allowed", False):
+        previous = (
+            resumable_agent(
+                control, task_id=task_id, subagent_type="aiwf-reviewer",
+            )
+            if control else None
+        )
+        resume = (
+            f"resume aiwf-reviewer {previous['agent_id']} once if available, otherwise "
+            if previous else ""
+        )
+        return (
+            "Reviewer reconciliation",
+            f"load /aiwf-review; the recorded verdict says accepted but lacks the explicit "
+            f"complete-story assertion. {resume}dispatch aiwf-reviewer for {task_id} to "
+            "reconcile its REVIEW_REPORT and machine verdict. It must either record accepted "
+            "with --story-complete because every required link actually holds, or record the "
+            "appropriate non-accepted verdict. The main session must not supply this judgment",
         )
     pending = [
         item for item in review.get("adversarial_observations", []) or []
@@ -416,6 +572,7 @@ def _skill_for(next_role: str) -> str:
         "Experimenter": "aiwf-experiment",
         "Experiment cleanup": "aiwf-experiment",
         "Reviewer": "aiwf-review",
+        "Reviewer reconciliation": "aiwf-review",
         "Inline review": "aiwf-review",
         "Close": "aiwf-close",
         "Planner calibration": "aiwf-planner",
@@ -423,6 +580,8 @@ def _skill_for(next_role: str) -> str:
         "Milestone acceptance": "aiwf-architect",
         "Human acceptance": "",
         "Agent running": "",
+        "Main-session dispatch": "",
+        "Main-session freshness preflight": "",
     }.get(next_role, "aiwf-planner")
     if not name:
         return ""
@@ -516,6 +675,17 @@ def _active_rows(control: Path, host: str = "") -> List[Dict[str, Any]]:
                         f"load /aiwf-planner and run aiwf task calibrate {task_id} "
                         "with the actual result"
                     )
+        review_state = record.get("review", {}) or {}
+        review_result = str(review_state.get("result") or "unknown")
+        review_story = (
+            "complete"
+            if review_result == "accepted" and review_state.get("closure_allowed", False)
+            else "unasserted"
+            if review_result == "accepted"
+            else "pending"
+            if review_result == "unknown"
+            else "incomplete"
+        )
         rows.append({
             "id": task_id,
             "task_status": task.get("status", ""),
@@ -531,7 +701,8 @@ def _active_rows(control: Path, host: str = "") -> List[Dict[str, Any]]:
                 ) else "missing"
             ),
             "experiment_ids": list(record.get("experiment_ids", []) or []),
-            "review_result": (record.get("review", {}) or {}).get("result", "unknown"),
+            "review_result": review_result,
+            "review_story": review_story,
             "fix_loop": (record.get("fix_loop", {}) or {}).get("status", "none"),
             "fix_loop_context": dict(record.get("fix_loop", {}) or {}),
             "calibration_missing": calibration_missing,
@@ -669,6 +840,57 @@ def _milestones_at_acceptance(control: Path) -> List[Dict[str, Any]]:
     return ready
 
 
+def _plan_experiment_attention(control: Path) -> Dict[str, Any]:
+    """Return the first Plan-scoped experiment that needs lifecycle attention."""
+    from ..core.experiment_records import list_experiments
+
+    for item in list_experiments(str(control)):
+        scope = item.get("scope", {}) or {}
+        if scope.get("kind") != "plan":
+            continue
+        status = str(item.get("status") or "")
+        disposition = item.get("disposition", {}) or {}
+        if status in ("open", "running", "recorded"):
+            return item
+        if status == "closed" and disposition.get("status") == "pending":
+            return item
+    return {}
+
+
+def _print_plan_experiment_prompt(experiment: Dict[str, Any]) -> None:
+    experiment_id = str(experiment.get("experiment_id") or "")
+    status = str(experiment.get("status") or "")
+    scope = experiment.get("scope", {}) or {}
+    if status == "open":
+        action = (
+            f"run aiwf experiment start {experiment_id}, then load /aiwf-experiment "
+            f"and dispatch aiwf-experimenter for {experiment_id}"
+        )
+        skill = _named_skill("aiwf-experiment")
+        role = "Experimenter"
+    elif status == "running":
+        action = f"load /aiwf-experiment and dispatch or resume aiwf-experimenter for {experiment_id}"
+        skill = _named_skill("aiwf-experiment")
+        role = "Experimenter"
+    elif status == "recorded":
+        action = f"run aiwf experiment finish {experiment_id}, then rerun aiwf status --prompt"
+        skill = _named_skill("aiwf-experiment")
+        role = "Experiment cleanup"
+    else:
+        action = (
+            f"load /aiwf-planner, run aiwf experiment show {experiment_id}, then run "
+            f"aiwf experiment disposition {experiment_id} "
+            "--decision proceed|replan|no_action|promote --reason '<why>'"
+        )
+        skill = _named_skill("aiwf-planner")
+        role = "Planner decision"
+    print(f"Do now: {action}.")
+    print(f"Required skills: {skill}")
+    print(f"Plan: {scope.get('id') or '(none)'}")
+    print(f"Experiment: {experiment_id}")
+    print(f"Next role: {role}")
+
+
 def _installed(control: Path) -> bool:
     from ..core.project_root import has_codex_adapter, has_opencode_adapter
 
@@ -716,6 +938,7 @@ def cmd_status(args) -> None:
     plans_closeout = _plans_at_closeout(control)
     plans_between = _plans_between_tasks(control)
     milestones_acceptance = _milestones_at_acceptance(control)
+    plan_experiment = _plan_experiment_attention(control)
     if getattr(args, "debug", False):
         _print_debug(
             control, worktree, rows, current, plans_closeout, plans_between,
@@ -723,11 +946,20 @@ def cmd_status(args) -> None:
         )
     elif getattr(args, "prompt", False):
         _acknowledge_status_hook(control)
+        if plan_experiment:
+            _print_plan_experiment_prompt(plan_experiment)
+            return
         _print_prompt(
             control, worktree, rows, current, plans_closeout, plans_between,
             milestones_acceptance,
         )
     else:
+        if plan_experiment:
+            print(
+                "Plan experiment needs attention: "
+                f"{plan_experiment.get('experiment_id')} "
+                f"status={plan_experiment.get('status')}"
+            )
         _print_human(
             control, worktree, rows, current, plans_closeout, plans_between,
             milestones_acceptance,
@@ -891,6 +1123,21 @@ def _print_prompt(
                 "Follow-up: work inline or dispatch the named role as directed above. "
                 "AIWF routes either choice to the assigned worktree."
             )
+        elif row["next_role"] == "Main-session dispatch":
+            print(
+                "Main-session decision: read Task.md and Task proof, choose one declared "
+                "branch yourself, then load and dispatch that branch's role."
+            )
+        elif row["next_role"] == "Main-session freshness preflight":
+            print(
+                "Codex permission boundary: perform only the mechanical tree check in the "
+                "stable main task; semantic acceptance remains Reviewer-owned."
+            )
+        elif row["next_role"] == "Reviewer reconciliation":
+            print(
+                "Reconciliation boundary: Reviewer owns the complete-story judgment; "
+                "the main session only dispatches or resumes Reviewer."
+            )
         elif row["next_role"] != "Agent running":
             print(
                 "Dispatch: give the Agent this Task ID. AIWF supplies the current "
@@ -900,7 +1147,7 @@ def _print_prompt(
         print(
             f"State: phase={row['phase'] or '-'}, construction={row['construction_status']}, "
             f"experiments={len(row['experiment_ids'])}, review={row['review_result']}, "
-            f"fix-loop={row['fix_loop']}"
+            f"story={row['review_story']}, fix-loop={row['fix_loop']}"
         )
         _print_fix_loop_context(row)
         if _skill_for(row["next_role"]).endswith("aiwf-planner"):
@@ -1138,7 +1385,10 @@ def _print_prompt(
         print(
             f"- {row['id']}{marker} | plan={row['plan_id'] or '-'} | "
             f"do={row['action']} | next={row['next_role']} | "
-            f"skill={_skill_for(row['next_role'])} | worktree={row['worktree_path']}"
+            f"skill={_skill_for(row['next_role'])} | "
+            f"evidence=construction:{row['construction_status']},"
+            f"experiments:{len(row['experiment_ids'])},review:{row['review_result']},"
+            f"story:{row['review_story']} | worktree={row['worktree_path']}"
         )
         _print_fix_loop_context(row)
     if any(skill.endswith("aiwf-planner") for skill in required):

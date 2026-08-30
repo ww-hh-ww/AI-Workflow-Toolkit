@@ -1,9 +1,14 @@
 import json
+import io
+import os
 import shutil
 import subprocess
 import tempfile
 import unittest
+from argparse import Namespace
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
+from unittest.mock import patch
 
 
 class TestExperimenterContract(unittest.TestCase):
@@ -20,6 +25,7 @@ class TestExperimenterContract(unittest.TestCase):
         for rel in (
             ".aiwf/state",
             ".aiwf/tasks",
+            ".aiwf/plans",
             ".aiwf/records/tasks",
             ".aiwf/records/experiments",
             ".aiwf/runtime/internal",
@@ -48,6 +54,21 @@ class TestExperimenterContract(unittest.TestCase):
         self._write_json(
             ".aiwf/state/tasks.json",
             {"schema_version": 1, "tasks": [self.task]},
+        )
+        self._write_json(
+            ".aiwf/state/plans.json",
+            {"schema_version": 1, "plans": [{
+                "id": "PLAN-001",
+                "plan_id": "PLAN-001",
+                "status": "open",
+                "task_ids": ["TASK-001"],
+                "task_status": {"TASK-001": "active"},
+                "experiment_ids": [],
+                "git_head_ref": self.origin,
+            }]},
+        )
+        (self.root / ".aiwf/plans/PLAN-001.md").write_text(
+            "# PLAN-001\n\nResolve the delivery direction.\n", encoding="utf-8",
         )
         (self.root / ".aiwf/tasks/TASK-001.md").write_text(
             """---
@@ -185,6 +206,82 @@ Executor and Reviewer are inline in this fixture.
         self.assertFalse(worktree.exists())
         self.assertEqual(closed["experiment_ref"], recorded["experiment_ref"])
 
+    def test_codex_experiment_record_does_not_require_dispatch_marker(self):
+        from aiwf_core.commands.experiment_commands import _cmd_experiment_record
+        from aiwf_core.core.experiment_records import (
+            load_experiment, open_experiment, start_experiment,
+        )
+
+        (self.root / ".codex").mkdir(parents=True, exist_ok=True)
+        (self.root / ".codex/hooks.json").write_text("{}\n", encoding="utf-8")
+        planner_skill = self.root / ".agents/skills/aiwf-planner/SKILL.md"
+        planner_skill.parent.mkdir(parents=True, exist_ok=True)
+        planner_skill.write_text("---\nname: aiwf-planner\n---\n", encoding="utf-8")
+
+        open_experiment(
+            str(self.root), "EXP-CODEX", "What does the disposable runtime show?",
+            task_id="TASK-001",
+        )
+        running = start_experiment(str(self.root), "EXP-CODEX")
+        worktree = Path(running["worktree_path"])
+        (worktree / "probe.txt").write_text("observed\n", encoding="utf-8")
+        dispatch = self.root / ".aiwf/runtime/internal/agent-dispatch.jsonl"
+        dispatch.unlink(missing_ok=True)
+
+        previous = Path.cwd()
+        try:
+            os.chdir(worktree)
+            with patch.dict(os.environ, {"CODEX_THREAD_ID": "codex-exp"}, clear=False):
+                with redirect_stdout(io.StringIO()):
+                    _cmd_experiment_record(Namespace(
+                        experiment_id="EXP-CODEX",
+                        conclusion="supported",
+                        summary="the disposable runtime exposed the fact",
+                        commands=["probe runtime"],
+                        observations=["runtime returned observed"],
+                        promotion_candidates=[],
+                    ))
+        finally:
+            os.chdir(previous)
+
+        self.assertFalse(dispatch.exists())
+        self.assertTrue(load_experiment(str(self.root), "EXP-CODEX")["experiment_ref"])
+
+    def test_non_codex_experiment_record_still_requires_dispatch_marker(self):
+        from aiwf_core.commands.experiment_commands import _cmd_experiment_record
+        from aiwf_core.core.experiment_records import (
+            load_experiment, open_experiment, start_experiment,
+        )
+
+        open_experiment(
+            str(self.root), "EXP-CLAUDE", "What does the disposable runtime show?",
+            task_id="TASK-001",
+        )
+        running = start_experiment(str(self.root), "EXP-CLAUDE")
+        previous = Path.cwd()
+        try:
+            os.chdir(running["worktree_path"])
+            with patch.dict(os.environ, {
+                "CODEX_THREAD_ID": "",
+                "CODEX_SESSION_ID": "",
+                "CODEX_SHELL": "",
+                "AIWF_HOST": "",
+            }, clear=False):
+                with redirect_stderr(io.StringIO()):
+                    with self.assertRaises(SystemExit):
+                        _cmd_experiment_record(Namespace(
+                            experiment_id="EXP-CLAUDE",
+                            conclusion="supported",
+                            summary="would otherwise be valid",
+                            commands=["probe runtime"],
+                            observations=["runtime returned observed"],
+                            promotion_candidates=[],
+                        ))
+        finally:
+            os.chdir(previous)
+
+        self.assertEqual(load_experiment(str(self.root), "EXP-CLAUDE")["status"], "running")
+
     def test_reviewer_waits_until_current_experiment_is_disposed(self):
         from aiwf_core.core.experiment_records import (
             finish_experiment,
@@ -218,6 +315,32 @@ Executor and Reviewer are inline in this fixture.
             summary="candidate and empirical evidence hold", task_id="TASK-001",
         )
         self.assertEqual(review["reviewed_ref"], implementation["implementation_ref"])
+
+    def test_main_session_can_route_completed_executor_directly_to_experimenter(self):
+        from aiwf_core.commands.flow import _task_next
+        from aiwf_core.core.experiment_records import open_experiment
+        from aiwf_core.core.task_records import load_task_record
+
+        implementation = self._implementation()
+        role, action = _task_next(
+            self.task, load_task_record(self.root, "TASK-001"), self.root,
+        )
+        self.assertEqual(role, "Main-session dispatch")
+        self.assertIn("read Task.md Dispatch Decisions", action)
+        self.assertIn("If it selects Experimenter", action)
+        self.assertIn("If it selects review", action)
+        self.assertIn("Do not delegate this route choice", action)
+
+        open_experiment(
+            str(self.root), "EXP-DIRECT", "Does the declared runtime property hold?",
+            task_id="TASK-001", subject_ref=implementation["implementation_ref"],
+            timing="post_implementation",
+        )
+        role, action = _task_next(
+            self.task, load_task_record(self.root, "TASK-001"), self.root,
+        )
+        self.assertEqual(role, "Experimenter")
+        self.assertIn("aiwf experiment start EXP-DIRECT", action)
 
     def test_review_needs_experiment_opens_question_without_executor_fixloop(self):
         from aiwf_core.core.experiment_records import load_experiment
@@ -307,6 +430,226 @@ Executor and Reviewer are inline in this fixture.
         denied = check_file_write(event(self.root / "stable.py"))
         self.assertFalse(denied.allowed)
         self.assertIn("stable project reality", denied.reason)
+
+    def test_plan_experiment_links_lists_and_requires_disposition(self):
+        from aiwf_core.commands.flow import _plan_experiment_attention
+        from aiwf_core.core.experiment_records import (
+            disposition_experiment,
+            finish_experiment,
+            list_experiments,
+            open_experiment,
+            record_experiment,
+            start_experiment,
+        )
+        from aiwf_core.core.state.plan_ops import get_plan
+
+        opened = open_experiment(
+            str(self.root), "EXP-PLAN", "Which runtime boundary is real?",
+            plan_id="PLAN-001",
+        )
+        self.assertTrue(opened["disposition"]["required"])
+        self.assertIn("EXP-PLAN", get_plan(str(self.root), "PLAN-001")["experiment_ids"])
+        self.assertEqual(
+            [item["experiment_id"] for item in list_experiments(
+                self.root, plan_id="PLAN-001",
+            )],
+            ["EXP-PLAN"],
+        )
+        with self.assertRaisesRegex(ValueError, "finish experiment"):
+            disposition_experiment(
+                str(self.root), "EXP-PLAN", "proceed", "too early",
+            )
+        running = start_experiment(str(self.root), "EXP-PLAN")
+        record_experiment(
+            running["worktree_path"], "EXP-PLAN", "supported",
+            "the runtime boundary is observable", commands=["probe runtime"],
+            observations=["boundary=worker"],
+        )
+        finish_experiment(str(self.root), "EXP-PLAN")
+        self.assertEqual(
+            _plan_experiment_attention(self.root)["experiment_id"], "EXP-PLAN",
+        )
+        governed = disposition_experiment(
+            str(self.root), "EXP-PLAN", "proceed", "use the observed worker boundary",
+        )
+        self.assertEqual(governed["disposition"]["status"], "recorded")
+        self.assertEqual(_plan_experiment_attention(self.root), {})
+
+    def test_pre_implementation_conclusion_routes_planner_before_executor(self):
+        from aiwf_core.commands.flow import _task_next
+        from aiwf_core.core.experiment_records import (
+            disposition_experiment,
+            finish_experiment,
+            open_experiment,
+            record_experiment,
+            start_experiment,
+        )
+        from aiwf_core.core.task_records import load_task_record
+
+        open_experiment(
+            str(self.root), "EXP-PRE", "Does the assumed API behavior hold?",
+            task_id="TASK-001",
+        )
+        running = start_experiment(str(self.root), "EXP-PRE")
+        record_experiment(
+            running["worktree_path"], "EXP-PRE", "falsified",
+            "the API uses a different boundary", observations=["returned boundary=B"],
+        )
+        finish_experiment(str(self.root), "EXP-PRE")
+        record = load_task_record(self.root, "TASK-001")
+        role, action = _task_next(self.task, record, self.root)
+        self.assertEqual(role, "Planner decision")
+        self.assertIn("experiment disposition EXP-PRE", action)
+        with self.assertRaisesRegex(ValueError, "interrupt active Task"):
+            disposition_experiment(
+                str(self.root), "EXP-PRE", "replan", "the contract premise is invalid",
+            )
+
+        disposition_experiment(
+            str(self.root), "EXP-PRE", "proceed", "implementation can use boundary B",
+        )
+        role, _ = _task_next(
+            self.task, load_task_record(self.root, "TASK-001"), self.root,
+        )
+        self.assertEqual(role, "Inline implementation")
+
+    def test_review_and_close_block_any_unfinished_task_experiment(self):
+        from aiwf_core.core.experiment_records import open_experiment
+        from aiwf_core.core.state.review_ops import record_review
+        from aiwf_core.core.task_ledger import close_task
+
+        implementation = self._implementation()
+        open_experiment(
+            str(self.root), "EXP-OLD-SUBJECT", "Is an earlier assumption still relevant?",
+            task_id="TASK-001", subject_ref=self.origin,
+            timing="pre_implementation",
+        )
+        with self.assertRaisesRegex(ValueError, "empirical work"):
+            record_review(str(self.root), "accepted", task_id="TASK-001")
+        result = close_task(str(self.root), "TASK-001")
+        self.assertFalse(result["closed"])
+        self.assertTrue(any(
+            "EXP-OLD-SUBJECT=open" in blocker for blocker in result["blockers"]
+        ))
+        self.assertTrue(implementation["implementation_ref"])
+
+    def test_promoted_experiment_asset_routes_executor_until_fresh_implementation(self):
+        from aiwf_core.commands.flow import _task_next
+        from aiwf_core.core.experiment_records import (
+            disposition_experiment,
+            finish_experiment,
+            open_experiment,
+            record_experiment,
+            start_experiment,
+        )
+        from aiwf_core.core.task_records import load_task_record
+
+        open_experiment(
+            str(self.root), "EXP-PROMOTE", "Is the probe worth retaining?",
+            task_id="TASK-001",
+        )
+        running = start_experiment(str(self.root), "EXP-PROMOTE")
+        record_experiment(
+            running["worktree_path"], "EXP-PROMOTE", "supported",
+            "the probe catches the boundary", observations=["probe caught boundary"],
+            promotion_candidates=["probe.py"],
+        )
+        finish_experiment(str(self.root), "EXP-PROMOTE")
+        disposition_experiment(
+            str(self.root), "EXP-PROMOTE", "promote", "retain the probe as a formal tool",
+        )
+        role, _ = _task_next(
+            self.task, load_task_record(self.root, "TASK-001"), self.root,
+        )
+        self.assertEqual(role, "Executor")
+
+        self._implementation("candidate with promoted probe\n")
+        role, _ = _task_next(
+            self.task, load_task_record(self.root, "TASK-001"), self.root,
+        )
+        self.assertEqual(role, "Main-session dispatch")
+
+    def test_post_experiment_must_target_current_implementation(self):
+        from aiwf_core.core.experiment_records import open_experiment
+
+        self._implementation()
+        with self.assertRaisesRegex(ValueError, "current implementation ref"):
+            open_experiment(
+                str(self.root), "EXP-WRONG-REF", "Does the old tree behave?",
+                task_id="TASK-001", subject_ref=self.origin,
+                timing="post_implementation",
+            )
+
+    def test_post_experiment_allows_different_head_but_blocks_tree_drift(self):
+        from aiwf_core.core.experiment_records import open_experiment
+
+        implementation = self._implementation()
+        self.assertNotEqual(self._git("rev-parse", "HEAD"), implementation["implementation_ref"])
+        allowed = open_experiment(
+            str(self.root), "EXP-TREE-MATCH", "Does the frozen candidate behave?",
+            task_id="TASK-001", subject_ref=implementation["implementation_ref"],
+            timing="post_implementation",
+        )
+        self.assertEqual(allowed["status"], "open")
+
+        (self.root / "app.txt").write_text("drifted after snapshot\n", encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "project tree to match"):
+            open_experiment(
+                str(self.root), "EXP-TREE-DRIFT", "Does the changed tree behave?",
+                task_id="TASK-001", subject_ref=implementation["implementation_ref"],
+                timing="post_implementation",
+            )
+
+    def test_experiment_show_is_a_complete_proof_surface(self):
+        from aiwf_core.commands.experiment_commands import _cmd_experiment_show
+        from aiwf_core.core.experiment_records import (
+            finish_experiment,
+            open_experiment,
+            record_experiment,
+            start_experiment,
+        )
+
+        open_experiment(
+            str(self.root), "EXP-SHOW", "Can the real path be observed?",
+            hypothesis="trace reaches worker", task_id="TASK-001",
+        )
+        running = start_experiment(str(self.root), "EXP-SHOW")
+        record_experiment(
+            running["worktree_path"], "EXP-SHOW", "supported", "trace reached worker",
+            commands=["trace app"], observations=["worker called once"],
+            promotion_candidates=["trace_probe.py"],
+        )
+        finish_experiment(str(self.root), "EXP-SHOW")
+        output = io.StringIO()
+        previous = Path.cwd()
+        try:
+            import os
+            os.chdir(self.root)
+            with redirect_stdout(output):
+                _cmd_experiment_show(Namespace(experiment_id="EXP-SHOW"))
+        finally:
+            os.chdir(previous)
+        proof = output.getvalue()
+        for expected in (
+            "Scope: task:TASK-001", "Timing: pre_implementation",
+            "Hypothesis: trace reaches worker", "Command: trace app",
+            "Observation: worker called once", "Conclusion: supported",
+            "Promotion candidate: trace_probe.py", "Disposition: pending",
+        ):
+            self.assertIn(expected, proof)
+
+    def test_rejected_review_routes_to_planner_not_executor(self):
+        from aiwf_core.core.state.review_ops import record_review
+        from aiwf_core.core.task_records import load_task_record
+
+        self._implementation()
+        record_review(
+            str(self.root), "rejected", summary="contract premise is structurally false",
+            blockers=["the required owner cannot host this behavior"], task_id="TASK-001",
+        )
+        fix_loop = load_task_record(self.root, "TASK-001")["fix_loop"]
+        self.assertEqual(fix_loop["status"], "open")
+        self.assertEqual(fix_loop["route"], "planner")
 
 
 if __name__ == "__main__":

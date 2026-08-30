@@ -251,6 +251,7 @@ rejected
 aiwf record review \
   --task-id TASK-001 \
   --result accepted \
+  --story-complete \
   --summary "current implementation satisfies the Task contract"
 ```
 

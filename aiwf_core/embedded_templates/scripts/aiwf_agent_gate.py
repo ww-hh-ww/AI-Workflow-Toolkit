@@ -21,6 +21,7 @@ CODEX_NEXT_ROLE = {
     "Implementation repair": "aiwf-executor",
     "Experimenter": "aiwf-experimenter",
     "Reviewer": "aiwf-reviewer",
+    "Reviewer reconciliation": "aiwf-reviewer",
 }
 
 def _read_json(path, default=None):
@@ -77,6 +78,40 @@ def _codex_inferred_role(base, task):
     record = load_task_record(base, task_id)
     next_role, _action = _task_next(task, record, base, host="codex")
     return CODEX_NEXT_ROLE.get(next_role, ""), next_role
+
+
+def _codex_selected_role(text):
+    """Read an explicit main-session choice at a semantic dispatch point."""
+    selected = [
+        role for role in ("aiwf-executor", "aiwf-experimenter", "aiwf-reviewer")
+        if re.search(
+            rf"(?<![A-Za-z0-9_-]){re.escape(role)}(?![A-Za-z0-9_-])",
+            str(text or ""),
+        )
+    ]
+    return selected[0] if len(selected) == 1 else ""
+
+
+def _codex_matched_freshness_packet(text, implementation_ref):
+    """Recognize the exact-ref tree packet supplied by the stable Codex task."""
+    def value(name):
+        match = re.search(
+            rf"(?<![A-Za-z0-9_]){re.escape(name)}=([^,\s]+)",
+            str(text or ""),
+        )
+        return match.group(1).strip() if match else ""
+
+    packet_ref = value("implementation_ref")
+    implementation_tree = value("implementation_tree")
+    candidate_tree = value("candidate_tree")
+    status = value("candidate_tree_status")
+    return bool(
+        implementation_ref
+        and packet_ref == implementation_ref
+        and implementation_tree
+        and implementation_tree == candidate_tree
+        and status == "matched"
+    )
 
 
 def _codex_role_contract(base, subagent_type):
@@ -163,6 +198,17 @@ def _workflow_dispatch_blocker(base, task_id, subagent_type):
     requirements = task.get("requirements", {}) or {}
     implementation = record.get("implementation", {}) or {}
 
+    if subagent_type == "aiwf-executor" and implementation.get("implementation_ref"):
+        from aiwf_core.commands.flow import _task_next
+
+        next_role, _action = _task_next(task, record, base)
+        if next_role == "Main-session dispatch":
+            return (
+                "Cannot dispatch aiwf-executor after the current implementation and V/FIX "
+                "evidence are complete. The stable main session must read Task.md Dispatch "
+                "Decisions and choose its declared post-construction path."
+            )
+
     if subagent_type == "aiwf-reviewer":
         if (
             implementation.get("task_id") != task_id
@@ -172,11 +218,12 @@ def _workflow_dispatch_blocker(base, task_id, subagent_type):
                 "Cannot dispatch aiwf-reviewer before the active Task has a current "
                 "Executor implementation snapshot and V evidence. Finish Executor first."
             )
-        from aiwf_core.core.experiment_records import pending_experiments
-
-        empirical_work = pending_experiments(
-            str(base), task_id, str(implementation.get("implementation_ref") or ""),
+        from aiwf_core.core.experiment_records import (
+            live_experiments,
+            pending_experiment_dispositions,
         )
+
+        empirical_work = live_experiments(str(base), task_id)
         if empirical_work:
             item = empirical_work[0]
             experiment_id = str(item.get("experiment_id") or "")
@@ -189,6 +236,14 @@ def _workflow_dispatch_blocker(base, task_id, subagent_type):
             return (
                 f"Cannot dispatch aiwf-reviewer while experiment {experiment_id} is {status}. "
                 "Complete the empirical question first."
+            )
+        empirical_decisions = pending_experiment_dispositions(
+            str(base), task_id=task_id,
+        )
+        if empirical_decisions:
+            return (
+                "Cannot dispatch aiwf-reviewer before Planner dispositions planning "
+                f"experiment {empirical_decisions[0].get('experiment_id')}."
             )
         from aiwf_core.core.task_proof import (
             construction_proof_gaps,
@@ -241,11 +296,43 @@ def main():
                 "Cannot infer a Codex AIWF role: the spawn message must name exactly one active Task."
             )
         subagent_type, next_role = _codex_inferred_role(base, matches[0])
+        if not subagent_type and next_role in (
+            "Main-session dispatch", "Main-session freshness preflight",
+        ):
+            subagent_type = _codex_selected_role(dispatch_text)
+            if subagent_type == "aiwf-executor":
+                deny_pre_tool_use(
+                    "Cannot dispatch aiwf-executor after the current implementation and V/FIX "
+                    "evidence are complete. The main-session Task.md decision may select a "
+                    "post-implementation Experiment or Review."
+                )
+            if subagent_type == "aiwf-experimenter":
+                deny_pre_tool_use(
+                    "Cannot dispatch aiwf-experimenter from a Task-only prompt. The main "
+                    "session must open and start the selected EXP first, then spawn a child "
+                    "naming that EXP ID."
+                )
+            if (
+                subagent_type == "aiwf-reviewer"
+                and next_role == "Main-session freshness preflight"
+            ):
+                record = load_task_record(base, str(matches[0].get("id") or ""))
+                implementation_ref = str(
+                    (record.get("implementation", {}) or {}).get(
+                        "implementation_ref"
+                    ) or ""
+                )
+                if not _codex_matched_freshness_packet(
+                    dispatch_text, implementation_ref,
+                ):
+                    subagent_type = ""
         if not subagent_type:
             deny_pre_tool_use(
                 "Cannot bind a generic Codex child for this Task. Its current AIWF next role is "
                 f"{next_role}, which is not an independent Executor, Experimenter, or Reviewer dispatch. "
-                "Run 'aiwf status --prompt' and follow that route."
+                "Run 'aiwf status --prompt'. At a Main-session dispatch decision, read Task.md "
+                "and task proof, choose the declared path yourself, and name exactly one selected "
+                "aiwf-* role in the spawn message."
             )
         codex_fallback = True
     if subagent_type == "general-purpose" and matches:
@@ -318,13 +405,20 @@ def main():
         lines = [
             "AIWF experiment assignment:",
             f"Experiment: {experiment_id}",
+            f"Scope: {scope.get('kind')}:{scope_id}",
+            f"Timing: {experiment.get('timing')}",
             f"Question: {experiment.get('question')}",
             f"Hypothesis: {experiment.get('hypothesis') or '(none)'}",
             f"Subject ref: {experiment.get('subject_ref')}",
             f"Disposable worktree: {worktree_path}",
+            f"Read proof first: aiwf experiment show {experiment_id}",
             "Modify and probe the full disposable project as needed. Do not promote changes into the stable Plan worktree.",
             f"Record evidence with aiwf experiment record {experiment_id}, then return. The stable workflow disposes the worktree separately.",
         ]
+        if scope.get("kind") == "task":
+            lines.append(f"Also read Task proof: aiwf task proof {scope_id}")
+        else:
+            lines.append(f"Also read Plan contract: {base / '.aiwf/plans' / (scope_id + '.md')}")
         if original_prompt.strip():
             lines.extend(["", "Planner/Reviewer context:", original_prompt.strip()])
         updated = dict(event.tool_input or {})
@@ -343,6 +437,32 @@ def main():
         deny_pre_tool_use(
             f"Cannot dispatch {subagent_type} for {active_task_id}: the Task has no assigned worktree."
         )
+
+    if event.engine == "codex" and subagent_type == "aiwf-reviewer":
+        _inferred, next_role = _codex_inferred_role(base, task)
+        if next_role == "Main-session freshness preflight":
+            record = load_task_record(base, active_task_id)
+            implementation_ref = str(
+                (record.get("implementation", {}) or {}).get(
+                    "implementation_ref"
+                ) or ""
+            )
+            if not _codex_matched_freshness_packet(
+                dispatch_text, implementation_ref,
+            ):
+                deny_pre_tool_use(
+                    "Cannot dispatch aiwf-reviewer while Codex candidate freshness is "
+                    "unavailable. In the stable main task, run 'aiwf task proof "
+                    f"{active_task_id}' with the required permission, then include its exact "
+                    "matched implementation_ref, implementation_tree, candidate_tree, and "
+                    "candidate_tree_status packet in this Reviewer dispatch."
+                )
+        elif next_role == "Implementation repair":
+            deny_pre_tool_use(
+                "Cannot dispatch aiwf-reviewer: the stable candidate changed after its "
+                "implementation snapshot. Route Executor and record the intended current "
+                "candidate first."
+            )
 
     blocker = _workflow_dispatch_blocker(base, active_task_id, subagent_type)
     if blocker:

@@ -209,6 +209,7 @@ Verification Commands:
         self.assertEqual(implementation.returncode, 0, implementation.stderr)
         review = run_record(
             "record", "review", "--task-id", "TASK-004", "--result", "accepted",
+            "--story-complete",
             "--summary", "records and evidence use the assigned worktree",
         )
         self.assertEqual(review.returncode, 0, review.stderr)

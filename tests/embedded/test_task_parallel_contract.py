@@ -349,10 +349,11 @@ class TestTaskParallelContract(unittest.TestCase):
         self.assertIn("TASK-B1", status)
         self.assertIn(str(self.worktree_b.resolve()), status)
         self.assertIn("next=Executor", status)
-        self.assertIn("next=Reviewer", status)
+        self.assertIn("next=Main-session dispatch", status)
         self.assertIn("Independent Plans may run in parallel", status)
         self.assertNotIn("Before starting another Plan", status)
-        self.assertIn("Required skills: /aiwf-implement, /aiwf-review", status)
+        self.assertIn("Required skills: /aiwf-implement", status)
+        self.assertNotIn("Required skills: /aiwf-implement, /aiwf-review", status)
 
         status_from_plan_a = subprocess.run(
             [sys.executable, "-m", "aiwf_core.cli", "status", "--prompt"],
@@ -360,7 +361,7 @@ class TestTaskParallelContract(unittest.TestCase):
         ).stdout
         self.assertIn("TASK-A1 [current]", status_from_plan_a)
         self.assertIn("TASK-B1", status_from_plan_a)
-        self.assertIn("next=Reviewer", status_from_plan_a)
+        self.assertIn("next=Main-session dispatch", status_from_plan_a)
         self.assertIn(str(self.worktree_b.resolve()), status_from_plan_a)
 
         from aiwf_core.aiwf_ui import build_tree, load_all
@@ -413,7 +414,7 @@ class TestTaskParallelContract(unittest.TestCase):
         self.assertIn("TASK-A1", status)
         self.assertIn("next=Agent running", status)
         self.assertIn("TASK-B1", status)
-        self.assertIn("next=Reviewer", status)
+        self.assertIn("next=Main-session dispatch", status)
 
     def test_two_plan_worktrees_complete_independent_task_chains(self):
         from aiwf_core.core.state.context_ops import record_implementation

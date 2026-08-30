@@ -46,7 +46,9 @@ def save_experiment(base_dir: str | Path, record: Dict[str, Any]) -> None:
     _atomic_write(experiment_record_path(base_dir, experiment_id), record)
 
 
-def list_experiments(base_dir: str | Path, task_id: str = "") -> List[Dict[str, Any]]:
+def list_experiments(
+    base_dir: str | Path, task_id: str = "", plan_id: str = "",
+) -> List[Dict[str, Any]]:
     control = resolve_control_root(base_dir)
     root = control / ".aiwf" / "records" / "experiments"
     found: List[Dict[str, Any]] = []
@@ -63,6 +65,11 @@ def list_experiments(base_dir: str | Path, task_id: str = "") -> List[Dict[str, 
         if task_id and (
             scope.get("kind") != "task"
             or str(scope.get("id") or "") != task_id
+        ):
+            continue
+        if plan_id and (
+            scope.get("kind") != "plan"
+            or str(scope.get("id") or "") != plan_id
         ):
             continue
         found.append(item)
@@ -129,17 +136,40 @@ def open_experiment(
         plan = get_plan(str(control), plan_id)
         if not plan:
             raise ValueError(f"Plan not found: {plan_id}")
+        if plan.get("status") == "closed":
+            raise ValueError(f"Plan is closed: {plan_id}")
         subject_ref = subject_ref or str(plan.get("git_head_ref") or plan.get("git_base_ref") or "")
         timing = timing or "pre_implementation"
         scope = {"kind": "plan", "id": plan_id}
     if timing not in {"pre_implementation", "post_implementation"}:
         raise ValueError("timing must be pre_implementation or post_implementation")
+    if task_id and timing == "post_implementation":
+        implementation_ref = str(implementation.get("implementation_ref") or "")
+        if not implementation_ref:
+            raise ValueError("post-implementation experiment requires a current implementation ref")
+        resolved_current_ref = _git(control, "rev-parse", f"{implementation_ref}^{{commit}}")
+        resolved_subject_ref = _git(control, "rev-parse", f"{subject_ref}^{{commit}}")
+        if resolved_subject_ref != resolved_current_ref:
+            raise ValueError(
+                "post-implementation experiment must target the current implementation ref"
+            )
+        from .git_snapshots import worktree_matches_ref
+
+        worktree = str(task.get("worktree_path") or "")
+        if not worktree or not worktree_matches_ref(worktree, resolved_current_ref):
+            raise ValueError(
+                "post-implementation experiment requires the stable project tree to match "
+                "implementation_ref; branch HEAD may differ from the AIWF hidden snapshot "
+                "and does not need to be moved. Record fresh implementation evidence only "
+                "when the project tree actually changed"
+            )
     if not subject_ref:
         raise ValueError("experiment subject ref is missing")
     subject_ref = _git(control, "rev-parse", f"{subject_ref}^{{commit}}")
+    disposition_required = scope["kind"] == "plan" or timing == "pre_implementation"
 
     record = {
-        "schema_version": 1,
+        "schema_version": 2,
         "experiment_id": experiment_id,
         "scope": scope,
         "timing": timing,
@@ -155,6 +185,13 @@ def open_experiment(
         "conclusion": "",
         "summary": "",
         "promotion_candidates": [],
+        "disposition": {
+            "required": disposition_required,
+            "status": "pending" if disposition_required else "not_required",
+            "decision": "",
+            "reason": "",
+            "recorded_at": "",
+        },
         "created_at": _now(),
         "updated_at": _now(),
     }
@@ -164,7 +201,57 @@ def open_experiment(
             control, task_id,
             lambda task_record: task_record.setdefault("experiment_ids", []).append(experiment_id),
         )
+    else:
+        from .state.plan_ops import attach_experiment_to_plan
+
+        attach_experiment_to_plan(str(control), plan_id, experiment_id)
     return record
+
+
+def disposition_experiment(
+    base_dir: str, experiment_id: str, decision: str, reason: str,
+) -> Dict[str, Any]:
+    """Record Planner's meaning-level decision for a closed planning experiment."""
+    from .state_schema import VALID_EXPERIMENT_DISPOSITIONS
+
+    if decision not in VALID_EXPERIMENT_DISPOSITIONS:
+        raise ValueError(f"invalid experiment disposition: {decision}")
+    reason = " ".join(str(reason or "").split())
+    if not reason:
+        raise ValueError("experiment disposition reason is required")
+    control = resolve_control_root(base_dir)
+    with _exclusive_operation_lock(str(control), f"experiment-{_safe_id(experiment_id)}"):
+        record = load_experiment(control, experiment_id)
+        if not record:
+            raise ValueError(f"experiment not found: {experiment_id}")
+        if record.get("status") != "closed":
+            raise ValueError("finish experiment before recording its disposition")
+        disposition = record.get("disposition", {}) or {}
+        if not disposition.get("required", False):
+            raise ValueError(
+                "post-implementation experiment is dispositioned by Reviewer judgment"
+            )
+        if decision == "replan" and (record.get("scope", {}) or {}).get("kind") == "task":
+            from .task_ledger import load_ledger
+
+            task_id = str((record.get("scope", {}) or {}).get("id") or "")
+            task = next((
+                item for item in load_ledger(str(control)).get("tasks", []) or []
+                if isinstance(item, dict) and item.get("id") == task_id
+            ), {})
+            if task.get("status") == "active":
+                raise ValueError(
+                    f"ask the user to interrupt active Task {task_id} before recording replan"
+                )
+        record["disposition"] = {
+            "required": True,
+            "status": "recorded",
+            "decision": decision,
+            "reason": reason,
+            "recorded_at": _now(),
+        }
+        save_experiment(control, record)
+        return record
 
 
 def start_experiment(base_dir: str, experiment_id: str) -> Dict[str, Any]:
@@ -281,4 +368,24 @@ def pending_experiments(base_dir: str, task_id: str, subject_ref: str) -> List[D
         item for item in list_experiments(base_dir, task_id=task_id)
         if item.get("status") in ("open", "running", "recorded")
         and str(item.get("subject_ref") or "") == subject_ref
+    ]
+
+
+def live_experiments(base_dir: str, task_id: str) -> List[Dict[str, Any]]:
+    """Return every Task-linked experiment that still owns unfinished work."""
+    return [
+        item for item in list_experiments(base_dir, task_id=task_id)
+        if item.get("status") in ("open", "running", "recorded")
+    ]
+
+
+def pending_experiment_dispositions(
+    base_dir: str, *, task_id: str = "", plan_id: str = "",
+) -> List[Dict[str, Any]]:
+    """Return closed planning experiments whose meaning has not been governed."""
+    return [
+        item for item in list_experiments(base_dir, task_id=task_id, plan_id=plan_id)
+        if item.get("status") == "closed"
+        and (item.get("disposition", {}) or {}).get("required", False)
+        and (item.get("disposition", {}) or {}).get("status") != "recorded"
     ]

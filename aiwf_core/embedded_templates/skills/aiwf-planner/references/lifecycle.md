@@ -14,10 +14,14 @@ routing a finding, preparing the next Task, or closing a Plan. Run
    Plan's persistent worktree.
 4. `aiwf task activate` activates one Task for that Plan.
 5. If a real pre-implementation unknown exists, open/start an EXP, dispatch
-   Experimenter, record its immutable evidence, and dispose its worktree.
+   Experimenter, record its immutable evidence, dispose its worktree, and
+   disposition what the conclusion means before implementation proceeds.
 6. Executor implements and records the stable implementation plus complete V evidence.
-7. If a post-implementation empirical unknown exists, run the same EXP lifecycle
-   against `implementation_ref` without changing the stable worktree.
+7. The stable main session reads Task.md Dispatch Decisions and the returned
+   evidence, then selects the declared next path: Reviewer directly, or the EXP
+   lifecycle against `implementation_ref` followed by Reviewer. Whether a
+   post-implementation empirical unknown selects that path is Task-specific,
+   not a universal child-role rule.
 8. Reviewer judges the current implementation and relevant evidence.
 9. Planner records a decision for every finding and writes Closure Calibration.
 10. Complete any required repair, experiment, promotion, and cleanup before acceptance.
@@ -30,6 +34,10 @@ Do not replace this loop with direct JSON edits or remembered state.
 This section applies to Executor, Experimenter, and Reviewer. Explorer, Architect, and
 Critic use their own prompts.
 
+The stable main session owns dispatch. Task.md declares the allowed decision
+paths; Executor, Experimenter, and Reviewer never spawn their successor or turn
+their own recommendation into routing state.
+
 - Read Task.md and `aiwf task proof <TASK-ID>` before dispatching Executor or
   Reviewer. Give either Agent exactly one Task ID. Add `USER_DELTA` only when
   needed. AIWF adds the contract and stable Plan worktree.
@@ -37,6 +45,14 @@ Critic use their own prompts.
   Task packet. AIWF supplies its question, immutable subject ref, and disposable
   full-project worktree. After it records evidence and returns, run
   `aiwf experiment finish <EXP-ID>` from the stable session.
+- After finishing a Plan-scoped or pre-implementation EXP, read
+  `aiwf experiment show <EXP-ID>` and record `aiwf experiment disposition`.
+  Choose `proceed` when the fact informs execution without changing the
+  contract, `no_action` when no stable action follows, `promote` when Executor
+  must recreate a useful asset in stable reality, or `replan` when the current
+  Plan/Task direction is invalid. For an active Task, explain the conflict and
+  ask the user to interrupt before recording `replan` or revising Task.md. Post-implementation
+  EXP evidence is instead consumed by Reviewer.
 - Do not use host-created isolation, call `EnterWorktree`, or copy changes
   between worktrees. Executor and Reviewer use the Plan worktree. Experimenter
   uses only the AIWF-created EXP worktree.

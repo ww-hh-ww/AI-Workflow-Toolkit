@@ -29,6 +29,7 @@ from .io import rel, write_text
 PRODUCT_NAME = "Codex"
 COMMAND_NAME = "codex"
 ENTRY_COMMAND = "$aiwf-planner"
+CODEX_AGENT_TOOL_MATCHER = "Agent|spawn_agent|multi_agent_v1__spawn_agent"
 
 
 def _root() -> Path:
@@ -97,10 +98,21 @@ def _write_instruction() -> Path:
 Use Codex's native `spawn_agent` for every required independent AIWF role. If
 the tool exposes a custom-agent selector, choose the named `aiwf-*` profile. If
 it exposes only `message`, name exactly one active Task ID and the intended
-role; AIWF derives the only valid next role from Task state and injects the
-installed role contract into that independent child. Never imitate a required
+role. AIWF derives mechanical routes from Task state and injects the installed
+role contract into that independent child. At a Task.md dispatch decision, the
+main Codex task chooses the declared path and names the selected role; AIWF
+validates evidence and worktree prerequisites. Codex dispatch markers are
+visibility hints, not a prerequisite for recording otherwise valid role
+evidence. Never imitate a required
 Executor, Experimenter, or Reviewer inline. Name one EXP ID rather than a Task
 ID when dispatching Experimenter.
+
+When a fixed-sandbox Reviewer child cannot compute candidate freshness, the
+stable main Codex task may run `aiwf task proof <TASK-ID>` with the required
+permission and pass its exact matched implementation/tree binding in the
+Reviewer dispatch. This supplies only a mechanical read. Never turn
+`unavailable` into `matched`, and route any detected `changed` candidate back to
+Executor.
 """
     block = f"{AIWF_MANAGED_BLOCK_START}\n{content.rstrip()}\n{AIWF_MANAGED_BLOCK_END}\n"
     if not path.exists():
@@ -212,11 +224,17 @@ def _write_hooks() -> Path:
                 {"matcher": "Read|Glob|Grep|List", **_hook(_hook_command("aiwf_worktree_route.py"))},
                 {"matcher": "apply_patch|Edit|Write", **_hook(_hook_command("aiwf_scope_check.py"))},
                 {"matcher": "Bash", **_hook(_hook_command("aiwf_bash_guard.py"))},
-                {"matcher": "Agent", **_hook(_hook_command("aiwf_agent_gate.py"))},
+                {"matcher": CODEX_AGENT_TOOL_MATCHER,
+                 **_hook(_hook_command("aiwf_agent_gate.py"))},
             ],
             "PostToolUse": [
-                {"matcher": "Agent", **_hook(_hook_command("aiwf_agent_log.py"))},
+                {"matcher": CODEX_AGENT_TOOL_MATCHER,
+                 **_hook(_hook_command("aiwf_agent_log.py"))},
                 {"matcher": "apply_patch|Edit|Write", **_hook(_hook_command("aiwf_auto_sync.py"))},
+            ],
+            "PostToolUseFailure": [
+                {"matcher": CODEX_AGENT_TOOL_MATCHER,
+                 **_hook(_hook_command("aiwf_agent_log.py"))},
             ],
             # Some Codex runtimes expose only a generic child profile. The hook
             # script filters unrelated agents after consulting AIWF's dispatch ledger.

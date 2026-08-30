@@ -29,6 +29,9 @@ not guess. Surface the mismatch and follow the phase skill.
   Planner checks real dependencies. A Task may route Executor, Experimenter, and
   Reviewer in the order demanded by current uncertainty; they are capabilities,
   not a fixed three-stage pipeline.
+- Task.md declares allowed Dispatch Decisions. The stable main session evaluates
+  those decisions from current evidence and role reports, then dispatches the
+  selected role. A child role never chooses or starts its successor.
 - Give Executor and Reviewer one Task ID. Give Experimenter one EXP ID. AIWF
   supplies the relevant contract or empirical question and binds project tools
   to the stable Plan worktree or the disposable experiment worktree. Do not call
