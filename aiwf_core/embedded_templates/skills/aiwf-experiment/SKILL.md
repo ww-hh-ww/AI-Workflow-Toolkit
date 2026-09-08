@@ -18,6 +18,9 @@ an active owning Task, and an immutable subject commit inherited from that Task.
 Within Task execution, an EXP belongs to that Task: its question serves a Task
 decision and its evidence returns to the Task's main session. The EXP ID selects
 the particular investigation; it does not replace the owning Task contract.
+An implementation Task can use Experimenter before Executor. After the main
+session consumes and dispositions that evidence, it may dispatch Executor in the
+same Task; neither a separate research Task nor Plan scope follows from timing.
 
 First run `aiwf experiment show <EXP-ID>` when the EXP already exists. Follow
 its state instead of replaying the whole lifecycle:

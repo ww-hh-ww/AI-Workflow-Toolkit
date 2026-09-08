@@ -10,13 +10,15 @@ Run two passes.
 Read the relevant Goal.md, Plan.md, Task.md, and Milestone.md. Use the memory
 snapshot from `aiwf status --prompt` when it may change the design.
 
-Ask whether Task.md is ready to hand to a new Executor:
+Ask whether Task.md is ready for its declared work, including an initial Experiment:
 
 - Are the required Fixed Contract headings present at the exact levels defined
   in `task-contract.md`?
 - Is the outcome clear, useful, and consistent with its Goal and Plan?
 - Are responsibility, interfaces, invariants, consumers, main path, and old
-  path clear enough to implement without guessing?
+  path grounded enough to execute the contract? If implementation depends on an
+  empirical unknown, is its question and decision boundary explicit rather than
+  presented as an established fact?
 - Do Built, Wired, and Running describe the whole result without contradiction
   or repetition?
 - Does Known Context contain reliable entry points, important facts, traps, and
@@ -65,9 +67,12 @@ navigation, LSP, and focused file reads where they help.
   boundary.
 
 If reality changes execution, boundaries, interfaces, or proof, update the
-relevant MD and run `aiwf sync` before recording this pass. If the main path,
-consumer, invariant, or proof is still guessed, do not activate. Explore
-further, revise the design, or ask the user.
+relevant MD and run `aiwf sync` before recording this pass. Do not activate when
+the promised outcome, scope, consumer, invariant, or proof obligation is guessed.
+A bounded empirical question is not a guessed contract: activation may lead to
+Experimenter first, with the main session consuming its evidence before assigning
+dependent implementation to Executor in the same Task. If the conclusion would
+invalidate that contract, return for revision rather than silently changing it.
 
 ## Before Recording
 

@@ -486,6 +486,10 @@ Executor and Reviewer are inline in this fixture.
         )
         from aiwf_core.core.task_records import load_task_record
 
+        self.task["requirements"]["executor_required"] = True
+        self._write_json(".aiwf/state/tasks.json", {"tasks": [self.task]})
+        contract_before = (self.root / ".aiwf/tasks/TASK-001.md").read_bytes()
+
         open_experiment(
             str(self.root), "EXP-PRE", "Does the assumed API behavior hold?",
             task_id="TASK-001",
@@ -511,7 +515,11 @@ Executor and Reviewer are inline in this fixture.
         role, _ = _task_next(
             self.task, load_task_record(self.root, "TASK-001"), self.root,
         )
-        self.assertEqual(role, "Inline implementation")
+        self.assertEqual(role, "Executor")
+        ledger = json.loads((self.root / ".aiwf/state/tasks.json").read_text())
+        self.assertEqual(ledger["tasks"], [self.task])
+        self.assertEqual(self.task["kind"], "implementation")
+        self.assertEqual((self.root / ".aiwf/tasks/TASK-001.md").read_bytes(), contract_before)
 
     def test_review_and_close_block_any_unfinished_task_experiment(self):
         from aiwf_core.core.experiment_records import open_experiment

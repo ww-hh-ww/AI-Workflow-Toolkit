@@ -38,8 +38,11 @@ Use clear headings that fit the Plan. The names above are not a required form.
 - Non-goals when nearby work could be mistaken as part of this Plan.
 - Open Questions when an unresolved fact changes the mechanism or Task order.
 
-Omit empty optional sections. An important Unknown blocks implementation; it
-does not become a placeholder Task.
+Omit empty optional sections. An important Unknown blocks implementation that
+depends on it, not automatically the owning Task's activation or experimental
+work. Keep bounded investigation inside the delivery Task when its outcome and
+constraints are clear. Split out research only when its scope and independent
+decision value justify a separate deliverable; do not create a placeholder Task.
 
 ## Choosing Direction
 
@@ -48,8 +51,10 @@ difficult cases, operating constraints, and expected outcomes. Use code,
 observed evidence, a relevant standard, an experiment, or an explicit user
 decision as the basis.
 
-If credible mechanisms cannot yet be distinguished, return to Planner
-exploration before creating implementation Tasks.
+If competing mechanisms leave the Plan's direction or delivery contract undefined,
+resolve that planning decision first, using Architect investigation when empirical
+work is needed. If the choice fits an agreed Task boundary, let that Task's
+Experiment inform Executor; an unresolved method alone does not require a split.
 
 Do not mirror the Goal tree in code. Choose module boundaries by responsibility,
 the data and state each part owns, dependency direction, failure ownership, and

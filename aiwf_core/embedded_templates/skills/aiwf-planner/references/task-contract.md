@@ -102,7 +102,10 @@ proves the expected meaning.
 Do not make Experimenter a mandatory phase or a second owner for V-*.
 Within this Task, every EXP is subordinate empirical work: name the Task
 decision it informs, and return its evidence to that decision. An EXP ID
-identifies an investigation, not a separate acceptance contract.
+identifies an investigation, not a separate acceptance contract. Pre-implementation
+experiments do not require a research Task: the main session can consume their
+evidence and dispatch Executor within this same delivery Task. Split only when
+the investigation warrants its own agreed outcome, not because it runs first.
 
 Open an Experiment only when a decision depends on an empirical fact that
 ordinary planning inspection, Executor implementation work, required V-* runs,
@@ -145,8 +148,10 @@ participating role reach its first consequential judgment:
 
 Use concise source-backed bullets. Do not paste logs, inventories, whole-file
 summaries, exploration history, repeated Goal/Plan text, or implementation
-recipes. Unknown consumer, invariant, owner, main path, or baseline proof means
-the Task is not ready.
+recipes. Guessed delivery responsibilities, consumers, invariants, or proof
+obligations mean the Task is not ready. Explicit empirical unknowns may remain
+when Dispatch Decisions explains how to resolve them before dependent work;
+do not turn this readiness check into a demand for experimental results upfront.
 
 For a crossed boundary, preserve the smallest slice later roles must not guess:
 Input, Output, Consumer, Invariant, Owner, Proof, and Basis.

@@ -34,6 +34,14 @@ not separate planning units. Plan the relevant decisions and paths in Task.md
 Dispatch Decisions; the main session chooses from returned facts. Do not enumerate
 a universal sequence or let child roles dispatch their successors.
 
+An implementation Task may begin with Experimenter and continue with Executor
+under the same contract. Do not split research and implementation merely because
+an experiment precedes code changes. Choose Task boundaries by the promised
+outcome, investigation scope, independent value of the conclusion, and impact on
+later decisions. A standalone research Task is useful when answering the question
+is itself the agreed deliverable, not a prerequisite category for every experiment.
+Plan scope follows the decision being informed, not experiment timing.
+
 Planning an experiment means writing the unknown, why it matters, and how its
 result informs a Task decision. It requires no Git subject, EXP runtime record,
 or worktree. Task activation binds the execution baseline. Only when the active
@@ -77,8 +85,9 @@ project docs only when current work points to them.
 - Do not run human-only commands.
 - Do not invent CLI commands; use `aiwf --help`.
 - Do not put guesses in memory.
-- Do not activate implementation while the main path, consumer, shared
-  invariant, owner, or proof is still guessed.
+- Do not activate a guessed delivery contract. A bounded empirical unknown may
+  remain when Task.md defines the outcome, constraints, proof obligations, and
+  decision path for resolving it before dependent implementation begins.
 
 ## Workflow
 
