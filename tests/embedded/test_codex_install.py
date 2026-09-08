@@ -468,11 +468,16 @@ class TestCodexInstall(unittest.TestCase):
         self.assertIn("Main-session freshness preflight", denied.stdout)
         self.assertIn("permissionDecision", denied.stdout)
 
+        from aiwf_core.commands.flow import _post_construction_next
+
+        _, generated_action = _post_construction_next("TASK-A", True, {
+            "implementation_ref": implementation_ref,
+            "implementation_tree": tree, "candidate_tree": tree,
+        })
+        packet = generated_action.split("into the Reviewer dispatch: ", 1)[1]
         allowed = dispatch(
             "Dispatch aiwf-reviewer for TASK-A with Codex main-session freshness packet: "
-            f"implementation_ref={implementation_ref}, "
-            f"implementation_tree={tree}, candidate_tree={tree}, "
-            "candidate_tree_status=matched"
+            + packet
         )
         self.assertEqual(allowed.returncode, 0, allowed.stderr)
         response = json.loads(allowed.stdout)["hookSpecificOutput"]

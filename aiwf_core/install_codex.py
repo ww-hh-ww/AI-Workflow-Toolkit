@@ -52,41 +52,7 @@ def _description(text: str, fallback: str) -> str:
     return fallback
 
 
-def _codex_text(text: str) -> str:
-    converted = (
-        text.replace("Claude Code", "Codex")
-        .replace("`EnterWorktree`", "a worktree-switching tool")
-        .replace("`isolation: worktree`", "tool-managed worktree isolation")
-        .replace("Agent/Task tool", "native subagent tool")
-        .replace("Agent call", "subagent call")
-    )
-    converted = re.sub(r"(?<![A-Za-z0-9_])/(aiwf-[a-z-]+)", r"$\1", converted)
-    converted = converted.replace(
-        "with `SendMessage`", "by sending one follow-up message to the existing agent thread"
-    ).replace(
-        "with SendMessage", "by sending one follow-up message to the existing agent thread"
-    ).replace("`SendMessage`", "the existing agent thread").replace(
-        "## SendMessage", "## Resume an existing agent"
-    )
-    converted = re.sub(
-        r'`Agent\(\{subagent_type: "([^"]+)", prompt: "(.*?)"\}\)`',
-        lambda match: (
-            f"Dispatch the `{match.group(1)}` custom agent with this message: "
-            f"`{match.group(2)}`"
-        ),
-        converted,
-    )
-    converted = converted.replace(
-        "- Treat the assigned worktree as the project root. AIWF keeps relative file,\n"
-        "  search, and Bash tools there. Run `pwd` once; if it is not the assigned path,\n"
-        "  return to Planner.",
-        "- Treat the assigned worktree as the project root. Codex may still report the\n"
-        "  parent session directory inside subagent hooks, so use the exact assigned\n"
-        "  worktree path from the dispatch for project reads, writes, and commands. Do\n"
-        "  not return merely because `pwd` shows the control root; return only when the\n"
-        "  assigned worktree is missing or inaccessible.",
-    )
-    return converted
+from .adapters.host_prompts import _codex_text
 
 
 def _write_instruction() -> Path:

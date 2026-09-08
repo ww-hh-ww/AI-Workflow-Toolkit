@@ -282,6 +282,7 @@ def record_experiment(
     commands: Optional[List[str]] = None,
     observations: Optional[List[str]] = None,
     promotion_candidates: Optional[List[str]] = None,
+    source_experiments: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """Freeze the disposable project tree and record its empirical conclusion."""
     from .git_snapshots import create_experiment_snapshot
@@ -305,6 +306,17 @@ def record_experiment(
             raise ValueError("experiment must be running before evidence can be recorded")
         if not same_path(resolve_worktree_root(base_dir), worktree):
             raise ValueError(f"record experiment from its disposable worktree: {worktree}")
+        from .experiment_assets import retained_experiment
+
+        sources = []
+        for source_id in dict.fromkeys(source_experiments or []):
+            if source_id == experiment_id:
+                raise ValueError("an experiment cannot cite itself as a source")
+            _, source = retained_experiment(control, source_id)
+            sources.append({"experiment_id": source_id,
+                            "experiment_ref": source["experiment_ref"],
+                            "subject_ref": source["subject_ref"],
+                            "scope": source["scope"]})
         snapshot = create_experiment_snapshot(
             worktree, experiment_id, str(record.get("subject_ref") or ""), summary=summary,
         )
@@ -315,6 +327,7 @@ def record_experiment(
             "commands": list(dict.fromkeys(commands or [])),
             "observations": observations,
             "promotion_candidates": list(promotion_candidates or []),
+            "source_experiments": sources,
             "experiment_ref": snapshot["ref"],
             "snapshot_ref": snapshot["named_ref"],
             "changed_files": snapshot["files"],

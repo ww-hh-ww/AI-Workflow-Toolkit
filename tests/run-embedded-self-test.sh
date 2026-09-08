@@ -31,6 +31,8 @@ TESTS=(
   "tests/embedded/test_planner_decision_contract.py"
   "tests/embedded/test_planner_first_flow.py"
   "tests/embedded/test_prompt_clarity_contract.py"
+  "tests/embedded/test_experiment_assets.py"
+  "tests/embedded/test_task_reading.py"
   "tests/embedded/test_no_external_orchestration.py"
   "tests/embedded/test_v2_core.py"
 )

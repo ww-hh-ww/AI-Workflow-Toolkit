@@ -28,7 +28,7 @@ Critic is manual. It does not join the normal workflow or block work.
    verbatim, the selected slice, and the answer mode. Do not summarize the claim
    for Critic or give it a preferred conclusion.
 
-   `Agent({subagent_type: "aiwf-critic", prompt: "User request: <verbatim request>\nCritique slice: <selected slice>\nAnswer mode: <critique only | critique plus better options>\nRead the relevant project and AIWF material yourself. Follow /aiwf-critic. Return CRITIC_REPORT."})`
+   `Agent({subagent_type: "aiwf-critic", prompt: "User request: <verbatim request>\nCritique slice: <selected slice>\nAnswer mode: <critique only | critique plus better options>\nRead the relevant project and AIWF material yourself. Follow the aiwf-critic role instructions. Return CRITIC_REPORT."})`
 
 4. Present the report as Critic findings. Keep clear what it inspected, what it
    inferred, and what remains unknown. Do not defend the project or turn the

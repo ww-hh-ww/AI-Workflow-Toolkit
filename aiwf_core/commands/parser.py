@@ -63,6 +63,7 @@ from .governance_commands import (
     _cmd_governance_tracking,
 )
 from .experiment_commands import (
+    _cmd_experiment_assets,
     _cmd_experiment_disposition,
     _cmd_experiment_finish,
     _cmd_experiment_list,
@@ -466,6 +467,8 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
     p_exp_record.add_argument("--command", action="append", default=[], dest="commands")
     p_exp_record.add_argument("--observation", action="append", default=[], dest="observations")
     p_exp_record.add_argument("--promotion-candidate", action="append", default=[], dest="promotion_candidates")
+    p_exp_record.add_argument("--source-experiment", action="append", default=[], dest="source_experiments",
+                              help="retained EXP whose assets or method were reused; does not reuse its verdict")
     p_exp_record.set_defaults(func=_cmd_experiment_record)
     p_exp_finish = p_exp_sub.add_parser("finish", help="remove the disposable worktree")
     p_exp_finish.add_argument("experiment_id")
@@ -483,6 +486,11 @@ def build_parser(cmd_init) -> argparse.ArgumentParser:
     p_exp_show = p_exp_sub.add_parser("show", help="show one experiment record")
     p_exp_show.add_argument("experiment_id")
     p_exp_show.set_defaults(func=_cmd_experiment_show)
+    p_exp_assets = p_exp_sub.add_parser("assets", help="read retained experimental assets without restoring a worktree")
+    p_exp_assets.add_argument("experiment_id")
+    p_exp_assets.add_argument("--path", default="", help="exact repository-relative file to read")
+    p_exp_assets.add_argument("--raw", action="store_true", help="emit file bytes to stdout; requires --path")
+    p_exp_assets.set_defaults(func=_cmd_experiment_assets)
     p_exp_list = p_exp_sub.add_parser("list", help="list experiment records")
     p_exp_list.add_argument("--task-id", default="")
     p_exp_list.add_argument("--plan-id", default="")

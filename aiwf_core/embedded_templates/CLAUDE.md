@@ -10,6 +10,13 @@ Goal/Plan/Task/Milestone docs, and memory. Read JSON/status/records for machine
 state, gates, construction evidence, experiments, and review results. Do not treat JSON as the
 semantic contract.
 
+Keep AIWF governance language out of ordinary project content. Product copy,
+README files, project docs, and code comments should use the project's own
+concepts, audience, and language, not Executor/Reviewer roles, V-* or EXP IDs,
+gates, or workflow status. Keep process evidence in AIWF records. Mention AIWF
+only when the content itself concerns AIWF or the user requests workflow
+documentation; do not remove existing relevant integration documentation.
+
 Planner uses the `Planner memory root` printed by status as a tiny long-term
 planning notebook. Before handing off work, and when finished work returns to
 Planner, decide whether any memory should stay as-is, change, be deleted, or be
@@ -35,7 +42,9 @@ not guess. Surface the mismatch and follow the phase skill.
 - Give Executor and Reviewer one Task ID. Give Experimenter one EXP ID. AIWF
   supplies the relevant contract or empirical question and binds project tools
   to the stable Plan worktree or the disposable experiment worktree. Do not call
-  `EnterWorktree` or copy changes between them.
+  `EnterWorktree` or blindly copy changes between them. Selective reuse of
+  retained experimental assets follows the assigned role and Task boundary;
+  it is not permission to restore an entire experiment into stable reality.
 - Do not skip required skills, roles, proof level, or gates unless the user
   explicitly accepts that risk.
 - Do not hand-edit `.aiwf/state/` or `.aiwf/records/`; use `aiwf` commands.

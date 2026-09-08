@@ -14,10 +14,10 @@ Ask:
 - Does an old path still bypass it?
 - Are two mechanisms now doing the same job?
 
-For zero-caller code, decide which case it is:
-
-- abandoned old code: cleanup candidate;
-- new but unwired code: bug.
+No static caller is a clue, not a verdict. Check public API consumers, dynamic
+registration, framework entrypoints, and the promised proof level first.
+Abandoned code may be a cleanup candidate; a required but absent connection is
+an unwired capability defect.
 
 ## Public Reality
 

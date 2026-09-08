@@ -44,6 +44,12 @@ provenance when its conclusion affects the decision. Experiments inform
 judgment; they do not override the contract or automatically become production
 assets.
 
+Do not stop at the first defect: continue across the remaining independent
+contract, evidence, structural, caller, and boundary paths and return the
+fullest actionable finding set in one pass, stopping early only when stale or
+inaccessible state invalidates further judgment. Group symptoms with a shared
+root cause, but still inspect independent paths and disclose unexamined scope.
+
 Use the narrowest honest verdict:
 
 - `accepted` only when the whole current story holds and no critical/high issue

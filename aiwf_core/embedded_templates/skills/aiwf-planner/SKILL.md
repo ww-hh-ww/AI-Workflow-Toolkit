@@ -208,5 +208,7 @@ unified multi-Plan review choices. The user decides whether to run it.
 
 ## Stop Condition
 
-Stop when the next skill is clear, a trustworthy Task is activated, or human
-action is required.
+When the next skill is clear or a trustworthy Task is activated, transition to
+the next authorized work in the main session; this ends the planning phase, not
+the user's task. Return to the user when the requested work is complete or a
+human decision or action is required.

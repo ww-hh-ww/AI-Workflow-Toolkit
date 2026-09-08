@@ -3,12 +3,13 @@ from __future__ import annotations
 
 import json
 import os
-import re
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List
 
 from ..constants import VERSION
-from ..core.agent_runtime import WORKFLOW_ROLES, resumable_agent, running_dispatches
+from ..core.agent_runtime import WORKFLOW_ROLES, running_dispatches
+from ..core.task_routes import _task_next
+from ..core.task_dispatch import _post_construction_next, _live_experiment_next
 from ..core.git_workflow import plan_integration_state
 from ..core.state.goal_ops import get_active_goal
 from ..core.state.plan_ops import load_plans
@@ -26,20 +27,6 @@ def _read_json(path: Path, default: Dict[str, Any]) -> Dict[str, Any]:
         return default
 
 
-def _hook_problem(task: Dict[str, Any], record: Dict[str, Any]) -> str:
-    fix_loop = record.get("fix_loop", {}) or {}
-    if fix_loop.get("status") == "open":
-        return f"{task['id']} fix-loop routes to {fix_loop.get('route') or 'planner'}"
-    review = record.get("review", {}) or {}
-    if review.get("result") == "accepted" and not review.get("closure_allowed", False):
-        return f"{task['id']} accepted review lacks complete-story assertion"
-    if review.get("result") in (
-        "rejected", "needs_change", "needs_experiment", "scope_violation",
-    ):
-        return f"{task['id']} review={review.get('result')}"
-    if task.get("scope_violation"):
-        return f"{task['id']} has a scope violation"
-    return ""
 
 
 def _acknowledge_status_hook(control: Path) -> None:
@@ -48,515 +35,15 @@ def _acknowledge_status_hook(control: Path) -> None:
         task for task in load_ledger(str(control)).get("tasks", []) or []
         if isinstance(task, dict) and task.get("status") in ("active", "suspended")
     ]
-    active = [task for task in workflow_tasks if task.get("status") == "active"]
-    problems: List[str] = []
-    tasks: List[Dict[str, Any]] = []
-    for task in workflow_tasks:
-        record = load_task_record(control, str(task.get("id") or ""))
-        review = record.get("review", {}) or {}
-        problem = _hook_problem(task, record)
-        if problem:
-            problems.append(problem)
-        tasks.append({
-            "id": task.get("id", ""),
-            "phase": task.get("phase", ""),
-            "worktree": task.get("worktree_path", ""),
-            "implementation": (record.get("implementation", {}) or {}).get(
-                "implementation_ref", ""
-            ),
-            "experiments": list(record.get("experiment_ids", []) or []),
-            "review": review.get("result", "unknown"),
-            "review_story_complete": bool(review.get("closure_allowed", False)),
-            "fix": (record.get("fix_loop", {}) or {}).get("status", "none"),
-        })
-    tasks.sort(key=lambda task: str(task.get("id") or ""))
-    fingerprint = {
-        "tasks": tasks,
-        "problems": sorted(problems),
-        "temporary_ai_writes": temporary_ai_writes_enabled(control) and not active,
-    }
+    from ..core.status_context import fingerprint as status_fingerprint
+
+    fingerprint = status_fingerprint(control, workflow_tasks)
     path = control / ".aiwf/runtime/internal/status-hook-last.json"
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(fingerprint, indent=2) + "\n", encoding="utf-8")
     except OSError:
         pass
-
-
-def _live_experiment_next(control: Path, task_id: str) -> Tuple[str, str] | None:
-    from ..core.experiment_records import live_experiments
-
-    empirical_work = live_experiments(str(control), task_id)
-    if not empirical_work:
-        return None
-    experiment = empirical_work[0]
-    experiment_id = str(experiment.get("experiment_id") or "")
-    state = str(experiment.get("status") or "open")
-    action = (
-        f"run aiwf experiment start {experiment_id}, then dispatch aiwf-experimenter "
-        f"for {experiment_id}"
-        if state == "open"
-        else f"run aiwf experiment finish {experiment_id}, then rerun aiwf status --prompt"
-        if state == "recorded"
-        else f"dispatch or resume aiwf-experimenter for {experiment_id}"
-    )
-    return ("Experiment cleanup" if state == "recorded" else "Experimenter"), action
-
-
-def _post_construction_next(
-    task_id: str, reviewer_required: bool, codex_binding: Dict[str, Any] | None = None,
-) -> Tuple[str, str]:
-    review_action = (
-        f"dispatch aiwf-reviewer for {task_id}"
-        if reviewer_required
-        else f"review {task_id} inline and record it"
-    )
-    freshness = ""
-    if codex_binding:
-        freshness = (
-            " If it selects review, copy this exact Codex main-session freshness packet "
-            "into the Reviewer dispatch: "
-            f"implementation_ref={codex_binding.get('implementation_ref')}, "
-            f"implementation_tree={codex_binding.get('implementation_tree')}, "
-            f"candidate_tree={codex_binding.get('candidate_tree')}, "
-            "candidate_tree_status=matched."
-        )
-    return (
-        "Main-session dispatch",
-        f"run aiwf task proof {task_id}, read Task.md Dispatch Decisions, and use the "
-        "recorded implementation and experiment evidence to choose the declared next path "
-        "in this main session. If it selects Experimenter, open and start the declared "
-        "post-implementation EXP against the current implementation_ref, load "
-        f"/aiwf-experiment, and dispatch aiwf-experimenter with its EXP ID. If it selects "
-        f"review, load /aiwf-review and {review_action}.{freshness} Do not delegate this route choice "
-        "to a child Agent or infer a universal experiment rule outside Task.md",
-    )
-
-
-def _codex_freshness_preflight(
-    task: Dict[str, Any], implementation: Dict[str, Any], control: Path,
-) -> Tuple[str, str] | Dict[str, Any]:
-    """Preflight the stable candidate where Codex can request host permission."""
-    from ..core.git_snapshots import format_tree_changes, snapshot_binding
-
-    task_id = str(task.get("id") or "")
-    implementation_ref = str(implementation.get("implementation_ref") or "")
-    worktree = str(task.get("worktree_path") or control)
-    binding = snapshot_binding(worktree, implementation_ref)
-    status = str(binding.get("candidate_tree_status") or "unavailable")
-    if status == "matched":
-        return binding
-    if status == "changed":
-        changes = format_tree_changes(binding.get("tree_changes", []) or [])
-        return (
-            "Implementation repair",
-            f"load /aiwf-implement for {task_id}; the stable candidate tree changed after "
-            f"implementation_ref {implementation_ref}. Inspect and record the intended current "
-            f"candidate before any Experiment or Review"
-            + (f": {changes}" if changes else ""),
-        )
-    detail = " ".join(str(binding.get("candidate_tree_error") or "").split())
-    suffix = f" Reported Git error: {detail[:500]}." if detail else ""
-    return (
-        "Main-session freshness preflight",
-        f"in the stable Codex main task, run aiwf task proof {task_id} with the permission "
-        f"needed to inspect Plan worktree {worktree}. Confirm its implementation_ref is exactly "
-        f"{implementation_ref}. If candidate_tree_status=matched, continue directly with the "
-        "Task.md Dispatch Decisions and copy the exact implementation/tree binding into any "
-        "Reviewer dispatch; if changed, route Executor; do not dispatch a child while the result "
-        f"is unavailable.{suffix}",
-    )
-
-
-def _post_construction_route(
-    task: Dict[str, Any], implementation: Dict[str, Any], control: Path,
-    host: str, reviewer_required: bool,
-) -> Tuple[str, str]:
-    if host == "codex":
-        freshness = _codex_freshness_preflight(task, implementation, control)
-        if isinstance(freshness, tuple):
-            return freshness
-        return _post_construction_next(
-            str(task.get("id") or ""), reviewer_required, freshness,
-        )
-    return _post_construction_next(
-        str(task.get("id") or ""), reviewer_required,
-    )
-
-
-def _task_next(
-    task: Dict[str, Any],
-    record: Dict[str, Any],
-    control: Path | None = None,
-    host: str = "",
-) -> Tuple[str, str]:
-    host = (host or os.environ.get("AIWF_HOST", "claude")).lower()
-    task_id = str(task.get("id") or "")
-    requirements = task.get("requirements", {}) or {}
-    implementation = record.get("implementation", {}) or {}
-    review = record.get("review", {}) or {}
-    fix_loop = record.get("fix_loop", {}) or {}
-    if fix_loop.get("status") == "open":
-        if fix_loop.get("escalation_required"):
-            return (
-                "Planner decision",
-                f"load /aiwf-planner and run aiwf fixloop status --task-id {task_id}; "
-                "tell the user what failed and what still needs verification, then ask them to choose: "
-                f"continue with aiwf fixloop continue --task-id {task_id}; pause and replan with "
-                f"aiwf task interrupt {task_id}; or accept the unmet checks and close with "
-                f"aiwf task force-close {task_id}. These commands are human-only. If they continue, "
-                "run aiwf status --prompt again and follow its route",
-            )
-        route = str(fix_loop.get("route") or "planner")
-        if route == "executor":
-            previous = (
-                resumable_agent(
-                    control, task_id=task_id, subagent_type="aiwf-executor",
-                )
-                if control else None
-            )
-            if previous:
-                if host == "opencode":
-                    agent_route = (
-                        f"otherwise continue the previous aiwf-executor child once with "
-                        f"task_id {previous['agent_id']} and tell it to read aiwf task proof "
-                        f"{task_id}; if continuation is unavailable, dispatch a new "
-                        "aiwf-executor with the Task ID and current finding"
-                    )
-                else:
-                    agent_route = (
-                        f"otherwise, if available in this or the resumed original Claude session, "
-                        f"try once to resume aiwf-executor {previous['agent_id']} with "
-                        "SendMessage using the Task ID and a concise repair brief grounded in "
-                        "the fix-loop context below; name the confirmed finding and source, "
-                        "affected expected behavior, what remains valid, and focused proof, "
-                        "without prescribing the implementation; if unavailable or resume "
-                        "fails, dispatch a new aiwf-executor with the same repair brief"
-                    )
-            else:
-                agent_route = (
-                    "otherwise dispatch aiwf-executor with the Task ID and a concise "
-                    "repair brief grounded in the fix-loop context below"
-                )
-            return (
-                "Implementation repair",
-                f"load /aiwf-implement for {task_id}; repair and record inline if tiny "
-                f"and clear; {agent_route}",
-            )
-        if route == "reviewer":
-            empirical_next = _live_experiment_next(control, task_id) if control else None
-            if empirical_next:
-                return empirical_next
-            if (
-                control
-                and implementation.get("implementation_ref")
-                and str(review.get("result") or "unknown") == "unknown"
-            ):
-                return _post_construction_route(
-                    task, implementation, control, host,
-                    requirements.get("reviewer_required", True),
-                )
-            previous = (
-                resumable_agent(
-                    control, task_id=task_id, subagent_type="aiwf-reviewer",
-                )
-                if control else None
-            )
-            if previous:
-                if host == "opencode":
-                    agent_route = (
-                        f"otherwise continue the previous aiwf-reviewer child once with "
-                        f"task_id {previous['agent_id']} and a concise judgment brief "
-                        "grounded in the fix-loop context below; if continuation is unavailable, "
-                        "dispatch a new aiwf-reviewer with the same brief"
-                    )
-                else:
-                    agent_route = (
-                        f"otherwise, if available, try once to resume aiwf-reviewer "
-                        f"{previous['agent_id']} with the Task ID and the repaired candidate; "
-                        "if unavailable, dispatch a new aiwf-reviewer"
-                    )
-            else:
-                agent_route = (
-                    "dispatch aiwf-reviewer with the Task ID and current repair context"
-                )
-            return (
-                "Reviewer",
-                f"load /aiwf-review for {task_id}; {agent_route}, then record judgment",
-            )
-        return (
-            "Planner decision",
-            f"load /aiwf-planner, run aiwf fixloop status --task-id {task_id}, "
-            "then resolve the decided issue or reroute remaining work",
-        )
-
-    if task.get("kind") == "milestone_verification":
-        milestone_id = str(task.get("milestone_id") or "")
-        from ..core.state.milestone_ops import get_milestone
-
-        milestone = get_milestone(str(control or Path.cwd()), milestone_id)
-        synthesis = milestone.get("stage_synthesis", {}) or {}
-        integration = milestone.get("integration_test", {}) or {}
-        architecture = milestone.get("architecture_review", {}) or {}
-        acceptance = milestone.get("user_acceptance", {}) or {}
-        technically_passed = (
-            synthesis.get("verdict") in ("PASS", "PASS_WITH_RISK")
-            and integration.get("status") == "passed"
-            and integration.get("main_path_status") == "passed"
-            and architecture.get("status") == "intact"
-        )
-        if not technically_passed:
-            return (
-                "Milestone acceptance",
-                f"load /aiwf-architect and dispatch an independent aiwf-architect for "
-                f"{milestone_id} with the milestone-acceptance lens. Use "
-                f"{control / '.aiwf/milestones' / (milestone_id + '.md') if control else 'Milestone.md'} "
-                "as the acceptance contract, exercise its Pass Standard on the real path, "
-                "and record integration, architecture, and assessment results. This status "
-                "route does not dispatch the Agent itself",
-            )
-        if acceptance.get("status") != "confirmed":
-            return (
-                "Human acceptance",
-                f"present the {milestone_id} assessment and residual risks to the user, then "
-                f"ask whether they confirm this Milestone. Do not run aiwf milestone confirm "
-                f"{milestone_id} until they explicitly approve",
-            )
-        return (
-            "Planner calibration",
-            f"load /aiwf-planner and calibrate {task_id} with the accepted Milestone outcome, "
-            f"then load /aiwf-close and close the verification Task. After it closes, run "
-            f"aiwf milestone close {milestone_id}",
-        )
-    if control:
-        from ..core.experiment_records import (
-            list_experiments,
-            pending_experiment_dispositions,
-        )
-
-        empirical_next = _live_experiment_next(control, task_id)
-        if empirical_next:
-            return empirical_next
-        pending_dispositions = pending_experiment_dispositions(
-            str(control), task_id=task_id,
-        )
-        if pending_dispositions:
-            experiment_id = str(pending_dispositions[0].get("experiment_id") or "")
-            return (
-                "Planner decision",
-                f"load /aiwf-planner, run aiwf experiment show {experiment_id}, then record "
-                f"what the fact means with aiwf experiment disposition {experiment_id} "
-                "--decision proceed|no_action|promote --reason '<why>'. If the fact invalidates "
-                f"the contract, ask the user to interrupt {task_id} first, then record replan; "
-                "do not edit active Task.md",
-            )
-        promotion = next((
-            item for item in list_experiments(str(control), task_id=task_id)
-            if (item.get("disposition", {}) or {}).get("decision") == "promote"
-            and str((item.get("disposition", {}) or {}).get("recorded_at") or "")
-            > str(implementation.get("recorded_at") or "")
-        ), None)
-        if promotion:
-            return (
-                "Executor",
-                f"load /aiwf-implement and dispatch aiwf-executor for {task_id}; recreate the "
-                f"approved promotion candidate from {promotion.get('experiment_id')} in stable "
-                "reality, then record a fresh implementation and complete V evidence",
-            )
-    reviewed_ref = str(review.get("reviewed_ref") or "")
-    if review.get("result") == "accepted" and reviewed_ref and control:
-        try:
-            from ..core.git_snapshots import (
-                ref_tree,
-                worktree_changes_from_ref,
-                worktree_matches_ref,
-            )
-
-            worktree = str(task.get("worktree_path") or control)
-            review_stale = bool(ref_tree(worktree, reviewed_ref)) and (
-                bool(worktree_changes_from_ref(worktree, reviewed_ref))
-                if task.get("kind") == "integration"
-                else not worktree_matches_ref(worktree, reviewed_ref)
-            )
-            if review_stale:
-                return (
-                    "Implementation repair",
-                    f"load /aiwf-implement for {task_id}; project files changed after review. "
-                    "Inspect the current diff, record the intended current implementation, "
-                    "then rerun affected experiments and review. Do not interrupt only "
-                    "because Git HEAD changed",
-                )
-        except Exception:
-            pass
-    if not implementation.get("implementation_ref"):
-        if requirements.get("executor_required", True):
-            previous = (
-                resumable_agent(
-                    control, task_id=task_id, subagent_type="aiwf-executor",
-                )
-                if control else None
-            )
-            if previous:
-                if host == "opencode":
-                    return (
-                        "Executor",
-                        f"load /aiwf-implement; continue the previous aiwf-executor child once "
-                        f"with task_id {previous['agent_id']} and tell it to reread Task.md, "
-                        "the current diff, and missing work; if continuation is unavailable, "
-                        "dispatch a new aiwf-executor for the Task",
-                    )
-                return (
-                    "Executor",
-                    f"load /aiwf-implement; if available in this or the resumed original Claude "
-                    f"session, try once to resume aiwf-executor {previous['agent_id']} "
-                    f"with SendMessage: 'Resume {task_id}. Reread Task.md and the current "
-                    "diff, finish any missing work, record implementation, and return'; "
-                    "if unavailable or resume fails, dispatch a new aiwf-executor for the Task",
-                )
-            return "Executor", f"load /aiwf-implement and dispatch aiwf-executor for {task_id}"
-        return "Inline implementation", f"load /aiwf-implement, implement {task_id} inline, and record it"
-    proof_gaps: List[str] = []
-    contract_blockers: List[str] = []
-    if control:
-        from ..core.task_proof import (
-            activation_proof_blockers,
-            construction_proof_gaps,
-            validate_implementation_against_task,
-        )
-
-        proof_validation = validate_implementation_against_task(str(control), task, implementation)
-        contract_blockers = activation_proof_blockers(str(control), task)
-        if implementation.get("implementation_ref"):
-            proof_gaps = construction_proof_gaps(proof_validation)
-    proof_contract_blockers = [
-        item for item in contract_blockers
-        if item.startswith("Verification")
-        or "proof contract" in item.lower()
-        or "Wired/Running" in item
-    ]
-    if proof_contract_blockers:
-        blockers = "; ".join(proof_contract_blockers[:4])
-        return (
-            "Planner decision",
-            f"load /aiwf-planner for {task_id}; Task.md proof contract is not dispatchable: "
-            f"{blockers}. This is a contract defect, not missing construction evidence. Do not "
-            "substitute paths. Because the active Task.md is frozen, "
-            "ask the user to interrupt and revise the exact contract, sync, then reactivate "
-            "the Task",
-        )
-    if proof_gaps:
-        missing = ", ".join(proof_gaps[:5])
-        return (
-            "Executor",
-            f"load /aiwf-implement and complete Executor-owned V evidence for {task_id}: {missing}",
-        )
-    if control and str(review.get("result") or "unknown") == "unknown":
-        return _post_construction_route(
-            task, implementation, control, host,
-            requirements.get("reviewer_required", True),
-        )
-    if review.get("result") == "accepted" and not review.get("closure_allowed", False):
-        previous = (
-            resumable_agent(
-                control, task_id=task_id, subagent_type="aiwf-reviewer",
-            )
-            if control else None
-        )
-        resume = (
-            f"resume aiwf-reviewer {previous['agent_id']} once if available, otherwise "
-            if previous else ""
-        )
-        return (
-            "Reviewer reconciliation",
-            f"load /aiwf-review; the recorded verdict says accepted but lacks the explicit "
-            f"complete-story assertion. {resume}dispatch aiwf-reviewer for {task_id} to "
-            "reconcile its REVIEW_REPORT and machine verdict. It must either record accepted "
-            "with --story-complete because every required link actually holds, or record the "
-            "appropriate non-accepted verdict. The main session must not supply this judgment",
-        )
-    pending = [
-        item for item in review.get("adversarial_observations", []) or []
-        if isinstance(item, dict) and item.get("disposition") == "pending"
-    ]
-    if review.get("result") == "accepted" and pending:
-        return (
-            "Planner decision",
-            f"load /aiwf-planner and disposition {len(pending)} Reviewer observation(s) for {task_id}; "
-            "fix an observation now when that is safe, bounded, and verifiable in this cycle; "
-            "before choosing deferred, explain why it should wait and its return trigger, ask the "
-            "user to agree, then write it into its downstream Task or "
-            ".aiwf/memory/notes/deferred-findings.md",
-        )
-    if review.get("result") != "accepted" or not review.get("closure_allowed", False):
-        if requirements.get("reviewer_required", True):
-            previous = (
-                resumable_agent(
-                    control, task_id=task_id, subagent_type="aiwf-reviewer",
-                )
-                if control else None
-            )
-            if previous:
-                if host == "opencode":
-                    return (
-                        "Reviewer",
-                        f"load /aiwf-review; continue the previous aiwf-reviewer child once "
-                        f"with task_id {previous['agent_id']} and tell it to reconcile Task.md, "
-                        "the implementation snapshot, experiments, and its report; if continuation is unavailable, "
-                        "dispatch a new aiwf-reviewer for the Task",
-                    )
-                return (
-                    "Reviewer",
-                    f"load /aiwf-review; if available in this or the resumed original Claude "
-                    f"session, try once to resume aiwf-reviewer {previous['agent_id']} with "
-                    f"SendMessage: 'Resume {task_id} review. Reconcile Task.md, the implementation "
-                    "snapshot, and your report, record review, and return'; if unavailable or "
-                    "resume fails, dispatch a new aiwf-reviewer for the Task",
-                )
-            return "Reviewer", f"load /aiwf-review and dispatch aiwf-reviewer for {task_id}"
-        return "Inline review", f"load /aiwf-review, review {task_id} inline, and record it"
-    integration_close_mode = ""
-    if task.get("kind") == "integration" and reviewed_ref and control:
-        try:
-            from ..core.git_workflow import integration_close_readiness
-
-            worktree = str(task.get("worktree_path") or control)
-            readiness = integration_close_readiness(
-                worktree,
-                task,
-                str(task.get("git_origin_ref") or ""),
-                reviewed_ref,
-            )
-            if readiness.get("status") != "ready":
-                return (
-                    "Planner decision",
-                    f"load /aiwf-planner; {task_id} cannot close because "
-                    f"{readiness.get('message')}. Inspect the Git state before changing "
-                    "history or rerunning work",
-                )
-            integration_close_mode = str(readiness.get("mode") or "")
-        except Exception as error:
-            return (
-                "Planner decision",
-                f"load /aiwf-planner; {task_id} integration close preflight failed: {error}",
-            )
-    deferred = [
-        item for item in review.get("adversarial_observations", []) or []
-        if isinstance(item, dict) and item.get("disposition") == "deferred"
-    ]
-    if deferred:
-        return (
-            "Close",
-            f"load /aiwf-close; confirm {len(deferred)} deferred Reviewer observation(s) "
-            "are written in a downstream Task or .aiwf/memory/notes/deferred-findings.md, "
-            f"calibrate Task.md if needed, then close {task_id}",
-        )
-    if integration_close_mode == "amend_merge":
-        return (
-            "Close",
-            f"load /aiwf-close, calibrate Task.md if needed, then close {task_id}; "
-            "close will add the reviewed staged project tree to the existing correct merge commit",
-        )
-    return "Close", f"load /aiwf-close, calibrate Task.md if needed, then close {task_id}"
 
 
 def _named_skill(name: str) -> str:
@@ -589,14 +76,9 @@ def _skill_for(next_role: str) -> str:
 
 
 def _host_action(action: str, host: str) -> str:
-    if host != "codex":
-        return action
-    converted = re.sub(r"(?<![A-Za-z0-9_])/(aiwf-[a-z-]+)", r"$\1", action)
-    return (
-        converted
-        .replace("the resumed original Claude session", "a resumed Codex task")
-        .replace("with SendMessage", "by sending one follow-up message to the existing agent thread")
-    )
+    from ..adapters.host_prompts import host_action
+
+    return host_action(action, host)
 
 
 def _active_rows(control: Path, host: str = "") -> List[Dict[str, Any]]:
@@ -1005,6 +487,12 @@ def _print_human(
             f"{marker} {row['id']}  plan={row['plan_id'] or '-'}  phase={row['phase'] or '-'}  "
             f"next={row['next_role']}"
         )
+        from .task_reading import read_task_story
+
+        story = read_task_story(control, {"id": row["id"]})
+        if story.get("Intent"):
+            intent = " ".join(story["Intent"].split())
+            print(f"    intent={intent[:240]}" + ("… (see task show)" if len(intent) > 240 else ""))
         print(f"    worktree={row['worktree_path']}")
         if row.get("running_agent"):
             print(
@@ -1138,7 +626,9 @@ def _print_prompt(
                 "Reconciliation boundary: Reviewer owns the complete-story judgment; "
                 "the main session only dispatches or resumes Reviewer."
             )
-        elif row["next_role"] != "Agent running":
+        elif row["next_role"] == "Experimenter":
+            print("Dispatch: use the EXP ID above; it belongs to this Task and carries its experiment assignment.")
+        elif row["next_role"] not in ("Agent running", "Experiment cleanup"):
             print(
                 "Dispatch: give the Agent this Task ID. AIWF supplies the current "
                 "Task contract and assigned worktree."

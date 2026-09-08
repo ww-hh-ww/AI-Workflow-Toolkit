@@ -124,6 +124,31 @@ Task.md 必须回答：
 V-* 是 Executor 的构造义务。Executor 不应只“写完代码”，然后把主路径、错误路径或
 回归验证拖给 Experimenter。
 
+Task.md 同时是人机共同约定，不只是 Agent 数据包。正文使用用户的工作语言，先说明
+为什么做、做完有什么变化、范围与待决定事项，再提供技术锚点和精确命令。例如：
+“登录失效后，保存操作提示重新登录，并保留未提交内容（Running，V-003）”。
+人能检查承诺，Agent 能从 V-003 找到可执行证明；不另写一份可能漂移的契约。
+
+## 实验资产的消费与复用
+
+实验属于具体调查，不自动成为交付。工作树清理后，保留的 Git 快照仍可查看：
+
+```bash
+aiwf experiment assets EXP-001
+aiwf experiment assets EXP-001 --path benchmark.py
+aiwf experiment assets EXP-001 --path benchmark.py --raw
+```
+
+默认列出相对实验起点的变更（包括已删除、不可提取的文件）；`--path` 读取快照中
+指定文件，`--raw` 向标准输出提供原始字节。这些命令不写项目文件、不恢复工作树、
+不改变证据状态，也不跟随快照内的符号链接。忽略文件、外部数据与运行环境不保证保留。
+
+新的实验可以选择性提取旧脚本或 fixture，在记录自己的结果时添加
+`aiwf experiment record ... --source-experiment EXP-001`。来源绑定旧实验的不可变 ref，
+不继承旧结论；即使旧结论已经 stale，资产仍可用于新的调查。
+若资产应成为正式测试或工具，主会话依据 Task 范围决定，由 Executor 整理、验证并
+交给 Reviewer。无需从零重写，也不能整体恢复实验快照冒充新实现。
+
 ## 标准 Task 生命周期
 
 常见主线是：

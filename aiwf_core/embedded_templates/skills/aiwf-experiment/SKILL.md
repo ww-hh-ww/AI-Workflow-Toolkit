@@ -13,6 +13,10 @@ between Executor and Reviewer and not a replacement for Executor self-checks.
 An Experiment needs one falsifiable or decision-relevant question, exactly one
 Task or Plan scope, and an immutable subject commit.
 
+Within Task execution, an EXP belongs to that Task: its question serves a Task
+decision and its evidence returns to the Task's main session. The EXP ID selects
+the particular investigation; it does not replace the owning Task contract.
+
 First run `aiwf experiment show <EXP-ID>` when the EXP already exists. Follow
 its state instead of replaying the whole lifecycle:
 
@@ -79,9 +83,22 @@ aiwf status --prompt
 Finish removes the disposable worktree but retains the subject ref, experiment
 snapshot ref, commands, observations, conclusion, and promotion candidates.
 The stable main session follows Task.md dispatch after the evidence returns;
-Reviewer or Planner decides what the facts mean within its own authority. If an asset should survive,
-Executor implements or promotes it in the stable worktree and records fresh V
-evidence.
+Reviewer or Planner decides what the facts mean within its own authority.
+Assets already survive in the immutable experiment snapshot after cleanup.
+If an asset should become part of the maintained project, Executor implements
+or promotes it in the stable worktree and records fresh V evidence.
+
+Use `aiwf experiment assets <EXP-ID>` to find retained changes and
+`aiwf experiment assets <EXP-ID> --path <repository-relative-file>` to read one.
+`--raw` emits exact bytes to stdout without restoring a tree or changing files.
+An asset can be reused in a new disposable experiment; record
+`--source-experiment <EXP-ID>` with that experiment's own observations and
+conclusion. Old or stale conclusions do not prove the new subject.
+For stable promotion, Executor may selectively extract and adapt useful code;
+it need not rewrite it from scratch. Follow the Task boundary and normal review.
+Git snapshots do not guarantee retention of ignored files, external data, or
+environment state. Record where any essential unsaved material lives before
+cleanup; never describe it as retained without checking.
 
 For Plan-scoped or pre-implementation evidence, Planner must read
 `aiwf experiment show <EXP-ID>` and record one meaning-level decision:

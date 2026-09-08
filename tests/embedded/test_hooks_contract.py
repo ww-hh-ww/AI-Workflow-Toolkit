@@ -178,6 +178,25 @@ class TestHooks(unittest.TestCase):
         self.assertEqual(second.returncode, 0, second.stderr)
         self.assertEqual(second.stdout.strip(), "")
 
+    def test_experiment_progress_nudges_without_inventing_a_role(self):
+        self._set_active_task("implementing", {
+            "task_id": "TASK-001", "implementation": {},
+            "experiment_ids": ["EXP-001"], "review": {}, "fix_loop": {},
+        })
+        self._write_state("records/experiments/EXP-001.json", {
+            "experiment_id": "EXP-001", "status": "running",
+        })
+        self._status()
+        self.assertEqual(self._status().stdout.strip(), "")
+        self._write_state("records/experiments/EXP-001.json", {
+            "experiment_id": "EXP-001", "status": "recorded", "experiment_ref": "abc",
+        })
+        changed = self._status()
+        context = json.loads(changed.stdout)["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("TASK-001 changed state", context)
+        self.assertIn("aiwf status --prompt", context)
+        self.assertNotIn("dispatch or resume aiwf-executor", context)
+
     def test_status_prompt_acknowledges_state_for_the_next_user_prompt(self):
         self.assertNotEqual(self._status().stdout.strip(), "")
         self._set_active_task("reviewing", {
@@ -266,9 +285,9 @@ class TestHooks(unittest.TestCase):
         context = json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
         self.assertIn("Resume: task=TASK-001", context)
         self.assertIn("Evidence: impl=recorded, experiments=0, review=unknown", context)
-        self.assertIn("Decision: Main-session dispatch", context)
-        self.assertIn("read Task.md Dispatch Decisions", context)
-        self.assertIn("do not delegate it to a child role", context)
+        self.assertIn("run `aiwf status --prompt` before acting", context)
+        self.assertNotIn("Decision:", context)
+        self.assertIn("does not choose a role", context)
 
     def test_status_hook_routes_inconsistent_acceptance_to_reviewer_reconciliation(self):
         self._set_active_task("reviewing", {
@@ -286,9 +305,8 @@ class TestHooks(unittest.TestCase):
 
         context = json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
         self.assertIn("Attention: TASK-001 accepted review lacks complete-story assertion", context)
-        self.assertIn("Decision: Reviewer reconciliation", context)
-        self.assertIn("accepted record lacks its explicit complete-story assertion", context)
-        self.assertIn("do not role-play or self-fill", context)
+        self.assertIn("run `aiwf status --prompt` before acting", context)
+        self.assertNotIn("Decision:", context)
 
     def test_status_hook_names_the_parallel_task_that_changed(self):
         other = self.tmp / "plan-b"
@@ -689,6 +707,17 @@ class TestHooks(unittest.TestCase):
             self.tmp / "scripts" / "aiwf_scope_check.py", inp, self.tmp)
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertNotIn("ModuleNotFoundError", r.stderr)
+        status = _run_script_without_pythonpath(
+            self.tmp / "scripts" / "aiwf_status.py",
+            json.dumps({"session_id": "t", "cwd": str(self.tmp),
+                        "hook_event_name": "UserPromptSubmit"}), self.tmp)
+        self.assertEqual(status.returncode, 0, status.stderr)
+        self.assertIn("aiwf status --prompt", status.stdout)
+
+    def test_retained_asset_read_passes_installed_bash_guard(self):
+        result = self._bash("aiwf experiment assets EXP-001 --path probe.py --raw")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn('"permissionDecision": "deny"', result.stdout)
 
     # ── Scope check ──
 

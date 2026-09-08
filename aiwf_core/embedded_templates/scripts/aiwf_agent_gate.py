@@ -72,7 +72,7 @@ def _experiment_match(base, text):
     return matches[0] if len(matches) == 1 else {}
 
 def _codex_inferred_role(base, task):
-    from aiwf_core.commands.flow import _task_next
+    from aiwf_core.core.task_routes import _task_next
 
     task_id = str(task.get("id") or "")
     record = load_task_record(base, task_id)
@@ -92,26 +92,7 @@ def _codex_selected_role(text):
     return selected[0] if len(selected) == 1 else ""
 
 
-def _codex_matched_freshness_packet(text, implementation_ref):
-    """Recognize the exact-ref tree packet supplied by the stable Codex task."""
-    def value(name):
-        match = re.search(
-            rf"(?<![A-Za-z0-9_]){re.escape(name)}=([^,\s]+)",
-            str(text or ""),
-        )
-        return match.group(1).strip() if match else ""
-
-    packet_ref = value("implementation_ref")
-    implementation_tree = value("implementation_tree")
-    candidate_tree = value("candidate_tree")
-    status = value("candidate_tree_status")
-    return bool(
-        implementation_ref
-        and packet_ref == implementation_ref
-        and implementation_tree
-        and implementation_tree == candidate_tree
-        and status == "matched"
-    )
+from aiwf_core.adapters.candidate_freshness import matched_freshness_packet as _codex_matched_freshness_packet
 
 
 def _codex_role_contract(base, subagent_type):
@@ -150,8 +131,9 @@ def _enriched_prompt(base, task, subagent_type, original_prompt, *, codex_fallba
         lines.extend([
             "",
             "Codex host adaptation:",
-            "This runtime exposed a generic child tool. AIWF derived the only valid next role "
-            f"from Task state and bound this independent child as {subagent_type}.",
+            "This runtime exposed a generic child tool. AIWF checked mechanical prerequisites and "
+            f"bound this independent child as {subagent_type}. At declared decision points, "
+            "the main session owns the selected path.",
         ])
         if role_contract:
             lines.extend([
@@ -199,7 +181,7 @@ def _workflow_dispatch_blocker(base, task_id, subagent_type):
     implementation = record.get("implementation", {}) or {}
 
     if subagent_type == "aiwf-executor" and implementation.get("implementation_ref"):
-        from aiwf_core.commands.flow import _task_next
+        from aiwf_core.core.task_routes import _task_next
 
         next_role, _action = _task_next(task, record, base)
         if next_role == "Main-session dispatch":

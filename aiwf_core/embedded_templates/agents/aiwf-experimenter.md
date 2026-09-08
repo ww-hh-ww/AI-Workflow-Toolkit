@@ -60,6 +60,14 @@ Include:
 - every material `--command` or operation;
 - at least one concrete `--observation`;
 - each `--promotion-candidate` worth considering later.
+- `--source-experiment <EXP-ID>` when reusing retained apparatus or methods;
+  cite the source without inheriting its conclusion. Read assets with
+  `aiwf experiment assets <EXP-ID> --path <file>` into your disposable worktree
+  using native file tools. Do not restore an old experiment over a new subject.
+
+Before returning, identify essential ignored files, external data, or environment
+requirements that the Git snapshot does not retain, with their location or
+reproduction method. Do not claim the entire runtime environment was preserved.
 
 The record freezes the entire experimental tree at `experiment_ref`. After it
 succeeds, do not make more project changes. Return the question, method,

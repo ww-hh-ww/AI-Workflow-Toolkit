@@ -39,8 +39,9 @@ paths; Executor, Experimenter, and Reviewer never spawn their successor or turn
 their own recommendation into routing state.
 
 - Read Task.md and `aiwf task proof <TASK-ID>` before dispatching Executor or
-  Reviewer. Give either Agent exactly one Task ID. Add `USER_DELTA` only when
-  needed. AIWF adds the contract and stable Plan worktree.
+  Reviewer. Give either Agent one Task ID plus necessary verified repair facts
+  or a Codex freshness packet. Add `USER_DELTA` only for user clarification,
+  separately from evidence. AIWF adds the contract and stable Plan worktree.
 - Before Experimenter, open and start exactly one EXP. Give it the EXP ID, not a
   Task packet. AIWF supplies its question, immutable subject ref, and disposable
   full-project worktree. After it records evidence and returns, run
@@ -53,8 +54,10 @@ their own recommendation into routing state.
   Plan/Task direction is invalid. For an active Task, explain the conflict and
   ask the user to interrupt before recording `replan` or revising Task.md. Post-implementation
   EXP evidence is instead consumed by Reviewer.
-- Do not use host-created isolation, call `EnterWorktree`, or copy changes
-  between worktrees. Executor and Reviewer use the Plan worktree. Experimenter
+- Do not use host-created isolation, call `EnterWorktree`, or blindly copy changes
+  between worktrees. Selected retained experimental assets may be extracted and
+  adapted by the role responsible for their destination; preserve their source
+  in evidence and verify the new result. Executor and Reviewer use the Plan worktree. Experimenter
   uses only the AIWF-created EXP worktree.
 - `.aiwf` governance always comes from the control root. Plan worktrees do not
   carry an independent `.aiwf` working-tree copy; project code and tests come

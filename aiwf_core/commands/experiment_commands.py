@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -64,6 +65,7 @@ def _cmd_experiment_record(args: argparse.Namespace) -> None:
             str(Path.cwd()), args.experiment_id, args.conclusion, args.summary,
             commands=args.commands or [], observations=args.observations or [],
             promotion_candidates=args.promotion_candidates or [],
+            source_experiments=getattr(args, "source_experiments", []) or [],
         )
     except ValueError as exc:
         _blocked("record", exc)
@@ -135,6 +137,25 @@ def _cmd_experiment_show(args: argparse.Namespace) -> None:
     )
     if disposition.get("reason"):
         print(f"  Disposition reason: {disposition['reason']}")
+    if record.get("experiment_ref"):
+        print(f"  Retained assets: aiwf experiment assets {record['experiment_id']}")
+    for source in record.get("source_experiments", []):
+        print(f"  Source experiment: {source['experiment_id']} @ {source['experiment_ref']}")
+
+
+def _cmd_experiment_assets(args: argparse.Namespace) -> None:
+    from ..core.experiment_assets import experiment_assets, experiment_asset_bytes
+
+    try:
+        if args.raw:
+            if not args.path:
+                raise ValueError("--raw requires --path")
+            sys.stdout.buffer.write(experiment_asset_bytes(Path.cwd(), args.experiment_id, args.path))
+        else:
+            print(json.dumps(experiment_assets(Path.cwd(), args.experiment_id, args.path),
+                             ensure_ascii=True, indent=2))
+    except (ValueError, OSError) as exc:
+        _blocked("assets", exc)
 
 
 def _cmd_experiment_list(args: argparse.Namespace) -> None:

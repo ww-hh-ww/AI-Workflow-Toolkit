@@ -51,18 +51,6 @@ def _control_root(project_root):
     return project_root
 
 
-def _problem(task, record):
-    fix_loop = record.get("fix_loop", {}) or {}
-    if fix_loop.get("status") == "open":
-        return f"{task['id']} fix-loop routes to {fix_loop.get('route') or 'planner'}"
-    review = record.get("review", {}) or {}
-    if review.get("result") == "accepted" and not review.get("closure_allowed", False):
-        return f"{task['id']} accepted review lacks complete-story assertion"
-    if review.get("result") in ("rejected", "needs_change", "needs_experiment", "scope_violation"):
-        return f"{task['id']} review={review.get('result')}"
-    if task.get("scope_violation"):
-        return f"{task['id']} has a scope violation"
-    return ""
 
 
 def _evidence(record):
@@ -78,72 +66,7 @@ def _evidence(record):
     return ", ".join(bits)
 
 
-def _decision(task, record):
-    task_id = str(task.get("id") or "")
-    requirements = task.get("requirements", {}) or {}
-    implementation = record.get("implementation", {}) or {}
-    review = record.get("review", {}) or {}
-    fix_loop = record.get("fix_loop", {}) or {}
-    if task.get("status") == "suspended":
-        return (
-            "Planner",
-            f"inspect why {task_id} is suspended, then reactivate or revise; do not continue project writes first",
-        )
-    if fix_loop.get("status") == "open":
-        route = str(fix_loop.get("route") or "planner")
-        if route == "executor":
-            return "Executor repair", f"route the finding to aiwf-executor for {task_id}"
-        if (
-            route == "reviewer"
-            and implementation.get("implementation_ref")
-            and str(review.get("result") or "unknown") == "unknown"
-        ):
-            return (
-                "Main-session dispatch",
-                "read Task.md Dispatch Decisions and task proof, then choose its declared "
-                "post-construction path",
-            )
-        return "Planner", f"run aiwf fixloop status --task-id {task_id} and decide the repair route"
-
-    if not implementation.get("implementation_ref"):
-        if requirements.get("executor_required", True):
-            return "Executor", f"dispatch or resume aiwf-executor for {task_id}"
-        return "Inline implementation", f"implement {task_id} inline and record implementation"
-    if review.get("result") != "accepted" or not review.get("closure_allowed", False):
-        if str(review.get("result") or "unknown") == "unknown":
-            return (
-                "Main-session dispatch",
-                "read Task.md Dispatch Decisions and task proof, then choose Experimenter "
-                "or Review as declared",
-            )
-        if review.get("result") == "accepted":
-            return (
-                "Reviewer reconciliation",
-                "the accepted record lacks its explicit complete-story assertion; resume "
-                "Reviewer to correct the verdict instead of closing",
-            )
-        if requirements.get("reviewer_required", True):
-            return "Reviewer", f"dispatch or resume aiwf-reviewer for {task_id}"
-        return "Inline review", f"review {task_id} inline and record findings"
-    return "Close", f"calibrate Task.md if needed, then close {task_id}"
-
-
-def _guardrail(role):
-    if role in (
-        "Executor", "Experimenter", "Reviewer", "Reviewer reconciliation", "Executor repair",
-    ):
-        return "use the native Agent/Task tool; do not role-play or self-fill missing independent evidence"
-    if role.startswith("Inline"):
-        return "inline is allowed by this Task; still record concrete evidence before close"
-    if role == "Close":
-        return "do not close over unresolved observations or unverified behavior"
-    if role == "Main-session dispatch":
-        return "make this route choice in the stable main session; do not delegate it to a child role"
-    return "do not mutate project files until the planner decision is clear"
-
-
 def _resume_packet(prefix, task, record):
-    role, action = _decision(task, record)
     task_id = str(task.get("id") or "")
     phase = str(task.get("phase") or task.get("status") or "-")
     plan_id = str(task.get("plan_id") or task.get("parent_plan") or "-")
@@ -152,9 +75,7 @@ def _resume_packet(prefix, task, record):
         f"[AIWF] {prefix}\n"
         f"Resume: task={task_id} plan={plan_id} phase={phase} worktree={worktree}\n"
         f"Evidence: {_evidence(record)}\n"
-        f"Decision: {role} - {action}\n"
-        f"Guardrail: {_guardrail(role)}\n"
-        "Confirm: run `aiwf status --prompt` if anything looks stale before acting."
+        "Next: run `aiwf status --prompt` before acting; this nudge does not choose a role."
     )
 
 
@@ -192,36 +113,11 @@ def main():
     ]
     active = [task for task in workflow_tasks if task.get("status") == "active"]
     suspended = [task for task in workflow_tasks if task.get("status") == "suspended"]
-    problems = []
-    fingerprint_tasks = []
-    for task in workflow_tasks:
-        record = _record(base, str(task.get("id") or ""))
-        review = record.get("review", {}) or {}
-        problem = _problem(task, record)
-        if problem:
-            problems.append(problem)
-        fingerprint_tasks.append({
-            "id": task.get("id", ""),
-            "phase": task.get("phase", ""),
-            "worktree": task.get("worktree_path", ""),
-            "implementation": (record.get("implementation", {}) or {}).get(
-                "implementation_ref", ""
-            ),
-            "experiments": list(record.get("experiment_ids", []) or []),
-            "review": review.get("result", "unknown"),
-            "review_story_complete": bool(review.get("closure_allowed", False)),
-            "fix": (record.get("fix_loop", {}) or {}).get("status", "none"),
-        })
-    fingerprint_tasks.sort(key=lambda task: str(task.get("id") or ""))
-    temporary_marker = _read_json(
-        base / ".aiwf/runtime/internal/temporary-ai-writes.json", {}
-    )
-    temporary_ai_writes = temporary_marker.get("enabled") is True and not active
-    fingerprint = {
-        "tasks": fingerprint_tasks,
-        "problems": sorted(problems),
-        "temporary_ai_writes": temporary_ai_writes,
-    }
+    from aiwf_core.core.status_context import fingerprint as status_fingerprint
+
+    fingerprint = status_fingerprint(base, workflow_tasks)
+    problems = fingerprint["problems"]
+    temporary_ai_writes = fingerprint["temporary_ai_writes"]
     fp_path = base / ".aiwf/runtime/internal/status-hook-last.json"
     previous = _read_json(fp_path, {})
     if previous == fingerprint:

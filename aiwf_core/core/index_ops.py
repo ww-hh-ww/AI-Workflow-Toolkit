@@ -870,18 +870,22 @@ Unknown — blocks: why this Task belongs under its Goal and Plan
 
 ### Objective
 
-Unknown — blocks: outcome, not implementation recipe
+Unknown — blocks: in the user's working language, explain the current problem
+and what will be different when done; use project terms, not workflow jargon
 
 ### Contract Responsibility
 
 Unknown — blocks: the outcome this task is responsible for delivering and proving.
-Do not list every file the agent may touch.
+Preserve agreed scope, constraints, and explicit exclusions in readable project
+terms. Do not list every file the agent may touch.
 
 ### Proof Standard
 
 Done When:
 
-Unknown — blocks: each item tagged Built/Wired/Running
+Unknown — blocks: recognizable results in the user's working language, each
+tagged Built/Wired/Running with supporting V-* evidence; labels do not replace
+the explanation of success
 
 Verification Commands:
 
@@ -900,7 +904,10 @@ labels.
 ### Dispatch Decisions
 
 Unknown — blocks: set frontmatter role booleans from the work's real need and
-briefly explain any non-obvious choice
+briefly explain any non-obvious choice. State which returned facts the main
+session uses to choose the relevant next path, such as review directly or a
+Task-owned EXP followed by review. Do not invent an experiment to fill this
+section or delegate the route choice to a child role.
 
 ## Known Context
 

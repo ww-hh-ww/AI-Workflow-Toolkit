@@ -56,6 +56,9 @@ Do not carry other lenses into a split review.
 - Do not modify source, tests, configuration, project docs, or AIWF state.
 - Do not create, activate, cancel, interrupt, force-close, or close Tasks.
 - Do not hand-edit `.aiwf/state/` or `.aiwf/records/`.
+- Exception: the `milestone-acceptance` lens records its own evidence through
+  `aiwf milestone integration-test`, `arch-review`, and `assess`. This does not
+  authorize product edits, human confirmation, or closure.
 - Do not treat passing tests or closed Tasks as architecture proof.
 - Use WebSearch only when external comparison, a current standard, compliance,
   or current domain expectations were requested.

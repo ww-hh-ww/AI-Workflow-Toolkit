@@ -2,9 +2,19 @@
 
 ## Principle
 
-Each MD file is a governance contract for the next role. It should make the next
-role safer and smarter without telling it exactly how to code.
+Each MD file is a shared human-agent working agreement, as well as a contract
+for the next role. The human must be able to understand and correct it without
+knowing AIWF internals. It should support engineering judgment without telling
+the next role exactly how to code.
 Deliberate writing beats bulk generation.
+
+Write narrative content in the user's working language. Preserve required
+machine-parsed headings, IDs, and commands, but explain the work in project
+language: why it matters, what will change, what will not, how to recognize
+success, and what still needs a decision. Keep agreed requirements and important
+tradeoffs visible; do not replace them with role instructions or evidence jargon.
+Place technical anchors and commands after the readable outcome, not instead
+of it. Do not duplicate a separate human summary and agent contract that can drift.
 
 Write:
 

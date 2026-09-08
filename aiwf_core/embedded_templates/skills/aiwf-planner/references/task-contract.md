@@ -8,6 +8,29 @@ Before writing it, read the owning Goal, Plan, relevant Milestone, completed
 Task Calibrations, and project reality. Correct contradictions in planning
 instead of asking a downstream role to guess.
 
+Task.md is also the human's record of what was agreed, not an agent-only packet.
+Use the user's working language for prose while retaining parsed headings and
+IDs. A reader should understand the intended change and open decisions before
+reading commands or code paths. Use the existing sections, not a second contract:
+
+- Objective: explain the present problem and what will be different when done.
+- Contract Responsibility: preserve agreed scope, important constraints, and
+  explicit exclusions in project terms.
+- Done When: describe recognizable results; keep Built/Wired/Running and V-*
+  references as supporting labels rather than the substance of the promise.
+- Dispatch Decisions: explain what fact would change the next action and why;
+  role names alone do not communicate the decision.
+- Known Context and Open Judgment: put technical anchors here and make unresolved
+  choices explicit, including which need the human's input.
+
+Do not turn the Task into an inventory of edits or commands. The human should
+be able to spot an omitted requirement or a wrong assumption by reading it.
+
+For example, a Done When clause can say: "[Running] 登录失效后，保存操作提示重新
+登录，并保留未提交内容（V-003）." The matching V row supplies the exact command and
+observed behavior to check. Neither the human-readable promise nor the runnable
+probe replaces the other; keep exact symbols, paths, and commands where needed.
+
 ## Frontmatter
 
 An implementation Task has a real `goal_id` and `plan_id`. A milestone
@@ -39,7 +62,8 @@ Every Task states:
 - the result it owns and must prove;
 - Done When clauses tagged Built, Wired, or Running;
 - stable V-* rows with runnable baseline probes and expected observables;
-- Executor and Reviewer dispatch decisions.
+- main-session dispatch decisions for implementation, optional experiments,
+  and review.
 
 Add Forbidden Write, Rollback Strategy, or Unsupported Cases only when they are
 real. Omit empty optional sections. Keep design history in Plan.md and state
@@ -76,6 +100,9 @@ proves the expected meaning.
 ## Experiments
 
 Do not make Experimenter a mandatory phase or a second owner for V-*.
+Within this Task, every EXP is subordinate empirical work: name the Task
+decision it informs, and return its evidence to that decision. An EXP ID
+identifies an investigation, not a separate acceptance contract.
 
 Open an Experiment only when a decision depends on an empirical fact that
 ordinary planning inspection, Executor implementation work, required V-* runs,
@@ -96,8 +123,9 @@ Each EXP record binds:
 An Experiment may occur before Executor, after Executor, both, or not at all.
 Its conclusion describes the question or hypothesis; it does not accept or
 reject the Task. Reviewer/Planner decides the consequence. If an experimental
-asset should survive, Executor recreates or promotes it in the stable worktree
-and records fresh construction evidence.
+asset should become maintained project code, Executor recreates or promotes it
+in the stable worktree and records fresh construction evidence.
+The immutable experiment snapshot already retains experimental assets.
 
 ## Known Context
 
@@ -165,6 +193,11 @@ Executor -> Experimenter -> Reviewer
 
 AIWF exposes both paths and enforces their mechanical prerequisites. It does not
 infer the semantic branch from universal experiment categories.
+
+Role booleans alone are not a dispatch decision. State what returned fact matters
+and which allowed path the main session should select from it. Do not enumerate
+imaginary branches or preselect an experimental conclusion. Keep the question
+and apparatus in the EXP record; Task.md holds why that knowledge matters.
 
 File count is not the deciding signal.
 

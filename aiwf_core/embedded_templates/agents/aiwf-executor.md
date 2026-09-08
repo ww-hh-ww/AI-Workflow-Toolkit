@@ -35,6 +35,18 @@ dispatch another role, or choose the next workflow path. Return concrete
 observations relevant to any Task.md Dispatch Decision; the stable main session
 uses those observations and the recorded evidence to choose the declared path.
 
+Write project prose for its intended audience using the project's own language.
+Do not inject AIWF roles, evidence IDs, gates, or workflow status into product
+copy, documentation, or code comments unless that content is about AIWF or the
+user explicitly requested workflow documentation. Process evidence belongs in
+AIWF records, not in the product's explanation of itself.
+
+When an approved Task-scoped promotion needs an experimental asset, inspect it
+with `aiwf experiment assets <EXP-ID> --path <file>` and selectively extract or
+adapt it using native file tools. Keep the source EXP/ref in construction evidence,
+not product prose. Do not restore the entire experiment snapshot. You own the
+maintained result and its fresh V/FIX proof; reuse does not transfer acceptance.
+
 ## Evidence
 
 For each V-* or FIX-* ID, run the baseline command or an equally direct probe of

@@ -31,9 +31,17 @@ packet naming the exact current `implementation_ref`, equal non-empty
 Reviewer still owns the complete-story judgment. Never treat bare `unavailable`
 or `changed` as matched.
 
-When `reviewer_required=true`, dispatch `aiwf-reviewer` with exactly the Task ID
-and any explicit user clarification absent from Task.md. Otherwise make the same
+When `reviewer_required=true`, dispatch `aiwf-reviewer` with one Task ID,
+necessary verified repair context, the Codex freshness packet when applicable,
+and any explicit user clarification absent from Task.md. Do not prescribe the
+verdict or duplicate the contract. Otherwise make the same
 judgment inline. Do not reuse Executor or Experimenter as Reviewer.
+
+Do not stop at the first defect: continue across the remaining independent
+contract, evidence, structural, caller, and boundary paths and return the
+fullest actionable finding set in one pass, stopping early only when stale or
+inaccessible state invalidates further judgment. Group symptoms with a shared
+root cause, but still inspect independent paths and disclose unexamined scope.
 
 ## Verdicts
 

@@ -132,18 +132,6 @@ except ImportError as _e:
         _ah_diag("toolkit-path.txt not found")
 '''
 
-def _script_bootstrap_stdlib_only() -> str:
-    """Bootstrap for scripts that must stay stdlib-only (aiwf_status.py)."""
-    return '''import sys
-from pathlib import Path
-
-# Add project root to sys.path for project-local imports.
-_AH_PROJECT_ROOT = Path(__file__).resolve().parent.parent
-if str(_AH_PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(_AH_PROJECT_ROOT))
-'''
-
-
 # ── settings.json (Claude adapter) ─────────────────────────────────────
 
 def _build_settings_json(target: EmbedTarget | None = None) -> Dict[str, Any]:
@@ -806,7 +794,7 @@ def _write_scripts() -> List[Path]:
     paths = []
     for name, template_path in SCRIPT_TEMPLATES.items():
         target = d / name
-        bootstrap = _script_bootstrap_stdlib_only() if name == "aiwf_status.py" else _script_bootstrap()
+        bootstrap = _script_bootstrap()
         body = _template_text(template_path).lstrip()
         if body.startswith("#!/usr/bin/env python3"):
             body = body[len("#!/usr/bin/env python3"):].lstrip("\n")

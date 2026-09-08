@@ -60,54 +60,7 @@ def _description(text: str, fallback: str) -> str:
     return fallback
 
 
-def _opencode_text(text: str) -> str:
-    converted = (
-        text.replace("Claude Code", "OpenCode")
-        .replace("`EnterWorktree`", "a worktree-switching tool")
-        .replace("`isolation: worktree`", "tool-managed worktree isolation")
-        .replace("Follow /aiwf-critic.", "Follow the aiwf-critic role instructions.")
-        .replace("Agent({subagent_type:", "task({subagent_type:")
-    )
-    converted = re.sub(
-        r"## SendMessage\n.*?(?=\n## Parallel Plans)",
-        """## Continue a child session
-
-Do not start the next Task role while the current child session is running.
-When a returned child missed a small, specific item, continue that child once
-with `task_id` set to its Task session ID and send only the new finding. If continuation
-is unavailable, dispatch a new role with the Task ID and tell it to read
-`aiwf task proof`. Do not repeat Task.md.
-
-If the new information changes execution, boundaries, or acceptance, ask the
-user to interrupt. Revise and critique the contract before dispatching again.
-""".rstrip(),
-        converted,
-        flags=re.DOTALL,
-    )
-    converted = (
-        converted
-        .replace("current session or the resumed original session", "current OpenCode session")
-        .replace("resume that Agent", "continue that child")
-        .replace("resume that Agent only", "continue that child only")
-        .replace("resume is unavailable or fails", "continuation is unavailable")
-        .replace("Do not retry the resume", "Do not retry continuation")
-        .replace("with `SendMessage`", "through child continuation")
-        .replace("with SendMessage", "through child continuation")
-        .replace("`SendMessage`", "child continuation")
-        .replace("SendMessage", "child continuation")
-    )
-    converted = converted.replace(
-        "Planner does not switch worktrees to manage Task roles. Use the exact Task ID\n"
-        "and assigned worktree for every dispatch or Task command. When several Tasks\n"
-        "are active, `aiwf status --prompt` shows all Plan worktrees and marks the one\n"
-        "matching the current directory.",
-        "Keep planning decisions in the control-root Planner session. Dispatch the named\n"
-        "OpenCode subagent there with exactly one Task ID. AIWF binds the child session to\n"
-        "that Task and routes its project tools to the assigned Plan worktree. Run Executor,\n"
-        "Experimenter, and Reviewer in the foreground. Independent Plans may use separate\n"
-        "control-root OpenCode sessions when they need to run at the same time.",
-    )
-    return converted
+from .adapters.host_prompts import _opencode_text
 
 
 def _configured_model(name: str) -> str:

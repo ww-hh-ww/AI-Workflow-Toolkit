@@ -84,6 +84,16 @@ class TestPromptClarityContract(unittest.TestCase):
         self.assertIn("not a main-session or Planner judgment", skill)
         self.assertIn("Never add it\nmerely to pass the close gate", skill)
 
+    def test_reviewer_collects_independent_findings_in_one_pass(self):
+        skill = read("skills/aiwf-review/SKILL.md")
+        agent = read("agents/aiwf-reviewer.md")
+
+        for text in (skill, agent):
+            self.assertIn("Do not stop at the first defect", text)
+            self.assertIn("remaining independent", text)
+            self.assertIn("fullest actionable finding set in one pass", text)
+            self.assertIn("stale or\ninaccessible state", text)
+
     def test_codex_freshness_packet_delegates_only_mechanical_read(self):
         skill = read("skills/aiwf-review/SKILL.md")
         agent = read("agents/aiwf-reviewer.md")

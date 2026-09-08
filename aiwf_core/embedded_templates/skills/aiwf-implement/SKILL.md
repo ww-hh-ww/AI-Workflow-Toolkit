@@ -16,8 +16,9 @@ Executor-owned construction evidence: implementation is not complete until every
 required V-* or current FIX-* ID has an honest matched, mismatched, or blocked
 result.
 
-When `executor_required=true`, dispatch `aiwf-executor` with exactly the Task ID
-and any explicit user clarification that is absent from Task.md. AIWF injects the
+When `executor_required=true`, dispatch `aiwf-executor` with one Task ID,
+necessary verified repair context, and any explicit user clarification absent
+from Task.md. Keep repair facts separate from user clarification. AIWF injects the
 contract and assigned worktree. Do not recopy Task.md or prescribe an
 implementation. When Executor is optional, perform the same contract inline.
 
@@ -26,9 +27,11 @@ implementation. When Executor is optional, perform the same contract inline.
 - Executor owns production code, formal tests, build/config changes, diagnosis,
   repair, and self-checks needed to make the Task true.
 - Do not move work Executor can resolve while implementing into an Experiment.
-- If such an unknown blocks implementation, return it to Planner as a concrete,
-  falsifiable question. Do not open or answer it by contaminating the Task
-  worktree with a spike.
+- Ordinary exploration, diagnosis, and self-checks remain Executor work. If a
+  blocking unknown needs a separate disposable experiment, return the question
+  and why it matters to the main session, which decides from Task.md Dispatch
+  Decisions. Do not open an EXP or leave experimental apparatus in the stable
+  candidate yourself.
 - Executor does not choose or dispatch its successor. It returns facts relevant
   to Task.md Dispatch Decisions; the stable main session evaluates those facts
   after construction evidence is recorded.

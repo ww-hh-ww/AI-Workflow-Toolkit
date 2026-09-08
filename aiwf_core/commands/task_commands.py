@@ -490,6 +490,9 @@ def _cmd_task_show(args: argparse.Namespace) -> None:
         raise SystemExit(1)
     print(f"Task: {task.get('id')}")
     print(f"  Title: {task.get('title', '')}")
+    from .task_reading import print_task_story
+
+    print_task_story(Path.cwd(), task)
     print(f"  Status: {task.get('status', '')}")
     print(f"  Phase: {task.get('phase', '') or '(none)'}")
     print(f"  Worktree: {task.get('worktree_path', '') or '(none)'}")

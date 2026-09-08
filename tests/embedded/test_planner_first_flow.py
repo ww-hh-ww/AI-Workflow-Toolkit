@@ -14,6 +14,29 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
 
 class TestPlannerFirstFlow(unittest.TestCase):
+    def test_task_experiment_dispatch_uses_exp_identity_not_task_identity(self):
+        from aiwf_core.commands.flow import _print_prompt
+
+        row = {
+            "id": "TASK-001", "plan_id": "PLAN-001", "worktree_path": "/tmp/plan",
+            "phase": "active", "construction_status": "missing",
+            "experiment_ids": ["EXP-001"], "review_result": "unknown",
+            "review_story": "unknown", "fix_loop": "none",
+        }
+        for role in ("Experimenter", "Experiment cleanup"):
+            output = StringIO()
+            with redirect_stdout(output):
+                _print_prompt(Path("/tmp/control"), Path("/tmp/control"), [{
+                    **row, "next_role": role, "action": "continue EXP-001",
+                }], None, [], [])
+            prompt = output.getvalue()
+            self.assertIn("Task: TASK-001", prompt)
+            self.assertNotIn("give the Agent this Task ID", prompt)
+            if role == "Experimenter":
+                self.assertIn("use the EXP ID", prompt)
+            else:
+                self.assertNotIn("Dispatch:", prompt)
+
     def test_installed_claude_template_declares_planner_directed_capabilities(self):
         text = (PROJECT_ROOT / "aiwf_core" / "embedded_templates" / "CLAUDE.md").read_text()
         self.assertIn("planner", text.lower())
