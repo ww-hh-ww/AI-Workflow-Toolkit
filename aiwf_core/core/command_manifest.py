@@ -65,7 +65,7 @@ COMMAND_MANIFEST: Dict[str, Dict] = {
     },
     "experiment": {
         "tier": PRIMARY, "core": "empirical_evidence",
-        "caller": "planner/experimenter/reviewer", "trigger": "on-unknown",
+        "caller": "planner/experimenter/architect/reviewer", "trigger": "on-unknown",
         "visible": True, "tested": "yes", "in_status_prompt": True,
         "keep": "disposable experiment lifecycle",
     },

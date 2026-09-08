@@ -39,6 +39,16 @@ Experiment 只在存在决策相关的 empirical uncertainty 时出现。它不�
 Planner 是上层规划和治理角色，不是第四个 Task 执行角色。Explorer、Critic 和 Architect
 是规划或跨 Plan 分析能力，也不改变上述三角色模型。
 
+Task 内的实验由 Experimenter 执行；Plan 层的方案实验由 Architect 执行，同样拥有
+一次性完整工作树、实验快照、证据与资产留存。Architect 的普通审查仍只写报告，
+实验写权限只存在于被派发的 Plan 实验工作树内。
+
+规划时只在 Task.md / Plan.md 写问题和决策依据，不绑定 Git subject。Task 激活时
+绑定执行基线；实际启动 Task 实验时使用该基线或当前 implementation 快照。
+Plan 调查在主会话决定执行时用 `aiwf experiment open EXP-001 --plan-id PLAN-001
+--question "..."` 建立运行记录，再 start 并派发 Architect。结论由 Planner 处理，
+正式资产由 Executor 在 Task 中落实。
+
 ## 安装与启动
 
 要求 Python 3.9+ 和 Git。

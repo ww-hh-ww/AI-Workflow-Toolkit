@@ -179,16 +179,17 @@ def resolve_agent_assignment(
     control_root: Optional[Path] = None,
 ) -> Optional[AgentAssignment]:
     """Resolve one task-role subagent to the Task named in its dispatch prompt."""
-    if event.engine not in NATIVE_SESSION_ENGINES or not is_task_role(event.agent_type):
+    if event.engine not in NATIVE_SESSION_ENGINES or not (is_task_role(event.agent_type) or event.agent_type == "aiwf-architect"):
         return None
 
     control = (control_root or resolve_control_root(event.cwd or Path.cwd())).resolve()
-    if str(event.agent_type or "").lower() == "aiwf-experimenter":
-        from .experiment_records import list_experiments
+    if str(event.agent_type or "").lower() in ("aiwf-experimenter", "aiwf-architect"):
+        from .experiment_records import list_experiments, experiment_role
 
         experiments = [
             item for item in list_experiments(control)
             if item.get("status") == "running" and item.get("worktree_path")
+            and experiment_role(item) == event.agent_type
         ]
         if event.engine == "opencode":
             current = Path(event.cwd).expanduser().resolve()

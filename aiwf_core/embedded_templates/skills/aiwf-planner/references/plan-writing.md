@@ -17,8 +17,9 @@ links accurate. Use CLI when supported; otherwise edit Markdown and run
   main data or control path from entry to consumer to observable result.
 - Key Decisions: important technical choices, their source-backed basis, and
   credible alternatives rejected.
-- Delivery: ordered Tasks or experiments that burn down risk and prove the
-  mechanism works together.
+- Delivery: ordered Tasks and, when needed, Architect-led Plan investigations
+  that reduce uncertainty and prove the mechanism works together. Describe the
+  investigation question and decision in this Plan, not a Git ref during planning.
 - Validation: how the largest uncertainties and real main path will be tested.
 
 Use clear headings that fit the Plan. The names above are not a required form.

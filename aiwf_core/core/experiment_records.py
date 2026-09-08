@@ -51,6 +51,12 @@ def list_experiments(
 ) -> List[Dict[str, Any]]:
     control = resolve_control_root(base_dir)
     root = control / ".aiwf" / "records" / "experiments"
+    plan_tasks = set()
+    if plan_id:
+        from .task_ledger import load_ledger
+
+        plan_tasks = {task.get("id") for task in load_ledger(str(control)).get("tasks", [])
+                      if (task.get("plan_id") or task.get("parent_plan")) == plan_id}
     found: List[Dict[str, Any]] = []
     if not root.exists():
         return found
@@ -68,8 +74,8 @@ def list_experiments(
         ):
             continue
         if plan_id and (
-            scope.get("kind") != "plan"
-            or str(scope.get("id") or "") != plan_id
+            not (scope.get("kind") == "plan" and scope.get("id") == plan_id)
+            and not (scope.get("kind") == "task" and scope.get("id") in plan_tasks)
         ):
             continue
         found.append(item)
@@ -83,6 +89,11 @@ def experiment_for_worktree(base_dir: str | Path) -> Dict[str, Any]:
         if item.get("status") == "running" and worktree and same_path(current, worktree):
             return item
     return {}
+
+
+def experiment_role(record: Dict[str, Any]) -> str:
+    """Execution authority follows scope, not a fourth Task role."""
+    return "aiwf-architect" if (record.get("scope") or {}).get("kind") == "plan" else "aiwf-experimenter"
 
 
 def _git(root: Path, *args: str) -> str:
@@ -105,7 +116,7 @@ def open_experiment(
     subject_ref: str = "",
     timing: str = "",
 ) -> Dict[str, Any]:
-    """Create an empirical question against one immutable stable ref."""
+    """Open Task/Experimenter or Plan/Architect work; planning stays in Markdown."""
     experiment_id = _safe_id(experiment_id)
     question = " ".join(str(question or "").split())
     if not question:
@@ -117,29 +128,35 @@ def open_experiment(
     if path.exists():
         raise ValueError(f"experiment already exists: {experiment_id}")
 
-    if task_id:
-        from .task_ledger import load_ledger
-        from .task_records import load_task_record, update_task_record
+    from .task_ledger import load_ledger
+    from .task_records import load_task_record, update_task_record
 
+    if task_id:
         task = next((item for item in load_ledger(str(control)).get("tasks", [])
                      if item.get("id") == task_id), None)
         if not task:
             raise ValueError(f"Task not found: {task_id}")
+        if task.get("status") != "active" or not task.get("git_origin_ref"):
+            raise ValueError(
+                "plan the experiment in Task.md without a Git ref; activate its Task "
+                "to bind the execution baseline before opening a runtime experiment"
+            )
         implementation = load_task_record(control, task_id).get("implementation", {}) or {}
-        current_ref = str(implementation.get("implementation_ref") or task.get("git_origin_ref") or "")
-        subject_ref = subject_ref or current_ref
         timing = timing or ("post_implementation" if implementation.get("implementation_ref") else "pre_implementation")
+        current_ref = (implementation.get("implementation_ref") if timing == "post_implementation"
+                       else task["git_origin_ref"])
+        subject_ref = subject_ref or str(current_ref or "")
         scope = {"kind": "task", "id": task_id}
     else:
         from .state.plan_ops import get_plan
 
         plan = get_plan(str(control), plan_id)
-        if not plan:
-            raise ValueError(f"Plan not found: {plan_id}")
-        if plan.get("status") == "closed":
-            raise ValueError(f"Plan is closed: {plan_id}")
+        if not plan or plan.get("status") == "closed":
+            raise ValueError("Architect investigation requires an open owning Plan")
         subject_ref = subject_ref or str(plan.get("git_head_ref") or plan.get("git_base_ref") or "")
-        timing = timing or "pre_implementation"
+        if not subject_ref:
+            subject_ref = _git(Path(str(plan.get("git_worktree_path") or control)), "rev-parse", "HEAD")
+        timing = "pre_implementation"
         scope = {"kind": "plan", "id": plan_id}
     if timing not in {"pre_implementation", "post_implementation"}:
         raise ValueError("timing must be pre_implementation or post_implementation")
@@ -166,7 +183,9 @@ def open_experiment(
     if not subject_ref:
         raise ValueError("experiment subject ref is missing")
     subject_ref = _git(control, "rev-parse", f"{subject_ref}^{{commit}}")
-    disposition_required = scope["kind"] == "plan" or timing == "pre_implementation"
+    if task_id and timing == "pre_implementation" and subject_ref != _git(control, "rev-parse", f"{task['git_origin_ref']}^{{commit}}"):
+        raise ValueError("pre-implementation experiment must use the Task activation baseline")
+    disposition_required = timing == "pre_implementation"
 
     record = {
         "schema_version": 2,
@@ -263,6 +282,24 @@ def start_experiment(base_dir: str, experiment_id: str) -> Dict[str, Any]:
             raise ValueError(f"experiment not found: {experiment_id}")
         if record.get("status") not in ("open", "running"):
             raise ValueError(f"experiment is {record.get('status')}; it cannot be started")
+        from .task_ledger import load_ledger
+        from .task_records import load_task_record
+
+        scope = record.get("scope", {})
+        if scope.get("kind") == "plan":
+            from .state.plan_ops import get_plan
+
+            if get_plan(str(control), scope["id"]).get("status") == "closed":
+                raise ValueError("Architect investigation requires an open owning Plan")
+        else:
+            task = next((item for item in load_ledger(str(control)).get("tasks", [])
+                         if item.get("id") == scope.get("id")), {})
+            if task.get("status") != "active":
+                raise ValueError("experiment requires its owning Task to be active")
+            current = (load_task_record(control, task["id"]).get("implementation", {}).get("implementation_ref")
+                       if record.get("timing") == "post_implementation" else task.get("git_origin_ref"))
+            if current != record.get("subject_ref"):
+                raise ValueError("experiment subject is stale for its owning Task; do not silently rebind it")
         target = control / ".aiwf" / "runtime" / "experiments" / experiment_id / "worktree"
         if not target.exists():
             target.parent.mkdir(parents=True, exist_ok=True)

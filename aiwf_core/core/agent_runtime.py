@@ -134,9 +134,9 @@ def start_dispatch(
     with _exclusive_operation_lock(str(resolve_control_root(base_dir)), "agent-dispatch", timeout=2):
         running = [
             item for item in running_dispatches(base_dir, task_id=task_id)
-            if item["subagent_type"] in WORKFLOW_ROLES
+            if item["subagent_type"] in WORKFLOW_ROLES or item.get("experiment_id")
         ]
-        if subagent_type in WORKFLOW_ROLES and running:
+        if (subagent_type in WORKFLOW_ROLES or experiment_id) and running:
             return running[0]["subagent_type"]
         with path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(entry) + "\n")
@@ -200,7 +200,7 @@ def _remember_task_agent(
     """
     task_id = str(dispatch.get("task_id") or "")
     role = str(dispatch.get("subagent_type") or "")
-    if role == "aiwf-experimenter":
+    if dispatch.get("experiment_id") or role == "aiwf-experimenter":
         return
     if not task_id or not role or not agent_id:
         return
@@ -315,7 +315,7 @@ def start_resumed_dispatch(
     session_id: str,
 ) -> Optional[str]:
     """Reopen the recorded task-role window when Claude resumes an Agent."""
-    if subagent_type == "aiwf-experimenter":
+    if subagent_type in ("aiwf-experimenter", "aiwf-architect"):
         return None
     prior = resumable_agent(
         base_dir, subagent_type=subagent_type, agent_id=agent_id,

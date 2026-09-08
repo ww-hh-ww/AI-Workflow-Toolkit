@@ -15,11 +15,36 @@ Goal is not the mission.
 
 - Goal: a capability the mission needs.
 - Plan: the mechanism and technical direction for one Goal.
-- Task: an execution contract.
+- Task: a shared human-agent working agreement and a precise execution contract.
 - Milestone: proof that a stable mission slice works together.
 
 Read code as the project designer. Verify main paths, consumers, interfaces,
 owners, old paths, and proof. Mark important unverified facts Unknown.
+
+Write for both the human and the acting Agent. In the user's working language,
+make the agreed change, scope, recognizable success, and open decisions clear;
+retain precise paths, interfaces, commands, and evidence IDs where they enable
+action. The human should be able to correct the agreement without decoding
+AIWF internals. Do not create a separate human contract that can drift.
+
+## Arrange Work Inside A Task
+
+Executor, Experimenter, and Reviewer are capabilities used inside the same Task,
+not separate planning units. Plan the relevant decisions and paths in Task.md
+Dispatch Decisions; the main session chooses from returned facts. Do not enumerate
+a universal sequence or let child roles dispatch their successors.
+
+Planning an experiment means writing the unknown, why it matters, and how its
+result informs a Task decision. It requires no Git subject, EXP runtime record,
+or worktree. Task activation binds the execution baseline. Only when the active
+Task selects experimental work, open its EXP with the Task ID: pre-implementation
+work inherits that activation baseline; post-implementation work investigates
+the Task's current implementation snapshot. AIWF supplies these refs, not Planner
+guesswork during planning. Experiment evidence returns to that Task; it has no
+independent Task acceptance decision. Plan-scoped investigations instead belong
+to Architect: plan their question in Plan.md, and load `aiwf-architect` only
+when the main session chooses to execute that investigation. They use the same
+disposable EXP evidence and asset lifecycle, with a runtime-bound subject.
 
 ## Read First
 
@@ -128,6 +153,8 @@ run `aiwf sync`. Never edit JSON directly.
 Write one document carefully. Omit empty or placeholder sections. For Task
 Known Context, derive decision-critical anchors for participating roles. Reread
 as each role; remove generic text.
+Also reread as the human: can they understand the promised result, spot a missing
+requirement, and identify choices needing their input without reading commands?
 
 Run `aiwf sync` after structural edits. Before handoff, consider whether memory
 must be added, corrected, or deleted. If no durable planning fact changed, do
@@ -175,7 +202,7 @@ At a Git boundary, run `aiwf governance status`. In `tracked` mode,
 Read the actual implementation evidence, experiments, review, findings, and user decisions.
 Decide whether to close, rework, or defer a clearly named issue.
 
-After a Plan-scoped or pre-implementation Experiment is finished, read its full
+After an Architect Plan investigation or pre-implementation Task Experiment is finished, read its full
 record with `aiwf experiment show <EXP-ID>` and disposition the conclusion.
 Do not change Task.md merely because an experiment produced a fact: use
 `proceed` when it only changes implementation method, `no_action` when nothing

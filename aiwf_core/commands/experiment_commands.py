@@ -19,7 +19,8 @@ def _cmd_experiment_open(args: argparse.Namespace) -> None:
         record = open_experiment(
             str(Path.cwd()), args.experiment_id, args.question,
             hypothesis=args.hypothesis or "", task_id=args.task_id or "",
-            plan_id=args.plan_id or "", subject_ref=args.subject_ref or "",
+            plan_id=args.plan_id or "",
+            subject_ref=args.subject_ref or "",
             timing=args.timing or "",
         )
     except ValueError as exc:
@@ -43,7 +44,7 @@ def _cmd_experiment_start(args: argparse.Namespace) -> None:
 
 def _cmd_experiment_record(args: argparse.Namespace) -> None:
     from ..core.agent_runtime import running_dispatches
-    from ..core.experiment_records import record_experiment
+    from ..core.experiment_records import record_experiment, load_experiment, experiment_role
     from ..core.worktree_context import resolve_control_root
 
     try:
@@ -51,14 +52,15 @@ def _cmd_experiment_record(args: argparse.Namespace) -> None:
         from ..core.project_root import codex_dispatch_markers_advisory
 
         if not codex_dispatch_markers_advisory(control):
+            role = experiment_role(load_experiment(control, args.experiment_id))
             matching = [
                 item for item in running_dispatches(control)
-                if item.get("subagent_type") == "aiwf-experimenter"
+                if item.get("subagent_type") == role
                 and item.get("experiment_id") == args.experiment_id
             ]
             if len(matching) != 1:
                 raise ValueError(
-                    "experiment evidence requires one running aiwf-experimenter dispatch "
+                    "experiment evidence requires one running scope-appropriate role dispatch "
                     f"bound to {args.experiment_id}"
                 )
         record = record_experiment(

@@ -58,12 +58,12 @@ def _task_matches(tasks, text):
     return matches
 
 
-def _experiment_match(base, text):
+def _experiment_match(base, text, statuses=("running",)):
     from aiwf_core.core.experiment_records import list_experiments
 
     matches = [
         item for item in list_experiments(base)
-        if item.get("status") == "running"
+        if item.get("status") in statuses
         and re.search(
             rf"(?<![A-Za-z0-9_-]){re.escape(str(item.get('experiment_id') or ''))}(?![A-Za-z0-9_-])",
             text,
@@ -270,7 +270,8 @@ def main():
     matched_experiment = _experiment_match(base, dispatch_text)
     codex_fallback = False
     if event.engine == "codex" and not subagent_type and matched_experiment:
-        subagent_type = "aiwf-experimenter"
+        from aiwf_core.core.experiment_records import experiment_role
+        subagent_type = experiment_role(matched_experiment)
         codex_fallback = True
     elif event.engine == "codex" and not subagent_type and matches:
         if len(matches) != 1:
@@ -349,14 +350,16 @@ def main():
             f"  → Load /{required_skill} first, then dispatch {subagent_type}."
         )
 
-    if subagent_type == "aiwf-architect":
+    if subagent_type == "aiwf-architect" and not matched_experiment:
+        if _experiment_match(base, dispatch_text, statuses=("open",)):
+            deny_pre_tool_use("Start the Plan experiment before dispatching aiwf-architect for its investigation.")
         updated = dict(event.tool_input or {})
         updated[prompt_key] = (
             f"AIWF Architect review\nControl root: {base}\n\n{original_prompt.strip()}"
         ).strip()
         allow_with_updated_input(updated)
 
-    if subagent_type == "aiwf-experimenter":
+    if subagent_type == "aiwf-experimenter" or (subagent_type == "aiwf-architect" and matched_experiment):
         experiment = matched_experiment
         if not experiment:
             deny_pre_tool_use(
@@ -365,11 +368,14 @@ def main():
             )
         experiment_id = str(experiment.get("experiment_id") or "")
         scope = experiment.get("scope", {}) or {}
+        from aiwf_core.core.experiment_records import experiment_role
+        if subagent_type != experiment_role(experiment):
+            deny_pre_tool_use(f"{experiment_id} belongs to {experiment_role(experiment)}, not {subagent_type}.")
         scope_id = str(scope.get("id") or experiment_id)
         worktree_path = str(experiment.get("worktree_path") or "")
         if not worktree_path:
             deny_pre_tool_use(f"Experiment {experiment_id} has no disposable worktree.")
-        plan_id = ""
+        plan_id = scope_id if scope.get("kind") == "plan" else ""
         if scope.get("kind") == "task":
             task = _active_task(base, scope_id)
             plan_id = str(task.get("plan_id") or task.get("parent_plan") or "")
@@ -380,10 +386,10 @@ def main():
             )
             if running:
                 deny_pre_tool_use(
-                    f"Cannot dispatch aiwf-experimenter: {running} is still running for {scope_id}."
+                    f"Cannot dispatch {subagent_type}: {running} is still running for {scope_id}."
                 )
         except TimeoutError as exc:
-            deny_pre_tool_use(f"Cannot dispatch aiwf-experimenter: {exc}. Retry once.")
+            deny_pre_tool_use(f"Cannot dispatch {subagent_type}: {exc}. Retry once.")
         lines = [
             "AIWF experiment assignment:",
             f"Experiment: {experiment_id}",
@@ -403,6 +409,8 @@ def main():
             lines.append(f"Also read Plan contract: {base / '.aiwf/plans' / (scope_id + '.md')}")
         if original_prompt.strip():
             lines.extend(["", "Planner/Reviewer context:", original_prompt.strip()])
+        if codex_fallback:
+            lines.extend(["", _codex_role_contract(base, subagent_type)])
         updated = dict(event.tool_input or {})
         updated[prompt_key] = "\n".join(lines)
         allow_with_updated_input(updated)

@@ -345,18 +345,18 @@ def _print_plan_experiment_prompt(experiment: Dict[str, Any]) -> None:
     scope = experiment.get("scope", {}) or {}
     if status == "open":
         action = (
-            f"run aiwf experiment start {experiment_id}, then load /aiwf-experiment "
-            f"and dispatch aiwf-experimenter for {experiment_id}"
+            f"run aiwf experiment start {experiment_id}, then load /aiwf-architect "
+            f"and dispatch aiwf-architect for {experiment_id}"
         )
-        skill = _named_skill("aiwf-experiment")
-        role = "Experimenter"
+        skill = _named_skill("aiwf-architect")
+        role = "Architect investigation"
     elif status == "running":
-        action = f"load /aiwf-experiment and dispatch or resume aiwf-experimenter for {experiment_id}"
-        skill = _named_skill("aiwf-experiment")
-        role = "Experimenter"
+        action = f"load /aiwf-architect and dispatch or resume aiwf-architect for {experiment_id}"
+        skill = _named_skill("aiwf-architect")
+        role = "Architect investigation"
     elif status == "recorded":
         action = f"run aiwf experiment finish {experiment_id}, then rerun aiwf status --prompt"
-        skill = _named_skill("aiwf-experiment")
+        skill = _named_skill("aiwf-architect")
         role = "Experiment cleanup"
     else:
         action = (
@@ -436,16 +436,12 @@ def cmd_status(args) -> None:
             milestones_acceptance,
         )
     else:
-        if plan_experiment:
-            print(
-                "Plan experiment needs attention: "
-                f"{plan_experiment.get('experiment_id')} "
-                f"status={plan_experiment.get('status')}"
-            )
         _print_human(
             control, worktree, rows, current, plans_closeout, plans_between,
             milestones_acceptance,
         )
+        if plan_experiment:
+            print(f"Architect Plan investigation: {plan_experiment['experiment_id']} ({plan_experiment['status']}); run aiwf status --prompt for the next action.")
 
 
 def _print_human(

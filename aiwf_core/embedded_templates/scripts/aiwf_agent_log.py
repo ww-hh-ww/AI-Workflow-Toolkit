@@ -16,13 +16,15 @@ from aiwf_core.core.agent_runtime import (
 from aiwf_core.core.worktree_context import resolve_control_root
 
 RETURN_MARKER = re.compile(r"(?m)^\s*(RETURN_TO_PLANNER|EXTERNAL_FINDING)\b\s*:?")
-TASK_ROLES = WORKFLOW_ROLES
+TASK_ROLES = WORKFLOW_ROLES | {"aiwf-architect"}
 ROLE_LABELS = {
+    "aiwf-architect": "Architect",
     "aiwf-executor": "Executor",
     "aiwf-experimenter": "Experimenter",
     "aiwf-reviewer": "Reviewer",
 }
 REPORT_LABELS = {
+    "aiwf-architect": "the investigation evidence",
     "aiwf-executor": "the implementation report",
     "aiwf-experimenter": "the experiment evidence",
     "aiwf-reviewer": "REVIEW_REPORT",
@@ -107,7 +109,7 @@ def _experiment_from_text(base, text):
         experiment_id = str(item.get("experiment_id") or "")
         if (
             experiment_id
-            and item.get("status") in ("open", "running")
+            and item.get("status") in ("open", "running", "recorded")
             and re.search(
                 rf"(?<![A-Za-z0-9_-]){re.escape(experiment_id)}(?![A-Za-z0-9_-])",
                 text,
@@ -118,7 +120,7 @@ def _experiment_from_text(base, text):
 
 
 def _scope_from_text(base, text, agent_type):
-    if agent_type == "aiwf-experimenter":
+    if agent_type in ("aiwf-experimenter", "aiwf-architect"):
         experiment = _experiment_from_text(base, text)
         return str((experiment.get("scope") or {}).get("id") or "")
     return _task_from_text(base, text)
@@ -140,6 +142,8 @@ def _running_role(base, session_id, task_id="", agent_id=""):
 
 
 def _open_planner_fix_loop(base, task_id, source, reason):
+    if source == "architect":
+        return
     if not task_id:
         return
     from aiwf_core.core.task_records import load_task_record
@@ -259,7 +263,7 @@ def _completion_blocker(base, task_id, agent_type, agent_id="", session_id=""):
     if not dispatch:
         return ""
 
-    if agent_type == "aiwf-experimenter":
+    if dispatch.get("experiment_id"):
         from aiwf_core.core.experiment_records import load_experiment
 
         experiment_id = str(dispatch.get("experiment_id") or "")
@@ -289,7 +293,7 @@ def _completion_blocker(base, task_id, agent_type, agent_id="", session_id=""):
         if fresh:
             return ""
         return (
-            f"This Experimenter run for {experiment_id or task_id} has no fresh experiment "
+            f"This {agent_type} run for {experiment_id or task_id} has no fresh experiment "
             "snapshot and evidence record. If the experiment is complete, run "
             f"`aiwf experiment record {experiment_id}` from its disposable worktree with "
             "the commands, observations, conclusion, and summary already obtained. Then "
@@ -355,7 +359,7 @@ def main():
             sys.exit(0)
         task_id = ""
         assignment = None
-        if agent_type != "aiwf-architect":
+        if agent_type in TRACKED_ROLES:
             try:
                 assignment = resolve_agent_assignment(event, base)
                 task_id = assignment.task_id if assignment else ""
@@ -371,7 +375,7 @@ def main():
         if event.engine == "codex" and assignment is not None:
             experiment = (
                 _experiment_from_text(base, str(data))
-                if agent_type == "aiwf-experimenter" else {}
+                if agent_type in ("aiwf-experimenter", "aiwf-architect") else {}
             )
             experiment_id = str(experiment.get("experiment_id") or "")
             task_doc = base / ".aiwf" / "tasks" / f"{task_id}.md"
@@ -408,19 +412,23 @@ def main():
         if agent_type not in TRACKED_ROLES:
             sys.exit(0)
         task_id = ""
-        if agent_type != "aiwf-architect":
+        if data.get("agent_id"):
+            dispatch = latest_agent_dispatch(base, agent_type, str(data["agent_id"]))
+            task_id = str((dispatch or {}).get("task_id") or "")
+        if agent_type in TRACKED_ROLES:
             try:
                 assignment = resolve_agent_assignment(event, base)
-                task_id = assignment.task_id if assignment else ""
+                task_id = assignment.task_id if assignment else task_id
             except AgentWorktreeError:
                 pass
         if not task_id:
-            task_id = _task_from_text(
+            task_id = _scope_from_text(
                 base,
                 "\n".join(
                     str(data.get(key) or "")
                     for key in ("last_assistant_message", "cwd")
                 ),
+                agent_type,
             )
         marker = RETURN_MARKER.search(str(data.get("last_assistant_message") or ""))
         return_to_planner = bool(marker and marker.group(1) == "RETURN_TO_PLANNER")

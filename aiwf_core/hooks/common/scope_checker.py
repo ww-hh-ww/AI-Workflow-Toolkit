@@ -241,7 +241,7 @@ def _temporary_project_writes_allowed(
     )
 
 
-def _project_shell_write_targets(command: str, cwd: Path, control: Path) -> list[str]:
+def _project_shell_write_targets(command: str, cwd: Path, control: Path, *, absolute: bool = False) -> list[str]:
     """Return explicit shell write targets inside any managed project worktree."""
     owners = managed_worktrees(control)
     targets = []
@@ -265,7 +265,7 @@ def _project_shell_write_targets(command: str, cwd: Path, control: Path) -> list
                 relative == ".aiwf" or relative.startswith(".aiwf/")
             ):
                 break
-            targets.append(relative)
+            targets.append(str(path) if absolute else relative)
             break
     return targets
 
@@ -350,10 +350,10 @@ def check_file_write(event: NormalizedEvent) -> ScopeResult:
             reason="temporary AI project writes can be changed only by a human in `aiwf ui`.",
         )
 
-    from ...core.experiment_records import experiment_for_worktree
+    from ...core.experiment_records import experiment_for_worktree, experiment_role
 
     experiment = experiment_for_worktree(cwd)
-    if experiment and "experimenter" in role and not _is_governance_file(normalized):
+    if experiment and experiment_role(experiment) in role and not _is_governance_file(normalized):
         assigned = Path(str(experiment.get("worktree_path") or cwd)).resolve()
         target = Path(str(file_path)).expanduser()
         if not target.is_absolute():
@@ -796,11 +796,11 @@ def check_bash(event: NormalizedEvent) -> Dict:
     if base_result.get("decision") != "allow":
         return base_result
 
-    from ...core.experiment_records import experiment_for_worktree
+    from ...core.experiment_records import experiment_for_worktree, experiment_role
 
     experiment = experiment_for_worktree(cwd)
-    project_targets = _project_shell_write_targets(command, cwd, control)
-    if experiment and "experimenter" in role:
+    project_targets = _project_shell_write_targets(command, cwd, control, absolute=True)
+    if experiment and experiment_role(experiment) in role:
         assigned = Path(str(experiment.get("worktree_path") or cwd)).resolve()
         for raw_target in project_targets:
             target = Path(raw_target).resolve()

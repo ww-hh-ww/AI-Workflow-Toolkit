@@ -1,6 +1,6 @@
 ---
 name: aiwf-experiment
-description: Resolve an explicit empirical unknown through a disposable full-project experiment without changing the stable Task or Plan candidate.
+description: Run a Task-owned empirical investigation after activation without changing its stable candidate.
 ---
 
 # AIWF Experiment
@@ -10,8 +10,10 @@ between Executor and Reviewer and not a replacement for Executor self-checks.
 
 ## Enter at the recorded state
 
-An Experiment needs one falsifiable or decision-relevant question, exactly one
-Task or Plan scope, and an immutable subject commit.
+During planning, describe the question and decision in Task.md without a Git
+ref or EXP runtime record. Task activation binds its execution baseline.
+An executing Experiment needs one falsifiable or decision-relevant question,
+an active owning Task, and an immutable subject commit inherited from that Task.
 
 Within Task execution, an EXP belongs to that Task: its question serves a Task
 decision and its evidence returns to the Task's main session. The EXP ID selects
@@ -45,8 +47,10 @@ proof is the freshness rule; a different HEAD and dirty status relative to it
 are expected. Never fast-forward, checkout, merge, or commit the snapshot to
 make the refs equal.
 
-Use `--plan-id` for pre-Task planning research. Pass `--subject-ref` when the
-scope has no recorded stable ref. The start command creates a detached,
+Do not open an EXP for an unactivated Task. Plan-scoped investigations use the
+Architect skill and role, not this Task Experimenter workflow. The CLI
+uses the activation baseline before implementation and the current implementation
+snapshot afterward; planning does not choose a subject ref. The start command creates a detached,
 full-project worktree. Dispatch `aiwf-experimenter` with exactly the EXP ID; AIWF
 binds it to that worktree.
 
@@ -100,7 +104,7 @@ Git snapshots do not guarantee retention of ignored files, external data, or
 environment state. Record where any essential unsaved material lives before
 cleanup; never describe it as retained without checking.
 
-For Plan-scoped or pre-implementation evidence, Planner must read
+For pre-implementation evidence, Planner must read
 `aiwf experiment show <EXP-ID>` and record one meaning-level decision:
 
 ```text

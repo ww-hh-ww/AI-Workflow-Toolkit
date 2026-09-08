@@ -113,8 +113,8 @@ failure surface requiring disposable instrumentation.
 
 Each EXP record binds:
 
-- exactly one Task or Plan scope;
-- an immutable subject commit;
+- exactly one active owning Task;
+- an immutable subject commit derived from that Task at execution time;
 - a question and optional falsifiable hypothesis;
 - a disposable full-project worktree;
 - commands/operations, concrete observations, conclusion, experiment snapshot,
@@ -126,6 +126,12 @@ reject the Task. Reviewer/Planner decides the consequence. If an experimental
 asset should become maintained project code, Executor recreates or promotes it
 in the stable worktree and records fresh construction evidence.
 The immutable experiment snapshot already retains experimental assets.
+
+Planning an experiment requires only its question, purpose, and decision path in
+this Task.md, not an EXP record or Git ref. Task activation binds the execution
+baseline; an actual pre-implementation EXP inherits it. A post-implementation
+EXP instead uses this Task's current implementation snapshot. Neither becomes
+an independent Plan-level work item.
 
 ## Known Context
 

@@ -145,14 +145,15 @@ async function sessionAgent(client, input) {
 
 async function prepareTaskRole(input, args) {
   const role = String(args.subagent_type || "")
-  if (!["aiwf-executor", "aiwf-experimenter", "aiwf-reviewer"].includes(role)) return null
+  if (!["aiwf-executor", "aiwf-experimenter", "aiwf-reviewer", "aiwf-architect"].includes(role)) return null
+  if (role === "aiwf-architect" && !/EXP-[A-Za-z0-9._-]+/.test(String(args.prompt || args.message || ""))) return null
   if (args.background === true) {
     throw new Error(
       `AIWF ${role} must run in the foreground so its record is checked before the next Task role.`
     )
   }
   const prompt = [args.prompt, args.message, args.description].filter(Boolean).join("\n")
-  if (role === "aiwf-experimenter") {
+  if (role === "aiwf-experimenter" || role === "aiwf-architect") {
     const ids = [...new Set(prompt.match(/EXP-[A-Za-z0-9._-]+/g) || [])]
     if (ids.length !== 1) return null
     try {
@@ -160,6 +161,8 @@ async function prepareTaskRole(input, args) {
         `${controlRoot}/.aiwf/records/experiments/${ids[0]}.json`,
       ).json()
       if (experiment.status !== "running" || !experiment.worktree_path) return null
+      const expectedRole = experiment.scope?.kind === "plan" ? "aiwf-architect" : "aiwf-experimenter"
+      if (role !== expectedRole) throw new Error(`This investigation belongs to ${expectedRole}`)
       return {
         taskID: String(experiment.scope?.id || ids[0]),
         role,

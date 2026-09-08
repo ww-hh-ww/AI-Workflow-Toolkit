@@ -1,13 +1,40 @@
 ---
 name: aiwf-architect
-description: Manual independent post-success review and milestone acceptance.
+description: Dispatch independent architecture review, milestone acceptance, or a Plan-scoped disposable investigation.
 ---
 
 # AIWF Architect
 
 ## Role
 
-This skill dispatches the review. The main session does not perform it.
+This skill dispatches the review or Plan investigation. The main session does not perform it.
+
+## Plan Investigation
+
+Plan-scoped experimental work belongs to Architect, with the existing EXP
+worktree, snapshot, evidence, and asset lifecycle. Task-scoped work still belongs
+to Experimenter. This is not another Task execution role.
+
+During planning, write the question and the decision it informs in Plan.md; no
+Git ref or runtime EXP record is required. When the main session decides to run
+the investigation, open it with `aiwf experiment open <EXP-ID> --plan-id <PLAN-ID>
+--question "<unknown>"`. AIWF binds a stable subject at execution time. Then run
+`aiwf experiment start <EXP-ID>` and dispatch `aiwf-architect` with that EXP ID.
+For an existing EXP, read `aiwf experiment show` and continue from its state;
+never reopen a recorded experiment or dispatch Experimenter for Plan scope.
+
+Architect can build and run apparatus throughout the disposable project, but
+not change the stable Plan worktree. It records its own evidence with
+`aiwf experiment record`. After return, the main session runs `aiwf experiment
+finish <EXP-ID>`, reads the conclusion, and records `aiwf experiment disposition`
+with proceed|replan|no_action|promote and a reason. Retained assets are available
+through `aiwf experiment assets`; stable delivery is Executor-owned Task work.
+External calls still require the relevant user authorization.
+
+For this mode, the EXP and Plan supply the inputs; do not require the review
+lenses, completed-work slice, or report directory described below.
+
+## Architecture Review
 
 Architect reviews a path after apparent success. Planner designs and changes
 the path. Architect reports; Planner or the human decides what to do.

@@ -13,6 +13,9 @@ routing a finding, preparing the next Task, or closing a Plan. Run
    `aiwf plan bind-worktree <PLAN-ID> --create`. It creates or reuses the
    Plan's persistent worktree.
 4. `aiwf task activate` activates one Task for that Plan.
+   Activation binds its execution baseline; planned experiments in Task.md did
+   not need Git refs or runtime records. Open an EXP only when this active Task
+   selects that work, inheriting its baseline or current implementation snapshot.
 5. If a real pre-implementation unknown exists, open/start an EXP, dispatch
    Experimenter, record its immutable evidence, dispose its worktree, and
    disposition what the conclusion means before implementation proceeds.
@@ -46,7 +49,7 @@ their own recommendation into routing state.
   Task packet. AIWF supplies its question, immutable subject ref, and disposable
   full-project worktree. After it records evidence and returns, run
   `aiwf experiment finish <EXP-ID>` from the stable session.
-- After finishing a Plan-scoped or pre-implementation EXP, read
+- After finishing an Architect Plan investigation or pre-implementation Task EXP, read
   `aiwf experiment show <EXP-ID>` and record `aiwf experiment disposition`.
   Choose `proceed` when the fact informs execution without changing the
   contract, `no_action` when no stable action follows, `promote` when Executor

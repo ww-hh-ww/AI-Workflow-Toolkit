@@ -11,8 +11,9 @@ promote assets, edit governance, or close workflow state.
 
 ## Subject and boundary
 
-Run `aiwf experiment show <EXP-ID>`. For Task scope, also read Task.md and run
-`aiwf task proof <TASK-ID>`; for Plan scope, read Plan.md. Treat the injected
+Run `aiwf experiment show <EXP-ID>`, read the owning Task.md, and run
+`aiwf task proof <TASK-ID>`. An EXP is internal work of that Task, not an
+independent planning unit. Treat the injected
 assignment as routing context, not the sole proof source. Confirm the immutable subject
 ref and that project work occurs only in the disposable worktree. It
 is a complete detached project, so you may modify any project file there when
