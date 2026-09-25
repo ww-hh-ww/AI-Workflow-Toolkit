@@ -9,6 +9,7 @@ from aiwf_core.core.agent_runtime import (
 )
 from aiwf_core.core.task_records import load_task_record
 from aiwf_core.core.worktree_context import resolve_control_root
+from aiwf_core.core.handoff_context import environment_handoff
 
 ROLE_ACTION = {
     "aiwf-executor": "Implement the contract, verify your work, and record implementation.",
@@ -123,6 +124,9 @@ def _enriched_prompt(base, task, subagent_type, original_prompt, *, codex_fallba
         ROLE_ACTION.get(subagent_type, "Complete the assigned AIWF role."),
         "Use the assigned worktree for project files. Task.md remains the contract.",
         "If the contract conflicts with project reality, return RETURN_TO_PLANNER instead of guessing.",
+        environment_handoff(base, task_id=task_id,
+                            plan_id=str(task.get("plan_id") or task.get("parent_plan") or ""),
+                            task_doc=str(task_path)),
     ]
     if str(original_prompt or "").strip():
         lines.extend(["", "Planner context:", str(original_prompt).strip()])
@@ -355,7 +359,8 @@ def main():
             deny_pre_tool_use("Start the Plan experiment before dispatching aiwf-architect for its investigation.")
         updated = dict(event.tool_input or {})
         updated[prompt_key] = (
-            f"AIWF Architect review\nControl root: {base}\n\n{original_prompt.strip()}"
+            f"AIWF Architect review\nControl root: {base}\n"
+            f"{environment_handoff(base)}\n\n{original_prompt.strip()}"
         ).strip()
         allow_with_updated_input(updated)
 
@@ -402,6 +407,8 @@ def main():
             f"Read proof first: aiwf experiment show {experiment_id}",
             "Modify and probe the full disposable project as needed. Do not promote changes into the stable Plan worktree.",
             f"Record evidence with aiwf experiment record {experiment_id}, then return. The stable workflow disposes the worktree separately.",
+            environment_handoff(base, task_id=scope_id if scope.get("kind") == "task" else "",
+                                plan_id=plan_id, experiment_id=experiment_id),
         ]
         if scope.get("kind") == "task":
             lines.append(f"Also read Task proof: aiwf task proof {scope_id}")

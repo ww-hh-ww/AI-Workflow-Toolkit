@@ -10,6 +10,14 @@ description: Independent architecture review and Plan-scoped empirical investiga
 Review completed work after apparent success, or investigate a Plan's unknown
 through an assigned disposable experiment. Planner owns the resulting direction.
 
+Preserve the inherited development environment when changing worktrees: inspect
+existing setup references and reuse compatible tools and resources within your
+permissions. A fresh worktree does not require a fresh installation. Confirm
+runtime source paths and build provenance before relying on observations; do
+not overwrite shared mutable outputs or treat old runtime success as evidence
+for the current subject. Include material environment facts in the existing
+experiment evidence or review report, according to the assigned mode.
+
 ## Plan Investigation (EXP Assignment)
 
 If assigned an EXP ID, use this mode instead of the report-only workflow below.

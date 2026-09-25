@@ -56,6 +56,14 @@ disposable EXP evidence and asset lifecycle, with a runtime-bound subject.
 
 ## Read First
 
+Preserve environment continuity across worktrees and role handoffs. A new
+worktree is not a new machine. Carry relevant project setup-document references,
+known runtime/tool locations, working commands, and prior evidence into Known
+Context and dispatch context. Check applicability instead of requiring a fresh
+installation by default. Share compatible resources without granting new write
+permissions or treating old runtime results as proof of current code. Record
+new execution facts in existing evidence, not by rewriting an active Task.md.
+
 1. Run `aiwf status --prompt`.
 2. Read `.aiwf/mission.md`.
 3. Read the relevant Goal, Plan, Task, Milestone, and their matching JSON state.

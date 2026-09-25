@@ -97,8 +97,9 @@ class TestArchitectInvestigation(unittest.TestCase):
                 input=json.dumps(event), text=True, capture_output=True)
             self.assertEqual(result.returncode, 0, result.stderr)
             return json.loads(result.stdout) if result.stdout.strip() else {}
+        environment_context = "Existing runtime: /opt/project-runtime; setup: docs/development.md"
         event = {"session_id": "parent", "cwd": str(self.root), "tool_name": "Agent",
-                 "hook_event_name": "PreToolUse", "tool_input": {"subagent_type": "aiwf-experimenter", "prompt": "EXP-ARCH"}}
+                 "hook_event_name": "PreToolUse", "tool_input": {"subagent_type": "aiwf-experimenter", "prompt": "EXP-ARCH\n" + environment_context}}
         event["tool_input"]["subagent_type"] = "aiwf-architect"
         self.assertEqual(run("aiwf_agent_gate.py", event)["hookSpecificOutput"]["permissionDecision"], "deny")
         worktree = Path(start_experiment(str(self.root), "EXP-ARCH")["worktree_path"])
@@ -111,6 +112,11 @@ class TestArchitectInvestigation(unittest.TestCase):
             event["tool_input"].pop("subagent_type")
         allowed = run("aiwf_agent_gate.py", event)
         self.assertIn(str(worktree), allowed["hookSpecificOutput"]["updatedInput"]["prompt"])
+        prompt = allowed["hookSpecificOutput"]["updatedInput"]["prompt"]
+        self.assertIn(environment_context, prompt)
+        self.assertIn(str(self.root / ".aiwf/plans/PLAN-001.md"), prompt)
+        self.assertIn("aiwf experiment show EXP-ARCH", prompt)
+        self.assertNotIn("aiwf task proof PLAN-001", prompt)
         bind_dispatch_agent(self.root, "aiwf-architect", "child", task_id="PLAN-001", session_id="parent")
         stop = {"hook_event_name": "SubagentStop", "session_id": "parent", "cwd": str(worktree),
                 "agent_type": "default" if engine == "codex" else "aiwf-architect",

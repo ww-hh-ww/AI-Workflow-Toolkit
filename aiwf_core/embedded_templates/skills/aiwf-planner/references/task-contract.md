@@ -146,6 +146,13 @@ participating role reach its first consequential judgment:
 - invariants, owners, interfaces, main paths, and old-path expectations;
 - environment traps, likely false paths, and important unresolved facts.
 
+When environment continuity matters, reference the existing development docs
+and evidence: runtime/tool locations, working build/test entrypoints, reusable
+dependencies or services, and restrictions on shared outputs. Distinguish a
+known-working environment from verification of the current code. Do not require
+a separate environment checklist or copy credentials into the contract; keep
+machine-local details in appropriate local context and pass their references.
+
 Use concise source-backed bullets. Do not paste logs, inventories, whole-file
 summaries, exploration history, repeated Goal/Plan text, or implementation
 recipes. Guessed delivery responsibilities, consumers, invariants, or proof

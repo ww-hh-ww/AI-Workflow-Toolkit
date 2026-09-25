@@ -1,4 +1,5 @@
 import json
+import runpy
 import shutil
 import subprocess
 import tempfile
@@ -40,6 +41,27 @@ class TestRecordDispatchContract(unittest.TestCase):
         )
         self.assertEqual(ROLE_REQUIRED_SKILL["aiwf-experimenter"], "aiwf-experiment")
         self.assertNotIn("aiwf-tester", ROLE_REQUIRED_SKILL)
+
+    def test_dispatch_preserves_environment_sources_without_copying_setup(self):
+        gate = Path(__file__).resolve().parents[2] / "aiwf_core/embedded_templates/scripts/aiwf_agent_gate.py"
+        enrich = runpy.run_path(str(gate))["_enriched_prompt"]
+        runtime = self.root / "shared-runtime"
+        runtime.mkdir()
+        config = runtime / "settings.ini"
+        config.write_text("keep-local-configuration\n")
+        context = f"Runtime: {runtime}; setup guide: docs/development.md; prior evidence: EXP-BASE"
+        task = {**self.task, "doc_path": ".aiwf/tasks/custom-contract.md"}
+        before = sorted(str(p.relative_to(self.root)) for p in self.root.rglob("*"))
+        for role in ("aiwf-executor", "aiwf-reviewer"):
+            for fallback in (False, True):
+                with self.subTest(role=role, codex_fallback=fallback):
+                    prompt = enrich(self.root, task, role, context, codex_fallback=fallback)
+                    self.assertIn(context, prompt)
+                    self.assertIn(str(self.root / task["doc_path"]), prompt)
+                    self.assertIn(str(self.root / ".aiwf/plans/PLAN-001.md"), prompt)
+                    self.assertIn("aiwf task proof TASK-001", prompt)
+        self.assertEqual(config.read_text(), "keep-local-configuration\n")
+        self.assertEqual(sorted(str(p.relative_to(self.root)) for p in self.root.rglob("*")), before)
 
     def test_one_workflow_role_owns_a_scope_at_a_time(self):
         from aiwf_core.core.agent_runtime import running_dispatches, start_dispatch

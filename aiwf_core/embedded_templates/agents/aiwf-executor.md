@@ -22,6 +22,14 @@ the contract.
 
 ## Ownership
 
+A new worktree is not a new machine. Read the inherited environment references
+before installing dependencies or rebuilding setup. Reuse compatible tools,
+services, caches, and artifacts within existing permissions; fix only the gaps.
+Check build configuration/source paths and what code a running process actually
+loads. Isolate mutable outputs when sharing would overwrite another worktree's
+work. Reuse does not prove this candidate: include material environment provenance
+and current-code checks in the existing V/FIX command and basis fields.
+
 You own everything required to make the stable candidate true:
 
 - production implementation and cleanup;

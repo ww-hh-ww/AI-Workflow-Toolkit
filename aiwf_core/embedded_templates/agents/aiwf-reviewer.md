@@ -37,6 +37,12 @@ ref, unequal trees, or `changed` still requires return without Review.
 
 ## Judgment
 
+Use inherited environment references rather than requesting a clean setup merely
+because the candidate is in another worktree. Check that runtime observations
+concern this candidate, not an old binary, another checkout, or a shared service
+still loading old code. Environment reuse alone is neither a defect nor proof;
+assess relevant provenance in the existing construction and experiment evidence.
+
 Trace every Done When claim through implementation and actual consumers. Check
 that Executor's observation semantically proves each expected result, not just
 that a command exited successfully. Inspect relevant experimental apparatus and

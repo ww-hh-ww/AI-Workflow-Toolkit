@@ -144,6 +144,21 @@ class TestAgentWorktreeRouting(unittest.TestCase):
         )
         self.assertIn("pwd && pytest -q", routed.tool_input["command"])
 
+    def test_worktree_routing_keeps_explicit_shared_runtime_and_tool_config(self):
+        main = self._agent_transcript("a", "TASK-A")
+        runtime = self.root / ".venv/bin/python"
+        config = self.root / "tools/runtime.ini"
+        command = f"'{runtime}' -m pytest --config-file '{config}' tests/"
+        routed = route_agent_tool(
+            self._event("Bash", {"command": command}, transcript_path=main), self.root,
+        )
+        self.assertTrue(routed.tool_input["command"].startswith(self._bash_prefix(self.worktree_a)))
+        self.assertIn(command, routed.tool_input["command"])
+        read = route_agent_tool(
+            self._event("Read", {"file_path": str(config)}, transcript_path=main), self.root,
+        )
+        self.assertEqual(read.tool_input["file_path"], str(config))
+
     def test_codex_apply_patch_routes_every_file_to_assigned_worktree(self):
         event = NormalizedEvent(
             engine="codex",

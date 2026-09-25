@@ -31,6 +31,14 @@ sync them into the stable Task/Plan worktree. Never hand-edit `.aiwf/state/` or
 
 ## Method
 
+The disposable worktree isolates experimental code, not the whole development
+environment. Start from inherited runtime, tool, dependency, and setup references;
+check compatibility and adapt only what this experiment needs. Confirm the
+runtime loads the experimental code, not an old build or stable service. Reuse
+compatible resources within existing permissions without overwriting shared
+outputs or reconfiguring shared services. Record relevant provenance and these
+checks in EXP commands/observations; prior environment success is not new evidence.
+
 Choose the smallest experiment that can materially answer the question. Define
 what observation would support, falsify, or leave the hypothesis inconclusive.
 Prefer real entrypoints and environments when the question concerns actual
